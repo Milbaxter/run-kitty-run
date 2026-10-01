@@ -15,6 +15,7 @@ import { createAudio } from './audio.js';
 import { createUI } from './ui.js';
 import { createNet } from './net.js';
 import { createLobbyUI } from './lobby.js';
+import { createChat } from './chat.js';
 
 // Integration: renderer, input, camera, presentation of the pure sim.
 
@@ -111,6 +112,11 @@ const KEYMAP = [
 const SOLO_KEYMAP = { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'] };
 
 window.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && online.room && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input')) {
+    e.preventDefault();
+    chat.open();
+    return;
+  }
   audio.unlock();
   if (e.code !== 'KeyM') syncTrack(); // browsers only start media after a user gesture
   if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
@@ -620,7 +626,20 @@ const lobbyUI = createLobbyUI(document.getElementById('ui'), {
   onLeave: () => net.send({ t: 'leave' }),
   onStart: () => net.send({ t: 'start' }),
   onRefresh: () => net.send({ t: 'list' }),
-  onBack: () => { net.disconnect(); lobbyUI.hide(); setRoomInUrl(null); online.room = null; ui.showTitle(({ players }) => (players === 3 ? openOnline() : startGame(players))); },
+  onBack: () => { net.disconnect(); lobbyUI.hide(); setRoomInUrl(null); online.room = null; chat.setEnabled(false); ui.showTitle(({ players }) => (players === 3 ? openOnline() : startGame(players))); },
+});
+
+const chat = createChat(document.getElementById('ui'), {
+  onSend: (text) => net.send({ t: 'chat', text }),
+  onOpen: () => keys.clear(), // don't keep running while typing
+});
+net.on('chat', (m) => {
+  chat.add(m);
+  // speech bubble over the sender's kitty during a run
+  if (!m.sys && online.playing && mode === 'play') {
+    const p = sim.players.find((q) => q.id === m.id);
+    if (p && p.alive) effects.floatText(p.x, 2.2, p.z, m.text.length > 28 ? m.text.slice(0, 27) + '…' : m.text, hexCss(m.color));
+  }
 });
 
 const WOLF_HIST = 64;
@@ -655,14 +674,18 @@ net.on('error', (m) => {
   if (/code/.test(m.msg)) setRoomInUrl(null);
 });
 net.on('room', (m) => {
+  if (!online.room || online.room.code !== m.code) chat.clear();
   online.room = m;
   online.me = m.you;
+  chat.setEnabled(true);
   for (const mem of m.members) online.roster.set(mem.id, mem);
   setRoomInUrl(m.code);
   if (!online.playing || mode !== 'play') lobbyUI.showRoom(m);
 });
-net.on('left', () => { online.room = null; setRoomInUrl(null); if (online.playing) enterTitle(false); lobbyUI.showBrowser(); });
+net.on('left', () => { online.room = null; chat.setEnabled(false); setRoomInUrl(null); if (online.playing) enterTitle(false); lobbyUI.showBrowser(); });
 net.on('close', () => {
+  online.room = null;
+  chat.setEnabled(false);
   if (online.playing) enterTitle(false);
   ui.hideGameOver();
   ui.hidePause();

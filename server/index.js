@@ -111,6 +111,7 @@ function joinRoom(client, room, name) {
   room.members.push(client);
   if (!room.hostId) room.hostId = client.id;
   sendRoom(room);
+  broadcast(room, { t: 'chat', sys: true, text: `${client.name} joined` });
   if (room.phase === 'playing') {
     // Join mid-game: spawn now; send full state (including wolves) so the newcomer is in sync.
     addPlayer(room.sim, { id: client.id, name: client.name, color: client.color });
@@ -127,6 +128,7 @@ function leaveRoom(client) {
   if (room.members.length === 0) { rooms.delete(room.code); return; }
   if (room.hostId === client.id) room.hostId = room.members[0].id; // next in join order
   sendRoom(room);
+  broadcast(room, { t: 'chat', sys: true, text: `${client.name} left` });
 }
 
 function startMsg(room, withWolves) {
@@ -272,6 +274,19 @@ wss.on('connection', (ws) => {
         if (k <= room.tick) { client.lastInput = { x, z }; return; }    // late: best effort
         if (k > room.tick + 120) return;                               // nonsense / far future
         client.inputs.set(k, { x, z });
+        break;
+      }
+      case 'chat': {
+        if (!room) return;
+        // token bucket: bursts of 5, refills one message per second
+        const now = Date.now();
+        client.chatTokens = Math.min(5, (client.chatTokens ?? 5) + (now - (client.chatAt || now)) / 1000);
+        client.chatAt = now;
+        if (client.chatTokens < 1) return send(ws, { t: 'chat', sys: true, text: 'Slow down a little!' });
+        client.chatTokens -= 1;
+        const text = String(msg.text || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120);
+        if (!text) return;
+        broadcast(room, { t: 'chat', id: client.id, name: client.name, color: client.color, text });
         break;
       }
       case 'ping':

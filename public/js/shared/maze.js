@@ -169,7 +169,7 @@ function placeEnemies(rng, lvl, p) {
       const spec = {
         id, type, leg: li, frame,
         rIn: vIn, rOut: vOut, a0: lo, a1: hi,
-        speed: p.enemySpeed * (0.85 + 0.4 * dk) * rng.range(0.85, 1.15) * (type === 'orbiter' ? 0.8 : type === 'sweeper' ? 0.9 : 1),
+        speed: p.enemySpeed * (0.9 + 0.2 * dk) * rng.range(0.9, 1.1) * (type === 'orbiter' ? 0.8 : type === 'sweeper' ? 0.9 : 1),
         phase: rng.next(),
         pauseScale: p.enemyPauseScale * (1.15 - 0.45 * dk),
         seed: hashSeed(seed, level, 'wolf', id),

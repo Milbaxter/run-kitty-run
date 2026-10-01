@@ -29,5 +29,5 @@ const half = Math.floor(ld.legs.length / 2);
 const outer = ld.enemies.filter((e) => e.leg < half), inner = ld.enemies.filter((e) => e.leg >= half);
 const avg = (xs) => xs.reduce((s, x) => s + x, 0) / xs.length;
 const len = (from, to) => ld.legs.slice(from, to).reduce((s, l) => s + l.len, 0);
-ok(avg(inner.map((e) => e.speed)) > avg(outer.map((e) => e.speed)) * 1.15, `inner wolves faster (${avg(outer.map((e) => e.speed)).toFixed(2)} -> ${avg(inner.map((e) => e.speed)).toFixed(2)})`);
+ok(avg(inner.map((e) => e.speed)) > avg(outer.map((e) => e.speed)) * 1.05, `inner wolves faster (${avg(outer.map((e) => e.speed)).toFixed(2)} -> ${avg(inner.map((e) => e.speed)).toFixed(2)})`);
 ok(inner.length / len(half) > outer.length / len(0, half), `inner legs denser (${(outer.length / len(0, half)).toFixed(3)} -> ${(inner.length / len(half)).toFixed(3)} wolves/unit)`);

@@ -109,7 +109,7 @@ function pickWanderTarget(st) {
 
 // Per-leg speed variation, capped safely below kitty speed so every wolf stays outrunnable.
 function legSpeed(st, mult) {
-  return Math.min(st.speed * mult, CFG.KITTY_SPEED * 0.85);
+  return Math.min(st.speed * mult, CFG.KITTY_SPEED * 0.92);
 }
 
 // Plans the next move target (st.nr, st.nth), the pause before it (st.pauseDur) and the leg speed.

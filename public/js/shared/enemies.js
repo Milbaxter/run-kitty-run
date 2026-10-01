@@ -9,7 +9,8 @@ import { createRng, TAU } from './rng.js';
 //
 // Interpretation notes (contract ambiguities):
 // - EnemySpec has no start position; the start position is derived from spec.phase + spec.seed.
-// - Every enemy starts with a short phase-dependent pause (tell ramps up) so wolves crouch, then
+// - Every enemy starts with a short phase-dependent pause so wolves are out of sync. There is no
+//   "tell": wolves give no warning before they move (e.tell stays 0).
 //   go, and are out of sync with each other.
 // - Patroller sub-range: legs longer than ~6 units may use a random sub-range (>=55% of the arc),
 //   and the patrolled arc is capped at 24 units so a lap stays readable on huge rings.
@@ -21,7 +22,8 @@ import { createRng, TAU } from './rng.js';
 
 const EASE_T = 0.15;          // accel / decel time at move start / end (s)
 const TURN_RATE_MOVE = 40;    // heading smoothing while moving (≈ exact after ease-in)
-const TELL_WINDOW = 0.5;      // tell ramps over the last N seconds of a pause
+const LONG_REST_CHANCE = 0.15; // chance a wolf stands still for a while before its next move
+const LONG_REST_MIN = 1.8, LONG_REST_MAX = 4.5;   // seconds
 
 function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
 
@@ -112,14 +114,19 @@ function legSpeed(st, mult) {
 
 // Plans the next move target (st.nr, st.nth), the pause before it (st.pauseDur) and the leg speed.
 // Randomness: variable pauses, per-leg speed, occasional dashes, patrollers that stop short and
-// double back. The tell (crouch + glowing eyes during the pause) still telegraphs every move.
+// double back. Wanderers sometimes stand still for a few seconds (LONG_REST_*).
 function planNext(e, initial) {
   const st = e._st;
   const rng = st.rng;
   switch (e.type) {
     case 'wanderer':
       pickWanderTarget(st);
-      if (!initial) st.pauseDur = rng.chance(0.2) ? rng.range(0.12, 0.3) : rng.range(0.3, 1.1);
+      st.longRest = false;
+      if (!initial) {
+        const roll = rng.next();
+        if (roll < LONG_REST_CHANCE) { st.pauseDur = rng.range(LONG_REST_MIN, LONG_REST_MAX); st.longRest = true; }
+        else st.pauseDur = roll < LONG_REST_CHANCE + 0.2 ? rng.range(0.12, 0.3) : rng.range(0.3, 1.1);
+      }
       st.vLeg = legSpeed(st, rng.chance(0.18) ? 1.5 : rng.range(0.75, 1.25));
       break;
     case 'sweeper': {
@@ -156,8 +163,8 @@ function planNext(e, initial) {
       break;
     }
   }
-  // Higher levels: shorter rests (spec.pauseScale < 1), but always leave a brief readable tell.
-  if (!initial) st.pauseDur = Math.max(0.12, st.pauseDur * st.pauseScale);
+  // Higher levels / inner legs: shorter rests (spec.pauseScale < 1); long rests only shrink a little.
+  if (!initial) st.pauseDur = Math.max(0.12, st.pauseDur * (st.longRest ? 0.6 + 0.4 * Math.min(1, st.pauseScale) : st.pauseScale));
 }
 
 function startMove(e) {
@@ -296,9 +303,7 @@ function stepEnemy(e, dt) {
     r = st.r; th = st.th;
     e.moving = false;
     e.speedNow = 0;
-    const win = Math.min(st.pauseDur, TELL_WINDOW);
-    const x = win > 0 ? clamp((st.t - (st.pauseDur - win)) / win, 0, 1) : 1;
-    e.tell = x * x * (3 - 2 * x);
+    e.tell = 0; // no crouch / eye-glow warning before moving
     // keep facing the last direction while resting: wolves only turn as they set off
   }
   r = clamp(r, st.rIn, st.rOut);

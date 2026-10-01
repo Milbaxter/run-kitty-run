@@ -396,11 +396,11 @@ function handleEvents(events) {
         break;
       }
       case 'pickup': {
-        const colors = { boots: 0x5ff3ff, life: 0xff6fa8, shield: 0x7aa8ff, fish: 0xffd34d };
-        const labels = { boots: 'SPEED UP!', life: '+1 LIFE', shield: 'SHIELD!', fish: '+1' };
+        const colors = { boots: 0x5ff3ff, life: 0xff6fa8, shield: 0x7aa8ff };
+        const labels = { boots: 'SPEED UP!', life: '+1 LIFE', shield: 'SHIELD!' };
         effects.pickup(ev.x, ev.z, colors[ev.itemType] || 0xffffff);
         effects.floatText(ev.x, 1.4, ev.z, labels[ev.itemType] || '', hexCss(colors[ev.itemType] || 0xffffff));
-        audio.play(ev.itemType === 'fish' ? 'fish' : ev.itemType, { pan: panFor(ev.x), pitch: ev.itemType === 'fish' ? 0.95 + Math.random() * 0.15 : 1 });
+        audio.play(ev.itemType, { pan: panFor(ev.x) });
         const m = view && view.items.get(ev.itemId);
         if (m) { scene.remove(m.group); view.items.delete(ev.itemId); }
         break;
@@ -598,9 +598,8 @@ function updateHUD() {
     level: sim.level,
     players: sim.players.map((p) => ({
       name: p.name, color: p.color, alive: p.alive, lives: p.lives,
-      speedMult: p.speedMult, shield: p.shield, fish: p.fish,
+      speedMult: p.speedMult, shield: p.shield,
     })),
-    fish: sim.stats.fish,
     time: sim.time,
     rescues: sim.stats.rescues,
   });
@@ -855,20 +854,20 @@ function applySnapshot(m) {
   const seen = new Set();
   let rosterChanged = false;
   for (const a of m.p) {
-    const [id, x, z, vx, vz, heading, alive, inC, lives, speedMult, invuln, shield, fish, deaths, rescues, margin] = a;
+    const [id, x, z, vx, vz, heading, alive, inC, lives, speedMult, invuln, shield, deaths, rescues, margin] = a;
     seen.add(id);
     let p = sim.players.find((q) => q.id === id);
     const fresh = !p;
     if (!p) {
       const info = online.roster.get(id) || { name: 'Kitty', color: 0xffffff };
       p = { id, name: info.name, color: info.color, x, z, vx: 0, vz: 0, heading, moving: false, alive: true, lives: 0,
-        speedMult: 1, invuln: 0, shield: 0, inCenter: false, deaths: 0, rescues: 0, fish: 0 };
+        speedMult: 1, invuln: 0, shield: 0, inCenter: false, deaths: 0, rescues: 0 };
       sim.players.push(p);
       rosterChanged = true;
     }
     const wasAlive = p.alive;
     const oldX = p.x + (id === online.me ? online.errX : 0), oldZ = p.z + (id === online.me ? online.errZ : 0);
-    Object.assign(p, { vx, vz, heading, alive: !!alive, inCenter: !!inC, lives, speedMult, invuln, shield, fish, deaths, rescues });
+    Object.assign(p, { vx, vz, heading, alive: !!alive, inCenter: !!inC, lives, speedMult, invuln, shield, deaths, rescues });
     p.moving = Math.hypot(vx, vz) > 0.5;
     if (id === online.me) {
       p.x = x; p.z = z;
@@ -953,7 +952,7 @@ function tick(dt) {
       if (sim !== runSim) return; // a new run already started
       ui.showGameOver({
         level: sim.level, deaths: sim.stats.deaths, rescues: sim.stats.rescues,
-        fish: sim.stats.fish, time: sim.time,
+        time: sim.time,
       }, () => { ui.hideGameOver(); if (wasOnline) backToLobby(); else startGame(playerCount); }, wasOnline ? 'BACK TO LOBBY' : null);
     }, 1400);
   }

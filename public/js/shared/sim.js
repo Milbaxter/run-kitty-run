@@ -85,7 +85,6 @@ function makePlayer(def) {
     inCenter: false,
     deaths: 0,
     rescues: 0,
-    fish: 0,
   };
 }
 
@@ -104,7 +103,7 @@ function createSim({ seed, players = [], startLevel = 1 } = {}) {
     circles: [],
     state: 'playing',
     stateTimer: 0,
-    stats: { rescues: 0, deaths: 0, fish: 0, levelsCleared: 0, bestLevel: lvl },
+    stats: { rescues: 0, deaths: 0, levelsCleared: 0, bestLevel: lvl },
     started: false,
     enteredCenter: [],
   };
@@ -268,15 +267,13 @@ function stepSim(sim, inputs, dt) {
       if (dx * dx + dz * dz >= pickR2) continue;
       let take = true;
       if (it.type === 'boots') {
-        p.speedMult = Math.min(CFG.SPEED_MULT_MAX, p.speedMult + CFG.SPEED_BOOST);
+        if (p.speedMult >= CFG.SPEED_MULT_MAX) take = false; // already boosted: leave them for a friend
+        else p.speedMult = Math.min(CFG.SPEED_MULT_MAX, p.speedMult + CFG.SPEED_BOOST);
       } else if (it.type === 'life') {
         if (p.lives >= CFG.MAX_EXTRA_LIVES) take = false;
         else p.lives = Math.min(CFG.MAX_EXTRA_LIVES, p.lives + 1);
       } else if (it.type === 'shield') {
         p.shield = CFG.SHIELD_TIME;
-      } else if (it.type === 'fish') {
-        p.fish++;
-        sim.stats.fish++;
       }
       if (take) {
         it.taken = true;
@@ -320,7 +317,7 @@ function stepSim(sim, inputs, dt) {
       dead.vz = 0;
       dead.moving = false;
       dead.inCenter = false;
-      dead.invuln = CFG.SPAWN_INVULN;
+      dead.invuln = 0; // no grace period after a friend's revive
       rescuer.rescues++;
       sim.stats.rescues++;
       sim.circles.splice(c, 1);
@@ -422,7 +419,6 @@ function simSummary(sim) {
     level: sim.level,
     alive,
     total: sim.players.length,
-    fish: sim.stats.fish,
     rescues: sim.stats.rescues,
     deaths: sim.stats.deaths,
   };

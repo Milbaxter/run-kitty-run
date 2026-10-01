@@ -726,7 +726,7 @@ function createWolfModel(type) {
 // ---------------------------------------------------------------------------
 // Items
 // ---------------------------------------------------------------------------
-const ITEM_GLOW = { boots: 0x6fe0ff, life: 0xff5a8a, shield: 0x7ab8ff, fish: 0xffc040 };
+const ITEM_GLOW = { boots: 0x6fe0ff, life: 0xff5a8a, shield: 0x7ab8ff };
 
 function itemDisc(type) {
   const m = new THREE.Mesh(
@@ -817,30 +817,6 @@ function starGeo() {
   });
 }
 
-function fishGeos() {
-  return cgeo('fish', () => {
-    const gold = 0xffc23a, belly = 0xfff0b0, fin = 0xff9a1f;
-    const body = bake([
-      [P.ico1, mtx([0, 0, 0], null, [0.26, 0.15, 0.075]), (x, y, z, c) => { c.set(y < -0.03 ? belly : gold); }],
-      [P.cone4, mtx([0.0, 0.15, 0], [0, Math.PI / 4, 0.5], [0.09, 0.12, 0.02]), fin],
-      [P.cone4, mtx([0.02, -0.13, 0], [Math.PI, Math.PI / 4, 0.4], [0.06, 0.08, 0.015]), fin],
-      [P.ico1, mtx([0.15, 0.035, 0.05], null, [0.035, 0.035, 0.02]), 0xffffff],
-      [P.ico1, mtx([0.155, 0.035, -0.05], null, [0.035, 0.035, 0.02]), 0xffffff],
-      [P.ico0, mtx([0.163, 0.035, 0.064], null, [0.02, 0.022, 0.012]), 0x1b1420],
-      [P.ico0, mtx([0.168, 0.035, -0.064], null, [0.02, 0.022, 0.012]), 0x1b1420],
-      [P.box, mtx([-0.05, 0.0, 0], null, [0.015, 0.2, 0.155]), fin],
-    ]);
-    const tail = bake([
-      [P.cone4, mtx([-0.1, 0, 0], [0, Math.PI / 4, Math.PI / 2], [0.14, 0.2, 0.025]), fin],
-    ]);
-    return { body, tail };
-  });
-}
-
-function fishMaterial() {
-  return cmat('fishMat', () => new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, metalness: 0.45, roughness: 0.35, emissive: 0xff9a00, emissiveIntensity: 0.45 }));
-}
-
 function createItemModel(type) {
   const group = new THREE.Group();
   group.name = 'item:' + type;
@@ -849,7 +825,7 @@ function createItemModel(type) {
   const spin = new THREE.Group();
   float.add(spin);
   group.add(float);
-  if (!ITEM_GLOW[type]) type = 'fish';
+  if (!ITEM_GLOW[type]) type = 'boots';
   group.add(itemDisc(type));
   const off = Math.random() * TAU_;
   let baseY = 0.6;
@@ -896,18 +872,6 @@ function createItemModel(type) {
       orbMat.uniforms.uTime.value = t;
       star.rotation.y = t * 1.5;
       star.rotation.z = Math.sin(t * 2 + off) * 0.25;
-    };
-  } else {
-    baseY = 0.55;
-    const G = fishGeos();
-    const fm = fishMaterial();
-    const fish = new THREE.Group(); fish.rotation.z = 0.25; spin.add(fish);
-    const body = new THREE.Mesh(G.body, fm); body.castShadow = true; fish.add(body);
-    const tailP = new THREE.Group(); tailP.position.x = -0.22; fish.add(tailP);
-    tailP.add(new THREE.Mesh(G.tail, fm));
-    animate = (t) => {
-      tailP.rotation.y = Math.sin(t * 10 + off) * 0.5;
-      fish.rotation.y = Math.sin(t * 10 + off + 1) * 0.08;
     };
   }
 
@@ -1073,18 +1037,6 @@ function createPortalModel() {
   const halo2 = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.022, 6, 48), haloMat);
   crystalPivot.add(halo1, halo2);
 
-  // orbiting golden fish
-  const FG = fishGeos();
-  const fishes = [];
-  for (let i = 0; i < 3; i++) {
-    const p = new THREE.Group(); crystalPivot.add(p);
-    const f = new THREE.Group(); f.position.set(1.1, 0, 0); f.rotation.y = -Math.PI / 2; p.add(f);
-    f.add(new THREE.Mesh(FG.body, fishMaterial()));
-    const tp = new THREE.Group(); tp.position.x = -0.22; f.add(tp); tp.add(new THREE.Mesh(FG.tail, fishMaterial()));
-    f.scale.setScalar(0.9);
-    fishes.push({ p, tp, i });
-  }
-
   let act = 0, swirlT = 0, clock = 0;
   function update(dt, time, opts) {
     dt = Math.min(dt || 0, 0.1);
@@ -1117,11 +1069,6 @@ function createPortalModel() {
     glowSprite.scale.setScalar(1 + 0.15 * pulse + 0.6 * act);
     halo1.rotation.set(Math.PI / 2 + Math.sin(t * 0.8) * 0.35, swirlT * 0.5, 0);
     halo2.rotation.set(Math.PI / 2 + Math.cos(t * 0.6) * 0.45, -swirlT * 0.4, 0.3);
-    for (const f of fishes) {
-      f.p.rotation.y = swirlT * 0.9 + (f.i / 3) * TAU_;
-      f.p.position.y = Math.sin(t * 2 + f.i * 2) * 0.2;
-      f.tp.rotation.y = Math.sin(t * 12 + f.i) * 0.5;
-    }
   }
   update(0, 0, {});
   return { group, update };

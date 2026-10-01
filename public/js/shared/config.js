@@ -10,7 +10,7 @@ const CFG = {
   KITTY_ACCEL_TAU: 0.05,     // velocity smoothing time constant (s)
   KITTY_HIT_SCALE: 0.85,     // kitty hitbox = radius * this
   SPEED_BOOST: 0.06,         // +6% per boots
-  SPEED_MULT_MAX: 1.6,
+  SPEED_MULT_MAX: 1.06,      // one pair of boots max
   MAX_EXTRA_LIVES: 1,
   SPAWN_INVULN: 2.0,         // seconds after level start / revive
   SHIELD_TIME: 4.0,          // seconds from shield pickup
@@ -56,7 +56,6 @@ function levelParams(level) {
     enemyPauseScale: Math.max(0.4, 1 - 0.07 * (L - 1)),             // wolves rest less each level
     enemyTypes: types,
     itemCount: 8 + Math.floor(L / 2),
-    fishCount: 36 + L * 3,
   };
 }
 

@@ -32,7 +32,6 @@ function esc(s) {
 const INK = '#2b1840';
 const ICONS = {
   cat: `<svg viewBox="0 0 40 40" class="rkr-cat"><path d="M5 4 L15 12 Q20 10.5 25 12 L35 4 L33.5 20 Q34 34.5 20 35.5 Q6 34.5 6.5 20 Z" fill="currentColor" stroke="${INK}" stroke-width="2.6" stroke-linejoin="round"/><path d="M8.5 9 L13 12.6 L9.6 15.5 Z M31.5 9 L27 12.6 L30.4 15.5 Z" fill="#ff9ec4"/><g class="rkr-eyes"><ellipse cx="14.3" cy="21.5" rx="2.3" ry="3.1" fill="${INK}"/><ellipse cx="25.7" cy="21.5" rx="2.3" ry="3.1" fill="${INK}"/><circle cx="15" cy="20.4" r=".9" fill="#fff"/><circle cx="26.4" cy="20.4" r=".9" fill="#fff"/></g><g class="rkr-xeyes" stroke="${INK}" stroke-width="2" stroke-linecap="round"><path d="M12 19 L16.6 23.6 M16.6 19 L12 23.6 M23.4 19 L28 23.6 M28 19 L23.4 23.6"/></g><path d="M18.2 26.4 L21.8 26.4 L20 28.6 Z" fill="#ff6f9f" stroke="${INK}" stroke-width="1" stroke-linejoin="round"/><path d="M20 28.6 Q18.5 31 16.5 30 M20 28.6 Q21.5 31 23.5 30" fill="none" stroke="${INK}" stroke-width="1.3" stroke-linecap="round"/><path d="M3 25 L11 26 M3.5 29 L11 28 M37 25 L29 26 M36.5 29 L29 28" stroke="${INK}" stroke-width="1.1" stroke-linecap="round" opacity=".55"/></svg>`,
-  fish: `<svg viewBox="0 0 40 26"><path d="M3 13 Q13 0 26 7 L37 1 L33.5 13 L37 25 L26 19 Q13 26 3 13 Z" fill="#ffc93c" stroke="#8a5300" stroke-width="2" stroke-linejoin="round"/><path d="M15 6.5 Q18 13 15 19.5" fill="none" stroke="#e59a00" stroke-width="1.6"/><circle cx="9.5" cy="11" r="1.9" fill="#3a2400"/><circle cx="10" cy="10.4" r=".6" fill="#fff"/></svg>`,
   boots: `<svg viewBox="0 0 40 40"><path d="M3 15 Q9 9 15 14 Q10 13 8 17 Q12 15 15 18 Q10 18 9 21 Z" fill="#e8fbff" stroke="#2a8fb0" stroke-width="1.6" stroke-linejoin="round"/><path d="M15 6 L27 6 L27 22 Q36 23 37 30 L37 34 L13 34 L13 26 Q15 20 15 6 Z" fill="#33d6ff" stroke="#0b5d79" stroke-width="2.4" stroke-linejoin="round"/><path d="M13 30 L37 30" stroke="#0b5d79" stroke-width="2"/><path d="M15 10 L27 10" stroke="#fff" stroke-width="2" opacity=".7"/></svg>`,
   heart: `<svg viewBox="0 0 40 36"><path d="M20 33 C8 24 3 18 3 11.5 C3 6 7 3 11.5 3 C15 3 18 5 20 8.5 C22 5 25 3 28.5 3 C33 3 37 6 37 11.5 C37 18 32 24 20 33 Z" fill="#ff5c93" stroke="#8c1640" stroke-width="2.6" stroke-linejoin="round"/><path d="M9 10 Q10 7 13 6.5" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" opacity=".8"/></svg>`,
   heartEmpty: `<svg viewBox="0 0 40 36"><path d="M20 33 C8 24 3 18 3 11.5 C3 6 7 3 11.5 3 C15 3 18 5 20 8.5 C22 5 25 3 28.5 3 C33 3 37 6 37 11.5 C37 18 32 24 20 33 Z" fill="rgba(255,255,255,.08)" stroke="rgba(255,255,255,.45)" stroke-width="2.6" stroke-dasharray="4 3" stroke-linejoin="round"/></svg>`,
@@ -94,11 +93,8 @@ const CSS = `
 .rkr-sfill{height:100%;width:100%;border-radius:9px;background:linear-gradient(90deg,#5aaaff,#bfe6ff);transform-origin:left center;box-shadow:0 0 8px #5aaaff;}
 
 .rkr-tc{position:absolute;left:50%;top:12px;transform:translateX(-50%);display:flex;gap:10px;align-items:center;}
-.rkr-fish{display:flex;align-items:center;gap:8px;padding:5px 18px 7px 12px;border-radius:999px;font-weight:900;font-size:26px;
   background:linear-gradient(180deg,rgba(40,20,70,.8),rgba(40,20,70,.55));border:3px solid #ffc93c;color:#ffe08a;
   box-shadow:0 0 0 3px rgba(0,0,0,.25),0 6px 20px rgba(255,190,40,.25);text-shadow:0 2px 0 #6b3d00;font-variant-numeric:tabular-nums;}
-.rkr-fish svg{width:38px;height:25px;}
-.rkr-fish.rkr-pop{animation:rkr-pop .4s cubic-bezier(.2,1.6,.4,1);}
 .rkr-resc{display:flex;align-items:center;gap:5px;padding:4px 12px;border-radius:999px;font-weight:800;font-size:16px;
   background:rgba(40,20,70,.6);border:2px solid rgba(185,164,255,.6);color:#ddd2ff;font-variant-numeric:tabular-nums;}
 .rkr-resc svg{width:22px;height:22px;}
@@ -239,8 +235,6 @@ const CSS = `
   .rkr-card{min-width:170px;padding:6px 10px 6px 6px;}
   .rkr-card .rkr-head{width:34px;height:34px;}
   .rkr-name{font-size:15px;}
-  .rkr-fish{font-size:20px;padding:3px 12px 5px 9px;}
-  .rkr-fish svg{width:30px;height:20px;}
   .rkr-resc{display:none;}
   .rkr-hint{display:none;}
   .rkr-items{grid-template-columns:1fr;}
@@ -294,12 +288,10 @@ function createUI(root) {
   tl.append(lvlRow, cardsEl);
 
   const tc = el('div', 'rkr-tc');
-  const fishEl = el('div', 'rkr-fish', ICONS.fish + '<span>0</span>');
-  const fishTxt = fishEl.querySelector('span');
   const rescEl = el('div', 'rkr-resc', ICONS.revive + '<span>0</span>');
   const rescTxt = rescEl.querySelector('span');
   rescEl.title = 'Rescues';
-  tc.append(fishEl, rescEl);
+  tc.append(rescEl);
 
   const tr = el('div', 'rkr-tr');
   const hintEl = el('div', 'rkr-hint', '<span class="rkr-k">P</span>pause <span class="rkr-k">M</span><span class="rkr-snd">mute</span>');
@@ -321,7 +313,7 @@ function createUI(root) {
 
   // ---- HUD state cache ----
   const H = {
-    level: null, timeSec: null, fishTarget: 0, fishShown: 0, fishShownInt: null, rescues: null,
+    level: null, timeSec: null, rescues: null,
     cards: [], lastNow: 0, visible: false,
   };
 
@@ -404,23 +396,6 @@ function createUI(root) {
     const ts = Math.floor(d.time || 0);
     if (ts !== H.timeSec) { H.timeSec = ts; timerTxt.textContent = fmtTime(ts); }
 
-    const ft = d.fish | 0;
-    if (ft !== H.fishTarget) {
-      if (ft < H.fishTarget) H.fishShown = ft; // reset (new game) snaps
-      H.fishTarget = ft;
-    }
-    if (H.fishShown !== H.fishTarget) {
-      const diff = H.fishTarget - H.fishShown;
-      const step = Math.max(Math.abs(diff) * Math.min(1, dt * 9), dt * 12);
-      H.fishShown = Math.abs(diff) <= step ? H.fishTarget : H.fishShown + Math.sign(diff) * step;
-    }
-    const fi = diffRound(H.fishShown, H.fishTarget);
-    if (fi !== H.fishShownInt) {
-      const up = H.fishShownInt != null && fi > H.fishShownInt;
-      H.fishShownInt = fi;
-      fishTxt.textContent = fi;
-      if (up) restartAnim(fishEl, 'rkr-pop');
-    }
     const rs = d.rescues | 0;
     if (rs !== H.rescues) {
       const up = H.rescues != null && rs > H.rescues;
@@ -527,7 +502,7 @@ function createUI(root) {
   }
 
   const ENEMY_COL = { patroller: '#ff4b4b', wanderer: '#ff7a33', orbiter: '#ff3d9a', sweeper: '#d81e1e' };
-  const ITEM_COL = { fish: '#ffc93c', boots: '#33e0ff', life: '#ff6fa8', shield: '#5aaaff' };
+  const ITEM_COL = { boots: '#33e0ff', life: '#ff6fa8', shield: '#5aaaff' };
 
   function updateMinimap(ld, sim) {
     if (!ld) return;
@@ -555,9 +530,7 @@ function createUI(root) {
       if (it.taken) continue;
       const x = cx + it.x * sc, y = cy + it.z * sc;
       g.fillStyle = ITEM_COL[it.type] || '#fff';
-      if (it.type === 'fish') {
-        g.beginPath(); g.arc(x, y, 1.7, 0, Math.PI * 2); g.fill();
-      } else {
+      {
         const r = 3 + 0.6 * Math.sin(t * 5 + i);
         g.beginPath();
         if (it.type === 'boots') { g.rect(x - r * .75, y - r * .75, r * 1.5, r * 1.5); }
@@ -674,10 +647,9 @@ function createUI(root) {
             <div class="rkr-items">
               ${item(ICONS.wolf, 'Wolves', 'one touch and you\'re down')}
               ${item(ICONS.revive, 'Revive circle', 'run over a friend\'s circle')}
-              ${item(ICONS.boots, 'Speed boots', 'permanent +6% speed')}
+              ${item(ICONS.boots, 'Speed boots', '+6% speed (one pair max)')}
               ${item(ICONS.heart, 'Extra life', 'one automatic revive')}
               ${item(ICONS.shield, 'Shield', '4 seconds of safety')}
-              ${item(ICONS.fish, 'Golden fish', 'tasty points')}
             </div>
           </div>
           <div class="rkr-panel rkr-ctl"><h3>Controls</h3>
@@ -776,11 +748,10 @@ function createUI(root) {
     const rows = [
       { icon: ICONS.cat, label: 'Level reached', v: stats.level | 0, fmt: String, color: '#ffb347' },
       { icon: ICONS.clock, label: 'Time survived', v: Math.floor(stats.time || 0), fmt: fmtTime, color: '#cdbfff' },
-      { icon: ICONS.fish, label: 'Fish collected', v: stats.fish | 0, fmt: String },
       { icon: ICONS.revive, label: 'Kitties rescued', v: stats.rescues | 0, fmt: String },
       { icon: ICONS.wolf, label: 'Times caught', v: stats.deaths | 0, fmt: String },
     ];
-    const line = GO_LINES[((stats.level | 0) + (stats.fish | 0)) % GO_LINES.length];
+    const line = GO_LINES[((stats.level | 0) + (stats.deaths | 0)) % GO_LINES.length];
     goEl.innerHTML = `<div class="rkr-glass rkr-gameover">
         <div class="rkr-gcat">${ICONS.cat}</div>
         <h2>GAME OVER</h2>

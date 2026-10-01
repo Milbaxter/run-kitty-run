@@ -256,14 +256,6 @@ function createAudio() {
       noise(g, o, { t, d: 0.03, peak: 0.07, ft: 'lowpass', f: 1500 });
     },
 
-    fish(g, o, t, p) {
-      const r = p * rnd(0.96, 1.04);
-      const lp = filt(g, o, 'lowpass', 6000);
-      tone(g, lp, { type: 'square', f: 1319 * r, t, a: 0.002, d: 0.05, peak: 0.05 });
-      tone(g, o, { type: 'sine', f: 1319 * r, t, a: 0.002, d: 0.05, peak: 0.08 });
-      tone(g, lp, { type: 'square', f: 1976 * r, t: t + 0.05, a: 0.002, d: 0.2, peak: 0.05 });
-      tone(g, o, { type: 'sine', f: 1976 * r, t: t + 0.05, a: 0.002, d: 0.2, peak: 0.08 });
-    },
 
     levelClear(g, o, t, p) {
       const lp = filt(g, o, 'lowpass', 3500);

@@ -395,46 +395,6 @@ function placeItems(rng, lvl, p, route) {
     }
   }
 
-  // fish breadcrumb trails (groups of up to 3 along the corridor arc)
-  let fishLeft = p.fishCount;
-  for (let g = 0; g < p.fishCount * 3 && fishLeft > 0; g++) {
-    let ax, az;
-    const roll = rng.next();
-    if (roll < 0.55 && path.length > 4) {
-      const q = path[rng.int(2, path.length - 2)];
-      ax = q.x; az = q.z;
-    } else if (roll < 0.75 && enemies.length) {
-      // lure towards a wolf territory (risky!)
-      const e = rng.pick(enemies);
-      const a = e.type === 'sweeper' ? e.angle : rng.range(e.a0, e.a1);
-      const r = rng.range(e.rIn, e.rOut);
-      ax = r * Math.cos(a); az = r * Math.sin(a);
-    } else {
-      const c = randomPointIn(pickWeighted(rng, segments, segWeight));
-      ax = c.x; az = c.z;
-    }
-    const loc = locate(lvl, ax, az);
-    if (loc.corridor < 0 || loc.corridor >= rings) continue;
-    const i = loc.corridor;
-    const r = Math.min(Math.max(loc.r + rng.range(-0.8, 0.8), R[i] + 1.0), R[i + 1] - 1.0);
-    const dir = rng.chance(0.5) ? 1 : -1;
-    const step = 1.6 / r;
-    const groupN = Math.min(3, fishLeft);
-    const group = [];
-    for (let k = 0; k < groupN; k++) {
-      const a = loc.angle + dir * step * k;
-      const x = r * Math.cos(a), z = r * Math.sin(a);
-      if (locate(lvl, x, z).segment !== loc.segment) break;
-      if (!okSpot(x, z, 1.3)) break;
-      group.push({ x, z });
-    }
-    if (group.length < groupN) continue;
-    for (const f of group) {
-      const it = { id: items.length, type: 'fish', x: f.x, z: f.z };
-      items.push(it); taken.push(it);
-    }
-    fishLeft -= groupN;
-  }
   return items;
 }
 
@@ -596,7 +556,7 @@ function mazeSelfTest(levels = 12) {
   const problems = [];
   const seeds = [1, 42, 1337, 9001, 'kitty', 777777];
   const P = (s, l, msg) => { if (problems.length < 200) problems.push(`seed ${s} L${l}: ${msg}`); };
-  const stats = { levels: 0, avgPathLen: 0, radialWalls: 0, enemies: 0, items: 0, fish: 0 };
+  const stats = { levels: 0, avgPathLen: 0, radialWalls: 0, enemies: 0, items: 0 };
   for (const s of seeds) {
     for (let l = 1; l <= levels; l++) {
       const ld = generateLevel(l, s);
@@ -659,9 +619,7 @@ function mazeSelfTest(levels = 12) {
         if (unsafe) P(s, l, `enemy ${e.id} covers start safe arc`);
       }
       // items
-      const fish = ld.items.filter(i => i.type === 'fish').length;
-      if (fish < p.fishCount * 0.8) P(s, l, `few fish ${fish}/${p.fishCount}`);
-      if (ld.items.length - fish < p.itemCount) P(s, l, `few items ${ld.items.length - fish}/${p.itemCount}`);
+      if (ld.items.length < p.itemCount) P(s, l, `few items ${ld.items.length}/${p.itemCount}`);
       for (const it of ld.items) {
         if (collideCircle(ld, it.x, it.z, CFG.ITEM_RADIUS).hit) P(s, l, 'item in wall ' + it.id);
         for (const sp of ld.spawnPoints) if (Math.hypot(sp.x - it.x, sp.z - it.z) < 2) P(s, l, 'item near spawn');
@@ -672,8 +630,7 @@ function mazeSelfTest(levels = 12) {
       ld.enemies.forEach((e, k) => { if (e.id !== k) P(s, l, 'enemy ids not sequential'); });
       stats.radialWalls += ld.radialWalls.length;
       stats.enemies += ld.enemies.length;
-      stats.items += ld.items.length - fish;
-      stats.fish += fish;
+      stats.items += ld.items.length;
     }
   }
   stats.avgPathLen /= Math.max(1, stats.levels);

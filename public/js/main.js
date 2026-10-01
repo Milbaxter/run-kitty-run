@@ -635,11 +635,12 @@ function syncVisuals(dt, alpha) {
     d = Math.atan2(Math.sin(d), Math.cos(d));
     k.model.group.rotation.y = -(cur + d * (1 - Math.exp(-dt * 18)));
     const speed = Math.hypot(p.vx, p.vz);
+    const gliding = onIce(sim.levelData, p.x, p.z); // skating: hold still, no steps or dust
     k.model.update(dt, {
-      speed01: Math.min(1, speed / (CFG.KITTY_SPEED * 1.2)),
-      moving: p.moving, invuln: p.invuln, shield: p.shield, time: t,
+      speed01: gliding ? 0 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2)),
+      moving: p.moving && !gliding, invuln: p.invuln, shield: p.shield, time: t,
     });
-    if (p.moving && sim.state !== 'gameover') {
+    if (p.moving && !gliding && sim.state !== 'gameover') {
       k.dustT -= dt;
       if (k.dustT <= 0) {
         k.dustT = 0.13;

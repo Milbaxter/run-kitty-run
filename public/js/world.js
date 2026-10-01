@@ -688,11 +688,13 @@ function buildIce(levelData, T) {
   const W = levelData.corridorWidth, h = W / 2 - CFG.WALL_THICKNESS / 2, UVS = 1 / 9;
   const pos = [], uv = [], idx = [];
   levelData.legs.forEach((l, i) => {
-    const s0 = i === levelData.legs.length - 1 ? -h : -W / 2, s1 = l.len + h;
+    // butt up against the safe tiles instead of running under them (no flicker); an unsafe end corner is iced by this leg
+    const endSafe = i + 1 < levelData.safeCorners.length;
+    const s0 = h, s1 = endSafe ? l.len - h : l.len + h;
     const b = pos.length / 3;
     for (const [sv, v] of [[s0, -h], [s0, h], [s1, -h], [s1, h]]) {
       const x = l.ox + l.ux * sv + l.nx * v, z = l.oz + l.uz * sv + l.nz * v;
-      pos.push(x, 0.007, z); uv.push(x * UVS, z * UVS);
+      pos.push(x, 0.004, z); uv.push(x * UVS, z * UVS);
     }
     if (l.ux * l.nz - l.uz * l.nx > 0) idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2); else idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);
   });
@@ -702,8 +704,8 @@ function buildIce(levelData, T) {
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx);
   const mat = new THREE.MeshStandardMaterial({
-    map, color: 0xd6efff, transparent: true, opacity: 0.82, roughness: 0.12, metalness: 0.25,
-    emissive: 0x5aa8f0, emissiveIntensity: 0.12, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1,
+    map, color: 0xd6efff, transparent: true, opacity: 0.82, roughness: 1, metalness: 0, // matte: no sun glare
+    emissive: 0x5aa8f0, emissiveIntensity: 0.12, depthWrite: false,
   });
   const ice = new THREE.Mesh(T.g(g), T.m(mat));
   ice.receiveShadow = true;

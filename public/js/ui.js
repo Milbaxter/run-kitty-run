@@ -457,6 +457,9 @@ function createUI(root) {
       g.fillStyle = l.loop % 2 ? 'rgba(140,110,220,.16)' : 'rgba(110,200,170,.13)';
       g.fill();
     }
+    // safe corners
+    g.fillStyle = 'rgba(255,240,200,.38)';
+    for (const c of ld.corners || []) g.fillRect(cx + (c.x - h) * sc, cy + (c.z - h) * sc, W * sc, W * sc);
     // center goal glow
     const r0 = (ld.centerRadius || CFG.CENTER_RADIUS) * sc;
     const grd = g.createRadialGradient(cx, cy, 0, cx, cy, r0 * 1.1);

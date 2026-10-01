@@ -44,9 +44,8 @@ const MAP_RINGS = 6;
 function levelParams(level) {
   const L = Math.max(1, level | 0);
   // The map is the same every level (fixed spiral, see maze.js); only the wolves scale.
-  const types = ['patroller', 'wanderer'];
-  if (L >= 2) types.push('orbiter');
-  if (L >= 3) types.push('sweeper');
+  // Every wolf is a wanderer (roams to random spots in its territory); levels scale speed/pauses/territory.
+  const types = ['wanderer'];
   return {
     rings: MAP_RINGS,                                               // fixed: same map every level
     // Fixed wolf count on every level (~1 wolf per 4 units of the ~840-unit square spiral);

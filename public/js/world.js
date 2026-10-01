@@ -216,6 +216,29 @@ function makeFloorTextures(style, T) {
   return { map, emissiveMap };
 }
 
+// Square stone tile with a bright border and a paw print: marks the wolf-free corner squares.
+function makeSafeTileTexture(T) {
+  const rng = createRng(4242);
+  const S = 256;
+  return T.t(canvasTex(S, (g) => {
+    g.fillStyle = '#8a8a8a'; g.fillRect(0, 0, S, S);
+    const n = 6, cell = S / n;
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+      const v = rng.int(200, 245);
+      g.fillStyle = `rgb(${v},${v},${(v * 0.98) | 0})`;
+      g.fillRect(i * cell + 2.5, j * cell + 2.5, cell - 5, cell - 5);
+    }
+    g.strokeStyle = '#ffffff'; g.lineWidth = 10; g.strokeRect(9, 9, S - 18, S - 18);
+    // paw print
+    g.fillStyle = 'rgba(120,120,120,.75)';
+    const C = S / 2;
+    g.beginPath(); g.ellipse(C, C + 14, 30, 25, 0, 0, TAU); g.fill();
+    for (const [dx, dy, r] of [[-36, -14, 11], [-14, -36, 12], [14, -36, 12], [36, -14, 11]]) {
+      g.beginPath(); g.ellipse(C + dx, C + dy, r, r * 1.25, 0, 0, TAU); g.fill();
+    }
+  }, { repeat: false }));
+}
+
 function makePlazaTexture(T) {
   const rng = createRng(777);
   const S = 512, C = S / 2;
@@ -612,7 +635,25 @@ function buildFloors(levelData, theme, T) {
   const plaza = new THREE.Mesh(pg, T.m(new THREE.MeshStandardMaterial(pmOpts)));
   plaza.position.y = 0.005;
   plaza.receiveShadow = true;
-  return [floor, plaza];
+
+  // safe corners: wolves never enter these squares
+  const size = levelData.corridorWidth - CFG.WALL_THICKNESS;
+  const tp = [], tn = [], tuv = [], ti = [];
+  for (const c of levelData.corners) {
+    const b = tp.length / 3, h = size / 2;
+    tp.push(c.x - h, 0.012, c.z - h, c.x + h, 0.012, c.z - h, c.x - h, 0.012, c.z + h, c.x + h, 0.012, c.z + h);
+    tn.push(0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0);
+    tuv.push(0, 1, 1, 1, 0, 0, 1, 0);
+    ti.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);
+  }
+  const tg = new THREE.BufferGeometry();
+  tg.setAttribute('position', new THREE.Float32BufferAttribute(tp, 3));
+  tg.setAttribute('normal', new THREE.Float32BufferAttribute(tn, 3));
+  tg.setAttribute('uv', new THREE.Float32BufferAttribute(tuv, 2));
+  tg.setIndex(ti);
+  const tiles = new THREE.Mesh(T.g(tg), T.m(new THREE.MeshStandardMaterial({ map: makeSafeTileTexture(T), color: theme.plaza, roughness: 0.85 })));
+  tiles.receiveShadow = true;
+  return [floor, plaza, tiles];
 }
 
 // ---------------------------------------------------------------- lanterns + chevrons

@@ -16,6 +16,7 @@ import { createUI } from './ui.js';
 import { createNet } from './net.js';
 import { createLobbyUI } from './lobby.js';
 import { createChat } from './chat.js';
+import { TOUCH, QUALITY, goFullscreenLandscape } from './device.js';
 
 // Integration: renderer, input, camera, presentation of the pure sim.
 
@@ -25,8 +26,8 @@ const DEBUG_GOD = params.has('god');
 
 // ---------- renderer / scene ----------
 const canvas = document.getElementById('game');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: QUALITY.antialias, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatio));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -41,7 +42,7 @@ camera.position.set(0, 40, 30);
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.55, 0.45, 0.88);
-composer.addPass(bloom);
+if (QUALITY.bloom) composer.addPass(bloom); // bloom is the most expensive pass: skipped on phones
 composer.addPass(new OutputPass());
 
 window.addEventListener('resize', () => {
@@ -117,6 +118,10 @@ function toggleSound() {
   syncTrack();
 }
 ui.onMuteClick(toggleSound);
+ui.onMenuClick(() => {
+  if (mode !== 'play' || sim.state === 'gameover') return;
+  if (online.playing) toggleOnlineMenu(); else togglePause();
+});
 
 // ---------- input ----------
 const keys = new Set();
@@ -182,24 +187,47 @@ const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const mouseHit = new THREE.Vector3();
 
+// Touch: the kitty heads for a point a little above the thumb so the finger doesn't cover it.
+const TOUCH_LEAD_PX = 55;
+let touchId = null, touchDownAt = 0;
 function setMouseNdc(e) {
-  mouse.ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+  const y = e.pointerType === 'touch' ? e.clientY - TOUCH_LEAD_PX : e.clientY;
+  mouse.ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
   mouse.has = true;
 }
 function mouseGround() {
   raycaster.setFromCamera(mouse.ndc, camera);
   return raycaster.ray.intersectPlane(groundPlane, mouseHit) ? { x: mouseHit.x, z: mouseHit.z } : null;
 }
-canvas.addEventListener('pointermove', setMouseNdc);
+canvas.addEventListener('pointermove', (e) => {
+  if (e.pointerType === 'touch' && e.pointerId !== touchId) return; // only the first finger steers
+  setMouseNdc(e);
+});
 canvas.addEventListener('pointerdown', (e) => {
   audio.unlock();
   if (mode !== 'play' || paused || (e.button !== 0 && e.button !== 2)) return;
+  if (e.pointerType === 'touch') {
+    if (touchId !== null) return;
+    touchId = e.pointerId;
+    touchDownAt = performance.now();
+    try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  }
   setMouseNdc(e);
   mouse.held = true;
   mouse.target = mouseGround();
   if (mouse.target) targetPulse = 1;
 });
-window.addEventListener('pointerup', () => { mouse.held = false; });
+function pointerEnd(e) {
+  if (e.pointerType === 'touch') {
+    if (e.pointerId !== touchId) return;
+    touchId = null;
+    // hold = follow the thumb, so letting go stops; a quick tap = run to that spot
+    if (performance.now() - touchDownAt > 250) mouse.target = null;
+  }
+  mouse.held = false;
+}
+window.addEventListener('pointerup', pointerEnd);
+window.addEventListener('pointercancel', pointerEnd);
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 function mousePlayerIndex() {
@@ -346,6 +374,7 @@ function enterTitle(showTitleScreen = true) {
 }
 
 function startGame(n) {
+  goFullscreenLandscape();
   audio.unlock();
   audio.play('click');
   playerCount = n;
@@ -648,6 +677,7 @@ const lobbyUI = createLobbyUI(document.getElementById('ui'), {
 });
 
 const chat = createChat(document.getElementById('ui'), {
+  touch: TOUCH,
   onSend: (text) => net.send({ t: 'chat', text }),
   onOpen: () => keys.clear(), // don't keep running while typing
 });
@@ -675,6 +705,7 @@ function setRoomInUrl(code) {
 }
 
 function openOnline() {
+  goFullscreenLandscape();
   net.connect();
   const code = new URLSearchParams(location.search).get('room');
   lobbyUI.showBrowser();

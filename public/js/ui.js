@@ -1,4 +1,5 @@
 import { CFG } from './shared/config.js';
+import { TOUCH } from './device.js';
 
 // Run Kitty Run — UI layer (DOM + injected CSS + 2D canvas minimap).
 // Contract notes / interpretations:
@@ -40,6 +41,8 @@ const ICONS = {
   revive: `<svg viewBox="0 0 40 40"><ellipse cx="20" cy="31" rx="16" ry="6" fill="rgba(255,179,71,.25)" stroke="#ffb347" stroke-width="2.2" stroke-dasharray="4 3"/><path d="M13 30 L13 15 Q13 7 20 7 Q27 7 27 15 L27 30 L24.5 27.5 L22 30 L20 27.5 L18 30 L15.5 27.5 Z" fill="rgba(255,255,255,.85)" stroke="#b9a4ff" stroke-width="1.6" stroke-linejoin="round"/><circle cx="17.3" cy="15.5" r="1.6" fill="${INK}"/><circle cx="22.7" cy="15.5" r="1.6" fill="${INK}"/></svg>`,
   paw: `<svg viewBox="0 0 40 40"><ellipse cx="20" cy="27" rx="9" ry="7.5"/><ellipse cx="8.5" cy="17" rx="3.6" ry="4.6" transform="rotate(-20 8.5 17)"/><ellipse cx="15.5" cy="10" rx="3.6" ry="4.8" transform="rotate(-6 15.5 10)"/><ellipse cx="24.5" cy="10" rx="3.6" ry="4.8" transform="rotate(6 24.5 10)"/><ellipse cx="31.5" cy="17" rx="3.6" ry="4.6" transform="rotate(20 31.5 17)"/></svg>`,
   clock: `<svg viewBox="0 0 40 40"><circle cx="20" cy="21" r="14" fill="rgba(255,255,255,.12)" stroke="currentColor" stroke-width="3"/><path d="M20 12 L20 21 L26 25" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M16 4 L24 4" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`,
+  eye: `<svg viewBox="0 0 40 40"><path d="M3 20 Q20 4 37 20 Q20 36 3 20 Z" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"/><circle cx="20" cy="20" r="6" fill="currentColor"/><path class="rkr-eslash" d="M7 33 L33 7" stroke="#ff5c7a" stroke-width="3.6" stroke-linecap="round"/></svg>`,
+  menu: `<svg viewBox="0 0 40 40"><path d="M9 12 H31 M9 20 H31 M9 28 H31" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/></svg>`,
   speaker: `<svg viewBox="0 0 40 40"><path d="M6 15 L13 15 L22 7 L22 33 L13 25 L6 25 Z" fill="currentColor" stroke-linejoin="round"/><g class="rkr-waves" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M27 14 Q31 20 27 26"/><path d="M31 10 Q38 20 31 30"/></g><g class="rkr-slash" stroke="#ff5c7a" stroke-width="3.4" stroke-linecap="round"><path d="M27 14 L37 26 M37 14 L27 26"/></g></svg>`,
 };
 
@@ -65,6 +68,19 @@ const CSS = `
 .rkr-timer svg{width:18px;height:18px;color:#cdbfff;}
 .rkr-cards{display:flex;flex-direction:column;gap:8px;}
 .rkr-cards.rkr-many{gap:4px;}
+/* HUD toggle (hides everything but the corner buttons) + touch-only menu button */
+.rkr-hudbtn,.rkr-menubtn{width:42px;height:42px;padding:8px;border-radius:14px;background:rgba(20,10,40,.55);border:2px solid rgba(255,255,255,.18);
+  color:#fff;cursor:pointer;pointer-events:auto;}
+.rkr-hudbtn .rkr-eslash{display:none;}
+.rkr-hud.rkr-min .rkr-hudbtn .rkr-eslash{display:inline;}
+.rkr-hud.rkr-min .rkr-tl,.rkr-hud.rkr-min .rkr-tc,.rkr-hud.rkr-min .rkr-map,.rkr-hud.rkr-min .rkr-scores,.rkr-hud.rkr-min .rkr-hint{display:none;}
+.rkr-menubtn{display:none;}
+html.rkr-touch .rkr-menubtn{display:block;}
+html.rkr-touch .rkr-hint,html.rkr-touch .rkr-desk,html.rkr-touch .rkr-keyhint{display:none !important;}
+.rkr-touchonly{display:none;}
+html.rkr-touch .rkr-touchonly{display:block;}
+.rkr-touchhint{font-weight:800;font-size:15px;color:#efe7ff;text-align:center;opacity:.9;}
+.rkr-overlay{touch-action:pan-y;}
 .rkr-scores{position:absolute;right:16px;top:58px;min-width:150px;max-width:220px;padding:6px 10px;border-radius:12px;
   background:rgba(10,4,30,.32);font-size:13px;font-weight:800;opacity:.85;pointer-events:none;}
 .rkr-scores .rkr-sh{font-size:10px;letter-spacing:.14em;color:#ffcf5a;opacity:.9;margin-bottom:2px;}
@@ -248,6 +264,29 @@ const CSS = `
 }
 @media (max-height:640px){ .rkr-tcol{gap:10px;} .rkr-how,.rkr-ctl{padding:10px 14px;} }
 @media (prefers-reduced-motion:reduce){ .rkr-l,.rkr-logocat,.rkr-paws span{animation:none !important;} }
+/* phones in landscape: compact everything */
+@media (max-height:500px){
+  .rkr-map{width:110px;height:110px;}
+  .rkr-tl{top:8px;gap:6px;}
+  .rkr-tr{top:8px;}
+  .rkr-scores{top:52px;}
+  .rkr-cards .rkr-card{zoom:.75;}
+  .rkr-tcol{gap:8px;}
+  .rkr-logo{zoom:.6;}
+  .rkr-sub{font-size:13px !important;}
+  .rkr-info{display:none !important;}
+  .rkr-btn{font-size:17px;}
+  .rkr-glass{padding:14px 18px 14px;}
+  .rkr-glass h2{font-size:34px !important;}
+  .rkr-glass .rkr-gcat{width:44px;height:44px;}
+  .rkr-stats{gap:2px;}
+}
+/* notches / rounded corners (after the base rules so these win) */
+.rkr-tl{left:max(16px,env(safe-area-inset-left));}
+.rkr-tr{right:max(16px,env(safe-area-inset-right));}
+.rkr-scores{right:max(16px,env(safe-area-inset-right));}
+.rkr-map{right:max(16px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));}
+@media (max-width:760px){ .rkr-map{right:max(10px,env(safe-area-inset-right));bottom:max(10px,env(safe-area-inset-bottom));} }
 `;
 
 function injectStyle() {
@@ -301,9 +340,13 @@ function createUI(root) {
   tc.append(rescEl);
 
   const tr = el('div', 'rkr-tr');
-  const hintEl = el('div', 'rkr-hint', '<span class="rkr-k">P</span>pause <span class="rkr-k">M</span><span class="rkr-snd">mute</span>');
+  const hintEl = el('div', 'rkr-hint', '<span class="rkr-k">P</span>pause <span class="rkr-k">H</span>hud <span class="rkr-k">M</span><span class="rkr-snd">mute</span>');
   const muteEl = el('div', 'rkr-mute', ICONS.speaker);
-  tr.append(hintEl, muteEl);
+  const hudBtn = el('div', 'rkr-hudbtn', ICONS.eye);
+  hudBtn.title = 'Show / hide the HUD (H)';
+  const menuBtn = el('div', 'rkr-menubtn', ICONS.menu);
+  menuBtn.title = 'Menu';
+  tr.append(hintEl, hudBtn, muteEl, menuBtn);
 
   const mapEl = el('div', 'rkr-map');
   const mapCanvas = document.createElement('canvas');
@@ -311,6 +354,18 @@ function createUI(root) {
 
   const scoresEl = el('div', 'rkr-scores');
   hud.append(tl, tc, tr, mapEl, scoresEl);
+  // HUD on/off (remembered); phones start with it off
+  let hudMin = TOUCH;
+  try { const v = localStorage.getItem('rkr-hud'); if (v) hudMin = v === 'min'; } catch { /* ignore */ }
+  function setHudMin(v) {
+    hudMin = v;
+    hud.classList.toggle('rkr-min', v);
+    try { localStorage.setItem('rkr-hud', v ? 'min' : 'full'); } catch { /* ignore */ }
+  }
+  hud.classList.toggle('rkr-min', hudMin);
+  hudBtn.addEventListener('click', () => setHudMin(!hudMin));
+  let menuHandler = null;
+  menuBtn.addEventListener('click', () => { if (menuHandler) menuHandler(); });
 
   const bannerEl = el('div', 'rkr-banner', '<div class="rkr-bt"></div><div class="rkr-bs"></div>');
   const bannerT = bannerEl.querySelector('.rkr-bt');
@@ -467,7 +522,7 @@ function createUI(root) {
     }
     // safe corners
     g.fillStyle = 'rgba(255,240,200,.38)';
-    for (const c of ld.corners || []) g.fillRect(cx + (c.x - h) * sc, cy + (c.z - h) * sc, W * sc, W * sc);
+    for (const c of ld.safeCorners || []) g.fillRect(cx + (c.x - h) * sc, cy + (c.z - h) * sc, W * sc, W * sc);
     // center goal glow
     const r0 = (ld.centerRadius || CFG.CENTER_RADIUS) * sc;
     const grd = g.createRadialGradient(cx, cy, 0, cx, cy, r0 * 1.1);
@@ -634,10 +689,11 @@ function createUI(root) {
         <div class="rkr-sub">Reach the <b>heart of the labyrinth</b>. Don't touch the wolves. <b>Never leave a kitty behind.</b></div>
         <div class="rkr-btns">
           <button class="rkr-btn" data-p="1"><span><span class="rkr-kk">1</span>1 PLAYER</span><small>solo run</small></button>
-          <button class="rkr-btn rkr-alt" data-p="2"><span><span class="rkr-kk">2</span>2 PLAYERS</span><small>local co-op</small></button>
+          <button class="rkr-btn rkr-alt rkr-desk" data-p="2"><span><span class="rkr-kk">2</span>2 PLAYERS</span><small>local co-op</small></button>
           <button class="rkr-btn" data-p="3"><span><span class="rkr-kk">3</span>ONLINE</span><small>up to 8 kitties</small></button>
         </div>
-        <div class="rkr-info">
+        <div class="rkr-touchonly rkr-touchhint">Hold your thumb on the screen: your kitty follows it. Tap to run to a spot.</div>
+        <div class="rkr-info rkr-desk">
           <div class="rkr-panel rkr-how"><h3>How to play</h3>
             <div class="rkr-items">
               ${item(ICONS.wolf, 'Wolves', 'one touch and you\'re down')}
@@ -656,10 +712,11 @@ function createUI(root) {
               <div class="rkr-krow"><span class="rkr-k">M</span></div><div class="rkr-lab">sound on / off</div>
               <div class="rkr-krow"><span class="rkr-k">P</span><span class="rkr-k rkr-wide">Esc</span></div><div class="rkr-lab">pause</div>
               <div class="rkr-krow"><span class="rkr-k rkr-wide">Enter</span></div><div class="rkr-lab">chat (online)</div>
+              <div class="rkr-krow"><span class="rkr-k">H</span></div><div class="rkr-lab">show / hide the HUD</div>
             </div>
           </div>
         </div>
-        <div class="rkr-foot">Press <span class="rkr-k">1</span>, <span class="rkr-k">2</span> or <span class="rkr-k">3</span> &middot; <span class="rkr-k rkr-wide">Enter</span> to start</div>
+        <div class="rkr-foot rkr-desk">Press <span class="rkr-k">1</span>, <span class="rkr-k">2</span> or <span class="rkr-k">3</span> &middot; <span class="rkr-k rkr-wide">Enter</span> to start</div>
       </div>`;
     o.prepend(paws);
     titleBtns = [...o.querySelectorAll('.rkr-btn')];
@@ -833,11 +890,13 @@ function createUI(root) {
   let muteHandler = null;
   muteEl.addEventListener('click', () => { if (muteHandler) muteHandler(); });
   function onMuteClick(fn) { muteHandler = fn; }
+  function onMenuClick(fn) { menuHandler = fn; }
   function isOverlayOpen() { return state.title || state.pause || state.gameOver; }
 
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     const k = e.key;
+    if ((k === 'h' || k === 'H') && !state.title && !e.target.closest?.('input')) { setHudMin(!hudMin); return; }
     if (state.gameOver) {
       if ((k === 'Enter' || k === ' ') && performance.now() >= gameOverArmedAt) { e.preventDefault(); restart(); }
       return;
@@ -860,7 +919,7 @@ function createUI(root) {
 
   return {
     showTitle, hideTitle, setHUD, updateMinimap, banner, toast, setScores,
-    showPause, hidePause, showGameOver, hideGameOver, setMutedIcon, isOverlayOpen, onMuteClick,
+    showPause, hidePause, showGameOver, hideGameOver, setMutedIcon, isOverlayOpen, onMuteClick, onMenuClick,
   };
 }
 

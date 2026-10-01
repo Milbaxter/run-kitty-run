@@ -1,0 +1,9 @@
+{
+  "name": "Run Kitty Run",
+  "short_name": "Kitty Run",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0d1020",
+  "theme_color": "#0d1020"
+}

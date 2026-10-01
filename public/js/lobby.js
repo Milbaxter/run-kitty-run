@@ -36,6 +36,15 @@ const CSS = `
 .rkl-you{font-size:11px;opacity:.7;margin-left:4px;}
 .rkl-bigcode{font-size:44px;font-weight:900;letter-spacing:.25em;color:#fff6d8;line-height:1;margin-right:-.25em;}
 .rkl-wait{font-weight:800;opacity:.85;}
+@media (max-height:500px){
+  .rkl-box h2{font-size:28px !important;}
+  .rkl-slots{grid-template-columns:repeat(4,1fr);gap:5px;}
+  .rkl-slot{min-height:36px;padding:3px 6px;font-size:13px;}
+  .rkl-slot .rkl-cat{width:22px;height:22px;}
+  .rkl-bigcode{font-size:30px;}
+  .rkl-list{max-height:28vh;}
+  .rkl-label{margin-top:0;}
+}
 .rkl-link{font-size:13px;font-weight:700;opacity:.75;word-break:break-all;user-select:text;-webkit-user-select:text;}
 `;
 

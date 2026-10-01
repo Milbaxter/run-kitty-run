@@ -16,6 +16,11 @@ const CSS = `
 .rkc.rkc-open .rkc-in{display:block;}
 .rkc-hint{opacity:.55;font-size:12px;font-weight:700;padding-left:4px;}
 .rkc.rkc-open .rkc-hint{display:none;}
+.rkc-btn{pointer-events:auto;align-self:flex-start;width:42px;height:42px;border-radius:14px;background:rgba(20,10,40,.55);
+  border:2px solid rgba(255,255,255,.18);font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.rkc.rkc-open .rkc-btn{display:none;}
+.rkc{left:max(16px,env(safe-area-inset-left));bottom:max(16px,env(safe-area-inset-bottom));}
+@media (max-height:500px){ .rkc{width:min(300px,calc(100vw - 160px));font-size:13px;} .rkc-log{max-height:30vh;} }
 `;
 
 const SHOW_MS = 10000;
@@ -23,7 +28,7 @@ const MAX_LINES = 40;
 
 function hex(c) { return '#' + ((c >>> 0) & 0xffffff).toString(16).padStart(6, '0'); }
 
-function createChat(root, { onSend, onOpen }) {
+function createChat(root, { onSend, onOpen, touch = false }) {
   const st = document.createElement('style');
   st.textContent = CSS;
   document.head.appendChild(st);
@@ -39,8 +44,17 @@ function createChat(root, { onSend, onOpen }) {
   input.placeholder = 'Say something… (Enter to send, Esc to close)';
   const hint = document.createElement('div');
   hint.className = 'rkc-hint';
-  hint.textContent = 'Press Enter to chat';
+  hint.textContent = touch ? '' : 'Press Enter to chat';
   box.append(log, input, hint);
+  if (touch) {
+    const btn = document.createElement('div');
+    btn.className = 'rkc-btn';
+    btn.textContent = '💬';
+    btn.title = 'Chat';
+    // pointerdown + preventDefault keeps focus handling simple on mobile keyboards
+    btn.addEventListener('pointerdown', (e) => { e.preventDefault(); open(); });
+    box.appendChild(btn);
+  }
   root.appendChild(box);
 
   let enabled = false;

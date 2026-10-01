@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CFG } from './shared/config.js';
 import { createRng, hashSeed, TAU } from './shared/rng.js';
 import { locate, collideCircle } from './shared/maze.js';
+import { QUALITY } from './device.js';
 
 // world.js — maze scenery, decor, ambient particles and lighting. (owner: world agent)
 //
@@ -639,7 +640,7 @@ function buildFloors(levelData, theme, T) {
   // safe corners: wolves never enter these squares
   const size = levelData.corridorWidth - CFG.WALL_THICKNESS;
   const tp = [], tn = [], tuv = [], ti = [];
-  for (const c of levelData.corners) {
+  for (const c of levelData.safeCorners) {
     const b = tp.length / 3, h = size / 2;
     tp.push(c.x - h, 0.012, c.z - h, c.x + h, 0.012, c.z - h, c.x - h, 0.012, c.z + h, c.x + h, 0.012, c.z + h);
     tn.push(0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0);
@@ -982,7 +983,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
 function buildParticles(theme, rng, radius, T) {
   const kind = theme.particles;
   const area = Math.PI * radius * radius;
-  const count = Math.round(clamp(area * 0.1, 300, 1300));
+  const count = Math.round(clamp(area * 0.1, 300, 1300) * QUALITY.particles);
   const pos = new Float32Array(count * 3), col = new Float32Array(count * 3);
   const base = new Float32Array(count * 5); // bx, bz, by, phase, speed
   const c = new THREE.Color();
@@ -1077,7 +1078,7 @@ function setupLighting(scene) {
   scene.add(hemi);
 
   const sun = new THREE.DirectionalLight(0xffffff, 2);
-  const EXT = 30, MAP = 2048, DIST = 60;
+  const EXT = 30, MAP = QUALITY.shadowMap, DIST = 60;
   sun.castShadow = true;
   sun.shadow.mapSize.set(MAP, MAP);
   const sc = sun.shadow.camera;

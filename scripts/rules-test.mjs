@@ -31,3 +31,7 @@ const avg = (xs) => xs.reduce((s, x) => s + x, 0) / xs.length;
 const len = (from, to) => ld.legs.slice(from, to).reduce((s, l) => s + l.len, 0);
 ok(avg(inner.map((e) => e.speed)) > avg(outer.map((e) => e.speed)) * 1.05, `inner wolves faster (${avg(outer.map((e) => e.speed)).toFixed(2)} -> ${avg(inner.map((e) => e.speed)).toFixed(2)})`);
 ok(inner.length / len(half) > outer.length / len(0, half), `inner legs denser (${(outer.length / len(0, half)).toFixed(3)} -> ${(inner.length / len(half)).toFixed(3)} wolves/unit)`);
+const n = ld.legs.length;
+const fin = ld.enemies.filter((e) => e.leg === n - 1);
+ok(fin.length >= 8, `final stretch is crowded (${fin.length} wolves)`);
+ok(ld.safeCorners.length === ld.corners.length - 1 && fin.some((e) => e.a0 < CFG.RING_WIDTH / 2), 'the goal-door corner is not a safe square');

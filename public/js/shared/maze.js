@@ -131,15 +131,18 @@ function placeEnemies(rng, lvl, p) {
   const count = p.enemyCount;
   const vIn = -W / 2 + WOLF_MARGIN, vOut = W / 2 - WOLF_MARGIN;
   // usable s-range per leg: skip both corner squares (+ a little rest), and the start pocket
+  const last = legs.length - 1;
   const ranges = legs.map((leg, li) => {
-    const lo = W / 2 + CORNER_REST + CFG.WOLF_RADIUS;
+    let lo = W / 2 + CORNER_REST + CFG.WOLF_RADIUS;
     let hi = leg.len - W / 2 - CORNER_REST - CFG.WOLF_RADIUS;
+    // final stretch: the corner at the goal room's door is NOT safe, and no extra rest by its first corner
+    if (li === last) { lo = -W / 2 + WOLF_MARGIN; hi = leg.len - W / 2 - CFG.WOLF_RADIUS - 0.1; }
     if (li === 0) hi = leg.len - W / 2 - CFG.START_SAFE_ARC - CFG.WOLF_RADIUS; // start leg: c_M is the start
     return { lo, hi: Math.max(lo, hi) };
   });
   // 0 at the start leg -> 1 at the innermost leg: wolves get denser, faster and restless toward the middle
   const depth = (li) => li / Math.max(1, legs.length - 1);
-  const lens = ranges.map((r, li) => Math.max(0, r.hi - r.lo) * (0.55 + 1.1 * depth(li)));
+  const lens = ranges.map((r, li) => Math.max(0, r.hi - r.lo) * (0.55 + 1.1 * depth(li)) * (li === last ? 1.3 : 1));
   const total = lens.reduce((a, b) => a + b, 0);
   const quota = lens.map((L) => Math.floor(L / total * count));
   const fracs = lens.map((L, i) => ({ i, f: L / total * count - quota[i] })).sort((a, b) => b.f - a.f);
@@ -239,6 +242,7 @@ function generateLevel(level, seed) {
     wallCorners,
     legs,
     corners,
+    safeCorners: corners.slice(0, -1),          // wolf-free squares (the one at the goal room's door is not)
     startAngle: heading,
     spawnPoints,
     enemies: [],

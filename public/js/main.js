@@ -11,6 +11,7 @@ import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
 import { createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel } from './models.js';
 import { buildWorld, setupLighting } from './world.js';
 import { createEffects } from './effects.js';
+import { createIceTrail } from './trail.js';
 import { createAudio } from './audio.js';
 import { createUI } from './ui.js';
 import { createNet } from './net.js';
@@ -361,16 +362,16 @@ function ensureKitties() {
       pip.position.y = 0.03;
       model.group.add(ring, pip);
       scene.add(model.group);
-      kitties.set(p.id, { model, dustT: 0, stepN: 0 });
+      kitties.set(p.id, { model, dustT: 0, stepN: 0, trail: createIceTrail(scene) });
     }
   }
   for (const [id, k] of kitties) {
-    if (!sim.players.find((p) => p.id === id)) { scene.remove(k.model.group); kitties.delete(id); }
+    if (!sim.players.find((p) => p.id === id)) { scene.remove(k.model.group); k.trail.dispose(); kitties.delete(id); }
   }
 }
 
 function removeKitties() {
-  for (const k of kitties.values()) scene.remove(k.model.group);
+  for (const k of kitties.values()) { scene.remove(k.model.group); k.trail.dispose(); }
   kitties.clear();
 }
 
@@ -625,7 +626,7 @@ function syncVisuals(dt, alpha) {
     const k = kitties.get(p.id);
     if (!k) continue;
     k.model.group.visible = p.alive;
-    if (!p.alive) continue;
+    if (!p.alive) { k.trail.update(dt, p.x, p.z, p.heading, false); continue; }
     let [x, z] = lerpPos('p' + p.id, p.x, p.z, alpha);
     if (online.playing && p.id === online.me) { x += online.errX; z += online.errZ; }
     k.model.group.position.set(x, 0, z);
@@ -638,8 +639,9 @@ function syncVisuals(dt, alpha) {
     const gliding = onIce(sim.levelData, p.x, p.z); // skating: hold still, no steps or dust
     k.model.update(dt, {
       speed01: gliding ? 0 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2)),
-      moving: p.moving && !gliding, invuln: p.invuln, shield: p.shield, time: t,
+      moving: p.moving && !gliding, skates: !!sim.levelData.ice, invuln: p.invuln, shield: p.shield, time: t,
     });
+    k.trail.update(dt, x, z, -k.model.group.rotation.y, gliding && speed > 0.5);
     if (p.moving && !gliding && sim.state !== 'gameover') {
       k.dustT -= dt;
       if (k.dustT <= 0) {

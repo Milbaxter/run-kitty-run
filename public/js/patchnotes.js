@@ -8,6 +8,7 @@ const PATCH_NOTES = [
       'On ice your kitty keeps sliding the way it faces until you click a new direction',
       'Turning around carves a small curve instead of flipping on the spot',
       'Safe stone squares and the goal room are not ice: walk normally there (and stop)',
+      'Kitties wear ice skates on the rink and leave skate marks behind them',
     ],
   },
   {

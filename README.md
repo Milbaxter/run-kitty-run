@@ -2,7 +2,7 @@
 
 3D spiral-maze kitty runner (three.js) with solo, local co-op and **online lobbies (up to 8 players)**.
 
-Live: https://80-47-225-25.sslip.io
+Live: https://80-47-225-25.nip.io (mirror: https://80-47-225-25.sslip.io)
 
 ## Run locally
 

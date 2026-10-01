@@ -1,5 +1,6 @@
 // Feedback: a small button (shown while your kitty is down, and on the game-over screen) that opens
 // a box to type ideas / bugs. Sent to the server (POST /api/feedback), which appends them to a file.
+import { apiUrl, PLATFORM, APP_VERSION } from './platform.js';
 
 const CSS = `
 .rkf-btn{position:absolute;left:50%;bottom:max(84px,calc(env(safe-area-inset-bottom) + 70px));transform:translateX(-50%);
@@ -78,9 +79,9 @@ function createFeedback(root, { getContext }) {
       send.disabled = true;
       msg.className = 'rkf-msg'; msg.textContent = 'Sending…';
       try {
-        const r = await fetch('api/feedback', {
+        const r = await fetch(apiUrl('/api/feedback'), {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, ...(getContext ? getContext() : {}) }),
+          body: JSON.stringify({ text, ...(getContext ? getContext() : {}), app: PLATFORM, ver: APP_VERSION }),
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok || !j.ok) throw new Error(j.msg || 'Could not send right now.');

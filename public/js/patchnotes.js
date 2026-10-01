@@ -9,6 +9,7 @@ const PATCH_NOTES = [
       'Turning around carves a small curve instead of flipping on the spot',
       'Safe stone squares and the goal room are not ice: walk normally there (and stop)',
       'Kitties wear ice skates on the rink and leave skate marks behind them',
+      'Online: whoever creates a lobby picks the mode: Run + Skate, Run only, or Skate only',
     ],
   },
   {

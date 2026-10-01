@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { CFG, NET, PLAYER_COLORS, PLAYER_NAMES } from '../public/js/shared/config.js';
 import { hashSeed } from '../public/js/shared/rng.js';
-import { createSim, stepSim, addPlayer, removePlayer } from '../public/js/shared/sim.js';
+import { GAME_MODES, createSim, stepSim, addPlayer, removePlayer } from '../public/js/shared/sim.js';
 import { serializeEnemies } from '../public/js/shared/enemies.js';
 
 const PORT = +process.env.PORT || 8080;
@@ -128,7 +128,7 @@ function broadcast(room, msg) {
 
 function roomInfo(room) {
   return {
-    t: 'room', code: room.code, host: room.hostId, phase: room.phase,
+    t: 'room', code: room.code, host: room.hostId, phase: room.phase, mode: room.mode,
     members: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
   };
 }
@@ -145,7 +145,7 @@ function lobbyList() {
     list.push({
       code: r.code, players: r.members.length, max: NET.MAX_PLAYERS, phase: r.phase,
       host: (r.members.find((m) => m.id === r.hostId) || r.members[0]).name,
-      level: r.sim ? r.sim.level : 0,
+      level: r.sim ? r.sim.level : 0, mode: r.mode,
     });
   }
   return list.sort((a, b) => (a.phase === 'lobby' ? 0 : 1) - (b.phase === 'lobby' ? 0 : 1) || b.players - a.players).slice(0, 30);
@@ -193,7 +193,7 @@ function leaveRoom(client) {
 function startMsg(room, withWolves) {
   const sim = room.sim;
   return {
-    t: 'start', seed: sim.seed, level: sim.level, tick: room.tick, lt: sim.enemyTicks,
+    t: 'start', seed: sim.seed, mode: sim.mode, level: sim.level, tick: room.tick, lt: sim.enemyTicks,
     players: sim.players.map((p) => ({ id: p.id, name: p.name, color: p.color })),
     wolves: withWolves ? serializeEnemies(sim.enemies) : null,
   };
@@ -206,7 +206,7 @@ function startGame(room) {
   room.overAt = 0;
   const seed = hashSeed(Date.now(), Math.random(), room.code) >>> 0;
   room.sim = createSim({
-    seed, startLevel: 1,
+    seed, startLevel: 1, mode: room.mode,
     players: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
   });
   for (const m of room.members) { m.inputs.clear(); m.lastInput = { x: 0, z: 0 }; }
@@ -305,7 +305,8 @@ wss.on('connection', (ws) => {
         break;
       case 'create': {
         if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', msg: 'Server is full, try again later.' });
-        const r = { code: makeCode(), members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0 };
+        const mode = GAME_MODES.includes(msg.mode) ? msg.mode : 'mixed';
+        const r = { code: makeCode(), mode, members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0 };
         rooms.set(r.code, r);
         joinRoom(client, r, msg.name);
         break;

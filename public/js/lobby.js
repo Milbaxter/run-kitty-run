@@ -4,6 +4,13 @@
 const CAT = `<svg viewBox="0 0 40 40"><path d="M5 4 L15 12 Q20 10.5 25 12 L35 4 L33.5 20 Q34 34.5 20 35.5 Q6 34.5 6.5 20 Z" fill="currentColor" stroke="#2b1840" stroke-width="2.6" stroke-linejoin="round"/><path d="M8.5 9 L13 12.6 L9.6 15.5 Z M31.5 9 L27 12.6 L30.4 15.5 Z" fill="#ff9ec4"/><ellipse cx="14.3" cy="21.5" rx="2.3" ry="3.1" fill="#2b1840"/><ellipse cx="25.7" cy="21.5" rx="2.3" ry="3.1" fill="#2b1840"/></svg>`;
 const CROWN = `<svg viewBox="0 0 40 30"><path d="M3 26 L6 7 L14 16 L20 3 L26 16 L34 7 L37 26 Z" fill="#ffcf5a" stroke="#7a4b00" stroke-width="2.4" stroke-linejoin="round"/></svg>`;
 
+const MODES = [
+  { id: 'mixed', label: 'Run + Skate', tip: 'Level 2 is an ice rink' },
+  { id: 'run', label: 'Run only', tip: 'No ice' },
+  { id: 'ice', label: 'Skate only', tip: 'Every level is ice' },
+];
+const modeLabel = (id) => (MODES.find((m) => m.id === id) || MODES[0]).label;
+
 const CSS = `
 .rkl-box{max-width:560px;text-align:center;}
 .rkl-box h2{font-size:clamp(34px,5vw,50px)!important;}
@@ -45,6 +52,14 @@ const CSS = `
   .rkl-list{max-height:28vh;}
   .rkl-label{margin-top:0;}
 }
+.rkl-modes{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;}
+.rkl-mode{font:inherit;font-weight:900;font-size:14px;padding:7px 12px;border-radius:12px;cursor:pointer;color:#fff;
+  background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.18);}
+.rkl-mode:hover{background:rgba(255,255,255,.16);}
+.rkl-mode.rkl-on{background:rgba(255,207,90,.22);border-color:#ffcf5a;color:#fff6d8;}
+.rkl-modetip{font-size:12px;font-weight:700;opacity:.7;min-height:15px;}
+.rkl-tag{font-size:11px;font-weight:900;letter-spacing:.06em;padding:2px 7px;border-radius:8px;background:rgba(143,220,255,.18);color:#bfe8ff;white-space:nowrap;}
+.rkl-roommode{font-weight:900;color:#bfe8ff;}
 .rkl-link{font-size:13px;font-weight:700;opacity:.75;word-break:break-all;user-select:text;-webkit-user-select:text;}
 `;
 
@@ -72,6 +87,12 @@ function createLobbyUI(root, cb) {
 
   function savedName() {
     try { return localStorage.getItem('rkr-name') || ''; } catch { return ''; }
+  }
+  function savedMode() {
+    try { const m = localStorage.getItem('rkr-mode'); return MODES.some((x) => x.id === m) ? m : 'mixed'; } catch { return 'mixed'; }
+  }
+  function saveMode(m) {
+    try { localStorage.setItem('rkr-mode', m); } catch { /* ignore */ }
   }
   function saveName(n) {
     try { localStorage.setItem('rkr-name', n); } catch { /* ignore */ }
@@ -102,8 +123,26 @@ function createLobbyUI(root, cb) {
     name.value = savedName();
     const getName = () => { const n = name.value.trim(); saveName(n); return n; };
 
+    // game mode for a new lobby (remembered)
+    let mode = savedMode();
+    const modeLab = el('div', 'rkl-label', 'Mode for a new lobby');
+    const modes = el('div', 'rkl-modes');
+    const tip = el('div', 'rkl-modetip');
+    const paint = () => {
+      for (const b of modes.children) b.classList.toggle('rkl-on', b.dataset.mode === mode);
+      tip.textContent = MODES.find((m) => m.id === mode).tip;
+    };
+    for (const m of MODES) {
+      const b = el('button', 'rkl-mode');
+      b.textContent = m.label;
+      b.dataset.mode = m.id;
+      b.addEventListener('click', () => { mode = m.id; saveMode(mode); paint(); });
+      modes.appendChild(b);
+    }
+    paint();
+
     const create = el('button', 'rkr-btn', '<span>CREATE LOBBY</span>');
-    create.addEventListener('click', () => cb.onCreate(getName()));
+    create.addEventListener('click', () => cb.onCreate(getName(), mode));
 
     const code = el('input', 'rkl-in rkl-code');
     code.maxLength = 4;
@@ -123,7 +162,7 @@ function createLobbyUI(root, cb) {
     row1.append(create);
     const row2 = el('div', 'rkl-row');
     row2.append(code, join);
-    mount([h, sub, nameLab, name, row1, row2, listLab, listEl, errEl, back]);
+    mount([h, sub, nameLab, name, modeLab, modes, tip, row1, row2, listLab, listEl, errEl, back]);
     listEl._getName = getName;
     cb.onRefresh();
     clearInterval(refreshT);
@@ -142,8 +181,9 @@ function createLobbyUI(root, cb) {
       const row = el('div', 'rkl-lob' + (l.phase !== 'lobby' || full ? ' rkl-busy' : ''));
       const c = el('span', 'rkl-c'); c.textContent = l.code;
       const h = el('span', 'rkl-h'); h.textContent = l.host + (l.phase === 'lobby' ? '' : ` · playing L${l.level}`);
+      const tg = el('span', 'rkl-tag'); tg.textContent = modeLabel(l.mode);
       const n = el('span', 'rkl-n'); n.textContent = `${l.players}/${l.max}`;
-      row.append(c, h, n);
+      row.append(c, h, tg, n);
       if (!full) row.addEventListener('click', () => cb.onJoin(l.code, listEl._getName()));
       listEl.appendChild(row);
     }
@@ -155,6 +195,7 @@ function createLobbyUI(root, cb) {
       listEl = null;
       const h = el('h2', null, 'LOBBY');
       const code = el('div', 'rkl-bigcode');
+      const roomMode = el('div', 'rkl-roommode');
       const link = el('div', 'rkl-link');
       const copy = el('button', 'rkr-btn rkr-alt rkl-small', 'COPY INVITE LINK');
       copy.addEventListener('click', () => {
@@ -172,11 +213,12 @@ function createLobbyUI(root, cb) {
       row.append(copy);
       const row2 = el('div', 'rkl-row');
       row2.append(start, leave);
-      mount([h, code, link, row, slots, wait, row2, errEl]);
-      roomRefs = { code, link, slots, wait, start };
+      mount([h, code, roomMode, link, row, slots, wait, row2, errEl]);
+      roomRefs = { code, roomMode, link, slots, wait, start };
     }
     const r = roomRefs;
     r.code.textContent = info.code;
+    r.roomMode.textContent = 'Mode: ' + modeLabel(info.mode);
     const url = new URL(location.href);
     url.search = '';
     url.searchParams.set('room', info.code);

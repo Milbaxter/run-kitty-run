@@ -215,7 +215,8 @@ function placeItems(rng, lvl, p) {
 
 // ---------------------------------------------------------------- generation
 
-function generateLevel(level, seed) {
+// mode: 'mixed' (default: level 2 of every 4 is the ice rink), 'run' (no ice, original theme order), 'ice' (every level is ice)
+function generateLevel(level, seed, mode = 'mixed') {
   const L = Math.max(1, level | 0);
   const p = levelParams(L);
   const rng = createRng(hashSeed(seed, L));
@@ -250,9 +251,10 @@ function generateLevel(level, seed) {
     enemies: [],
     items: [],
     path,
-    theme: CFG.ICE_TEST ? ICE_THEME : THEME_ORDER[(L - 1) % 4],
+    theme: CFG.ICE_TEST || mode === 'ice' ? ICE_THEME : mode === 'run' ? (L - 1) % 4 : THEME_ORDER[(L - 1) % 4],
+    mode,
   };
-  lvl.ice = lvl.theme === ICE_THEME;      // snowy level: corridors are ice, safe squares + goal room are not
+  lvl.ice = mode !== 'run' && lvl.theme === ICE_THEME;      // snowy level: corridors are ice, safe squares + goal room are not
   lvl.enemies = placeEnemies(rng, lvl, p);
   lvl.items = placeItems(rng, lvl, p);
   return lvl;

@@ -702,7 +702,7 @@ function updateHUD() {
 //  - shows other kitties extrapolated from their last snapshot to the same "present" as the wolves.
 const net = createNet();
 const lobbyUI = createLobbyUI(document.getElementById('ui'), {
-  onCreate: (name) => net.send({ t: 'create', name }),
+  onCreate: (name, mode) => net.send({ t: 'create', name, mode }),
   onJoin: (code, name) => net.send({ t: 'join', code, name }),
   onLeave: () => net.send({ t: 'leave' }),
   onStart: () => net.send({ t: 'start' }),
@@ -800,7 +800,7 @@ function beginOnlineGame(m) {
   for (const p of m.players) online.roster.set(p.id, p);
   playerCount = m.players.length;
   removeKitties();
-  sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level });
+  sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode });
   sim.started = true;
   gameOverShown = false;
   prevPos.clear();

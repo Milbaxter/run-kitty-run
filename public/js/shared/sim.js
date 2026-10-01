@@ -18,12 +18,15 @@ import { createEnemies, updateEnemies } from './enemies.js';
 // - Extra exports: simSummary, addPlayer, removePlayer.
 
 
+// Lobby game modes: running + skating (ice level 2), running only, skating only.
+const GAME_MODES = ['mixed', 'run', 'ice'];
+
 const MAX_SUBSTEP_DISP = 0.25;
 const MAX_SUBSTEPS = 64;
 
 function makeLevel(sim, level) {
   sim.level = level;
-  sim.levelData = generateLevel(level, hashSeed(sim.seed, level));
+  sim.levelData = generateLevel(level, hashSeed(sim.seed, level), sim.mode);
   sim.enemies = createEnemies(sim.levelData);
   sim.enemyTicks = 0;          // updateEnemies calls since this level's wolves were created (netcode)
   const src = sim.levelData.items || [];
@@ -84,10 +87,11 @@ function makePlayer(def) {
   };
 }
 
-function createSim({ seed, players = [], startLevel = 1 } = {}) {
+function createSim({ seed, players = [], startLevel = 1, mode = 'mixed' } = {}) {
   const lvl = Math.max(1, startLevel | 0);
   const sim = {
     seed: seed == null ? 0 : seed,
+    mode: GAME_MODES.includes(mode) ? mode : 'mixed',
     level: lvl,
     time: 0,
     levelTime: 0,
@@ -481,4 +485,4 @@ function loadLevel(sim, level) {
   makeLevel(sim, level);
 }
 
-export { createSim, stepSim, simSummary, addPlayer, removePlayer, predictPlayer, loadLevel };
+export { GAME_MODES, createSim, stepSim, simSummary, addPlayer, removePlayer, predictPlayer, loadLevel };

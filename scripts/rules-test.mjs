@@ -2,6 +2,7 @@
 // wolves get faster/denser toward the middle.
 import { createSim, stepSim } from '../public/js/shared/sim.js';
 import { CFG } from '../public/js/shared/config.js';
+import { generateLevel } from '../public/js/shared/maze.js';
 const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process.exitCode = 1; };
 
 const sim = createSim({ seed: 5, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }, { id: 3, name: 'c' }] });
@@ -23,7 +24,8 @@ ok(levelStart && sim.level === 2, 'next level starts');
 const spawns = sim.levelData.spawnPoints;
 ok(sim.players.every((p) => p.alive && !p.inCenter && Math.hypot(p.x - spawns[0].x, p.z - spawns[0].z) < 4), 'everyone (incl. the dead one) respawns alive at the start');
 
-const ld = sim.levelData;
+// running levels ramp up toward the goal (level 2 of the default mode is the gentler ice rink, so use run mode)
+const ld = generateLevel(sim.level, sim.levelData.seed, 'run');
 ok(ld.enemies.length >= 200, `wolves: ${ld.enemies.length}`);
 const half = Math.floor(ld.legs.length / 2);
 const outer = ld.enemies.filter((e) => e.leg < half), inner = ld.enemies.filter((e) => e.leg >= half);
@@ -34,6 +36,12 @@ ok(inner.length / len(half) > outer.length / len(0, half), `inner legs denser ($
 const n = ld.legs.length;
 const fin = ld.enemies.filter((e) => e.leg === n - 1);
 ok(fin.length >= 8, `final stretch is crowded (${fin.length} wolves)`);
+{
+  const ice = generateLevel(sim.level, sim.levelData.seed, 'ice');
+  const sp = (l, f) => avg(l.enemies.filter(f).map((e) => e.speed));
+  const gain = (l) => sp(l, (e) => e.leg >= half) / sp(l, (e) => e.leg < half);
+  ok(ice.ice && gain(ice) < gain(ld), `ice levels ramp more gently (inner/outer speed x${gain(ice).toFixed(3)} vs x${gain(ld).toFixed(3)} running)`);
+}
 ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG.RING_WIDTH / 2), 'the goal-door corner is not a safe square');
 {
   // nothing marked safe is ever touched by a wolf; the final stretch's first corner is not marked safe

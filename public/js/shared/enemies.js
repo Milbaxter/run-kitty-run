@@ -20,7 +20,6 @@ import { createRng, TAU } from './rng.js';
 
 
 const EASE_T = 0.15;          // accel / decel time at move start / end (s)
-const TURN_RATE_PAUSE = 12;   // heading smoothing while paused (1/s)
 const TURN_RATE_MOVE = 40;    // heading smoothing while moving (≈ exact after ease-in)
 const TELL_WINDOW = 0.5;      // tell ramps over the last N seconds of a pause
 
@@ -256,16 +255,9 @@ function createEnemy(spec) {
     }
   }
   planNext(e, true);
-  e.heading = facingNext(st, e.heading);
+  e.heading = wrapPi(frameDir(st, 0, 1)); // face along the leg; never hint at the first move
   place(e, st.r, st.th);
   return e;
-}
-
-// Heading toward the planned next move (or `fallback` if the next move is ~zero length).
-function facingNext(st, fallback) {
-  const dr = st.nr - st.r, dth = st.nth - st.th;
-  if (Math.abs(dr) + Math.abs(dth) < 1e-4) return fallback;
-  return wrapPi(frameDir(st, dr, dth));
 }
 
 function stepEnemy(e, dt) {
@@ -307,7 +299,7 @@ function stepEnemy(e, dt) {
     const win = Math.min(st.pauseDur, TELL_WINDOW);
     const x = win > 0 ? clamp((st.t - (st.pauseDur - win)) / win, 0, 1) : 1;
     e.tell = x * x * (3 - 2 * x);
-    e.heading = turnToward(e.heading, facingNext(st, e.heading), TURN_RATE_PAUSE, dt);
+    // keep facing the last direction while resting: wolves only turn as they set off
   }
   r = clamp(r, st.rIn, st.rOut);
   th = clamp(th, st.a0, st.a1);

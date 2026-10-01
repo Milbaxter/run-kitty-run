@@ -139,7 +139,7 @@ function handleFeedback(req, res) {
     if (text.length < 2) return reply(400, { ok: false, msg: 'Type a little more first.' });
     const entry = {
       at: new Date(now).toISOString(), text,
-      name: clean(m.name, 20), mode: clean(m.mode, 12), level: Number.isFinite(m.level) ? m.level | 0 : null,
+      name: clean(m.name, 20), mode: clean(m.mode, 12), app: clean(m.app, 8), ver: clean(m.ver, 16), level: Number.isFinite(m.level) ? m.level | 0 : null,
       ua: clean(req.headers['user-agent'], 160),
     };
     hits.push(now);

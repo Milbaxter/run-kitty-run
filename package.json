@@ -13,7 +13,7 @@
     "android:open": "cap open android",
     "ios:sync": "npm run build:www && cap sync ios",
     "ios:open": "cap open ios",
-    "assets": "capacitor-assets generate --iconBackgroundColor #0d1020 --splashBackgroundColor #0d1020 --iconBackgroundColorDark #0d1020 --splashBackgroundColorDark #0d1020"
+    "assets": "capacitor-assets generate --ios --android --iconBackgroundColor '#0d1020' --splashBackgroundColor '#0d1020' --iconBackgroundColorDark '#0d1020' --splashBackgroundColorDark '#0d1020'"
   },
   "engines": {
     "node": ">=20"

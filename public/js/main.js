@@ -1244,7 +1244,8 @@ function onBackButton() {
   if (ui.isNoticeOpen()) { ui.hideNotice(); if (!ui.isTitleOpen()) ui.showTitle(onTitlePick); return; }
   if (mode === 'play') {
     if (ui.isGameOverOpen()) { ui.hideGameOver(); if (online.playing) backToLobby(); else enterTitle(); return; }
-    if (online.playing) toggleOnlineMenu();
+    if (online.playing && online.menu) { online.menu = false; ui.hidePause(); net.send({ t: 'leave' }); } // = LEAVE GAME
+    else if (online.playing) toggleOnlineMenu();
     else if (paused) { ui.hidePause(); enterTitle(); } // back on the pause menu = quit the run
     else togglePause();
     return;

@@ -32,13 +32,15 @@ const CSS = `
 .rkc-pop{position:absolute;bottom:100%;left:0;margin-bottom:8px;pointer-events:auto;z-index:30;min-width:200px;max-width:calc(100vw - 32px);
   display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:16px;background:linear-gradient(160deg,rgba(52,30,96,.98),rgba(26,12,52,.98));
   border:2px solid rgba(255,255,255,.22);box-shadow:0 10px 26px rgba(0,0,0,.45);}
+.rkc-pop>*{flex-shrink:0;}
 .rkc-pop .rkc-pn{font-weight:900;padding:0 4px 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .rkc-pop .rkc-pl{font-size:12px;opacity:.7;padding:0 4px;}
 .rkc-pop button{font:inherit;font-weight:800;font-size:15px;min-height:42px;padding:8px 12px;border-radius:12px;cursor:pointer;text-align:left;
   border:2px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;}
 .rkc-pop button:hover{background:rgba(255,255,255,.18);}
 .rkc-pop button.rkc-warn{border-color:#ff8fa3;color:#ffc2cd;}
-@media (max-height:500px){ .rkc{width:min(300px,calc(100vw - 160px));font-size:13px;} .rkc-log{max-height:30vh;} }
+@media (max-height:500px){ .rkc{width:min(300px,calc(100vw - 160px));font-size:13px;} .rkc-log{max-height:30vh;}
+  .rkc-pop{gap:4px;padding:8px;} .rkc-pop button{min-height:34px;padding:5px 12px;font-size:14px;} }
 `;
 
 const SHOW_MS = 10000;
@@ -66,7 +68,7 @@ function createChat(root, { onSend, onOpen, onReport, touch = false }) {
   const input = document.createElement('input');
   input.className = 'rkc-in';
   input.maxLength = 120;
-  input.placeholder = 'Say something… (Enter to send, Esc to close)';
+  input.placeholder = touch ? 'Say something…' : 'Say something… (Enter to send, Esc to close)';
   const hint = document.createElement('div');
   hint.className = 'rkc-hint';
   hint.textContent = touch ? '' : 'Press Enter to chat';
@@ -125,10 +127,19 @@ function createChat(root, { onSend, onOpen, onReport, touch = false }) {
         pop.appendChild(l);
         for (const [id, label] of REASONS) btn(label, () => { onReport(m.id, id); closePop(); }, 'rkc-warn');
         btn('Cancel', closePop);
+        fitPop();
       }, 'rkc-warn');
     }
     btn('Cancel', closePop);
     box.appendChild(pop);
+    fitPop();
+  }
+  // short landscape phones: never let the menu run off the top of the screen
+  function fitPop() {
+    if (!pop) return;
+    pop.style.maxHeight = '';
+    const r = pop.getBoundingClientRect();
+    if (r.top < 8) { pop.style.maxHeight = Math.max(120, r.bottom - 8) + 'px'; pop.style.overflowY = 'auto'; }
   }
   document.addEventListener('pointerdown', (e) => { if (pop && !pop.contains(e.target)) closePop(); }, true);
   document.addEventListener('keydown', (e) => { if (pop && e.key === 'Escape') closePop(); });

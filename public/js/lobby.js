@@ -261,7 +261,10 @@ function createLobbyUI(root, cb) {
   }
 
   function showError(msg) {
-    if (errEl) errEl.textContent = msg;
+    if (!errEl) return;
+    errEl.textContent = msg;
+    // short landscape phones: the panel scrolls, so make sure the message is actually on screen
+    if (msg && errEl.scrollIntoView) errEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
   function hide() {

@@ -1,0 +1,273 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Run Kitty Run icon</title>
+<!-- Served by scripts/render-icon.mjs at /__render/icon.html (the game's own models.js is imported from /js/). -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@800&display=block">
+<!--IMPORTMAP-->
+<style>html,body{margin:0;background:#000;} canvas{display:block;}</style>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import { createKittyModel, createWolfModel } from '/js/models.js';
+
+// Hero shot of the in-game kitty. window.renderArt({ layer, size }) -> PNG data URL.
+// layer: 'full' (opaque icon), 'fg' (kitty + outline, transparent, inside the adaptive-icon safe zone),
+//        'bg' (background only), 'splash' (dark, kitty + logo, small in the centre), 'feature' (1024x500 Play banner).
+
+const GOLD = '#ffcf5a';
+
+// ---------- 3D kitty (rendered once, big, on a transparent canvas) ----------
+function renderKitty(px, opts = {}) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = px;
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(px, px, false);
+  renderer.setClearColor(0x000000, 0);
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  const scene = new THREE.Scene();
+  const kitty = createKittyModel(opts.color ?? 0xffb347);
+  // a mid-stride pose reads as "running at you"; freeze it on a nice frame
+  kitty.update(0.016, { moving: true, speed01: 1, time: 0 });
+  for (let i = 0; i < (opts.frames ?? 9); i++) kitty.update(1 / 60, { moving: true, speed01: 1, time: i / 60 });
+  scene.add(kitty.group);
+
+  scene.add(new THREE.HemisphereLight(0xcfc4ff, 0x2a1640, 0.9));
+  const key = new THREE.DirectionalLight(0xfff0d8, 2.6); key.position.set(3, 3, 2.5); scene.add(key);
+  const rimGold = new THREE.DirectionalLight(0xffc04a, 4.5); rimGold.position.set(-2.5, 1.6, 3.2); scene.add(rimGold);
+  const rimPink = new THREE.DirectionalLight(0xff5fc8, 3.5); rimPink.position.set(-2.5, 1.2, -3.2); scene.add(rimPink);
+  const fill = new THREE.DirectionalLight(0x8fb4ff, 0.7); fill.position.set(1, -1, -2); scene.add(fill);
+  const under = new THREE.DirectionalLight(0xffd9a0, 1.1); under.position.set(3, -0.6, 0.8); scene.add(under);
+
+  const cam = new THREE.PerspectiveCamera(opts.fov ?? 26, 1, 0.05, 50);
+  const target = new THREE.Vector3(...(opts.target ?? [0.1, 0.5, 0]));
+  const dir = new THREE.Vector3(...(opts.camDir ?? [1, 0.12, 0.62])).normalize();
+  cam.position.copy(target).addScaledVector(dir, opts.dist ?? 1.9);
+  cam.lookAt(target);
+  const whiskers = [];
+  kitty.group.traverse((o) => { if (o.isLineSegments) whiskers.push(o); });
+  for (const w of whiskers) w.visible = false;
+  renderer.render(scene, cam);
+  const body = document.createElement('canvas'); body.width = body.height = px;
+  body.getContext('2d').drawImage(canvas, 0, 0);
+  for (const w of whiskers) w.visible = true;
+  renderer.render(scene, cam);
+  renderer.dispose();
+  return { body, full: canvas };
+}
+
+// ---------- 2D helpers ----------
+function mk(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+
+// sticker outline: stamp the silhouette in a ring of offsets, tinted, then the kitty on top
+function outlined(src, thick, color, top) {
+  const w = src.width, h = src.height;
+  const sil = mk(w, h), sg = sil.getContext('2d');
+  sg.drawImage(src, 0, 0);
+  sg.globalCompositeOperation = 'source-in';
+  sg.fillStyle = color; sg.fillRect(0, 0, w, h);
+  const out = mk(w, h), og = out.getContext('2d');
+  const n = 36;
+  for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; og.drawImage(sil, Math.cos(a) * thick, Math.sin(a) * thick); }
+  for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; og.drawImage(sil, Math.cos(a) * thick * 0.5, Math.sin(a) * thick * 0.5); }
+  og.drawImage(src, 0, 0);
+  if (top) { // whiskers: only where they stick out past the head
+    const wl = mk(w, h), wg = wl.getContext('2d');
+    wg.drawImage(top, 0, 0);
+    wg.globalCompositeOperation = 'destination-out';
+    for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; wg.drawImage(src, Math.cos(a) * thick * 0.5, Math.sin(a) * thick * 0.5); }
+    og.drawImage(wl, 0, 0);
+  }
+  return out;
+}
+
+// square spiral (the game's corridor, seen from above), rotated 45°, as glowing gold strokes
+function spiralPath(g, cx, cy, step, turns) {
+  g.beginPath();
+  let x = cx, y = cy, len = step;
+  g.moveTo(x, y);
+  const dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  for (let i = 0; i < turns * 4; i++) {
+    const d = dirs[i % 4];
+    x += d[0] * len; y += d[1] * len;
+    g.lineTo(x, y);
+    if (i % 2 === 1) len += step;
+  }
+}
+
+function drawBackground(g, W, H, o = {}) {
+  const S = Math.min(W, H);
+  const cx = W * (o.cx ?? 0.5), cy = H * (o.cy ?? 0.44);
+  // base: deep night blue -> royal purple
+  const base = g.createRadialGradient(cx, cy, 0, cx, cy, S * 0.95);
+  base.addColorStop(0, '#6a2fb8');
+  base.addColorStop(0.35, '#3d1a7a');
+  base.addColorStop(0.75, '#1b1240');
+  base.addColorStop(1, '#0d1020');
+  g.fillStyle = base; g.fillRect(0, 0, W, H);
+
+  // spiral corridor motif, diamond-rotated, fading out
+  g.save();
+  g.translate(cx, cy);
+  g.rotate(Math.PI / 4);
+  const step = S * 0.072;
+  g.lineJoin = 'miter'; g.lineCap = 'square';
+  g.globalCompositeOperation = 'lighter';
+  for (const [lw, a, blur] of [[S * 0.03, 0.10, S * 0.04], [S * 0.012, 0.28, S * 0.015], [S * 0.005, 0.55, 0]]) {
+    g.lineWidth = lw; g.strokeStyle = `rgba(255,207,90,${a})`; g.shadowColor = 'rgba(255,190,60,.9)'; g.shadowBlur = blur;
+    spiralPath(g, 0, 0, step, 6);
+    g.stroke();
+  }
+  g.restore();
+  // fade the spiral toward the edges
+  const vig = g.createRadialGradient(cx, cy, S * 0.2, cx, cy, S * 0.78);
+  vig.addColorStop(0, 'rgba(13,16,32,0)');
+  vig.addColorStop(1, 'rgba(13,16,32,.92)');
+  g.fillStyle = vig; g.fillRect(0, 0, W, H);
+
+  // golden glow behind the head
+  g.globalCompositeOperation = 'lighter';
+  const glow = g.createRadialGradient(cx, cy, 0, cx, cy, S * 0.42);
+  glow.addColorStop(0, 'rgba(255,214,110,.75)');
+  glow.addColorStop(0.3, 'rgba(255,170,70,.32)');
+  glow.addColorStop(0.65, 'rgba(255,90,170,.10)');
+  glow.addColorStop(1, 'rgba(255,90,170,0)');
+  g.fillStyle = glow; g.fillRect(0, 0, W, H);
+
+  // sparkles
+  let seed = 7;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+  for (let i = 0; i < (o.sparkles ?? 26); i++) {
+    const a = rnd() * Math.PI * 2, r = S * (0.3 + rnd() * 0.45);
+    const x = cx + Math.cos(a) * r * (W / S), y = cy + Math.sin(a) * r, s = S * (0.002 + rnd() * 0.004);
+    const sg = g.createRadialGradient(x, y, 0, x, y, s * 3);
+    sg.addColorStop(0, `rgba(255,240,200,${0.5 + rnd() * 0.5})`); sg.addColorStop(1, 'rgba(255,240,200,0)');
+    g.fillStyle = sg; g.fillRect(x - s * 3, y - s * 3, s * 6, s * 6);
+  }
+  g.globalCompositeOperation = 'source-over';
+}
+
+// warm halo hugging the kitty's silhouette (separates it from the background)
+function glowBehind(g, img, x, y, s, S) {
+  const t = mk(img.width, img.height), tg = t.getContext('2d');
+  tg.drawImage(img, 0, 0);
+  tg.globalCompositeOperation = 'source-in';
+  tg.fillStyle = '#ffb84a'; tg.fillRect(0, 0, t.width, t.height);
+  g.save();
+  g.globalCompositeOperation = 'lighter';
+  g.filter = `blur(${S * 0.022}px)`;
+  g.globalAlpha = 0.85;
+  g.drawImage(t, x, y, s, s);
+  g.filter = `blur(${S * 0.06}px)`;
+  g.globalAlpha = 0.5;
+  g.drawImage(t, x, y, s, s);
+  g.restore();
+}
+
+// glowing wolf eyes lurking in the dark (a hint, not a character)
+function drawWolfEyes(g, W, H, list) {
+  g.save();
+  g.globalCompositeOperation = 'lighter';
+  for (const [x, y, s, rot] of list) {
+    for (const sx of [-1, 1]) {
+      g.save();
+      g.translate(W * x + sx * s * 1.25, H * y);
+      g.rotate(sx * rot);
+      g.shadowColor = 'rgba(255,40,20,1)'; g.shadowBlur = s * 2.2;
+      g.fillStyle = '#ff4a2a';
+      g.beginPath(); g.ellipse(0, 0, s, s * 0.42, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#ffe3b0'; g.shadowBlur = 0;
+      g.beginPath(); g.ellipse(0, 0, s * 0.45, s * 0.18, 0, 0, Math.PI * 2); g.fill();
+      g.restore();
+    }
+  }
+  g.restore();
+}
+
+// "Run Kitty Run" logo in the game's style (thick plum outline, warm / pink gradients)
+async function drawLogo(g, cx, cy, size) {
+  await document.fonts.load(`800 ${size}px 'Baloo 2'`);
+  const font = `800 ${size}px 'Baloo 2', 'Trebuchet MS', sans-serif`;
+  g.save();
+  g.font = font; g.textBaseline = 'alphabetic'; g.textAlign = 'left';
+  const words = ['RUN', 'KITTY', 'RUN'];
+  const gap = size * 0.3;
+  const ws = words.map((w) => g.measureText(w).width);
+  const total = ws.reduce((a, b) => a + b, 0) + gap * 2;
+  let x = cx - total / 2;
+  const y = cy + size * 0.34;
+  const grads = [
+    ['#fff7c2', '#ffd04a', '#ff8a3d', '#ff4f9a'],
+    ['#fff0fb', '#ffa8de', '#c77dff', '#7b5cff'],
+  ];
+  words.forEach((w, i) => {
+    const top = y - size * 0.72, bot = y + size * 0.05;
+    g.lineJoin = 'round';
+    g.fillStyle = '#3a1650'; g.strokeStyle = '#3a1650'; g.lineWidth = size * 0.32;
+    g.fillText(w, x, y + size * 0.09); g.strokeText(w, x, y + size * 0.09);
+    g.strokeText(w, x, y);
+    const gr = g.createLinearGradient(0, top, 0, bot);
+    const c = grads[i === 1 ? 1 : 0];
+    gr.addColorStop(0, c[0]); gr.addColorStop(0.38, c[1]); gr.addColorStop(0.62, c[2]); gr.addColorStop(1, c[3]);
+    g.fillStyle = gr; g.fillText(w, x, y);
+    x += ws[i] + gap;
+  });
+  g.restore();
+}
+
+const KITTY_SHOT = { camDir: [1, 0.02, 0.34], target: [0.2, 0.585, 0.0], dist: 1.78, fov: 34 };
+
+window.renderArt = async function ({ layer = 'full', size = 1024 } = {}) {
+  const S = size;
+  const k = renderKitty(S * 2, KITTY_SHOT);           // supersampled kitty
+  const ko = outlined(k.body, S * 2 * 0.0095, '#2b1046', k.full); // sticker outline (whiskers on top)
+  if (layer === 'feature') {
+    const W = 1024 * 2, H = 500 * 2;
+    const c = mk(W, H), g = c.getContext('2d');
+    drawBackground(g, W, H, { cx: 0.24, cy: 0.5, sparkles: 18 });
+    drawWolfEyes(g, W, H, [[0.93, 0.2, 11, 0.35], [0.06, 0.86, 9, 0.35]]);
+    const ks = H * 1.08;
+    glowBehind(g, ko, W * 0.24 - ks / 2, H * 0.5 - ks * 0.48, ks, H);
+    g.drawImage(ko, W * 0.24 - ks / 2, H * 0.5 - ks * 0.48, ks, ks);
+    await drawLogo(g, W * 0.68, H * 0.42, 150);
+    g.font = `800 44px 'Baloo 2', sans-serif`; g.textAlign = 'center'; g.fillStyle = '#f1e8ff';
+    g.shadowColor = 'rgba(0,0,0,.5)'; g.shadowOffsetY = 4;
+    g.fillText('Outrun the wolves. Never leave a kitty behind.', W * 0.68, H * 0.64);
+    return c.toDataURL('image/png');
+  }
+  const c = mk(S, S), g = c.getContext('2d');
+  g.imageSmoothingQuality = 'high';
+  if (layer === 'splash') {
+    g.fillStyle = '#0d1020'; g.fillRect(0, 0, S, S);
+    const cx = S / 2, cy = S / 2;
+    const glow = g.createRadialGradient(cx, cy - S * 0.05, 0, cx, cy - S * 0.05, S * 0.26);
+    glow.addColorStop(0, 'rgba(120,60,200,.55)'); glow.addColorStop(0.5, 'rgba(70,30,130,.25)'); glow.addColorStop(1, 'rgba(13,16,32,0)');
+    g.fillStyle = glow; g.fillRect(0, 0, S, S);
+    const ks = S * 0.3;
+    g.drawImage(ko, cx - ks / 2, cy - ks * 0.66, ks, ks);
+    await drawLogo(g, cx, cy + S * 0.135, S * 0.052);
+    return c.toDataURL('image/png');
+  }
+  if (layer !== 'fg') {
+    drawBackground(g, S, S, {});
+    drawWolfEyes(g, S, S, [[0.13, 0.15, S * 0.016, 0.38], [0.89, 0.83, S * 0.012, 0.38]]);
+  }
+  if (layer === 'bg') return c.toDataURL('image/png');
+  // full icon: kitty fills the frame; adaptive fg: kitty scaled into the central 66% safe zone
+  const ks = (layer === 'fg' ? S * 0.7 : S * 1.0) * Math.tan(17 * Math.PI / 180) / Math.tan(13 * Math.PI / 180);
+  const oy = layer === 'fg' ? 0.47 : 0.5;
+  const dx = layer === 'fg' ? -S * 0.02 : -S * 0.045, dy = 0;
+  if (layer !== 'fg') glowBehind(g, ko, (S - ks) / 2 + dx, S * oy - ks * 0.5 + dy, ks, S);
+  g.drawImage(ko, (S - ks) / 2 + dx, S * oy - ks * 0.5 + dy, ks, ks);
+  return c.toDataURL('image/png');
+};
+window.artReady = true;
+</script>
+</body>
+</html>

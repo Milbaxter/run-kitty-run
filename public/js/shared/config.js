@@ -20,14 +20,14 @@ const CFG = {
 
   // Maze geometry
   CENTER_RADIUS: 5.0,        // radius of goal area wall
-  RING_WIDTH: 6.0,           // corridor width
+  RING_WIDTH: 10.8,          // corridor width
   WALL_THICKNESS: 0.5,
   WALL_HEIGHT: 1.4,
   GAP_WIDTH: 2.8,            // linear width of a gap in a ring wall (units)
   START_SAFE_ARC: 7.0,       // linear arc length (units) on each side of start angle with no enemies
 
   // Enemies
-  WOLF_RADIUS: 0.55,
+  WOLF_RADIUS: 0.66,
   WOLF_HIT_SCALE: 0.8,
 
   // Items

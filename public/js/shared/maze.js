@@ -26,8 +26,12 @@ const GRID_MAX_R = 1.0;           // grid query valid for radii up to this; larg
 
 // Arm directions in order: left, up (-z, away from camera), right, down (+z, toward camera).
 const DIRS = [[-1, 0], [0, -1], [1, 0], [0, 1]];
-const ARMS = 24;                  // spiral wall arms (6 loops); path ~840 units
-const ROOM = 6;                   // goal room half-size
+const ARMS = 19;                  // spiral wall arms; path ~845 units with 10.8-wide lanes
+const ROOM = 8;                   // goal room half-size
+
+// The 8 rotations/reflections of the plane; the spiral is mapped by the one that puts the start
+// in the top-left corner with the run going clockwise on screen (first step: to the right).
+const SYMS = [[1, 0, 0, 1], [0, -1, 1, 0], [-1, 0, 0, -1], [0, 1, -1, 0], [-1, 0, 0, 1], [1, 0, 0, -1], [0, 1, 1, 0], [0, -1, -1, 0]];
 
 function pickWeighted(rng, items, weightFn) {
   let total = 0;
@@ -47,7 +51,7 @@ function pickWeighted(rng, items, weightFn) {
 // so parallel arms are exactly W apart and the first loop encloses a 2R x 2R room.
 function buildSpiral() {
   const W = CFG.RING_WIDTH;
-  const v = [{ x: 0, z: ROOM }];
+  const v = [{ x: ROOM - W, z: ROOM }];             // first loop encloses the room [-ROOM, ROOM]^2
   for (let i = 0; i < ARMS; i++) {
     const L = (i % 2 === 0 ? 2 * ROOM - W : 2 * ROOM) + Math.floor(i / 2) * W;
     const [dx, dz] = DIRS[i % 4];
@@ -76,12 +80,28 @@ function buildSpiral() {
   }
   const corners = [];
   for (let i = ARMS; i >= 4; i--) corners.push(c(i));
+
+  // orient: start top-left (x<0, z<0), first step heading +x
+  const start = corners[0], fdx = -legs[0].ux, fdz = -legs[0].uz;
+  const [a, b, cc, d] = SYMS.find(([a, b, c, d]) =>
+    a * start.x + b * start.z < 0 && c * start.x + d * start.z < 0 && a * fdx + b * fdz === 1 && c * fdx + d * fdz === 0);
+  const tx = (x, z) => a * x + b * z, tz = (x, z) => cc * x + d * z;
+  const tp = (p) => ({ x: tx(p.x, p.z), z: tz(p.x, p.z) });
+  for (const w of walls) {
+    const A = tp({ x: w.ax, z: w.az }), B = tp({ x: w.bx, z: w.bz });
+    w.ax = A.x; w.az = A.z; w.bx = B.x; w.bz = B.z;
+  }
+  for (const l of legs) {
+    [l.ox, l.oz, l.ux, l.uz, l.nx, l.nz] = [tx(l.ox, l.oz), tz(l.ox, l.oz), tx(l.ux, l.uz), tz(l.ux, l.uz), tx(l.nx, l.nz), tz(l.nx, l.nz)];
+  }
+  for (let k = 0; k < corners.length; k++) corners[k] = tp(corners[k]);
+  for (let k = 0; k < v.length; k++) v[k] = tp(v[k]);
   let ext = 0;
   for (const w of walls) ext = Math.max(ext, Math.abs(w.ax), Math.abs(w.az), Math.abs(w.bx), Math.abs(w.bz));
   return { walls, legs, corners, wallCorners: v.slice(4), outer: ext };
 }
 
-function buildPath(corners) {
+function buildPath(corners, legs) {
   const W = CFG.RING_WIDTH;
   const pts = [];
   const STEP = 2.0;
@@ -96,7 +116,7 @@ function buildPath(corners) {
   for (const c of corners) pushTo(c.x, c.z);
   // last corner sits just outside the room opening: step in, then to the middle
   const last = corners[corners.length - 1];
-  const [nx, nz] = DIRS[5 % 4];
+  const { nx, nz } = legs[legs.length - 1];       // innermost leg: its inner side is the room
   pushTo(last.x + nx * W, last.z + nz * W);
   pushTo(0, 0);
   return pts;
@@ -192,7 +212,7 @@ function generateLevel(level, seed) {
   const p = levelParams(L);
   const rng = createRng(hashSeed(seed, L));
   const { walls, legs, corners, wallCorners, outer } = buildSpiral();
-  const path = buildPath(corners);
+  const path = buildPath(corners, legs);
 
   // spawn: 2x2 block in the start pocket, facing up the first leg
   const start = corners[0];

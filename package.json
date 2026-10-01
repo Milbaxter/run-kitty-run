@@ -4,10 +4,35 @@
   "type": "module",
   "scripts": {
     "start": "node server/index.js",
-    "dev": "HOST=0.0.0.0 node --watch server/index.js"
+    "dev": "HOST=0.0.0.0 node --watch server/index.js",
+    "build:www": "node scripts/build-www.mjs",
+    "cap:sync": "npm run build:www && cap sync",
+    "android:sync": "npm run build:www && cap sync android",
+    "android:build": "npm run android:sync && cd android && ./gradlew assembleDebug",
+    "android:bundle": "npm run android:sync && cd android && ./gradlew bundleRelease",
+    "android:open": "cap open android",
+    "ios:sync": "npm run build:www && cap sync ios",
+    "ios:open": "cap open ios",
+    "assets": "capacitor-assets generate --iconBackgroundColor #0d1020 --splashBackgroundColor #0d1020 --iconBackgroundColorDark #0d1020 --splashBackgroundColorDark #0d1020"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
+    "@capacitor-community/keep-awake": "^8.0.1",
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.5.2",
+    "@capacitor/screen-orientation": "^8.0.1",
+    "@capacitor/share": "^8.0.2",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.2"
   }
 }

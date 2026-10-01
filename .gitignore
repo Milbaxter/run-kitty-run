@@ -2,3 +2,41 @@ node_modules/
 .DS_Store
 square-spiral-preview.png
 feedback.jsonl
+reports.jsonl
+
+# Capacitor web build
+www/
+ios/App/App/public/
+android/app/src/main/assets/public/
+ios/App/App/capacitor.config.json
+ios/App/App/config.xml
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/app/src/main/res/xml/config.xml
+
+# iOS build
+ios/App/Pods/
+ios/App/build/
+ios/DerivedData/
+ios/App/DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# Android build
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+android/local.properties
+android/.idea/
+android/captures/
+*.apk
+*.aab
+
+# Signing
+keystore.properties
+android/keystore.properties
+*.jks
+*.keystore
+*.p12
+*.mobileprovision

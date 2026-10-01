@@ -326,6 +326,7 @@ function stepSim(sim, inputs, dt) {
   const enemies = sim.enemies || [];
   for (let i = 0; i < players.length; i++) {
     const p = players[i];
+    if (sim.state !== 'playing') break; // no deaths during the level-clear celebration
     if (!p.alive || p.inCenter || p.invuln > 0 || p.shield > 0) continue;
     for (let e = 0; e < enemies.length; e++) {
       const en = enemies[e];
@@ -375,11 +376,12 @@ function stepSim(sim, inputs, dt) {
         sim.stateTimer = 0;
         events.push({ type: 'gameOver', level: sim.level });
       }
-    } else if (aliveInCenter === alive) {
+    } else if (aliveInCenter > 0) {
+      const by = players.find((q) => q.alive && q.inCenter);
       sim.state = 'levelclear';
       sim.stateTimer = CFG.LEVEL_CLEAR_TIME;
       sim.stats.levelsCleared++;
-      events.push({ type: 'levelClear', level: sim.level });
+      events.push({ type: 'levelClear', level: sim.level, by: by.id });
     }
   } else if (sim.state === 'levelclear') {
     sim.stateTimer -= dt;

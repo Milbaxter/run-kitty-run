@@ -50,7 +50,7 @@ function levelParams(level) {
     rings: MAP_RINGS,                                               // fixed: same map every level
     // Fixed wolf count on every level (~1 wolf per 4 units of the ~840-unit square spiral);
     // levels get harder through speed, shorter pauses, bigger territories and new wolf types.
-    enemyCount: 180,
+    enemyCount: 216,
     enemySpeed: Math.min(2.4 * (1 + 0.08 * (L - 1)), 5.3),          // units / s (always below kitty speed)
     enemyPauseScale: Math.max(0.4, 1 - 0.07 * (L - 1)),             // wolves rest less each level
     enemyTypes: types,

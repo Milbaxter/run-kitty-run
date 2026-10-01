@@ -65,6 +65,13 @@ const CSS = `
 .rkr-timer svg{width:18px;height:18px;color:#cdbfff;}
 .rkr-cards{display:flex;flex-direction:column;gap:8px;}
 .rkr-cards.rkr-many{gap:4px;}
+.rkr-scores{position:absolute;right:16px;top:58px;min-width:150px;max-width:220px;padding:6px 10px;border-radius:12px;
+  background:rgba(10,4,30,.32);font-size:13px;font-weight:800;opacity:.85;pointer-events:none;}
+.rkr-scores .rkr-sh{font-size:10px;letter-spacing:.14em;color:#ffcf5a;opacity:.9;margin-bottom:2px;}
+.rkr-scores .rkr-sr{display:flex;gap:8px;align-items:center;line-height:1.5;}
+.rkr-scores .rkr-sr span:first-child{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.rkr-scores .rkr-sr.rkr-me{text-decoration:underline;text-underline-offset:3px;}
+.rkr-scores .rkr-best{opacity:.65;font-size:11px;margin-top:2px;}
 .rkr-cards.rkr-many .rkr-card{zoom:.68;}
 .rkr-card{--pc:#ffb347;position:relative;display:flex;align-items:center;gap:10px;min-width:210px;padding:8px 12px 8px 8px;border-radius:18px;
   background:linear-gradient(135deg,rgba(30,16,60,.72),rgba(30,16,60,.5));border:2px solid rgba(255,255,255,.14);
@@ -302,7 +309,8 @@ function createUI(root) {
   const mapCanvas = document.createElement('canvas');
   mapEl.appendChild(mapCanvas);
 
-  hud.append(tl, tc, tr, mapEl);
+  const scoresEl = el('div', 'rkr-scores');
+  hud.append(tl, tc, tr, mapEl, scoresEl);
 
   const bannerEl = el('div', 'rkr-banner', '<div class="rkr-bt"></div><div class="rkr-bs"></div>');
   const bannerT = bannerEl.querySelector('.rkr-bt');
@@ -790,6 +798,32 @@ function createUI(root) {
     if (goEl) { goEl.remove(); goEl = null; }
   }
 
+  // ================= scoreboard (top right) =================
+  let scoresKey = '';
+  let best = 0;
+  try { best = parseInt(localStorage.getItem('rkr-best') || '0', 10) || 0; } catch { /* ignore */ }
+  function setScores(list) {
+    if (!list) { scoresEl.style.display = 'none'; scoresKey = ''; return; }
+    scoresEl.style.display = '';
+    const mine = list.filter((p) => p.me).reduce((m, p) => Math.max(m, p.score), -Infinity);
+    if (mine > best) { best = mine; try { localStorage.setItem('rkr-best', String(best)); } catch { /* ignore */ } }
+    const rows = [...list].sort((a, b) => b.score - a.score);
+    const key = rows.map((p) => `${p.name}|${p.score}|${p.me}`).join(',') + '#' + best;
+    if (key === scoresKey) return;
+    scoresKey = key;
+    scoresEl.textContent = '';
+    scoresEl.appendChild(el('div', 'rkr-sh', 'SCORE'));
+    for (const p of rows) {
+      const r = el('div', 'rkr-sr' + (p.you ? ' rkr-me' : ''));
+      const n = el('span'); n.textContent = p.name; n.style.color = hexColor(p.color);
+      const v = el('span'); v.textContent = (p.score > 0 ? '+' : '') + p.score;
+      r.append(n, v);
+      scoresEl.appendChild(r);
+    }
+    const b = el('div', 'rkr-best'); b.textContent = `best ${best > 0 ? '+' : ''}${best}`;
+    scoresEl.appendChild(b);
+  }
+
   // ================= misc =================
   function setMutedIcon(m) {
     muteEl.classList.toggle('rkr-muted', !!m);
@@ -825,7 +859,7 @@ function createUI(root) {
   setMutedIcon(false);
 
   return {
-    showTitle, hideTitle, setHUD, updateMinimap, banner, toast,
+    showTitle, hideTitle, setHUD, updateMinimap, banner, toast, setScores,
     showPause, hidePause, showGameOver, hideGameOver, setMutedIcon, isOverlayOpen, onMuteClick,
   };
 }

@@ -417,15 +417,14 @@ function handleEvents(events) {
         if (p) {
           effects.pickup(p.x, p.z, p.color);
           audio.play('pickup');
-          const waiting = sim.players.filter((q) => q.alive && !q.inCenter).length;
-          if (waiting > 0 && sim.players.length > 1) ui.toast(`${p.name} made it! Waiting for the others…`, hexCss(p.color));
         }
         break;
       }
       case 'levelClear': {
         effects.confetti(0, 0);
         effects.shake(0.2);
-        ui.banner('ALL KITTIES SAFE!', 'Teleporting to the next labyrinth…', 2000);
+        const by = playerById(ev.by);
+        ui.banner(by && sim.players.length > 1 ? `${by.name.toUpperCase()} MADE IT!` : 'MADE IT!', 'Everyone back to the start…', 2000);
         audio.play('levelClear');
         break;
       }
@@ -600,7 +599,9 @@ function world_update(dt, t) {
 }
 
 function updateHUD() {
-  if (mode !== 'play') return;
+  if (mode !== 'play') { ui.setScores(null); return; }
+  // score: +1 per friend saved, -1 per time caught
+  ui.setScores(sim.players.map((p) => ({ name: p.name, color: p.color, score: p.rescues - p.deaths, me: online.playing ? p.id === online.me : true, you: online.playing && p.id === online.me })));
   ui.setHUD({
     level: sim.level,
     players: sim.players.map((p) => ({

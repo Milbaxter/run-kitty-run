@@ -137,7 +137,9 @@ function placeEnemies(rng, lvl, p) {
     if (li === 0) hi = leg.len - W / 2 - CFG.START_SAFE_ARC - CFG.WOLF_RADIUS; // start leg: c_M is the start
     return { lo, hi: Math.max(lo, hi) };
   });
-  const lens = ranges.map((r) => Math.max(0, r.hi - r.lo));
+  // 0 at the start leg -> 1 at the innermost leg: wolves get denser, faster and restless toward the middle
+  const depth = (li) => li / Math.max(1, legs.length - 1);
+  const lens = ranges.map((r, li) => Math.max(0, r.hi - r.lo) * (0.55 + 1.1 * depth(li)));
   const total = lens.reduce((a, b) => a + b, 0);
   const quota = lens.map((L) => Math.floor(L / total * count));
   const fracs = lens.map((L, i) => ({ i, f: L / total * count - quota[i] })).sort((a, b) => b.f - a.f);
@@ -150,6 +152,7 @@ function placeEnemies(rng, lvl, p) {
     const { lo: R0, hi: R1 } = ranges[li];
     if (m <= 0 || R1 - R0 < 1) return;
     const frame = { ox: leg.ox, oz: leg.oz, ux: leg.ux, uz: leg.uz, nx: leg.nx, nz: leg.nz };
+    const dk = depth(li);
     const off = rng.next();
     for (let k = 0; k < m; k++) {
       const t = (k + off * 0.6 + 0.2) / m;
@@ -158,7 +161,7 @@ function placeEnemies(rng, lvl, p) {
       let lo, hi;
       if (type === 'orbiter') { lo = R0; hi = R1; }          // runs the whole leg
       else {
-        const span = spanScale * (type === 'patroller' ? rng.range(8, 18) : type === 'wanderer' ? rng.range(10, 20) : rng.range(2, 5));
+        const span = spanScale * (1 + 0.4 * dk) * (type === 'patroller' ? rng.range(8, 18) : type === 'wanderer' ? rng.range(10, 20) : rng.range(2, 5));
         lo = Math.max(R0, cs - span / 2); hi = Math.min(R1, cs + span / 2);
       }
       if (hi - lo < (type === 'sweeper' ? 0.5 : 2.5)) continue;
@@ -166,9 +169,9 @@ function placeEnemies(rng, lvl, p) {
       const spec = {
         id, type, leg: li, frame,
         rIn: vIn, rOut: vOut, a0: lo, a1: hi,
-        speed: p.enemySpeed * rng.range(0.85, 1.15) * (type === 'orbiter' ? 0.8 : type === 'sweeper' ? 0.9 : 1),
+        speed: p.enemySpeed * (0.85 + 0.4 * dk) * rng.range(0.85, 1.15) * (type === 'orbiter' ? 0.8 : type === 'sweeper' ? 0.9 : 1),
         phase: rng.next(),
-        pauseScale: p.enemyPauseScale,
+        pauseScale: p.enemyPauseScale * (1.15 - 0.45 * dk),
         seed: hashSeed(seed, level, 'wolf', id),
       };
       if (type === 'patroller' || type === 'orbiter') spec.r = rng.range(vIn + 0.2, vOut - 0.2);

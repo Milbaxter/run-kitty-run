@@ -29,6 +29,7 @@ const DIRS = [[-1, 0], [0, -1], [1, 0], [0, 1]];
 const ARMS = 19;                  // spiral wall arms; path ~845 units with 10.8-wide lanes
 const ROOM = 8;                   // goal room half-size
 const ICE_THEME = 2;              // Snowy Peaks
+const THEME_ORDER = [0, ICE_THEME, 1, 3]; // meadow, snow (ice), autumn, neon: level 2 is the ice rink
 
 // The 8 rotations/reflections of the plane; the spiral is mapped by the one that puts the start
 // in the top-left corner with the run going clockwise on screen (first step: to the right).
@@ -249,7 +250,7 @@ function generateLevel(level, seed) {
     enemies: [],
     items: [],
     path,
-    theme: CFG.ICE_TEST ? ICE_THEME : (L - 1) % 4,
+    theme: CFG.ICE_TEST ? ICE_THEME : THEME_ORDER[(L - 1) % 4],
   };
   lvl.ice = lvl.theme === ICE_THEME;      // snowy level: corridors are ice, safe squares + goal room are not
   lvl.enemies = placeEnemies(rng, lvl, p);

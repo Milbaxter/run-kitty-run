@@ -19,7 +19,7 @@ const CFG = {
   // can only turn at ICE_TURN_RATE, so reversing carves a small U-turn instead of flipping around.
   ICE_TURN_RATE: 5.5,        // rad/s (turn radius = speed / rate, ~1.2 units)
   ICE_ACCEL_TAU: 0.3,        // speed build-up time constant on ice (s)
-  ICE_TEST: true,            // test build: every level is the snowy ice level
+  ICE_TEST: false,           // true = every level is the snowy ice level (for testing)
 
   // Revive
   REVIVE_DELAY: 0.5,         // seconds after going down before a friend can revive you

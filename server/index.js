@@ -31,11 +31,26 @@ const server = http.createServer((req, res) => {
   if (!file.startsWith(ROOT + path.sep)) { res.writeHead(403).end(); return; }
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) { res.writeHead(404).end('not found'); return; }
-    res.writeHead(200, {
+    const headers = {
       'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream',
-      'Content-Length': st.size,
       'Cache-Control': p.startsWith('/music/') ? 'public, max-age=86400' : 'no-cache',
-    });
+      'Accept-Ranges': 'bytes',
+    };
+    // Range requests: needed for seeking audio, and Safari won't play media without them.
+    const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+    if (m && (m[1] || m[2])) {
+      let start = m[1] ? +m[1] : st.size - +m[2];
+      let end = m[1] && m[2] ? +m[2] : st.size - 1;
+      if (start < 0) start = 0;
+      end = Math.min(end, st.size - 1);
+      if (start > end) { res.writeHead(416, { 'Content-Range': `bytes */${st.size}` }).end(); return; }
+      res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${st.size}`, 'Content-Length': end - start + 1 });
+      if (req.method === 'HEAD') { res.end(); return; }
+      fs.createReadStream(file, { start, end }).pipe(res);
+      return;
+    }
+    res.writeHead(200, { ...headers, 'Content-Length': st.size });
+    if (req.method === 'HEAD') { res.end(); return; }
     fs.createReadStream(file).pipe(res);
   });
 });

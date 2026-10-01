@@ -58,15 +58,31 @@ const effects = createEffects(scene);
 const audio = createAudio();
 const ui = createUI(document.getElementById('ui'));
 
-// Soundtrack: an mp3 next to index.html, looped. Plain <audio> element (works from file:// too).
-// Falls back to the procedural music if the file is missing.
-const SOUNDTRACK_URL = 'music/soundtrack.mp3';
-const track = new Audio(SOUNDTRACK_URL);
-track.loop = true;
+// Soundtrack: a playlist of mp3s next to index.html, played one after the other on repeat.
+// Plain <audio> element. A track that fails to load is skipped; if all fail, procedural music plays.
+const PLAYLIST = ['music/soundtrack.mp3', 'music/soundtrack2.mp3'];
+let trackIdx = 0;
+const badTracks = new Set();
+const track = new Audio(PLAYLIST[0]);
 track.volume = 0.5;
 track.preload = 'auto';
 let trackWanted = false, trackFailed = false, musicLevel = 1;
-track.addEventListener('error', () => { trackFailed = true; if (trackWanted) audio.startMusic(musicLevel); });
+function nextTrack() {
+  for (let k = 1; k <= PLAYLIST.length; k++) {
+    const i = (trackIdx + k) % PLAYLIST.length;
+    if (badTracks.has(i)) continue;
+    trackIdx = i;
+    track.src = PLAYLIST[i];
+    if (trackWanted && !audio.isMuted()) track.play().catch(() => {});
+    return;
+  }
+}
+track.addEventListener('ended', nextTrack);
+track.addEventListener('error', () => {
+  badTracks.add(trackIdx);
+  if (badTracks.size >= PLAYLIST.length) { trackFailed = true; if (trackWanted) audio.startMusic(musicLevel); return; }
+  nextTrack();
+});
 
 function musicPlay(level) {
   musicLevel = level;
@@ -1013,7 +1029,7 @@ requestAnimationFrame(frame);
 
 // Debug handle
 window.__kitty = {
-  get sim() { return sim; }, scene, camera, renderer, effects, audio, ui, startGame, keys, online, net,
+  get sim() { return sim; }, scene, camera, renderer, effects, audio, ui, startGame, keys, online, net, track,
   advance(seconds) { const n = Math.round(seconds * 60); for (let i = 0; i < n; i++) tick(1 / 60); },
 };
 

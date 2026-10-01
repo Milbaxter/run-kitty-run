@@ -1,0 +1,5 @@
+# Free hostname that resolves to the box's IP; Caddy gets a Let's Encrypt cert automatically.
+80-47-225-25.sslip.io {
+	encode gzip
+	reverse_proxy 127.0.0.1:8080
+}

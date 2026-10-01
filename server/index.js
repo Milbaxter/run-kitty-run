@@ -1,0 +1,299 @@
+// Run Kitty Run online server: serves the static client and runs authoritative lobbies over WebSockets.
+// One Room = one lobby (max 8). The first player in the lobby is its host and decides when to start.
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { WebSocketServer } from 'ws';
+import { CFG, NET, PLAYER_COLORS, PLAYER_NAMES } from '../public/js/shared/config.js';
+import { hashSeed } from '../public/js/shared/rng.js';
+import { createSim, stepSim, addPlayer, removePlayer } from '../public/js/shared/sim.js';
+import { serializeEnemies } from '../public/js/shared/enemies.js';
+
+const PORT = +process.env.PORT || 8080;
+const HOST = process.env.HOST || '127.0.0.1';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public');
+const GAMEOVER_TO_LOBBY_MS = 4000;
+const MAX_ROOMS = 200;
+
+// ---------------- static files ----------------
+const TYPES = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css',
+  '.mp3': 'audio/mpeg', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json',
+};
+
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url, 'http://x');
+  if (url.pathname === '/healthz') { res.end('ok'); return; }
+  let p = decodeURIComponent(url.pathname);
+  if (p.endsWith('/')) p += 'index.html';
+  const file = path.join(ROOT, p);
+  if (!file.startsWith(ROOT + path.sep)) { res.writeHead(403).end(); return; }
+  fs.stat(file, (err, st) => {
+    if (err || !st.isFile()) { res.writeHead(404).end('not found'); return; }
+    res.writeHead(200, {
+      'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream',
+      'Content-Length': st.size,
+      'Cache-Control': p.startsWith('/music/') ? 'public, max-age=86400' : 'no-cache',
+    });
+    fs.createReadStream(file).pipe(res);
+  });
+});
+
+// ---------------- rooms ----------------
+const rooms = new Map(); // code -> Room
+let nextClientId = 1;
+
+function makeCode() {
+  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I/O to avoid confusion
+  for (;;) {
+    let c = '';
+    for (let i = 0; i < 4; i++) c += A[Math.floor(Math.random() * A.length)];
+    if (!rooms.has(c)) return c;
+  }
+}
+
+function cleanName(n, fallback) {
+  const s = String(n || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 14);
+  return s || fallback;
+}
+
+function send(ws, msg) {
+  if (ws.readyState === 1) ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg));
+}
+
+function broadcast(room, msg) {
+  const s = JSON.stringify(msg);
+  for (const m of room.members) send(m.ws, s);
+}
+
+function roomInfo(room) {
+  return {
+    t: 'room', code: room.code, host: room.hostId, phase: room.phase,
+    members: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
+  };
+}
+
+function sendRoom(room) {
+  const info = roomInfo(room);
+  for (const m of room.members) send(m.ws, { ...info, you: m.id });
+}
+
+function lobbyList() {
+  const list = [];
+  for (const r of rooms.values()) {
+    if (r.members.length === 0) continue;
+    list.push({
+      code: r.code, players: r.members.length, max: NET.MAX_PLAYERS, phase: r.phase,
+      host: (r.members.find((m) => m.id === r.hostId) || r.members[0]).name,
+      level: r.sim ? r.sim.level : 0,
+    });
+  }
+  return list.sort((a, b) => (a.phase === 'lobby' ? 0 : 1) - (b.phase === 'lobby' ? 0 : 1) || b.players - a.players).slice(0, 30);
+}
+
+function freeColorSlot(room) {
+  for (let i = 0; i < NET.MAX_PLAYERS; i++) if (!room.members.some((m) => m.slot === i)) return i;
+  return 0;
+}
+
+function joinRoom(client, room, name) {
+  if (room.members.length >= NET.MAX_PLAYERS) return send(client.ws, { t: 'error', msg: 'That lobby is full (8/8).' });
+  leaveRoom(client);
+  const slot = freeColorSlot(room);
+  client.room = room;
+  client.slot = slot;
+  client.name = cleanName(name, PLAYER_NAMES[slot]);
+  client.color = PLAYER_COLORS[slot];
+  client.inputs = new Map();
+  client.lastInput = { x: 0, z: 0 };
+  client.margin = NET.INPUT_LEAD;
+  room.members.push(client);
+  if (!room.hostId) room.hostId = client.id;
+  sendRoom(room);
+  if (room.phase === 'playing') {
+    // Join mid-game: spawn now; send full state (including wolves) so the newcomer is in sync.
+    addPlayer(room.sim, { id: client.id, name: client.name, color: client.color });
+    send(client.ws, startMsg(room, true));
+  }
+}
+
+function leaveRoom(client) {
+  const room = client.room;
+  if (!room) return;
+  client.room = null;
+  room.members = room.members.filter((m) => m !== client);
+  if (room.sim) removePlayer(room.sim, client.id);
+  if (room.members.length === 0) { rooms.delete(room.code); return; }
+  if (room.hostId === client.id) room.hostId = room.members[0].id; // next in join order
+  sendRoom(room);
+}
+
+function startMsg(room, withWolves) {
+  const sim = room.sim;
+  return {
+    t: 'start', seed: sim.seed, level: sim.level, tick: room.tick, lt: sim.enemyTicks,
+    players: sim.players.map((p) => ({ id: p.id, name: p.name, color: p.color })),
+    wolves: withWolves ? serializeEnemies(sim.enemies) : null,
+  };
+}
+
+function startGame(room) {
+  room.phase = 'playing';
+  room.tick = 0;
+  room.pending = [];
+  room.overAt = 0;
+  const seed = hashSeed(Date.now(), Math.random(), room.code) >>> 0;
+  room.sim = createSim({
+    seed, startLevel: 1,
+    players: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
+  });
+  for (const m of room.members) { m.inputs.clear(); m.lastInput = { x: 0, z: 0 }; }
+  sendRoom(room);
+  broadcast(room, startMsg(room, false));
+}
+
+// ---------------- simulation ----------------
+function stepRoom(room) {
+  const sim = room.sim;
+  const k = room.tick + 1;
+  const inputs = {};
+  for (const m of room.members) {
+    const inp = m.inputs.get(k);
+    if (inp) m.lastInput = inp;
+    inputs[m.id] = m.lastInput;
+    for (const key of m.inputs.keys()) if (key <= k) m.inputs.delete(key);
+  }
+  const events = stepSim(sim, inputs, CFG.TICK);
+  room.tick = k;
+  for (const e of events) room.pending.push(e);
+  if (events.some((e) => e.type === 'gameOver')) room.overAt = Date.now() + GAMEOVER_TO_LOBBY_MS;
+  if (k % NET.SNAP_EVERY === 0 || events.length) sendSnapshot(room);
+}
+
+const r3 = (v) => Math.round(v * 1000) / 1000;
+
+function sendSnapshot(room) {
+  const sim = room.sim;
+  const margins = new Map(room.members.map((m) => [m.id, m.margin]));
+  broadcast(room, {
+    t: 'snap', k: room.tick, lvl: sim.level, st: sim.state, lt: sim.enemyTicks, tm: r3(sim.time),
+    // [id, x, z, vx, vz, heading, alive, inCenter, lives, speedMult, invuln, shield, fish, deaths, rescues, inputMargin]
+    p: sim.players.map((p) => [p.id, r3(p.x), r3(p.z), r3(p.vx), r3(p.vz), r3(p.heading), p.alive ? 1 : 0, p.inCenter ? 1 : 0,
+      p.lives, r3(p.speedMult), r3(p.invuln), r3(p.shield), p.fish, p.deaths, p.rescues, Math.round((margins.get(p.id) ?? 0) * 10) / 10]),
+    it: sim.items.filter((i) => i.taken).map((i) => i.id),
+    c: sim.circles.map((c) => [c.playerId, r3(c.x), r3(c.z), r3(c.t)]),
+    s: sim.stats,
+    ec: wolfCheck(sim),
+    ev: room.pending,
+  });
+  room.pending = [];
+}
+
+// A few wolf positions per snapshot (rotating) so clients can detect a desynced local wolf sim.
+function wolfCheck(sim) {
+  const n = sim.enemies.length;
+  if (!n) return [];
+  const out = [];
+  const start = (sim.enemyTicks * 7) % n;
+  for (let i = 0; i < 8; i++) {
+    const e = sim.enemies[(start + i * 29) % n];
+    out.push([e.id, r3(e.x), r3(e.z)]);
+  }
+  return out;
+}
+
+let lastTime = performance.now();
+let acc = 0;
+setInterval(() => {
+  const now = performance.now();
+  acc += (now - lastTime) / 1000;
+  lastTime = now;
+  if (acc > 0.25) acc = 0.25; // never spiral after a stall
+  while (acc >= CFG.TICK) {
+    acc -= CFG.TICK;
+    for (const room of rooms.values()) if (room.phase === 'playing') stepRoom(room);
+  }
+  for (const room of rooms.values()) {
+    if (room.phase === 'playing' && room.overAt && Date.now() >= room.overAt) {
+      room.phase = 'lobby';
+      room.sim = null;
+      sendRoom(room);
+    }
+  }
+}, 1000 / 120);
+
+// ---------------- websocket ----------------
+const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 16 * 1024 });
+
+wss.on('connection', (ws) => {
+  const client = { id: nextClientId++, ws, room: null, name: '' };
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+  send(ws, { t: 'hello', id: client.id });
+
+  ws.on('message', (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
+    if (!msg || typeof msg.t !== 'string') return;
+    const room = client.room;
+    switch (msg.t) {
+      case 'list':
+        send(ws, { t: 'lobbies', list: lobbyList() });
+        break;
+      case 'create': {
+        if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', msg: 'Server is full, try again later.' });
+        const r = { code: makeCode(), members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0 };
+        rooms.set(r.code, r);
+        joinRoom(client, r, msg.name);
+        break;
+      }
+      case 'join': {
+        const r = rooms.get(String(msg.code || '').toUpperCase().trim());
+        if (!r) return send(ws, { t: 'error', msg: 'No lobby with that code.' });
+        if (r === room) return;
+        joinRoom(client, r, msg.name);
+        break;
+      }
+      case 'leave':
+        leaveRoom(client);
+        send(ws, { t: 'left' });
+        break;
+      case 'start':
+        if (room && room.hostId === client.id && room.phase === 'lobby') startGame(room);
+        break;
+      case 'in': {
+        if (!room || room.phase !== 'playing') return;
+        const k = msg.k | 0;
+        const x = Number.isFinite(msg.x) ? Math.max(-1, Math.min(1, msg.x)) : 0;
+        const z = Number.isFinite(msg.z) ? Math.max(-1, Math.min(1, msg.z)) : 0;
+        const margin = k - room.tick; // >0: arrived early enough to be used on time
+        client.margin += (margin - client.margin) * 0.1;
+        if (k <= room.tick) { client.lastInput = { x, z }; return; }    // late: best effort
+        if (k > room.tick + 120) return;                               // nonsense / far future
+        client.inputs.set(k, { x, z });
+        break;
+      }
+      case 'ping':
+        send(ws, { t: 'pong', c: msg.c, k: room && room.phase === 'playing' ? room.tick : 0 });
+        break;
+      case 'resync':
+        if (room && room.sim) send(ws, { t: 'wolves', lvl: room.sim.level, lt: room.sim.enemyTicks, wolves: serializeEnemies(room.sim.enemies) });
+        break;
+    }
+  });
+
+  ws.on('close', () => leaveRoom(client));
+  ws.on('error', () => {});
+});
+
+// Drop dead connections.
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (!ws.isAlive) { ws.terminate(); continue; }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, 15000);
+
+server.listen(PORT, HOST, () => console.log(`Run Kitty Run server on http://${HOST}:${PORT}`));

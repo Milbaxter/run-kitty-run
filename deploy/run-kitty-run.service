@@ -1,0 +1,26 @@
+[Unit]
+Description=Run Kitty Run game server
+After=network.target
+
+[Service]
+User=rkr
+Group=rkr
+WorkingDirectory=/opt/run-kitty-run/app
+Environment=NODE_ENV=production HOST=127.0.0.1 PORT=8080
+ExecStart=/usr/bin/node server/index.js
+Restart=always
+RestartSec=2
+# sandboxing: the game can't see other users' files (the box also runs the DSH lab)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+MemoryMax=1G
+CPUQuota=200%
+
+[Install]
+WantedBy=multi-user.target

@@ -293,6 +293,7 @@ function stepSim(sim, inputs, dt) {
         sim.circles.splice(c, 1);
         continue;
       }
+      if (circ.t < CFG.REVIVE_DELAY) continue; // revive cooldown
       let rescuer = null;
       for (let i = 0; i < players.length; i++) {
         const p = players[i];

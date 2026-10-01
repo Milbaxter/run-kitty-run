@@ -16,6 +16,7 @@ const CFG = {
   SHIELD_TIME: 4.0,          // seconds from shield pickup
 
   // Revive
+  REVIVE_DELAY: 0.5,         // seconds after going down before a friend can revive you
   REVIVE_RADIUS: 1.1,        // circle radius; living kitty center within REVIVE_RADIUS + KITTY_RADIUS revives
 
   // Maze geometry

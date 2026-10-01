@@ -35,3 +35,16 @@ const n = ld.legs.length;
 const fin = ld.enemies.filter((e) => e.leg === n - 1);
 ok(fin.length >= 8, `final stretch is crowded (${fin.length} wolves)`);
 ok(ld.safeCorners.length === ld.corners.length - 1 && fin.some((e) => e.a0 < CFG.RING_WIDTH / 2), 'the goal-door corner is not a safe square');
+
+// revive cooldown: standing on a fresh circle does nothing until REVIVE_DELAY has passed
+{
+  const s = createSim({ seed: 8, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] });
+  stepSim(s, {}, CFG.TICK);
+  const [p1, p2] = s.players;
+  p1.invuln = 99; p2.invuln = 0;
+  p2.alive = false; s.circles.push({ playerId: 2, x: p1.x, z: p1.z, t: 0 });
+  let t = 0, revivedAt = -1;
+  for (; t < 120 && revivedAt < 0; t++) { p1.invuln = 99; if (stepSim(s, {}, CFG.TICK).some((e) => e.type === 'revive')) revivedAt = t; }
+  const secs = (revivedAt + 1) * CFG.TICK;
+  ok(revivedAt >= 0 && secs >= CFG.REVIVE_DELAY - 1e-9 && secs < CFG.REVIVE_DELAY + 0.05, `revive only after the ${CFG.REVIVE_DELAY}s cooldown (${secs.toFixed(2)}s)`);
+}

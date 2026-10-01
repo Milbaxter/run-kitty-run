@@ -38,6 +38,7 @@ function makeLevel(sim, level) {
   sim.items = items;
   sim.circles = [];
   sim.enteredCenter = [];
+  sim.checkpointsHit = [];
   sim.levelTime = 0;
   sim.state = 'playing';
   sim.stateTimer = 0;
@@ -107,6 +108,7 @@ function createSim({ seed, players = [], startLevel = 1, mode = 'mixed' } = {}) 
     stats: { rescues: 0, deaths: 0, levelsCleared: 0, bestLevel: lvl },
     started: false,
     enteredCenter: [],
+    checkpointsHit: [],
   };
   makeLevel(sim, lvl);
   for (let i = 0; i < players.length; i++) {
@@ -347,6 +349,35 @@ function stepSim(sim, inputs, dt) {
       sim.circles.splice(c, 1);
       events.push({ type: 'revive', playerId: dead.id, by: rescuer.id, x: circ.x, z: circ.z });
     }
+  }
+
+  // --- checkpoints (ice levels): first kitty onto one revives everyone and gathers the team there ---
+  const cps = ld.checkpoints || [];
+  for (let c = 0; c < cps.length; c++) {
+    if (sim.state !== 'playing' || sim.checkpointsHit.indexOf(c) >= 0) continue;
+    const cp = cps[c];
+    const h = ld.corridorWidth / 2 - CFG.WALL_THICKNESS / 2;
+    const by = players.find((p) => p.alive && !p.inCenter && Math.abs(p.x - cp.x) < h && Math.abs(p.z - cp.z) < h);
+    if (!by) continue;
+    sim.checkpointsHit.push(c);
+    const revived = [];
+    let slot = 0;
+    for (let i = 0; i < players.length; i++) {
+      const p = players[i];
+      if (p.inCenter) continue;
+      if (!p.alive) { p.alive = true; p.shield = 0; revived.push(p.id); }
+      // 3x3 block centered on the square, rows across the leg
+      const a = 1.2 * (1 - Math.floor(slot / 3) % 3), b = 1.2 * ((slot % 3) - 1);
+      const px = -Math.sin(cp.heading), pz = Math.cos(cp.heading);
+      p.x = cp.x + Math.cos(cp.heading) * a + px * b;
+      p.z = cp.z + Math.sin(cp.heading) * a + pz * b;
+      p.heading = cp.heading;
+      p.vx = 0; p.vz = 0; p.moving = false;
+      p.invuln = 0;
+      slot++;
+    }
+    sim.circles = sim.circles.filter((circ) => { const q = findPlayer(sim, circ.playerId); return q && !q.alive; });
+    events.push({ type: 'checkpoint', index: c, by: by.id, x: cp.x, z: cp.z, revived });
   }
 
   // --- hits ---

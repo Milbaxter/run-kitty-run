@@ -213,6 +213,18 @@ function placeItems(rng, lvl, p) {
   return items;
 }
 
+// Ice levels: two safe squares are checkpoints (see sim.js): the one nearest 1/3 of the way along
+// the path, and the second-to-last safe square. Each faces down the leg that leaves it (legs[i] runs from corner i+1 at s=0 to corner i).
+function pickCheckpoints(corners, legs, nSafe) {
+  const cum = [0];
+  for (let i = 1; i < corners.length; i++) cum.push(cum[i - 1] + Math.hypot(corners[i].x - corners[i - 1].x, corners[i].z - corners[i - 1].z));
+  const total = cum[cum.length - 1];
+  const late = nSafe - 2;
+  let third = 1;
+  for (let i = 1; i < late; i++) if (Math.abs(cum[i] - total / 3) < Math.abs(cum[third] - total / 3)) third = i;
+  return [third, late].map((i) => ({ corner: i, x: corners[i].x, z: corners[i].z, heading: Math.atan2(-legs[i].uz, -legs[i].ux) })); // run direction is -u
+}
+
 // ---------------------------------------------------------------- generation
 
 // mode: 'mixed' (default: level 2 of every 4 is the ice rink), 'run' (no ice, original theme order), 'ice' (every level is ice)
@@ -254,7 +266,8 @@ function generateLevel(level, seed, mode = 'mixed') {
     theme: CFG.ICE_TEST || mode === 'ice' ? ICE_THEME : mode === 'run' ? (L - 1) % 4 : THEME_ORDER[(L - 1) % 4],
     mode,
   };
-  lvl.ice = mode !== 'run' && lvl.theme === ICE_THEME;      // snowy level: corridors are ice, safe squares + goal room are not
+  lvl.ice = mode !== 'run' && lvl.theme === ICE_THEME;
+  lvl.checkpoints = lvl.ice ? pickCheckpoints(corners, legs, lvl.safeCorners.length) : [];      // snowy level: corridors are ice, safe squares + goal room are not
   lvl.enemies = placeEnemies(rng, lvl, p);
   lvl.items = placeItems(rng, lvl, p);
   return lvl;

@@ -463,6 +463,15 @@ function handleEvents(events) {
         if (p && by) ui.toast(`${by.name} saved ${p.name}!`, hexCss(by.color));
         break;
       }
+      case 'checkpoint': {
+        mouse.target = null; mouse.iceDir = null; // everyone was moved: drop the old heading
+        const by = playerById(ev.by);
+        ui.banner('CHECKPOINT!', ev.revived.length ? 'Everyone is back on their paws' : (by && sim.players.length > 1 ? `${by.name} gathered the team` : 'Progress saved'), 1600);
+        effects.teleport(ev.x, ev.z, by ? by.color : 0x8fdcff);
+        effects.reviveBeam(ev.x, ev.z, 0x8fdcff);
+        audio.play('revive');
+        break;
+      }
       case 'pickup': {
         const colors = { boots: 0x5ff3ff, life: 0xff6fa8, shield: 0x7aa8ff };
         const labels = { boots: 'SPEED UP!', life: '+1 LIFE', shield: 'SHIELD!' };

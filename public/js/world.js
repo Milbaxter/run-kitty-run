@@ -688,9 +688,10 @@ function buildIce(levelData, T) {
   const W = levelData.corridorWidth, h = W / 2 - CFG.WALL_THICKNESS / 2, UVS = 1 / 9;
   const pos = [], uv = [], idx = [];
   levelData.legs.forEach((l, i) => {
-    // butt up against the safe tiles instead of running under them (no flicker); an unsafe end corner is iced by this leg
-    const endSafe = i + 1 < levelData.safeCorners.length;
-    const s0 = h, s1 = endSafe ? l.len - h : l.len + h;
+    // leg i runs from corner i+1 (s=0) to corner i (s=len). Butt up against safe tiles instead of running under
+    // them (no flicker); an unsafe corner at s=len is iced by this leg, and the last leg also ices its s=0 door corner.
+    const endSafe = i < levelData.safeCorners.length;
+    const s0 = i === levelData.legs.length - 1 ? -h : h, s1 = endSafe ? l.len - h : l.len + h;
     const b = pos.length / 3;
     for (const [sv, v] of [[s0, -h], [s0, h], [s1, -h], [s1, h]]) {
       const x = l.ox + l.ux * sv + l.nx * v, z = l.oz + l.uz * sv + l.nz * v;
@@ -1091,6 +1092,36 @@ function buildParticles(theme, rng, radius, T) {
   return { points: pts, update };
 }
 
+// Checkpoint squares (ice levels): a glowing ring on the tile and a flag in its back corner.
+function buildCheckpoints(levelData, T) {
+  const out = [];
+  const ringMat = T.m(new THREE.MeshBasicMaterial({ color: 0x8fdcff, transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false }));
+  const poleMat = T.m(new THREE.MeshStandardMaterial({ color: 0xdfe6f0, roughness: 0.6, metalness: 0.3 }));
+  const flagMat = T.m(new THREE.MeshStandardMaterial({ color: 0x3fb8ff, emissive: 0x2a8fe0, emissiveIntensity: 0.5, roughness: 0.7, side: THREE.DoubleSide }));
+  const ringGeo = T.g(new THREE.RingGeometry(2.6, 3.0, 48));
+  const poleGeo = T.g(new THREE.CylinderGeometry(0.06, 0.08, 2.6, 8));
+  const flagShape = new THREE.Shape();
+  flagShape.moveTo(0, 0); flagShape.lineTo(1.1, -0.32); flagShape.lineTo(0, -0.7); flagShape.closePath();
+  const flagGeo = T.g(new THREE.ShapeGeometry(flagShape));
+  for (const cp of levelData.checkpoints || []) {
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(cp.x, 0.02, cp.z);
+    out.push(ring);
+    // back corner of the square (behind the run direction, on the left), clear of the 3x3 arrival block
+    const fx = Math.cos(cp.heading), fz = Math.sin(cp.heading), off = levelData.corridorWidth / 2 - 1;
+    const x = cp.x - fx * off - fz * off, z = cp.z - fz * off + fx * off;
+    const pole = new THREE.Mesh(poleGeo, poleMat);
+    pole.position.set(x, 1.3, z);
+    pole.castShadow = true;
+    const flag = new THREE.Mesh(flagGeo, flagMat);
+    flag.position.set(x, 2.55, z);
+    flag.rotation.y = -cp.heading;
+    out.push(pole, flag);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- public API
 
 function buildWorld(scene, levelData) {
@@ -1102,6 +1133,7 @@ function buildWorld(scene, levelData) {
   group.name = 'world';
 
   for (const m of buildFloors(levelData, theme, T)) group.add(m);
+  for (const m of buildCheckpoints(levelData, T)) group.add(m);
   for (const m of buildWalls(levelData, theme, T)) group.add(m);
   const lanterns = buildLanterns(levelData, theme, T, rng);
   for (const m of lanterns.meshes) group.add(m);

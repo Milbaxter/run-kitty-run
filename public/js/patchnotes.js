@@ -10,6 +10,7 @@ const PATCH_NOTES = [
       'Safe stone squares and the goal room are not ice: walk normally there (and stop)',
       'Kitties wear ice skates on the rink and leave skate marks behind them',
       'Online: whoever creates a lobby picks the mode: Run + Skate, Run only, or Skate only',
+      'Phones: a floating joystick appears wherever you put your thumb, so your finger never covers your kitty',
       'Ice levels have two checkpoint flags (a third of the way in, and five safe squares before the end): reaching one revives everyone and gathers the team there',
     ],
   },

@@ -189,12 +189,44 @@ const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const mouseHit = new THREE.Vector3();
 
-// Touch: the kitty heads for a point a little above the thumb so the finger doesn't cover it.
-const TOUCH_LEAD_PX = 55;
-let touchId = null, touchDownAt = 0;
+// Touch: a floating joystick wherever the thumb lands (anywhere on screen, so it never covers the kitty).
+// Drag direction = screen direction the kitty moves; letting go = no input (stop, or keep sliding on ice).
+const JOY_R = 55, JOY_DEAD = 8;
+let touchId = null;
+const joy = { on: false, ox: 0, oy: 0, x: 0, y: 0 };
+const joyEl = document.createElement('div');
+joyEl.innerHTML = '<div></div>';
+joyEl.style.cssText = `position:fixed;left:0;top:0;width:${JOY_R * 2}px;height:${JOY_R * 2}px;margin:-${JOY_R}px 0 0 -${JOY_R}px;border-radius:50%;` +
+  'border:3px solid rgba(255,255,255,.55);background:rgba(20,10,40,.22);pointer-events:none;z-index:5;display:none;';
+joyEl.firstChild.style.cssText = 'position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border-radius:50%;' +
+  'background:rgba(255,255,255,.75);box-shadow:0 2px 8px rgba(0,0,0,.35);';
+document.body.appendChild(joyEl);
+function drawJoy() {
+  joyEl.style.display = joy.on ? 'block' : 'none';
+  if (!joy.on) return;
+  joyEl.style.transform = `translate(${joy.ox}px,${joy.oy}px)`;
+  joyEl.firstChild.style.transform = `translate(${joy.x - joy.ox}px,${joy.y - joy.oy}px)`;
+}
+function joyMove(e) {
+  joy.x = e.clientX; joy.y = e.clientY;
+  // the base trails the thumb once it is pulled past the rim
+  const dx = joy.x - joy.ox, dy = joy.y - joy.oy, d = Math.hypot(dx, dy);
+  if (d > JOY_R) { joy.ox = joy.x - dx / d * JOY_R; joy.oy = joy.y - dy / d * JOY_R; }
+  drawJoy();
+}
+const _camRight = new THREE.Vector3(), _camFwd = new THREE.Vector3();
+function joyInput() {
+  const dx = joy.x - joy.ox, dy = joy.y - joy.oy, d = Math.hypot(dx, dy);
+  if (d < JOY_DEAD) return { x: 0, z: 0 };
+  // screen right/up -> ground directions as the camera sees them
+  _camRight.setFromMatrixColumn(camera.matrixWorld, 0).setY(0).normalize();
+  camera.getWorldDirection(_camFwd).setY(0).normalize();
+  const m = Math.min(1, d / JOY_R) / d;
+  const sx = dx * m, sy = -dy * m;
+  return { x: _camRight.x * sx + _camFwd.x * sy, z: _camRight.z * sx + _camFwd.z * sy };
+}
 function setMouseNdc(e) {
-  const y = e.pointerType === 'touch' ? e.clientY - TOUCH_LEAD_PX : e.clientY;
-  mouse.ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(y / window.innerHeight) * 2 + 1);
+  mouse.ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
   mouse.has = true;
 }
 function mouseGround() {
@@ -202,7 +234,7 @@ function mouseGround() {
   return raycaster.ray.intersectPlane(groundPlane, mouseHit) ? { x: mouseHit.x, z: mouseHit.z } : null;
 }
 canvas.addEventListener('pointermove', (e) => {
-  if (e.pointerType === 'touch' && e.pointerId !== touchId) return; // only the first finger steers
+  if (e.pointerType === 'touch') { if (e.pointerId === touchId) joyMove(e); return; } // only the first finger steers
   setMouseNdc(e);
 });
 canvas.addEventListener('pointerdown', (e) => {
@@ -211,8 +243,11 @@ canvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'touch') {
     if (touchId !== null) return;
     touchId = e.pointerId;
-    touchDownAt = performance.now();
     try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    joy.on = true; joy.ox = joy.x = e.clientX; joy.oy = joy.y = e.clientY;
+    mouse.target = null; mouse.iceDir = null;
+    drawJoy();
+    return;
   }
   setMouseNdc(e);
   mouse.held = true;
@@ -224,8 +259,9 @@ function pointerEnd(e) {
   if (e.pointerType === 'touch') {
     if (e.pointerId !== touchId) return;
     touchId = null;
-    // hold = follow the thumb, so letting go stops; a quick tap = run to that spot
-    if (performance.now() - touchDownAt > 250) mouse.target = null;
+    joy.on = false;
+    drawJoy();
+    return;
   }
   mouse.held = false;
 }
@@ -240,6 +276,7 @@ function mousePlayerIndex() {
 
 function mouseInput(p, kb) {
   if (Math.hypot(kb.x, kb.z) > 0.1 || !p.alive) { mouse.target = null; mouse.iceDir = null; return kb; }
+  if (joy.on) return joyInput();
   if (mouse.held && mouse.has) mouse.target = mouseGround() || mouse.target;
   if (!onIce(sim.levelData, p.x, p.z)) mouse.iceDir = null;
   else if (mouse.held || mouse.iceDir) {

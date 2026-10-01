@@ -713,7 +713,7 @@ function createUI(root) {
           <button class="rkr-btn" data-p="1"><span><span class="rkr-kk">2</span>SINGLE PLAYER</span><small>solo run</small></button>
           <button class="rkr-btn rkr-alt rkr-desk" data-p="2"><span><span class="rkr-kk">3</span>LOCAL CO-OP</span><small>2 players, one keyboard</small></button>
         </div>
-        <div class="rkr-touchonly rkr-touchhint">Hold your thumb on the screen: your kitty follows it. Tap to run to a spot.</div>
+        <div class="rkr-touchonly rkr-touchhint">Put your thumb down anywhere and drag: a joystick appears under it and steers your kitty.</div>
         <div class="rkr-info rkr-desk">
           <div class="rkr-panel rkr-how"><h3>How to play</h3>
             <div class="rkr-items">

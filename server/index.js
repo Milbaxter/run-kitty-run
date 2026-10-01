@@ -14,6 +14,10 @@ const PORT = +process.env.PORT || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public');
 const GAMEOVER_TO_LOBBY_MS = 4000;
+// Player feedback is appended here as JSON lines (systemd gives the service /var/lib/run-kitty-run).
+const FEEDBACK_FILE = process.env.FEEDBACK_FILE || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../feedback.jsonl');
+const FEEDBACK_MAX = 1000;          // characters per message
+const FEEDBACK_PER_HOUR = 6;        // per IP
 const MAX_ROOMS = 200;
 
 // ---------------- static files ----------------
@@ -26,6 +30,7 @@ const TYPES = {
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/healthz') { res.end('ok'); return; }
+  if (url.pathname === '/api/feedback') { handleFeedback(req, res); return; }
   let p = decodeURIComponent(url.pathname);
   if (p.endsWith('/')) p += 'index.html';
   const file = path.join(ROOT, p);
@@ -55,6 +60,44 @@ const server = http.createServer((req, res) => {
     fs.createReadStream(file).pipe(res);
   });
 });
+
+// ---------------- feedback ----------------
+const feedbackHits = new Map(); // ip -> [timestamps]
+
+function clientIp(req) {
+  // behind Caddy: the first X-Forwarded-For entry is the real client
+  const xf = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return xf || req.socket.remoteAddress || '?';
+}
+
+function handleFeedback(req, res) {
+  const reply = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
+  if (req.method !== 'POST') return reply(405, { ok: false });
+  const ip = clientIp(req);
+  const now = Date.now();
+  const hits = (feedbackHits.get(ip) || []).filter((t) => now - t < 3600e3);
+  if (hits.length >= FEEDBACK_PER_HOUR) return reply(429, { ok: false, msg: 'Thanks! That is plenty of feedback for now.' });
+  let body = '';
+  req.on('data', (c) => { body += c; if (body.length > 8192) req.destroy(); });
+  req.on('end', () => {
+    let m;
+    try { m = JSON.parse(body); } catch { return reply(400, { ok: false }); }
+    const clean = (v, n) => String(v ?? '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, n);
+    const text = clean(m.text, FEEDBACK_MAX);
+    if (text.length < 2) return reply(400, { ok: false, msg: 'Type a little more first.' });
+    const entry = {
+      at: new Date(now).toISOString(), text,
+      name: clean(m.name, 20), mode: clean(m.mode, 12), level: Number.isFinite(m.level) ? m.level | 0 : null,
+      ua: clean(req.headers['user-agent'], 160),
+    };
+    hits.push(now);
+    feedbackHits.set(ip, hits);
+    fs.appendFile(FEEDBACK_FILE, JSON.stringify(entry) + '\n', (err) => {
+      if (err) { console.error('feedback write failed:', err.message); return reply(500, { ok: false }); }
+      reply(200, { ok: true });
+    });
+  });
+}
 
 // ---------------- rooms ----------------
 const rooms = new Map(); // code -> Room

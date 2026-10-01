@@ -16,6 +16,15 @@ npm start          # http://localhost:8080
 Player-facing notes live in `public/js/patchnotes.js` (newest first) and show on the title screen on desktop.
 Add a line there whenever you ship something players will notice.
 
+## Player feedback
+
+Players can send feedback from the game (button shows while their kitty is down / on game over).
+It's stored on the server in `/var/lib/run-kitty-run/feedback.jsonl`. Read it with:
+
+```bash
+scripts/feedback.sh          # newest last; add -n 20 for only the last 20
+```
+
 ## Layout
 
 - `public/` – the browser client (static files). `public/js/shared/` is the pure, deterministic game sim, used by both client and server.

@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '0.7', date: '2026-10-01', title: 'Phones & the final stretch',
     items: [
+      'Send us feedback and ideas: a button appears while your kitty is down and on game over',
       'New main menu order: 1 Multiplayer, 2 Single player, 3 Local co-op',
       'Play on your phone: hold your thumb down and your kitty follows it (tap to run to a spot)',
       'Phones: landscape mode, hideable HUD (off by default) and lighter graphics',

@@ -16,6 +16,7 @@ import { createUI } from './ui.js';
 import { createNet } from './net.js';
 import { createLobbyUI } from './lobby.js';
 import { createChat } from './chat.js';
+import { createFeedback } from './feedback.js';
 import { TOUCH, QUALITY, goFullscreenLandscape } from './device.js';
 
 // Integration: renderer, input, camera, presentation of the pure sim.
@@ -643,7 +644,22 @@ function world_update(dt, t) {
   lighting.update(dt, t, camTarget.x, camTarget.z);
 }
 
+const feedback = createFeedback(document.getElementById('ui'), {
+  getContext: () => {
+    const me = online.playing ? sim.players.find((p) => p.id === online.me) : sim.players[0];
+    return { name: me ? me.name : '', mode: online.playing ? 'online' : playerCount === 2 ? 'coop' : 'solo', level: sim ? sim.level : 0 };
+  },
+});
+
 function updateHUD() {
+  // feedback button: while your kitty is down, or on the game-over screen
+  let down = false;
+  if (mode === 'play') {
+    if (sim.state === 'gameover') down = true;
+    else if (online.playing) down = sim.players.some((p) => p.id === online.me && !p.alive);
+    else down = sim.players.some((p) => !p.alive);
+  }
+  feedback.setVisible(down);
   if (mode !== 'play') { ui.setScores(null); return; }
   // score: +1 per friend saved, -1 per time caught
   ui.setScores(sim.players.map((p) => ({ name: p.name, color: p.color, score: p.rescues - p.deaths, me: online.playing ? p.id === online.me : true, you: online.playing && p.id === online.me })));

@@ -18,7 +18,8 @@ import { createNet } from './net.js';
 import { createLobbyUI } from './lobby.js';
 import { createChat } from './chat.js';
 import { createFeedback } from './feedback.js';
-import { TOUCH, QUALITY, goFullscreenLandscape } from './device.js';
+import { TOUCH, QUALITY, goFullscreenLandscape, setKeepAwake, hideSplash } from './device.js';
+import { NATIVE, haptic, plugin, call, storeUrl, openExternal } from './platform.js';
 
 // Integration: renderer, input, camera, presentation of the pure sim.
 
@@ -422,9 +423,11 @@ function enterTitle(showTitleScreen = true) {
   startSim([], 1 + Math.floor(Math.random() * 3));
   stepSim(sim, {}, CFG.TICK); // generate level
   buildView();
-  if (showTitleScreen) ui.showTitle(({ players }) => (players === 3 ? openOnline() : startGame(players)));
+  if (showTitleScreen) ui.showTitle(onTitlePick);
   musicPlay(1);
 }
+
+function onTitlePick({ players }) { return players === 3 ? openOnline() : startGame(players); }
 
 function startGame(n) {
   goFullscreenLandscape();
@@ -476,6 +479,7 @@ function handleEvents(events) {
       }
       case 'death': {
         const p = playerById(ev.playerId);
+        if (mine(ev.playerId)) haptic('heavy');
         effects.deathPoof(ev.x, ev.z, p ? p.color : 0xffffff);
         effects.shake(0.55);
         audio.play('death', { pan: panFor(ev.x) });
@@ -485,6 +489,7 @@ function handleEvents(events) {
       }
       case 'extraLife': {
         const p = playerById(ev.playerId);
+        if (mine(ev.playerId)) haptic('medium');
         effects.reviveBeam(ev.x, ev.z, p ? p.color : 0xffffff);
         effects.floatText(ev.x, 1.6, ev.z, 'EXTRA LIFE!', '#ff8fb8');
         effects.shake(0.3);
@@ -494,6 +499,7 @@ function handleEvents(events) {
       case 'revive': {
         const p = playerById(ev.playerId);
         const by = playerById(ev.by);
+        if (mine(ev.playerId) || mine(ev.by)) haptic('medium');
         effects.reviveBeam(ev.x, ev.z, p ? p.color : 0xffffff);
         effects.floatText(ev.x, 1.6, ev.z, 'SAVED!', p ? hexCss(p.color) : '#fff');
         audio.play('revive', { pan: panFor(ev.x) });
@@ -503,6 +509,7 @@ function handleEvents(events) {
       case 'checkpoint': {
         mouse.target = null; mouse.iceDir = null; // everyone was moved: drop the old heading
         const by = playerById(ev.by);
+        haptic('medium');
         ui.banner('CHECKPOINT!', ev.revived.length ? 'Everyone is back on their paws' : (by && sim.players.length > 1 ? `${by.name} gathered the team` : 'Progress saved'), 1600);
         effects.teleport(ev.x, ev.z, by ? by.color : 0x8fdcff);
         effects.reviveBeam(ev.x, ev.z, 0x8fdcff);
@@ -510,6 +517,7 @@ function handleEvents(events) {
         break;
       }
       case 'pickup': {
+        if (mine(ev.playerId)) haptic('light');
         const colors = { boots: 0x5ff3ff, life: 0xff6fa8, shield: 0x7aa8ff };
         const labels = { boots: 'SPEED UP!', life: '+1 LIFE', shield: 'SHIELD!' };
         effects.pickup(ev.x, ev.z, colors[ev.itemType] || 0xffffff);
@@ -528,6 +536,7 @@ function handleEvents(events) {
         break;
       }
       case 'levelClear': {
+        haptic('success');
         effects.confetti(0, 0);
         effects.shake(0.2);
         const by = playerById(ev.by);
@@ -536,6 +545,7 @@ function handleEvents(events) {
         break;
       }
       case 'gameOver': {
+        haptic('error');
         audio.play('gameOver');
         musicStop();
         break;
@@ -549,6 +559,9 @@ function handleEvents(events) {
     }
   }
 }
+
+// haptics: only for your own kitty online; every kitty on this device offline
+function mine(id) { return !online.playing || id === online.me; }
 
 function levelSubtitle(level) {
   const tips = [
@@ -753,16 +766,17 @@ const lobbyUI = createLobbyUI(document.getElementById('ui'), {
   onLeave: () => net.send({ t: 'leave' }),
   onStart: () => net.send({ t: 'start' }),
   onRefresh: () => net.send({ t: 'list' }),
-  onBack: () => { net.disconnect(); lobbyUI.hide(); setRoomInUrl(null); online.room = null; chat.setEnabled(false); ui.showTitle(({ players }) => (players === 3 ? openOnline() : startGame(players))); },
+  onBack: () => leaveOnline(),
 });
 
 const chat = createChat(document.getElementById('ui'), {
   touch: TOUCH,
   onSend: (text) => net.send({ t: 'chat', text }),
   onOpen: () => keys.clear(), // don't keep running while typing
+  onReport: (id, reason) => net.send({ t: 'report', id, reason }),
 });
 net.on('chat', (m) => {
-  chat.add(m);
+  if (!chat.add(m)) return; // blocked player or chat hidden: no bubble either
   // speech bubble over the sender's kitty during a run
   if (!m.sys && online.playing && mode === 'play') {
     const p = sim.players.find((q) => q.id === m.id);
@@ -778,23 +792,66 @@ const online = {
   wolfTicks: new Int32Array(WOLF_HIST).fill(-1), wolfPos: null, resyncAt: 0,
 };
 
+function leaveOnline() {
+  net.disconnect();
+  lobbyUI.hide();
+  setRoomInUrl(null);
+  online.room = null;
+  online.rejoin = null;
+  chat.setEnabled(false);
+  ui.showTitle(onTitlePick);
+}
+
 function setRoomInUrl(code) {
   const u = new URL(location.href);
   if (code) u.searchParams.set('room', code); else u.searchParams.delete('room');
   history.replaceState(null, '', u);
 }
 
-function openOnline() {
-  goFullscreenLandscape();
-  net.connect();
-  const code = new URLSearchParams(location.search).get('room');
-  lobbyUI.showBrowser();
-  if (code) {
-    let name = '';
-    try { name = localStorage.getItem('rkr-name') || ''; } catch { /* ignore */ }
-    net.send({ t: 'join', code, name });
-  }
+function savedName() {
+  try { return localStorage.getItem('rkr-name') || ''; } catch { return ''; }
 }
+
+// First time online: Terms / zero-tolerance notice (terms.js). Missing module = nothing to accept.
+function termsAccepted() {
+  return import('./terms.js').then((m) => (m.ensureTermsAccepted ? m.ensureTermsAccepted() : true), () => true);
+}
+
+let opening = false;
+async function openOnline(joinCode) {
+  goFullscreenLandscape(); // needs the user gesture: before any await
+  if (opening) return;
+  if (net.outdated) { showOutdated(); return; }
+  opening = true;
+  let ok = true;
+  try { ok = await termsAccepted(); } catch { ok = true; }
+  opening = false;
+  if (!ok) { setRoomInUrl(null); if (!ui.isTitleOpen()) ui.showTitle(onTitlePick); return; }
+  net.connect();
+  const code = joinCode || new URLSearchParams(location.search).get('room');
+  lobbyUI.showBrowser();
+  if (code) net.send({ t: 'join', code, name: savedName() });
+}
+
+// "Update the app" (native) / "Reload" (web) when the server says this build is too old.
+function showOutdated(msg) {
+  lobbyUI.hide();
+  chat.setEnabled(false);
+  online.room = null;
+  online.rejoin = null;
+  setRoomInUrl(null);
+  if (online.playing || mode === 'play') enterTitle(false);
+  ui.hideTitle();
+  ui.showNotice({
+    title: 'UPDATE TIME',
+    text: msg || 'A new version of Run Kitty Run is out — update to keep playing online.',
+    button: NATIVE ? 'UPDATE' : 'RELOAD',
+    onClick: () => (NATIVE ? openExternal(storeUrl()) : location.reload()),
+    alt: 'PLAY SOLO',
+    onAlt: () => { ui.hideNotice(); ui.showTitle(onTitlePick); },
+  });
+}
+net.on('outdated', (m) => showOutdated(m.msg));
 
 net.on('lobbies', (m) => lobbyUI.setLobbies(m.list));
 net.on('error', (m) => {
@@ -812,7 +869,14 @@ net.on('room', (m) => {
   if (!online.playing || mode !== 'play') lobbyUI.showRoom(m);
 });
 net.on('left', () => { online.room = null; chat.setEnabled(false); setRoomInUrl(null); if (online.playing) enterTitle(false); lobbyUI.showBrowser(); });
+net.on('open', () => {
+  // back after a dropped connection (or the app was in the background): rejoin the same lobby
+  const code = online.rejoin;
+  online.rejoin = null;
+  if (code && !online.room) net.send({ t: 'join', code, name: savedName() });
+});
 net.on('close', () => {
+  if (online.room) online.rejoin = online.room.code;
   online.room = null;
   chat.setEnabled(false);
   if (online.playing) enterTitle(false);
@@ -1132,7 +1196,91 @@ function tick(dt) {
     ui.updateMinimap(sim.levelData, sim);
   }
 
+  setKeepAwake(mode === 'play' && !paused && sim.state !== 'gameover');
   composer.render();
+  hideSplash(); // after the first rendered frame
+}
+
+// ---------- app / platform glue ----------
+// Light tap on buttons (apps only; haptic() is a no-op on the web).
+document.addEventListener('click', (e) => {
+  if (e.target.closest && e.target.closest('button, .rkr-mute, .rkr-hudbtn, .rkr-menubtn, .rkl-lob')) haptic('light');
+}, true);
+
+// Background / foreground. Web: just make sure the socket is alive again. Apps: also pause a local
+// run, silence music and wake the audio context back up afterwards.
+let inBackground = false;
+function setBackground(bg) {
+  if (bg === inBackground) return;
+  inBackground = bg;
+  if (bg) {
+    keys.clear();
+    touchId = null; joy.on = false; drawJoy();
+    if (!NATIVE) return;
+    if (mode === 'play' && !online.playing && !paused && sim.state === 'playing') togglePause();
+    track.pause();
+    audio.setBackground(true);
+  } else {
+    if (NATIVE) { audio.setBackground(false); syncTrack(); }
+    net.wake();
+    if (online.playing && net.connected) net.send({ t: 'resync' });
+  }
+}
+document.addEventListener('visibilitychange', () => setBackground(document.visibilityState === 'hidden'));
+const App = plugin('App');
+if (App) {
+  App.addListener('appStateChange', (st) => setBackground(!st.isActive));
+  App.addListener('backButton', onBackButton);
+  App.addListener('appUrlOpen', (e) => joinFromLink(roomFromLink(e && e.url)));
+  call('App', 'getLaunchUrl').then((r) => { if (r && r.url) joinFromLink(roomFromLink(r.url)); });
+}
+
+// Android back: close the top-most thing; on the title screen, minimize the app.
+function onBackButton() {
+  if (feedback.isOpen()) { feedback.close(); return; }
+  if (chat.isOpen()) { chat.close(); return; }
+  const terms = document.querySelector('.rkt-modal .rkr-alt'); // terms.js notice: "Not now"
+  if (terms) { terms.click(); return; }
+  if (ui.isNoticeOpen()) { ui.hideNotice(); if (!ui.isTitleOpen()) ui.showTitle(onTitlePick); return; }
+  if (mode === 'play') {
+    if (ui.isGameOverOpen()) { ui.hideGameOver(); if (online.playing) backToLobby(); else enterTitle(); return; }
+    if (online.playing) toggleOnlineMenu();
+    else if (paused) { ui.hidePause(); enterTitle(); } // back on the pause menu = quit the run
+    else togglePause();
+    return;
+  }
+  if (lobbyUI.isOpen()) {
+    if (lobbyUI.view() === 'room') net.send({ t: 'leave' });
+    else leaveOnline();
+    return;
+  }
+  if (ui.isTitleOpen()) { call('App', 'minimizeApp'); return; }
+  enterTitle();
+}
+
+// Invite links: https://<server>/?room=ABCD (universal / app links) and runkittyrun://join?room=ABCD
+function roomFromLink(url) {
+  const m = /[?&]room=([A-Za-z0-9]{4,8})/.exec(url || '');
+  return m ? m[1].toUpperCase() : null;
+}
+let lastLink = '', lastLinkAt = 0;
+function joinFromLink(code) {
+  if (!code) return;
+  const now = performance.now();
+  if (code === lastLink && now - lastLinkAt < 3000) return; // launch URL + appUrlOpen can both fire
+  lastLink = code; lastLinkAt = now;
+  if (online.room && online.room.code === code) return;
+  feedback.close();
+  chat.close();
+  ui.hideNotice();
+  if (online.room) net.send({ t: 'leave' });
+  if (mode === 'play') enterTitle(false); // a link wins over a local run
+  online.menu = false;
+  ui.hidePause();
+  ui.hideGameOver();
+  ui.hideTitle();
+  setRoomInUrl(code);
+  openOnline(code);
 }
 
 enterTitle();

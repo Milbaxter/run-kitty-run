@@ -1,5 +1,6 @@
 // Online lobby screens (browser + room), styled with the same rkr-* look as ui.js.
 // All player-supplied text is inserted with textContent.
+import { inviteUrl, share } from './platform.js';
 
 const CAT = `<svg viewBox="0 0 40 40"><path d="M5 4 L15 12 Q20 10.5 25 12 L35 4 L33.5 20 Q34 34.5 20 35.5 Q6 34.5 6.5 20 Z" fill="currentColor" stroke="#2b1840" stroke-width="2.6" stroke-linejoin="round"/><path d="M8.5 9 L13 12.6 L9.6 15.5 Z M31.5 9 L27 12.6 L30.4 15.5 Z" fill="#ff9ec4"/><ellipse cx="14.3" cy="21.5" rx="2.3" ry="3.1" fill="#2b1840"/><ellipse cx="25.7" cy="21.5" rx="2.3" ry="3.1" fill="#2b1840"/></svg>`;
 const CROWN = `<svg viewBox="0 0 40 30"><path d="M3 26 L6 7 L14 16 L20 3 L26 16 L34 7 L37 26 Z" fill="#ffcf5a" stroke="#7a4b00" stroke-width="2.4" stroke-linejoin="round"/></svg>`;
@@ -10,6 +11,7 @@ const MODES = [
   { id: 'ice', label: 'Skate only', tip: 'Every level is ice' },
 ];
 const modeLabel = (id) => (MODES.find((m) => m.id === id) || MODES[0]).label;
+const PLAT = { ios: ['🍎', 'iPhone / iPad app'], android: ['🤖', 'Android app'], web: ['🌐', 'Browser'] };
 
 const CSS = `
 .rkl-box{max-width:560px;text-align:center;}
@@ -61,6 +63,9 @@ const CSS = `
 .rkl-tag{font-size:11px;font-weight:900;letter-spacing:.06em;padding:2px 7px;border-radius:8px;background:rgba(143,220,255,.18);color:#bfe8ff;white-space:nowrap;}
 .rkl-roommode{font-weight:900;color:#bfe8ff;}
 .rkl-link{font-size:13px;font-weight:700;opacity:.75;word-break:break-all;user-select:text;-webkit-user-select:text;}
+.rkl-invite{min-width:220px;}
+.rkl-plat{font-size:13px;flex:none;opacity:.85;}
+@media (max-height:500px){ .rkl-invite{padding:8px 22px 10px!important;} }
 `;
 
 function el(tag, cls, html) {
@@ -197,10 +202,17 @@ function createLobbyUI(root, cb) {
       const code = el('div', 'rkl-bigcode');
       const roomMode = el('div', 'rkl-roommode');
       const link = el('div', 'rkl-link');
-      const copy = el('button', 'rkr-btn rkr-alt rkl-small', 'COPY INVITE LINK');
-      copy.addEventListener('click', () => {
-        const done = () => { copy.textContent = 'COPIED!'; setTimeout(() => { copy.textContent = 'COPY INVITE LINK'; }, 1400); };
-        if (navigator.clipboard) navigator.clipboard.writeText(link.textContent).then(done, () => {});
+      // share sheet in the app / on phones, clipboard on desktop
+      const copy = el('button', 'rkr-btn rkr-alt rkl-invite', '<span>INVITE FRIENDS</span><small>send the lobby link</small>');
+      let copyT = 0;
+      copy.addEventListener('click', async () => {
+        if (!roomRefs) return;
+        const c = roomRefs.code.textContent;
+        const res = await share({ title: 'Run Kitty Run', text: `Join my Run Kitty Run lobby! Code ${c}`, url: inviteUrl(c) });
+        if (res !== 'copied' && res !== 'failed') return;
+        copy.firstChild.textContent = res === 'copied' ? 'LINK COPIED!' : 'COPY FAILED';
+        clearTimeout(copyT);
+        copyT = setTimeout(() => { copy.firstChild.textContent = 'INVITE FRIENDS'; }, 1400);
       });
       const slots = el('div', 'rkl-slots');
       const wait = el('div', 'rkl-wait');
@@ -219,10 +231,7 @@ function createLobbyUI(root, cb) {
     const r = roomRefs;
     r.code.textContent = info.code;
     r.roomMode.textContent = 'Mode: ' + modeLabel(info.mode);
-    const url = new URL(location.href);
-    url.search = '';
-    url.searchParams.set('room', info.code);
-    r.link.textContent = url.toString();
+    r.link.textContent = inviteUrl(info.code);
     r.slots.textContent = '';
     for (let i = 0; i < 8; i++) {
       const m = info.members[i];
@@ -233,6 +242,12 @@ function createLobbyUI(root, cb) {
       pn.textContent = m ? m.name : 'open';
       if (m && m.id === info.you) pn.appendChild(el('span', 'rkl-you', '(you)'));
       s.append(cat, pn);
+      if (m && PLAT[m.app]) {
+        const b = el('span', 'rkl-plat');
+        b.textContent = PLAT[m.app][0];
+        b.title = PLAT[m.app][1];
+        s.appendChild(b);
+      }
       if (m && m.id === info.host) s.appendChild(el('div', 'rkl-crown', CROWN));
       r.slots.appendChild(s);
     }

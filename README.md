@@ -11,6 +11,18 @@ npm install
 npm start          # http://localhost:8080
 ```
 
+## Mobile apps (iOS & Android)
+
+The same game ships as native iOS and Android apps (Capacitor wraps `public/`) that play on this server, cross-play with
+the web. `.github/workflows/mobile.yml` builds both on every push; store uploads (TestFlight / Google Play) are one click
+via "Run workflow". Setup, secrets, release flow and review notes: **[docs/MOBILE.md](docs/MOBILE.md)**.
+
+```bash
+npm run android:build                  # debug APK
+npm run ios:sync && npm run ios:open   # Xcode
+node scripts/bump-version.mjs patch    # bump app version everywhere
+```
+
 ## Patch notes
 
 Player-facing notes live in `public/js/patchnotes.js` (newest first) and show on the title screen on desktop.

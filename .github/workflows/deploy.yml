@@ -22,6 +22,7 @@ jobs:
           node scripts/level-sync-test.mjs
           node scripts/playthrough-test.mjs
           node scripts/rules-test.mjs
+          node scripts/moderation-test.mjs
           node -e "import('./public/js/shared/maze.js').then(m => { const r = m.mazeSelfTest(4); if (!r.ok) { console.log(r.problems); process.exit(1); } console.log('maze self-test ok'); })"
       - name: Deploy over SSH
         env:

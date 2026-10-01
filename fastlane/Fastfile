@@ -1,0 +1,153 @@
+# Release lanes for Run Kitty Run. Run from the repo root: `bundle exec fastlane <platform> <lane> [key:value]`.
+# Credentials are env vars only (the GitHub workflow maps secrets to them; see docs/MOBILE.md):
+#   iOS:     ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8_BASE64 (or ASC_KEY_PATH to a local .p8), APPLE_TEAM_ID
+#   Android: PLAY_SERVICE_ACCOUNT_JSON (the JSON itself) or SUPPLY_JSON_KEY (path to it)
+# Native builds must already be synced (`npm run ios:sync` / `npm run android:sync`).
+require "base64"
+require "fileutils"
+require "tmpdir"
+
+ROOT = File.expand_path(File.join(FastlaneCore::FastlaneFolder.path, ".."))
+APP_ID = "io.runkittyrun.app"
+
+def first_dir(*cands)
+  cands.map { |c| File.join(ROOT, c) }.find { |p| Dir.exist?(p) } || File.join(ROOT, cands.last)
+end
+
+def need_env!(*names)
+  missing = names.reject { |n| ENV[n].to_s.strip != "" }
+  UI.user_error!("Missing env: #{missing.join(', ')} (see docs/MOBILE.md)") unless missing.empty?
+end
+
+opt_out_usage
+default_platform(:android)
+
+# ---------------------------------------------------------------- Android
+platform :android do
+  def play_key
+    if ENV["PLAY_SERVICE_ACCOUNT_JSON"].to_s.strip != ""
+      { json_key_data: ENV["PLAY_SERVICE_ACCOUNT_JSON"] }
+    elsif ENV["SUPPLY_JSON_KEY"].to_s.strip != ""
+      { json_key: ENV["SUPPLY_JSON_KEY"] }
+    else
+      UI.user_error!("Set PLAY_SERVICE_ACCOUNT_JSON or SUPPLY_JSON_KEY (see docs/MOBILE.md)")
+    end
+  end
+
+  def android_metadata
+    first_dir("fastlane/metadata/android")
+  end
+
+  desc "Upload the release AAB to a Play track. Options: track (internal|alpha|beta|production|<closed track name>), status (draft|completed), aab"
+  lane :internal do |o|
+    aab = o[:aab] || ENV["AAB_PATH"] || File.join(ROOT, "android/app/build/outputs/bundle/release/app-release.aab")
+    UI.user_error!("No AAB at #{aab} - run `cd android && ./gradlew bundleRelease` first") unless File.exist?(aab)
+    upload_to_play_store(
+      package_name: APP_ID,
+      track: o[:track] || ENV["PLAY_TRACK"] || "internal",
+      # A Play app that was never published only accepts draft releases; switch to "completed" once it's live.
+      release_status: o[:status] || ENV["PLAY_RELEASE_STATUS"] || "draft",
+      aab: aab,
+      metadata_path: android_metadata,
+      skip_upload_apk: true,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      **play_key
+    )
+  end
+
+  desc "Upload store listing text + graphics + screenshots only (no binary)"
+  lane :metadata do
+    upload_to_play_store(
+      package_name: APP_ID,
+      metadata_path: android_metadata,
+      skip_upload_apk: true,
+      skip_upload_aab: true,
+      skip_upload_changelogs: true,
+      **play_key
+    )
+  end
+end
+
+# ---------------------------------------------------------------- iOS
+platform :ios do
+  # Writes the App Store Connect API key to a temp .p8 (xcodebuild wants a file) and returns its path.
+  def asc_key_path
+    return ENV["ASC_KEY_PATH"] if ENV["ASC_KEY_PATH"].to_s.strip != ""
+    need_env!("ASC_KEY_P8_BASE64")
+    path = File.join(Dir.tmpdir, "AuthKey_#{ENV['ASC_KEY_ID']}.p8")
+    File.write(path, Base64.decode64(ENV["ASC_KEY_P8_BASE64"]))
+    File.chmod(0o600, path)
+    path
+  end
+
+  def asc_api_key
+    need_env!("ASC_KEY_ID", "ASC_ISSUER_ID")
+    app_store_connect_api_key(key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], key_filepath: asc_key_path)
+  end
+
+  desc "Archive with cloud-managed signing and upload to TestFlight. Options: build (build number, default: project value)"
+  lane :beta do |o|
+    need_env!("ASC_KEY_ID", "ASC_ISSUER_ID", "APPLE_TEAM_ID")
+    key = asc_key_path
+    build_dir = File.join(ROOT, "ios/App/build")
+    archive = File.join(build_dir, "App.xcarchive")
+    FileUtils.rm_rf([archive, File.join(build_dir, "export")])
+    FileUtils.mkdir_p(build_dir)
+
+    auth = [
+      "-allowProvisioningUpdates",
+      "-authenticationKeyPath", key,
+      "-authenticationKeyID", ENV["ASC_KEY_ID"],
+      "-authenticationKeyIssuerID", ENV["ASC_ISSUER_ID"],
+    ]
+    build_no = o[:build] || ENV["BUILD_NUMBER"]
+
+    sh("xcodebuild", "-project", File.join(ROOT, "ios/App/App.xcodeproj"), "-scheme", "App",
+       "-configuration", "Release", "-destination", "generic/platform=iOS",
+       "-archivePath", archive, *auth,
+       "DEVELOPMENT_TEAM=#{ENV['APPLE_TEAM_ID']}", "CODE_SIGN_STYLE=Automatic",
+       *(build_no.to_s != "" ? ["CURRENT_PROJECT_VERSION=#{build_no}"] : []),
+       "archive")
+
+    plist = File.join(build_dir, "ExportOptions.plist")
+    File.write(plist, <<~PLIST)
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+        <key>method</key><string>app-store-connect</string>
+        <key>destination</key><string>upload</string>
+        <key>teamID</key><string>#{ENV['APPLE_TEAM_ID']}</string>
+        <key>signingStyle</key><string>automatic</string>
+        <key>uploadSymbols</key><true/>
+        <key>manageAppVersionAndBuildNumber</key><false/>
+      </dict>
+      </plist>
+    PLIST
+
+    # destination=upload: exportArchive signs for distribution and sends the build straight to App Store Connect.
+    sh("xcodebuild", "-exportArchive", "-archivePath", archive, "-exportOptionsPlist", plist,
+       "-exportPath", File.join(build_dir, "export"), *auth)
+    UI.success("Uploaded - the build shows up in TestFlight after Apple finishes processing (~5-30 min).")
+  end
+
+  desc "Upload App Store metadata + screenshots only (no binary, no review submission)"
+  lane :metadata do |o|
+    deliver(
+      api_key: asc_api_key,
+      app_identifier: APP_ID,
+      app_version: o[:version] || ENV["APP_VERSION"],
+      metadata_path: first_dir("fastlane/metadata/ios", "fastlane/metadata"),
+      screenshots_path: first_dir("fastlane/screenshots/ios", "fastlane/screenshots"),
+      skip_binary_upload: true,
+      skip_app_version_update: false,
+      overwrite_screenshots: true,
+      submit_for_review: false,
+      run_precheck_before_submit: false,
+      precheck_include_in_app_purchases: false,
+      force: true # no HTML preview / confirmation prompt
+    )
+  end
+end

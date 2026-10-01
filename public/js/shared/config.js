@@ -76,4 +76,9 @@ const NET = {
   INPUT_LEAD: 3,       // ticks of safety margin client inputs should arrive ahead of the server
 };
 
-export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET };
+// Online protocol version, sent by clients in their first 'hi' message. Bump it whenever the sim or netcode
+// changes incompatibly (anything that would desync an older client); the server's MIN_PROTOCOL then decides
+// who gets an "update the app" notice. App store builds lag the web by days, so avoid bumping casually.
+const PROTOCOL_VERSION = 1;
+
+export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, PROTOCOL_VERSION };

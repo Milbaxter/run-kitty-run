@@ -85,10 +85,10 @@ function syncTrack() {
   else if (track.paused) track.play().catch(() => {});
 }
 
-// Sound starts OFF unless the player turned it on before (remembered per browser).
-let soundPref = 'off';
-try { soundPref = localStorage.getItem('rkr-sound') || 'off'; } catch (e) { /* storage unavailable */ }
-audio.setMuted(soundPref !== 'on');
+// Sound starts ON unless the player muted it before (remembered per browser).
+let soundPref = 'on';
+try { soundPref = localStorage.getItem('rkr-sound') || 'on'; } catch (e) { /* storage unavailable */ }
+audio.setMuted(soundPref === 'off');
 ui.setMutedIcon(audio.isMuted());
 let soundHintShown = false;
 

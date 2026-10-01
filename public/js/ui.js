@@ -653,7 +653,7 @@ function createUI(root) {
               <div class="rkr-lab"><em style="color:${hexColor(0xffb347)}">Player 1</em><br>move</div>
               <div class="rkr-krow"><span class="rkr-k rkr-wide">Mouse</span></div>
               <div class="rkr-lab"><em style="color:${hexColor(0x6ec6ff)}">Player 2</em><br>click to run there · hold to steer</div>
-              <div class="rkr-krow"><span class="rkr-k">M</span></div><div class="rkr-lab">sound on / off<br><span style="opacity:.7">(starts off)</span></div>
+              <div class="rkr-krow"><span class="rkr-k">M</span></div><div class="rkr-lab">sound on / off</div>
               <div class="rkr-krow"><span class="rkr-k">P</span><span class="rkr-k rkr-wide">Esc</span></div><div class="rkr-lab">pause</div>
               <div class="rkr-krow"><span class="rkr-k rkr-wide">Enter</span></div><div class="rkr-lab">chat (online)</div>
             </div>

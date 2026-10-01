@@ -334,7 +334,9 @@ function createUI(root) {
 
   const state = { title: false, pause: false, gameOver: false };
   let onStartCb = null, onResumeCb = null, onRestartCb = null;
-  let titleSel = 1;
+  // Title menu order (data-p = mode: 3 online, 1 solo, 2 local co-op); keys 1/2/3 follow this order.
+  const TITLE_ORDER = [3, 1, 2];
+  let titleSel = 3;
   let gameOverArmedAt = 0;
 
   // ================= HUD =================
@@ -707,9 +709,9 @@ function createUI(root) {
         <div class="rkr-logo">${word('RUN')}${word('KITTY', 'rkr-kitty')}<span style="position:relative">${word('RUN')}<span class="rkr-logocat">${ICONS.cat}</span></span></div>
         <div class="rkr-sub">Reach the <b>heart of the labyrinth</b>. Don't touch the wolves. <b>Never leave a kitty behind.</b></div>
         <div class="rkr-btns">
-          <button class="rkr-btn" data-p="1"><span><span class="rkr-kk">1</span>1 PLAYER</span><small>solo run</small></button>
-          <button class="rkr-btn rkr-alt rkr-desk" data-p="2"><span><span class="rkr-kk">2</span>2 PLAYERS</span><small>local co-op</small></button>
-          <button class="rkr-btn" data-p="3"><span><span class="rkr-kk">3</span>ONLINE</span><small>up to 8 kitties</small></button>
+          <button class="rkr-btn" data-p="3"><span><span class="rkr-kk">1</span>MULTIPLAYER</span><small>online, up to 8 kitties</small></button>
+          <button class="rkr-btn" data-p="1"><span><span class="rkr-kk">2</span>SINGLE PLAYER</span><small>solo run</small></button>
+          <button class="rkr-btn rkr-alt rkr-desk" data-p="2"><span><span class="rkr-kk">3</span>LOCAL CO-OP</span><small>2 players, one keyboard</small></button>
         </div>
         <div class="rkr-touchonly rkr-touchhint">Hold your thumb on the screen: your kitty follows it. Tap to run to a spot.</div>
         <div class="rkr-info rkr-desk">
@@ -926,12 +928,11 @@ function createUI(root) {
       return;
     }
     if (state.title) {
-      if (k === '1') startGame(1);
-      else if (k === '2') startGame(2);
-      else if (k === '3') startGame(3);
+      const idx = TITLE_ORDER.indexOf(titleSel);
+      if (k === '1' || k === '2' || k === '3') startGame(TITLE_ORDER[+k - 1]);
       else if (k === 'Enter' || k === ' ') { e.preventDefault(); startGame(titleSel); }
-      else if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'a' || k === 'A' || k === 'w' || k === 'W') selectTitle(Math.max(1, titleSel - 1));
-      else if (k === 'ArrowRight' || k === 'ArrowDown' || k === 'd' || k === 'D' || k === 's' || k === 'S') selectTitle(Math.min(3, titleSel + 1));
+      else if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'a' || k === 'A' || k === 'w' || k === 'W') selectTitle(TITLE_ORDER[Math.max(0, idx - 1)]);
+      else if (k === 'ArrowRight' || k === 'ArrowDown' || k === 'd' || k === 'D' || k === 's' || k === 'S') selectTitle(TITLE_ORDER[Math.min(TITLE_ORDER.length - 1, idx + 1)]);
     }
   });
 

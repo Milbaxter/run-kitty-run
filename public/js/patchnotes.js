@@ -13,6 +13,7 @@ const PATCH_NOTES = [
   {
     version: '0.7', date: '2026-10-01', title: 'Phones & the final stretch',
     items: [
+      'New main menu order: 1 Multiplayer, 2 Single player, 3 Local co-op',
       'Play on your phone: hold your thumb down and your kitty follows it (tap to run to a spot)',
       'Phones: landscape mode, hideable HUD (off by default) and lighter graphics',
       'Hide or show the HUD any time with the eye button or H',

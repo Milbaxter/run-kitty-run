@@ -34,7 +34,19 @@ ok(inner.length / len(half) > outer.length / len(0, half), `inner legs denser ($
 const n = ld.legs.length;
 const fin = ld.enemies.filter((e) => e.leg === n - 1);
 ok(fin.length >= 8, `final stretch is crowded (${fin.length} wolves)`);
-ok(ld.safeCorners.length === ld.corners.length - 1 && fin.some((e) => e.a0 < CFG.RING_WIDTH / 2), 'the goal-door corner is not a safe square');
+ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG.RING_WIDTH / 2), 'the goal-door corner is not a safe square');
+{
+  // nothing marked safe is ever touched by a wolf; the final stretch's first corner is not marked safe
+  const s2 = createSim({ seed: 11, players: [] });
+  const W = s2.levelData.corridorWidth;
+  let touched = 0;
+  for (let t = 0; t < 60 * 60; t++) {
+    stepSim(s2, {}, CFG.TICK);
+    for (const e of s2.enemies) for (const c of s2.levelData.safeCorners) if (Math.abs(e.x - c.x) < W / 2 + e.radius && Math.abs(e.z - c.z) < W / 2 + e.radius) touched++;
+  }
+  const c5 = s2.levelData.corners.at(-2);
+  ok(touched === 0 && !s2.levelData.safeCorners.includes(c5), 'safe tiles are truly wolf-free; final-stretch corners have no tile');
+}
 
 // revive cooldown: standing on a fresh circle does nothing until REVIVE_DELAY has passed
 {

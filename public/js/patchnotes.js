@@ -7,7 +7,7 @@ const PATCH_NOTES = [
       'Play on your phone: hold your thumb down and your kitty follows it (tap to run to a spot)',
       'Phones: landscape mode, hideable HUD (off by default) and lighter graphics',
       'Hide or show the HUD any time with the eye button or H',
-      'The last stretch before the goal is much harder: more wolves and no safe corner at the door',
+      'The last stretch before the goal is much harder: more wolves and no safe corners on it at all',
       'Revives now take 0.5 s after a kitty goes down',
       'Two soundtrack songs on repeat, and music is on by default',
     ],

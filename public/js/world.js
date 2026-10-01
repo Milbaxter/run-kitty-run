@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CFG } from './shared/config.js';
-import { createRng, hashSeed, TAU, angleDiff } from './shared/rng.js';
+import { createRng, hashSeed, TAU } from './shared/rng.js';
+import { locate, collideCircle } from './shared/maze.js';
 
 // world.js — maze scenery, decor, ambient particles and lighting. (owner: world agent)
 //
@@ -417,16 +418,6 @@ function makeInstanced(geo, mat, items, { cast = false, receive = false } = {}) 
 
 // ---------------------------------------------------------------- swept wall geometry
 
-function arcPath(R, a0, a1, segLen) {
-  const n = Math.max(2, Math.ceil((R * (a1 - a0)) / segLen));
-  const pts = [];
-  for (let i = 0; i <= n; i++) {
-    const th = a0 + ((a1 - a0) * i) / n, c = Math.cos(th), s = Math.sin(th);
-    pts.push({ x: R * c, z: R * s, tx: -s, tz: c, s: R * th });
-  }
-  return pts;
-}
-
 function linePath(ax, az, bx, bz, segLen) {
   const L = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(L / segLen));
   const tx = (bx - ax) / L, tz = (bz - az) / L, pts = [];
@@ -534,16 +525,10 @@ function buildWalls(levelData, theme, T) {
 
   const bb = { p: [], n: [], uv: [], c: [] }, cb = { p: [], n: [], uv: [], c: [] };
   const SEG = 0.6, UVS = 1 / 1.6;
-  for (const arc of levelData.wallArcs) {
-    const path = arcPath(arc.radius, arc.a0, arc.a1, SEG);
-    const full = arc.a1 - arc.a0 >= TAU - 1e-4;
-    sweep(bb, path, body, bodyColor, UVS, !full);
-    sweep(cb, path, cap, capColor, UVS, !full);
-  }
-  for (const rw of levelData.radialWalls) {
-    const c = Math.cos(rw.angle), s = Math.sin(rw.angle);
-    const r0 = rw.r0 + ht * 0.9, r1 = rw.r1 - ht * 0.9;
-    const path = linePath(c * r0, s * r0, c * r1, s * r1, SEG);
+  for (const w of levelData.walls) {
+    const L = Math.hypot(w.bx - w.ax, w.bz - w.az) || 1;
+    const ex = ((w.bx - w.ax) / L) * ht, ez = ((w.bz - w.az) / L) * ht;
+    const path = linePath(w.ax - ex, w.az - ez, w.bx + ex, w.bz + ez, SEG);
     sweep(bb, path, body, bodyColor, UVS);
     sweep(cb, path, cap, capColor, UVS);
   }
@@ -569,35 +554,41 @@ function buildWalls(levelData, theme, T) {
 // ---------------------------------------------------------------- floors
 
 function buildFloors(levelData, theme, T) {
-  const R = levelData.ringRadii, rings = R.length - 1, Rn = R[rings];
+  const W = levelData.corridorWidth, legs = levelData.legs, rh = levelData.roomHalf;
   const pos = [], nor = [], uv = [], col = [], idx = [];
   const UVS = 1 / 3.5;
-  const addRing = (radii, factors, color) => {
-    const r1 = radii[radii.length - 1];
-    const n = clamp(Math.ceil((TAU * Math.min(r1, 80)) / 1.0), 64, 400);
-    const base = pos.length / 3;
-    const c = new THREE.Color(color);
-    for (let k = 0; k < radii.length; k++) {
-      for (let i = 0; i <= n; i++) {
-        const th = (i / n) * TAU, x = radii[k] * Math.cos(th), z = radii[k] * Math.sin(th);
-        pos.push(x, 0, z); nor.push(0, 1, 0); uv.push(x * UVS, z * UVS);
+  // Quad grid: `us` across (with edge-darkening factors), two rows along.
+  const addStrip = (ox, oz, ax, az, bx, bz, s0, s1, us, factors, color, y = 0) => {
+    const base = pos.length / 3, c = new THREE.Color(color);
+    for (const sv of [s0, s1]) {
+      for (let k = 0; k < us.length; k++) {
+        const x = ox + ax * sv + bx * us[k], z = oz + az * sv + bz * us[k];
+        pos.push(x, y, z); nor.push(0, 1, 0); uv.push(x * UVS, z * UVS);
         const f = factors[k];
         col.push(c.r * f, c.g * f, c.b * f);
       }
     }
-    const W = n + 1;
-    for (let k = 0; k < radii.length - 1; k++) {
-      for (let i = 0; i < n; i++) {
-        const A = base + k * W + i, B = A + 1, C = A + W, D = C + 1;
-        idx.push(A, B, C, B, D, C);
-      }
+    const n = us.length;
+    for (let k = 0; k < n - 1; k++) {
+      const A = base + k, B = A + 1, C = A + n, D = C + 1;
+      // keep triangles facing up whatever the frame handedness
+      const cross = ax * bz - az * bx;
+      if (cross > 0) idx.push(A, B, C, B, D, C); else idx.push(A, C, B, B, C, D);
     }
   };
-  for (let i = 0; i < rings; i++) {
-    const r0 = R[i], r1 = R[i + 1];
-    addRing([r0, r0 + 0.25, r0 + 0.9, r1 - 0.9, r1 - 0.25, r1], [0.62, 0.78, 1, 1, 0.78, 0.62], i % 2 ? theme.groundAlt : theme.ground);
-  }
-  addRing([Rn, Rn + 0.3, Rn + 1.2, Rn + 8, Rn + 40, Rn + 150], [0.62, 0.8, 1, 1, 1, 1], theme.outerGround);
+  const h = W / 2;
+  const across = [-h, -h + 0.25, -h + 0.9, h - 0.9, h - 0.25, h];
+  const edge = [0.62, 0.78, 1, 1, 0.78, 0.62];
+  legs.forEach((l, i) => {
+    // each leg owns the corner square at its far end (s = len); the innermost leg also owns its start
+    const s0 = i === legs.length - 1 ? -h : h;
+    addStrip(l.ox, l.oz, l.ux, l.uz, l.nx, l.nz, s0, l.len + h, across, edge, l.loop % 2 ? theme.groundAlt : theme.ground);
+  });
+  // goal room
+  addStrip(0, 0, 1, 0, 0, 1, -rh, rh, [-rh, -rh + 0.25, -rh + 0.9, rh - 0.9, rh - 0.25, rh], edge, theme.ground);
+  // the outside: a big ground plane slightly below the corridors
+  const big = levelData.outerRadius + 150;
+  addStrip(0, 0, 1, 0, 0, 1, -big, big, [-big, big], [1, 1], theme.outerGround, -0.03);
 
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -615,7 +606,7 @@ function buildFloors(levelData, theme, T) {
   floor.receiveShadow = true;
 
   // center plaza
-  const pg = T.g(new THREE.CircleGeometry(R[0] + 0.05, 72));
+  const pg = T.g(new THREE.CircleGeometry(levelData.centerRadius + 0.05, 72));
   pg.rotateX(-Math.PI / 2);
   const pmOpts = { map: makePlazaTexture(T), color: theme.plaza, roughness: 0.85 };
   const plaza = new THREE.Mesh(pg, T.m(new THREE.MeshStandardMaterial(pmOpts)));
@@ -627,18 +618,13 @@ function buildFloors(levelData, theme, T) {
 // ---------------------------------------------------------------- lanterns + chevrons
 
 function buildLanterns(levelData, theme, T, rng) {
-  const R = levelData.ringRadii, Rn = R[R.length - 1], H = CFG.WALL_HEIGHT;
-  const spots = [];
-  for (const gap of levelData.gaps) {
-    const wr = R[gap.wall];
-    for (const side of [-1, 1]) {
-      const a = gap.angle + side * (gap.halfAngle + 0.3 / wr);
-      spots.push({ a, r: wr });
-    }
+  const H = CFG.WALL_HEIGHT;
+  const spots = levelData.wallCorners.map((p) => ({ x: p.x, z: p.z }));
+  // extra lanterns along the outermost loop (last 4 arms + cap)
+  for (const w of levelData.walls.slice(-6)) {
+    const L = Math.hypot(w.bx - w.ax, w.bz - w.az), n = Math.floor(L / 9);
+    for (let k = 1; k < n; k++) spots.push({ x: w.ax + (w.bx - w.ax) * k / n, z: w.az + (w.bz - w.az) * k / n });
   }
-  const nOuter = Math.max(8, Math.round((TAU * Rn) / 9));
-  const off = rng.range(0, TAU);
-  for (let k = 0; k < nOuter; k++) spots.push({ a: off + (k / nOuter) * TAU, r: Rn });
 
   const PH = H + 0.25;
   const pillarGeo = T.g(mergeGeos([
@@ -653,8 +639,8 @@ function buildLanterns(levelData, theme, T, rng) {
   const pillarItems = [], orbItems = [], glowItems = [];
   const pc = new THREE.Color(theme.pillar);
   for (const sp of spots) {
-    const x = sp.r * Math.cos(sp.a), z = sp.r * Math.sin(sp.a);
-    pillarItems.push({ x, z, ry: -sp.a, color: pc.clone().multiplyScalar(rng.range(0.9, 1.08)) });
+    const { x, z } = sp;
+    pillarItems.push({ x, z, ry: 0, color: pc.clone().multiplyScalar(rng.range(0.9, 1.08)) });
     orbItems.push({ x, z, y: PH + 0.36, color: new THREE.Color(1, 1, 1) });
     glowItems.push({ x, z, y: 0.03, s: 4.2, color: new THREE.Color(1, 1, 1) });
   }
@@ -685,12 +671,13 @@ function buildLanterns(levelData, theme, T, rng) {
   };
   update(0);
 
-  // chevrons: on the outer side of each gap pointing inward
+  // chevrons: in each corridor corner, pointing the way on
   const chevGeo = T.g(new THREE.PlaneGeometry(1.5, 1.5)); chevGeo.rotateX(-Math.PI / 2);
   const chevItems = [];
-  for (const gap of levelData.gaps) {
-    const r = R[gap.wall] + 1.5, x = r * Math.cos(gap.angle), z = r * Math.sin(gap.angle);
-    chevItems.push({ x, z, y: 0.02, ry: -(gap.angle + Math.PI) });
+  const cs = levelData.corners;
+  for (let k = 1; k < cs.length - 1; k++) {
+    const dx = cs[k + 1].x - cs[k].x, dz = cs[k + 1].z - cs[k].z;
+    chevItems.push({ x: cs[k].x, z: cs[k].z, y: 0.02, ry: -Math.atan2(dz, dx) });
   }
   const chevMat = T.m(new THREE.MeshBasicMaterial({
     map: makeChevronTexture(T), color: new THREE.Color(theme.chevron).multiplyScalar(theme.wallStyle === 'neon' ? 1.6 : 1),
@@ -706,32 +693,38 @@ function buildLanterns(levelData, theme, T, rng) {
 // ---------------------------------------------------------------- decor
 
 function buildDecor(levelData, theme, ti, T, rng) {
-  const R = levelData.ringRadii, rings = R.length - 1, R0 = R[0], Rn = R[rings];
-  const ht = CFG.WALL_THICKNESS / 2;
-  const radialWalls = levelData.radialWalls || [];
+  const W = levelData.corridorWidth, rh = levelData.roomHalf;
   const meshes = [];
+  // bounding box of the walls
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const w of levelData.walls) {
+    x0 = Math.min(x0, w.ax, w.bx); x1 = Math.max(x1, w.ax, w.bx);
+    z0 = Math.min(z0, w.az, w.bz); z1 = Math.max(z1, w.az, w.bz);
+  }
+  const Rn = Math.max(x1 - x0, z1 - z0) / 2;      // for perimeter-ish counts
 
   const sampleCorridor = (margin) => {
     for (let tries = 0; tries < 24; tries++) {
-      const r = Math.sqrt(rng.range(R0 * R0, Rn * Rn)), a = rng.range(0, TAU);
-      let ok = true;
-      for (const rr of R) if (Math.abs(r - rr) < ht + margin) { ok = false; break; }
-      if (ok) {
-        for (const w of radialWalls) {
-          if (r < w.r0 - 0.5 || r > w.r1 + 0.5) continue;
-          if (Math.abs(angleDiff(a, w.angle)) * r < ht + margin) { ok = false; break; }
-        }
-      }
-      if (ok) return { x: r * Math.cos(a), z: r * Math.sin(a), r, a };
+      const x = rng.range(x0, x1), z = rng.range(z0, z1);
+      if (locate(levelData, x, z).leg < 0) continue;
+      if (collideCircle(levelData, x, z, margin).hit) continue;
+      return { x, z, r: Math.hypot(x, z), a: Math.atan2(z, x) };
     }
     return null;
   };
+  // points outside the spiral, between `lo` and `hi` units beyond its outer walls
   const sampleOuter = (lo, hi) => {
-    const r = Math.sqrt(rng.range((Rn + lo) ** 2, (Rn + hi) ** 2)), a = rng.range(0, TAU);
-    return { x: r * Math.cos(a), z: r * Math.sin(a), r, a };
+    for (let tries = 0; tries < 40; tries++) {
+      const x = rng.range(x0 - hi, x1 + hi), z = rng.range(z0 - hi, z1 + hi);
+      if (Math.max(x0 - x, x - x1, z0 - z, z - z1) > hi) continue;
+      if (locate(levelData, x, z).leg !== -2) continue;
+      if (collideCircle(levelData, x, z, Math.max(0.05, lo - CFG.WALL_THICKNESS / 2)).hit) continue;
+      return { x, z, r: Math.hypot(x, z), a: Math.atan2(z, x) };
+    }
+    return { x: x1 + hi, z: z1 + hi, r: 0, a: 0 };
   };
-  const corridorArea = Math.PI * (Rn * Rn - R0 * R0);
-  const outerArea = Math.PI * ((Rn + 26) ** 2 - (Rn + 2.5) ** 2);
+  const corridorArea = levelData.legs.reduce((a, l) => a + l.len * W, 0) + 4 * rh * rh;
+  const outerArea = (x1 - x0 + 52) * (z1 - z0 + 52) - (x1 - x0 + 5) * (z1 - z0 + 5);
   const jitterColor = (hex, b = 0.12) => new THREE.Color(hex).multiplyScalar(rng.range(1 - b, 1 + b));
 
   // ---- trees
@@ -770,11 +763,19 @@ function buildDecor(levelData, theme, ti, T, rng) {
   const bushMat = T.m(new THREE.MeshStandardMaterial({ roughness: 0.9, flatShading: true }));
   if (theme.crownEmissive > 0) { bushMat.emissive.set(0xffffff); bushMat.emissiveIntensity = theme.crownEmissive; emissiveByColor(bushMat); }
   const bushes = [];
-  const nHug = Math.round((TAU * Rn) / 2.6);
-  for (let i = 0; i < nHug; i++) {
-    const a = (i / nHug) * TAU + rng.range(-0.02, 0.02), r = Rn + ht + rng.range(0.45, 1.0);
-    if (rng.chance(0.3)) continue;
-    bushes.push({ x: r * Math.cos(a), z: r * Math.sin(a), s: rng.range(0.8, 1.3), ry: rng.range(0, TAU), color: jitterColor(rng.pick(theme.crowns), 0.18).multiplyScalar(0.85) });
+  for (const w of levelData.walls.slice(-6, -2)) {
+    // outer side of the outermost arms = away from the centre
+    const L = Math.hypot(w.bx - w.ax, w.bz - w.az), ux = (w.bx - w.ax) / L, uz = (w.bz - w.az) / L;
+    const mx = (w.ax + w.bx) / 2, mz = (w.az + w.bz) / 2;
+    let nx = uz, nz = -ux;
+    if (nx * mx + nz * mz < 0) { nx = -nx; nz = -nz; }
+    for (let d = 0.5; d < L; d += 2.6) {
+      if (rng.chance(0.3)) continue;
+      const off = CFG.WALL_THICKNESS / 2 + rng.range(0.45, 1.0);
+      const x = w.ax + ux * d + nx * off, z = w.az + uz * d + nz * off;
+      if (locate(levelData, x, z).leg !== -2) continue;
+      bushes.push({ x, z, s: rng.range(0.8, 1.3), ry: rng.range(0, TAU), color: jitterColor(rng.pick(theme.crowns), 0.18).multiplyScalar(0.85) });
+    }
   }
   const nBush = Math.round(outerArea * 0.008);
   for (let i = 0; i < nBush; i++) {
@@ -869,7 +870,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
     ]));
     const pumpMat = T.m(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, flatShading: true }));
     const pumps = [];
-    for (let i = 0; i < Math.round(TAU * Rn / 7); i++) {
+    for (let i = 0; i < Math.round(8 * Rn / 7); i++) {
       const p = sampleOuter(1.0, 6);
       pumps.push({ x: p.x, z: p.z, s: rng.range(0.6, 1.2), ry: rng.range(0, TAU), color: jitterColor(0xf08a24, 0.1) });
     }
@@ -903,7 +904,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
     ]));
     const smMat = T.m(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, flatShading: true }));
     const sms = [];
-    for (let i = 0; i < Math.max(4, Math.round(TAU * Rn / 20)); i++) {
+    for (let i = 0; i < Math.max(4, Math.round(8 * Rn / 20)); i++) {
       const p = sampleOuter(1.5, 8);
       sms.push({ x: p.x, z: p.z, s: rng.range(0.8, 1.1), ry: -p.a + Math.PI + rng.range(-0.5, 0.5) });
     }

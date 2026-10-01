@@ -18,7 +18,10 @@ jobs:
       - name: Syntax check
         run: for f in server/*.js public/js/*.js public/js/shared/*.js; do node --check "$f"; done
       - name: Sim tests
-        run: node scripts/level-sync-test.mjs
+        run: |
+          node scripts/level-sync-test.mjs
+          node scripts/playthrough-test.mjs
+          node -e "import('./public/js/shared/maze.js').then(m => { const r = m.mazeSelfTest(4); if (!r.ok) { console.log(r.problems); process.exit(1); } console.log('maze self-test ok'); })"
       - name: Deploy over SSH
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}

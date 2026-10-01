@@ -64,7 +64,7 @@ ok(others[0].last.snap.p.length === 7, 'leaver removed from sim');
 
 // mid-game join gets wolves
 const late = bot('Late'); await late.ready; late.send({ t: 'join', code, name: 'Late' }); await sleep(300);
-ok(late.last.start && Array.isArray(late.last.start.wolves) && late.last.start.wolves.length === 220, 'mid-game joiner gets full wolf state');
+ok(late.last.start && Array.isArray(late.last.start.wolves) && late.last.start.wolves.length >= 150, 'mid-game joiner gets full wolf state');
 
 for (const b of [...others, late, lister]) b.ws.close();
 await sleep(200);

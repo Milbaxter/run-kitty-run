@@ -43,12 +43,7 @@ function makeLevel(sim, level) {
 
 function spawnPoint(levelData, index) {
   const pts = levelData.spawnPoints || [];
-  if (pts.length === 0) {
-    const R = levelData.ringRadii;
-    const r = (R[R.length - 1] + R[R.length - 2]) * 0.5;
-    const a = levelData.startAngle || 0;
-    return { x: r * Math.cos(a), z: r * Math.sin(a), heading: a + Math.PI / 2 };
-  }
+  if (pts.length === 0) return { x: 0, z: 0, heading: 0 };
   const p = pts[index % pts.length];
   const round = Math.floor(index / pts.length);
   if (round === 0) return { x: p.x, z: p.z, heading: p.heading };
@@ -144,7 +139,7 @@ function movePlayer(sim, p, inp, dt) {
   const h = dt / n;
   const k = 1 - Math.exp(-h / CFG.KITTY_ACCEL_TAU);
   const wasInCenter = p.inCenter;
-  const maxCenterR = ld.ringRadii[0] - CFG.WALL_THICKNESS / 2 - 0.05;
+  const maxCenterR = ld.centerRadius - CFG.WALL_THICKNESS / 2 - 0.05;
 
   for (let s = 0; s < n; s++) {
     p.vx += (tx - p.vx) * k;

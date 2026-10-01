@@ -1,63 +1,33 @@
 import { CFG, levelParams } from './config.js';
-import { createRng, hashSeed, TAU, normAngle, angleDiff } from './rng.js';
+import { createRng, hashSeed } from './rng.js';
 
-// Circular labyrinth generation + collision. Pure (no THREE, no DOM).
-// The wall layout is a fixed spiral (same on every level); only wolves/items vary by level+seed.
+// Square-spiral level generation + collision. Pure (no THREE, no DOM).
 //
-// Contract notes / interpretations:
-// - segments carry an extra boolean `full` (true only for corridors without radial walls,
-//   which are reported as a0=0, a1=TAU). A corridor with exactly ONE radial wall yields a
-//   segment a0=w, a1=w+TAU with full=false (a C-shaped loop blocked at w).
-// - All angular intervals (wallArcs, segments, enemy a0/a1) use a0 in [0,TAU), a1 > a0,
-//   a1 may exceed TAU. Sweeper `angle` lies inside [a0,a1] in that same unwrapped frame.
-// - Enemy a0/a1 are a "territory": a sub-range of the (shrunk) segment, so wolves spread out
-//   over the maze. Orbiters get their whole segment (full ring => exactly 0..TAU).
-// - Gap halfAngle = (GAP_WIDTH/2) / wallRadius (linear opening GAP_WIDTH at the wall centerline).
-// - collideCircle uses a lazily built spatial grid cached in a WeakMap keyed by levelData
-//   (no extra fields are added to LevelData).
-
+// The map is one continuous wall that spirals outward from a square goal room in the middle,
+// plus a short cap that closes the outer end. Between consecutive loops of the wall runs a single
+// corridor (CFG.RING_WIDTH wide) from the start pocket in the outer corner all the way to the room:
+// straight legs joined by 90-degree corners. No choices, no dead ends.
+// The wall layout is identical on every level; only wolves/items vary by level + seed.
+//
+// LevelData:
+//   walls / wallSegments: [{ax,az,bx,bz}] wall centerlines (thickness CFG.WALL_THICKNESS)
+//   wallCorners: [{x,z}] outer corners of the spiral (for lanterns)
+//   legs: corridor legs, each a straight frame { ox,oz (start corner center), ux,uz (along),
+//         nx,nz (toward the inner side), len, loop } — wolves live in leg-local coordinates
+//   corners: [{x,z}] corridor corner centers along the path
+//   centerRadius: radius of the glowing goal disc; roomHalf: half-size of the square goal room
+//   outerRadius: half-extent of the whole map (max |x|,|z| of any wall)
 
 const HALF_T = CFG.WALL_THICKNESS / 2;
 const WOLF_MARGIN = HALF_T + CFG.WOLF_RADIUS + 0.06;
-const REST_STOP = 4.5;            // wolf-free arc (units) on each side of every corridor divider
+const CORNER_REST = 0.6;          // extra wolf-free distance past each corner square
 const GRID_CELL = 2.0;
 const GRID_MAX_R = 1.0;           // grid query valid for radii up to this; larger -> brute force
 
-// ---------------------------------------------------------------- helpers
-
-function midR(R, i) { return (R[i] + R[i + 1]) / 2; }
-
-// unwrap angle `a` into [base, base+TAU)
-function unwrapFrom(base, a) { return base + normAngle(a - base); }
-
-function segContains(seg, a) {
-  if (seg.full) return true;
-  return normAngle(a - seg.a0) <= seg.a1 - seg.a0 + 1e-12;
-}
-
-// angular travel distance between angles A and B inside segment (radians)
-function segArcDist(seg, A, B) {
-  if (seg.full) return Math.abs(angleDiff(A, B));
-  return Math.abs(unwrapFrom(seg.a0, A) - unwrapFrom(seg.a0, B));
-}
-
-// largest piece of [lo,hi] after removing [f0,f1] (and its TAU-periodic copies)
-function clipArc(lo, hi, f0, f1) {
-  let pieces = [[lo, hi]];
-  for (let k = -2; k <= 2; k++) {
-    const F0 = f0 + k * TAU, F1 = f1 + k * TAU;
-    const next = [];
-    for (const [p, q] of pieces) {
-      if (F1 <= p || F0 >= q) { next.push([p, q]); continue; }
-      if (F0 > p) next.push([p, F0]);
-      if (q > F1) next.push([F1, q]);
-    }
-    pieces = next;
-  }
-  let best = null;
-  for (const pc of pieces) if (!best || pc[1] - pc[0] > best[1] - best[0]) best = pc;
-  return best;
-}
+// Arm directions in order: left, up (-z, away from camera), right, down (+z, toward camera).
+const DIRS = [[-1, 0], [0, -1], [1, 0], [0, 1]];
+const ARMS = 24;                  // spiral wall arms (6 loops); path ~840 units
+const ROOM = 6;                   // goal room half-size
 
 function pickWeighted(rng, items, weightFn) {
   let total = 0;
@@ -71,387 +41,190 @@ function pickWeighted(rng, items, weightFn) {
   return items[items.length - 1];
 }
 
-// ---------------------------------------------------------------- topology
+// ---------------------------------------------------------------- geometry
 
-function buildSegments(rings, radialWalls) {
-  const segments = [];
-  for (let i = 0; i < rings; i++) {
-    const angs = radialWalls.filter(w => w.corridor === i).map(w => w.angle).sort((a, b) => a - b);
-    if (angs.length === 0) {
-      segments.push({ id: segments.length, corridor: i, a0: 0, a1: TAU, full: true });
-      continue;
-    }
-    for (let k = 0; k < angs.length; k++) {
-      const a0 = angs[k];
-      const len = angs.length === 1 ? TAU : normAngle(angs[(k + 1) % angs.length] - a0);
-      segments.push({ id: segments.length, corridor: i, a0, a1: a0 + len, full: false });
-    }
+// Outward square spiral. Horizontal arms grow (2R-W, 2R, 2R+W...), vertical arms (2R, 2R+W, ...),
+// so parallel arms are exactly W apart and the first loop encloses a 2R x 2R room.
+function buildSpiral() {
+  const W = CFG.RING_WIDTH;
+  const v = [{ x: 0, z: ROOM }];
+  for (let i = 0; i < ARMS; i++) {
+    const L = (i % 2 === 0 ? 2 * ROOM - W : 2 * ROOM) + Math.floor(i / 2) * W;
+    const [dx, dz] = DIRS[i % 4];
+    v.push({ x: v[i].x + dx * L, z: v[i].z + dz * L });
   }
-  return segments;
-}
+  const walls = [];
+  for (let i = 0; i < ARMS; i++) walls.push({ ax: v[i].x, az: v[i].z, bx: v[i + 1].x, bz: v[i + 1].z });
+  // cap: close the outer end of the corridor (back wall of the start pocket)
+  const [d1x, d1z] = DIRS[ARMS % 4], [d2x, d2z] = DIRS[(ARMS + 1) % 4];
+  const e = v[ARMS];
+  const k = { x: e.x + d1x * W, z: e.z + d1z * W };
+  walls.push({ ax: e.x, az: e.z, bx: k.x, bz: k.z });
+  walls.push({ ax: k.x, az: k.z, bx: k.x + d2x * W, bz: k.z + d2z * W });
 
-function findSeg(segments, corridor, a) {
-  for (const s of segments) if (s.corridor === corridor && segContains(s, a)) return s;
-  return null;
-}
-
-// Dijkstra over points of interest: start, gaps, center.
-// Returns { ok, legs: [{ seg, from, to, gapTo }], segOnPath:Set, gapLinks } where legs walk the route.
-function solveRoute(ctx, segments) {
-  const { R, rings, gaps, startAngle } = ctx;
-  const RW = CFG.RING_WIDTH;
-  // nodes: 0 = start, 1..G = gaps, G+1 = center
-  const G = gaps.length;
-  const CENTER = G + 1;
-  const gapSegs = gaps.map(g => ({
-    inner: g.wall === 0 ? null : findSeg(segments, g.wall - 1, g.angle),
-    outer: g.wall >= rings ? null : findSeg(segments, g.wall, g.angle),
-  }));
-  const startSeg = findSeg(segments, rings - 1, startAngle);
-  // per segment: list of [node, angle]
-  const touch = new Map();
-  const addTouch = (seg, node, ang) => {
-    if (!seg) return;
-    if (!touch.has(seg.id)) touch.set(seg.id, []);
-    touch.get(seg.id).push([node, ang]);
+  // corridor corner centers: c_i = v_i + W/2 (d_i + d_{i+1})
+  const c = (i) => {
+    const [ax, az] = DIRS[i % 4], [bx, bz] = DIRS[(i + 1) % 4];
+    return { x: v[i].x + (W / 2) * (ax + bx), z: v[i].z + (W / 2) * (az + bz) };
   };
-  addTouch(startSeg, 0, startAngle);
-  gaps.forEach((g, k) => { addTouch(gapSegs[k].inner, k + 1, g.angle); addTouch(gapSegs[k].outer, k + 1, g.angle); });
-  const adj = [];
-  for (let n = 0; n <= CENTER; n++) adj.push([]);
-  for (const [sid, list] of touch) {
-    const seg = segments[sid];
-    const rm = midR(R, seg.corridor);
-    for (let a = 0; a < list.length; a++) {
-      for (let b = 0; b < list.length; b++) {
-        if (a === b || list[a][0] === list[b][0]) continue;
-        const cost = segArcDist(seg, list[a][1], list[b][1]) * rm + (list[b][0] === 0 ? 0 : RW);
-        adj[list[a][0]].push({ to: list[b][0], cost, seg, fromA: list[a][1], toA: list[b][1] });
-      }
-    }
-  }
-  gaps.forEach((g, k) => { if (g.wall === 0 && gapSegs[k].outer) adj[k + 1].push({ to: CENTER, cost: RW, seg: null, fromA: g.angle, toA: g.angle }); });
-
-  const dist = new Array(CENTER + 1).fill(Infinity);
-  const prev = new Array(CENTER + 1).fill(null);
-  const done = new Array(CENTER + 1).fill(false);
-  dist[0] = 0;
-  for (;;) {
-    let u = -1;
-    for (let n = 0; n <= CENTER; n++) if (!done[n] && dist[n] < Infinity && (u < 0 || dist[n] < dist[u])) u = n;
-    if (u < 0) break;
-    done[u] = true;
-    if (u === CENTER) break;
-    for (const e of adj[u]) {
-      const nd = dist[u] + e.cost;
-      if (nd < dist[e.to] - 1e-9) { dist[e.to] = nd; prev[e.to] = { from: u, e }; }
-    }
-  }
-  // reachable segments (for dead-end detection etc.)
-  const reach = new Set();
-  if (dist[CENTER] === Infinity) return { ok: false, legs: [], length: Infinity, gapSegs, startSeg, reach };
+  // legs from the outside in: leg along arm i runs between c_i and c_{i+1}
   const legs = [];
-  let n = CENTER;
-  while (n !== 0) { legs.push(prev[n].e); n = prev[n].from; }
-  legs.reverse();
-  return { ok: true, legs, length: dist[CENTER], gapSegs, startSeg, reach };
+  for (let i = ARMS - 1; i >= 4; i--) {
+    const a = c(i), b = c(i + 1);
+    const [ux, uz] = DIRS[i % 4], [nx, nz] = DIRS[(i + 1) % 4];
+    legs.push({ arm: i, ox: a.x, oz: a.z, ux, uz, nx, nz, len: Math.hypot(b.x - a.x, b.z - a.z), loop: Math.floor((i - 4) / 4) });
+  }
+  const corners = [];
+  for (let i = ARMS; i >= 4; i--) corners.push(c(i));
+  let ext = 0;
+  for (const w of walls) ext = Math.max(ext, Math.abs(w.ax), Math.abs(w.az), Math.abs(w.bx), Math.abs(w.bz));
+  return { walls, legs, corners, wallCorners: v.slice(4), outer: ext };
 }
 
-// ---------------------------------------------------------------- generation
-
-// Fixed spiral layout (identical on every level): each corridor has one divider wall with the
-// entrance gap just on its + side and the exit gap just on its - side, so the only route runs
-// ~360 deg around every ring, then drops inward. No choices, no dead ends.
-const SPIRAL_CLEAR = 0.35;   // linear clearance between a gap edge and the divider beside it
-function buildSpiral(R, rings) {
-  const gaps = [], radialWalls = [];
-  const off = (r) => (CFG.GAP_WIDTH / 2 + HALF_T + SPIRAL_CLEAR) / r;
-  const rmOut = midR(R, rings - 1);
-  const startAngle = Math.PI / 2;                 // nearest the camera (screen bottom)
-  let w = startAngle - 3.2 / rmOut;               // outermost divider sits just behind the start
-  for (let i = rings - 1; i >= 0; i--) {
-    radialWalls.push({ angle: normAngle(w), r0: R[i], r1: R[i + 1], corridor: i });
-    const g = w - off(R[i]);
-    gaps.push({ wall: i, angle: normAngle(g), halfAngle: (CFG.GAP_WIDTH / 2) / R[i] });
-    w = g - off(R[i]);
-  }
-  gaps.sort((a, b) => a.wall - b.wall || a.angle - b.angle);
-  return { startAngle: normAngle(startAngle), gaps, radialWalls };
-}
-
-function buildWallArcs(R, rings, gaps) {
-  const arcs = [];
-  for (let j = 0; j <= rings; j++) {
-    const gs = gaps.filter(g => g.wall === j).sort((a, b) => a.angle - b.angle);
-    if (gs.length === 0) { arcs.push({ radius: R[j], a0: 0, a1: TAU, wall: j }); continue; }
-    for (let k = 0; k < gs.length; k++) {
-      const g = gs[k], h = gs[(k + 1) % gs.length];
-      const start = g.angle + g.halfAngle;
-      const len = normAngle((h.angle - h.halfAngle) - start);
-      if (len < 1e-6) continue;
-      arcs.push({ radius: R[j], a0: normAngle(start), a1: normAngle(start) + len, wall: j });
-    }
-  }
-  return arcs;
-}
-
-function buildWallSegments(arcs, radialWalls) {
-  const out = [];
-  for (const arc of arcs) {
-    const len = (arc.a1 - arc.a0) * arc.radius;
-    const n = Math.max(1, Math.ceil(len / 1.0));
-    let px = arc.radius * Math.cos(arc.a0), pz = arc.radius * Math.sin(arc.a0);
-    for (let k = 1; k <= n; k++) {
-      const a = arc.a0 + (arc.a1 - arc.a0) * (k / n);
-      const qx = arc.radius * Math.cos(a), qz = arc.radius * Math.sin(a);
-      out.push({ ax: px, az: pz, bx: qx, bz: qz });
-      px = qx; pz = qz;
-    }
-  }
-  for (const w of radialWalls) {
-    const c = Math.cos(w.angle), s = Math.sin(w.angle);
-    out.push({ ax: w.r0 * c, az: w.r0 * s, bx: w.r1 * c, bz: w.r1 * s });
-  }
-  return out;
-}
-
-function buildPath(R, startAngle, rings, legs) {
+function buildPath(corners) {
+  const W = CFG.RING_WIDTH;
   const pts = [];
   const STEP = 2.0;
-  const push = (x, z) => {
+  const pushTo = (x, z) => {
     const l = pts[pts.length - 1];
-    if (l && Math.hypot(l.x - x, l.z - z) < 1e-6) return;
-    pts.push({ x, z });
+    if (!l) { pts.push({ x, z }); return; }
+    const L = Math.hypot(x - l.x, z - l.z);
+    if (L < 1e-6) return;
+    const n = Math.max(1, Math.ceil(L / STEP));
+    for (let k = 1; k <= n; k++) pts.push({ x: l.x + (x - l.x) * k / n, z: l.z + (z - l.z) * k / n });
   };
-  let curCorr = rings - 1;
-  let curAng = startAngle;
-  push(midR(R, curCorr) * Math.cos(curAng), midR(R, curCorr) * Math.sin(curAng));
-  const radialTo = (ang, rFrom, rTo) => {
-    const n = Math.max(1, Math.ceil(Math.abs(rTo - rFrom) / STEP));
-    for (let k = 1; k <= n; k++) {
-      const r = rFrom + (rTo - rFrom) * (k / n);
-      push(r * Math.cos(ang), r * Math.sin(ang));
-    }
-  };
-  for (const leg of legs) {
-    if (!leg.seg) { // into center
-      radialTo(leg.toA, midR(R, curCorr), 0);
-      curCorr = -1;
-      continue;
-    }
-    const c = leg.seg.corridor;
-    if (c !== curCorr) { radialTo(curAng, midR(R, curCorr), midR(R, c)); curCorr = c; }
-    const rm = midR(R, c);
-    let uA, uB;
-    if (leg.seg.full) { uA = leg.fromA; uB = uA + angleDiff(leg.fromA, leg.toA); }
-    else { uA = unwrapFrom(leg.seg.a0, leg.fromA); uB = unwrapFrom(leg.seg.a0, leg.toA); }
-    const n = Math.max(1, Math.ceil(Math.abs(uB - uA) * rm / STEP));
-    for (let k = 1; k <= n; k++) {
-      const a = uA + (uB - uA) * (k / n);
-      push(rm * Math.cos(a), rm * Math.sin(a));
-    }
-    curAng = leg.toA;
-  }
+  for (const c of corners) pushTo(c.x, c.z);
+  // last corner sits just outside the room opening: step in, then to the middle
+  const last = corners[corners.length - 1];
+  const [nx, nz] = DIRS[5 % 4];
+  pushTo(last.x + nx * W, last.z + nz * W);
+  pushTo(0, 0);
   return pts;
 }
 
-function placeEnemies(rng, lvl, p, route) {
-  const { R, rings, segments, startAngle, seed, level } = lvl;
+// ---------------------------------------------------------------- placement
+
+function placeEnemies(rng, lvl, p) {
+  const { legs, seed, level } = lvl;
+  const W = CFG.RING_WIDTH;
   const enemies = [];
   const count = p.enemyCount;
-  const safeHalf = (CFG.START_SAFE_ARC + CFG.WOLF_RADIUS) / (R[rings - 1] + WOLF_MARGIN);
-  const safe0 = startAngle - safeHalf, safe1 = startAngle + safeHalf;
-  // corridor quotas proportional to usable length
-  const lens = [];
-  for (let i = 0; i < rings; i++) {
-    let L = TAU * midR(R, i);
-    if (i === rings - 1) L -= 2 * CFG.START_SAFE_ARC;
-    lens.push(Math.max(1, L));
-  }
+  const vIn = -W / 2 + WOLF_MARGIN, vOut = W / 2 - WOLF_MARGIN;
+  // usable s-range per leg: skip both corner squares (+ a little rest), and the start pocket
+  const ranges = legs.map((leg, li) => {
+    const lo = W / 2 + CORNER_REST + CFG.WOLF_RADIUS;
+    let hi = leg.len - W / 2 - CORNER_REST - CFG.WOLF_RADIUS;
+    if (li === 0) hi = leg.len - W / 2 - CFG.START_SAFE_ARC - CFG.WOLF_RADIUS; // start leg: c_M is the start
+    return { lo, hi: Math.max(lo, hi) };
+  });
+  const lens = ranges.map((r) => Math.max(0, r.hi - r.lo));
   const total = lens.reduce((a, b) => a + b, 0);
-  const quota = lens.map(L => Math.floor(L / total * count));
+  const quota = lens.map((L) => Math.floor(L / total * count));
   const fracs = lens.map((L, i) => ({ i, f: L / total * count - quota[i] })).sort((a, b) => b.f - a.f);
   let left = count - quota.reduce((a, b) => a + b, 0);
   for (let k = 0; left > 0; k++, left--) quota[fracs[k % fracs.length].i]++;
+  const spanScale = 1 + Math.min(1, 0.1 * (level - 1));   // territories grow with level
 
-  for (let i = 0; i < rings; i++) {
-    const m = quota[i];
-    if (m <= 0) continue;
-    const rIn = R[i] + WOLF_MARGIN, rOut = R[i + 1] - WOLF_MARGIN;
-    const rm = midR(R, i);
-    // Divider ends are rest stops: keep wolves REST_STOP units away from each corridor's divider
-    // (covers the entrance and exit gaps that flank it).
-    const sh = (WOLF_MARGIN + REST_STOP) / rIn;
-    const spanScale = 1 + Math.min(1, 0.1 * (level - 1));   // territories grow with level
-    // stratified centers over the usable angular range
-    let rangeLo = 0, rangeLen = TAU;
-    if (i === rings - 1) { rangeLo = safe1 + 0.5 / rm; rangeLen = TAU - 2 * safeHalf - 1.0 / rm; }
+  legs.forEach((leg, li) => {
+    const m = quota[li];
+    const { lo: R0, hi: R1 } = ranges[li];
+    if (m <= 0 || R1 - R0 < 1) return;
+    const frame = { ox: leg.ox, oz: leg.oz, ux: leg.ux, uz: leg.uz, nx: leg.nx, nz: leg.nz };
     const off = rng.next();
     for (let k = 0; k < m; k++) {
-      let spec = null;
-      for (let attempt = 0; attempt < 6 && !spec; attempt++) {
-        const t = attempt === 0 ? (k + off * 0.6 + 0.2) / m : rng.next();
-        const c = normAngle(rangeLo + rangeLen * Math.min(0.999, t) + rng.range(-0.15, 0.15) / m * rangeLen * (attempt === 0 ? 1 : 0));
-        const seg = findSeg(segments, i, c);
-        if (!seg) continue;
-        const segLen = seg.a1 - seg.a0;
-        let type = rng.pick(p.enemyTypes);
-        if (type === 'orbiter' && !(seg.full || segLen >= TAU / 3)) {
-          const others = p.enemyTypes.filter(x => x !== 'orbiter');
-          type = rng.pick(others);
-        }
-        let lo, hi;
-        if (type === 'orbiter') {
-          if (seg.full) {
-            if (i === rings - 1) { lo = normAngle(safe1); hi = lo + (TAU - 2 * safeHalf); }
-            else { lo = 0; hi = TAU; }
-          } else { lo = seg.a0 + sh; hi = seg.a1 - sh; }
-        } else {
-          const spanLin = spanScale * (type === 'patroller' ? rng.range(8, 18) : type === 'wanderer' ? rng.range(10, 20) : rng.range(2, 5));
-          const half = spanLin / 2 / rm;
-          const cu = seg.full ? c : unwrapFrom(seg.a0, c);
-          lo = cu - half; hi = cu + half;
-          if (!seg.full) { lo = Math.max(lo, seg.a0 + sh); hi = Math.min(hi, seg.a1 - sh); }
-        }
-        if (i === rings - 1) {
-          const piece = clipArc(lo, hi, safe0, safe1);
-          if (!piece) continue;
-          [lo, hi] = piece;
-        }
-        if ((hi - lo) * rIn < (type === 'sweeper' ? 0.5 : 2.5)) continue;
-        const a0 = normAngle(lo);
-        const a1 = a0 + Math.min(TAU, hi - lo);
-        const full = type === 'orbiter' && hi - lo >= TAU - 1e-9;
-        const speedBase = p.enemySpeed * rng.range(0.85, 1.15);
-        const id = enemies.length;
-        spec = {
-          id, type, corridor: i, segment: seg.id,
-          rIn, rOut,
-          a0: full ? 0 : a0, a1: full ? TAU : a1,
-          speed: speedBase * (type === 'orbiter' ? 0.8 : type === 'sweeper' ? 0.9 : 1),
-          phase: rng.next(),
-          pauseScale: p.enemyPauseScale,
-          seed: hashSeed(seed, level, 'wolf', id),
-        };
-        if (type === 'patroller' || type === 'orbiter') spec.r = rng.range(rIn + 0.2, rOut - 0.2);
-        if (type === 'orbiter') spec.dir = rng.chance(0.5) ? 1 : -1;
-        if (type === 'sweeper') spec.angle = (spec.a0 + spec.a1) / 2;
+      const t = (k + off * 0.6 + 0.2) / m;
+      const cs = R0 + (R1 - R0) * Math.min(0.999, t) + rng.range(-0.15, 0.15) / m * (R1 - R0);
+      const type = rng.pick(p.enemyTypes);
+      let lo, hi;
+      if (type === 'orbiter') { lo = R0; hi = R1; }          // runs the whole leg
+      else {
+        const span = spanScale * (type === 'patroller' ? rng.range(8, 18) : type === 'wanderer' ? rng.range(10, 20) : rng.range(2, 5));
+        lo = Math.max(R0, cs - span / 2); hi = Math.min(R1, cs + span / 2);
       }
-      if (spec) enemies.push(spec);
+      if (hi - lo < (type === 'sweeper' ? 0.5 : 2.5)) continue;
+      const id = enemies.length;
+      const spec = {
+        id, type, leg: li, frame,
+        rIn: vIn, rOut: vOut, a0: lo, a1: hi,
+        speed: p.enemySpeed * rng.range(0.85, 1.15) * (type === 'orbiter' ? 0.8 : type === 'sweeper' ? 0.9 : 1),
+        phase: rng.next(),
+        pauseScale: p.enemyPauseScale,
+        seed: hashSeed(seed, level, 'wolf', id),
+      };
+      if (type === 'patroller' || type === 'orbiter') spec.r = rng.range(vIn + 0.2, vOut - 0.2);
+      if (type === 'orbiter') spec.dir = rng.chance(0.5) ? 1 : -1;
+      if (type === 'sweeper') spec.angle = (lo + hi) / 2;
+      enemies.push(spec);
     }
-  }
+  });
   return enemies;
 }
 
-function distToPath(path, x, z) {
-  let d = Infinity;
-  for (const q of path) d = Math.min(d, (q.x - x) * (q.x - x) + (q.z - z) * (q.z - z));
-  return Math.sqrt(d);
-}
-
-function placeItems(rng, lvl, p, route) {
-  const { R, rings, segments, spawnPoints, path, enemies } = lvl;
+function placeItems(rng, lvl, p) {
+  const { legs, spawnPoints } = lvl;
+  const W = CFG.RING_WIDTH;
   const items = [];
-  const taken = [];
-  const okSpot = (x, z, minSep) => {
+  const okSpot = (x, z) => {
     for (const s of spawnPoints) if (Math.hypot(s.x - x, s.z - z) < 4) return false;
-    for (const t of taken) if (Math.hypot(t.x - x, t.z - z) < minSep) return false;
+    for (const t of items) if (Math.hypot(t.x - x, t.z - z) < 6) return false;
     if (collideCircle(lvl, x, z, CFG.ITEM_RADIUS + 0.15).hit) return false;
     return true;
   };
-  // segment degrees (number of gap connections) -> dead ends
-  const degree = new Map();
-  for (const gs of route.gapSegs) {
-    if (gs.inner) degree.set(gs.inner.id, (degree.get(gs.inner.id) || 0) + 1);
-    if (gs.outer) degree.set(gs.outer.id, (degree.get(gs.outer.id) || 0) + 1);
-  }
-  const onPath = new Set(route.legs.filter(l => l.seg).map(l => l.seg.id));
-  const randomPointIn = (seg) => {
-    const i = seg.corridor;
-    const r = rng.range(R[i] + 1.2, R[i + 1] - 1.2);
-    const pad = 1.2 / R[i];
-    const span = (seg.a1 - seg.a0) - 2 * pad;
-    const a = seg.full ? rng.next() * TAU : seg.a0 + pad + rng.next() * Math.max(0, span);
-    return { x: r * Math.cos(a), z: r * Math.sin(a), seg };
-  };
-  const segWeight = (s) => (s.a1 - s.a0) * midR(R, s.corridor);
-
-  // power-ups
   const types = [['boots', 5], ['life', 2], ['shield', 3]];
   for (let n = 0; n < p.itemCount; n++) {
-    const type = pickWeighted(rng, types, t => t[1])[0];
-    let best = null, bestScore = -Infinity;
+    const type = pickWeighted(rng, types, (t) => t[1])[0];
     for (let s = 0; s < 40; s++) {
-      const seg = pickWeighted(rng, segments, segWeight);
-      const c = randomPointIn(seg);
-      if (!okSpot(c.x, c.z, 6)) continue;
-      const deadEnd = !onPath.has(seg.id) && (degree.get(seg.id) || 0) <= 1;
-      const score = Math.min(distToPath(path, c.x, c.z), 12) + (deadEnd ? 8 : 0) + rng.next() * 4;
-      if (score > bestScore) { bestScore = score; best = c; }
-    }
-    if (best) {
-      const it = { id: items.length, type, x: best.x, z: best.z };
-      items.push(it); taken.push(it);
+      const leg = pickWeighted(rng, legs, (l) => l.len);
+      const along = rng.range(0, leg.len), lat = rng.range(-W / 2 + 1.2, W / 2 - 1.2);
+      const x = leg.ox + leg.ux * along + leg.nx * lat, z = leg.oz + leg.uz * along + leg.nz * lat;
+      if (!okSpot(x, z)) continue;
+      items.push({ id: items.length, type, x, z });
+      break;
     }
   }
-
   return items;
 }
+
+// ---------------------------------------------------------------- generation
 
 function generateLevel(level, seed) {
   const L = Math.max(1, level | 0);
   const p = levelParams(L);
   const rng = createRng(hashSeed(seed, L));
-  const rings = p.rings;
-  const R = [];
-  for (let j = 0; j <= rings; j++) R.push(CFG.CENTER_RADIUS + j * CFG.RING_WIDTH);
+  const { walls, legs, corners, wallCorners, outer } = buildSpiral();
+  const path = buildPath(corners);
 
-  const { startAngle, gaps, radialWalls } = buildSpiral(R, rings);
-  const ctx = { R, rings, gaps, startAngle };
-  const segments = buildSegments(rings, radialWalls);
-  const route = solveRoute(ctx, segments);
-
-  const wallArcs = buildWallArcs(R, rings, gaps);
-  const wallSegments = buildWallSegments(wallArcs, radialWalls);
-  const path = buildPath(R, startAngle, rings, route.legs);
-
-  // spawn points: 2x2 block around startAngle, facing the route's first direction
-  const firstLeg = route.legs[0];
-  let dirSign = 1;
-  if (firstLeg && firstLeg.seg) {
-    const d = firstLeg.seg.full ? angleDiff(firstLeg.fromA, firstLeg.toA)
-      : unwrapFrom(firstLeg.seg.a0, firstLeg.toA) - unwrapFrom(firstLeg.seg.a0, firstLeg.fromA);
-    dirSign = d >= 0 ? 1 : -1;
-  }
-  const rmOut = midR(R, rings - 1);
+  // spawn: 2x2 block in the start pocket, facing up the first leg
+  const start = corners[0];
+  const first = legs[0];
+  const fx = -first.ux, fz = -first.uz;          // travel direction = back along the outermost arm
+  const heading = Math.atan2(fz, fx);
   const spawnPoints = [];
-  for (const [dr, dt] of [[-1.1, 0.9], [1.1, 0.9], [-1.1, -0.9], [1.1, -0.9]]) {
-    const r = rmOut + dr;
-    const a = startAngle + (dt * dirSign) / r;
-    spawnPoints.push({ x: r * Math.cos(a), z: r * Math.sin(a), heading: normAngle(a + dirSign * Math.PI / 2) });
+  for (const [a, b] of [[0.9, -1.1], [0.9, 1.1], [-0.9, -1.1], [-0.9, 1.1]]) {
+    spawnPoints.push({ x: start.x + fx * a + first.nx * b, z: start.z + fz * a + first.nz * b, heading });
   }
 
   const lvl = {
-    level: L, seed, rings,
-    ringRadii: R,
-    outerRadius: R[rings],
-    gaps,
-    wallArcs,
-    radialWalls,
-    segments,
-    wallSegments,
-    startAngle,
+    level: L, seed,
+    loops: Math.floor((ARMS - 4) / 4),
+    corridorWidth: CFG.RING_WIDTH,
+    centerRadius: CFG.CENTER_RADIUS,
+    roomHalf: ROOM,
+    outerRadius: outer,
+    walls,
+    wallSegments: walls,
+    wallCorners,
+    legs,
+    corners,
+    startAngle: heading,
     spawnPoints,
     enemies: [],
     items: [],
     path,
     theme: (L - 1) % 4,
   };
-  // internal fields used during generation only (removed below)
-  lvl.R = R;
-  lvl.enemies = placeEnemies(rng, lvl, p, route);
-  lvl.items = placeItems(rng, lvl, p, route);
-  delete lvl.R;
+  lvl.enemies = placeEnemies(rng, lvl, p);
+  lvl.items = placeItems(rng, lvl, p);
   return lvl;
 }
 
@@ -529,25 +302,24 @@ function collideCircle(levelData, x, z, radius) {
   return { x, z, hit };
 }
 
+
+// Which corridor leg (index into levelData.legs) a point is in; -1 = goal room, -2 = outside.
 function locate(levelData, x, z) {
-  const R = levelData.ringRadii;
-  const rings = levelData.rings;
-  const r = Math.hypot(x, z);
-  const angle = normAngle(Math.atan2(z, x));
-  if (r < R[0]) return { corridor: -1, segment: -1, r, angle };
-  if (r >= R[rings]) return { corridor: rings, segment: -1, r, angle };
-  const i = Math.min(rings - 1, Math.max(0, Math.floor((r - R[0]) / CFG.RING_WIDTH)));
-  let segment = -1;
-  for (const s of levelData.segments) {
-    if (s.corridor !== i) continue;
-    if (s.a1 - s.a0 >= TAU - 1e-9 && s.full !== false) { segment = s.id; break; }
-    if (normAngle(angle - s.a0) <= s.a1 - s.a0) { segment = s.id; break; }
+  const W = levelData.corridorWidth;
+  const rh = levelData.roomHalf;
+  if (Math.abs(x) < rh && Math.abs(z) < rh) return { leg: -1, s: 0, v: 0 };
+  const legs = levelData.legs;
+  for (let i = 0; i < legs.length; i++) {
+    const l = legs[i];
+    const dx = x - l.ox, dz = z - l.oz;
+    const s = dx * l.ux + dz * l.uz, v = dx * l.nx + dz * l.nz;
+    if (s >= -W / 2 && s <= l.len + W / 2 && Math.abs(v) <= W / 2) return { leg: i, s, v };
   }
-  return { corridor: i, segment, r, angle };
+  return { leg: -2, s: 0, v: 0 };
 }
 
 function inCenter(levelData, x, z) {
-  return Math.hypot(x, z) < levelData.ringRadii[0] - HALF_T;
+  return Math.hypot(x, z) < levelData.centerRadius - HALF_T;
 }
 
 // ---------------------------------------------------------------- self test
@@ -556,79 +328,60 @@ function mazeSelfTest(levels = 12) {
   const problems = [];
   const seeds = [1, 42, 1337, 9001, 'kitty', 777777];
   const P = (s, l, msg) => { if (problems.length < 200) problems.push(`seed ${s} L${l}: ${msg}`); };
-  const stats = { levels: 0, avgPathLen: 0, radialWalls: 0, enemies: 0, items: 0 };
+  const stats = { levels: 0, avgPathLen: 0, enemies: 0, items: 0 };
   for (const s of seeds) {
     for (let l = 1; l <= levels; l++) {
       const ld = generateLevel(l, s);
       const p = levelParams(l);
       stats.levels++;
-      // determinism
-      const ld2 = generateLevel(l, s);
-      if (JSON.stringify(ld) !== JSON.stringify(ld2)) P(s, l, 'not deterministic');
-      // angles
-      for (const a of ld.wallArcs) if (!(a.a0 >= 0 && a.a0 < TAU && a.a1 > a.a0 && a.a1 - a.a0 <= TAU + 1e-9)) P(s, l, 'bad wallArc ' + JSON.stringify(a));
-      for (const g of ld.segments) if (!(g.a0 >= 0 && g.a0 < TAU && g.a1 > g.a0 && g.a1 - g.a0 <= TAU + 1e-9)) P(s, l, 'bad segment ' + JSON.stringify(g));
-      for (let j = 0; j < ld.rings; j++) if (!ld.gaps.some(g => g.wall === j)) P(s, l, 'wall ' + j + ' without gap');
-      if (ld.gaps.some(g => g.wall >= ld.rings)) P(s, l, 'gap in outer wall');
+      if (JSON.stringify(ld) !== JSON.stringify(generateLevel(l, s))) P(s, l, 'not deterministic');
       // path: starts at start, ends in center, never inside walls
       const path = ld.path;
-      if (path.length < 2) P(s, l, 'no path');
-      else {
-        if (!inCenter(ld, path[path.length - 1].x, path[path.length - 1].z)) P(s, l, 'path does not end in center');
-        let len = 0, bad = 0;
-        for (let k = 1; k < path.length; k++) {
-          const A = path[k - 1], B = path[k];
-          const sl = Math.hypot(B.x - A.x, B.z - A.z);
-          len += sl;
-          if (sl > 2.6) P(s, l, 'path step too long ' + sl.toFixed(2));
-          const n = Math.ceil(sl / 0.2);
-          for (let t = 0; t <= n; t++) {
-            const x = A.x + (B.x - A.x) * t / n, z = A.z + (B.z - A.z) * t / n;
-            if (collideCircle(ld, x, z, CFG.KITTY_RADIUS).hit) bad++;
-          }
+      if (!inCenter(ld, path[path.length - 1].x, path[path.length - 1].z)) P(s, l, 'path does not end in center');
+      let len = 0, bad = 0;
+      for (let k = 1; k < path.length; k++) {
+        const A = path[k - 1], B = path[k];
+        const sl = Math.hypot(B.x - A.x, B.z - A.z);
+        len += sl;
+        if (sl > 2.6) P(s, l, 'path step too long ' + sl.toFixed(2));
+        const n = Math.ceil(sl / 0.2);
+        for (let t = 0; t <= n; t++) {
+          const x = A.x + (B.x - A.x) * t / n, z = A.z + (B.z - A.z) * t / n;
+          if (collideCircle(ld, x, z, CFG.KITTY_RADIUS).hit) bad++;
         }
-        if (bad) P(s, l, `path hits walls at ${bad} samples`);
-        stats.avgPathLen += len;
       }
+      if (bad) P(s, l, `path hits walls at ${bad} samples`);
+      stats.avgPathLen += len;
       // spawn points
       for (const sp of ld.spawnPoints) {
         if (collideCircle(ld, sp.x, sp.z, CFG.KITTY_RADIUS).hit) P(s, l, 'spawn collides');
-        if (locate(ld, sp.x, sp.z).corridor !== ld.rings - 1) P(s, l, 'spawn not in outer corridor');
+        if (locate(ld, sp.x, sp.z).leg !== 0) P(s, l, 'spawn not in the first leg');
       }
-      if (ld.spawnPoints.length !== 4) P(s, l, 'spawn count');
-      // enemies
+      // enemies: territories inside their leg, clear of walls and the start pocket
       if (ld.enemies.length < p.enemyCount * 0.85) P(s, l, `few enemies ${ld.enemies.length}/${p.enemyCount}`);
-      const safeA = CFG.START_SAFE_ARC / ld.ringRadii[ld.rings - 1];
       for (const e of ld.enemies) {
-        if (!(e.rIn < e.rOut)) P(s, l, 'enemy rIn>=rOut ' + e.id);
-        if (!(e.a0 >= 0 && e.a0 < TAU && e.a1 > e.a0 && e.a1 - e.a0 <= TAU + 1e-9)) P(s, l, 'enemy bad angles ' + e.id);
+        if (!(e.rIn < e.rOut && e.a0 < e.a1)) P(s, l, 'enemy bad bounds ' + e.id);
         if (!p.enemyTypes.includes(e.type)) P(s, l, 'enemy type ' + e.type);
-        if ((e.type === 'patroller' || e.type === 'orbiter') && !(e.r >= e.rIn && e.r <= e.rOut)) P(s, l, 'enemy r out of bounds');
-        if (e.type === 'sweeper' && !(e.angle >= e.a0 && e.angle <= e.a1)) P(s, l, 'sweeper angle out of bounds');
-        if (e.type === 'orbiter') { const sg = ld.segments[e.segment]; if (!(sg.full || sg.a1 - sg.a0 >= TAU / 3 - 1e-9)) P(s, l, 'orbiter in short segment'); }
         if (!(e.speed > 0 && e.speed < CFG.KITTY_SPEED)) P(s, l, 'enemy speed ' + e.speed);
         let clip = 0, unsafe = 0;
+        const f = e.frame;
         for (let u = 0; u <= 8; u++) for (let v = 0; v <= 4; v++) {
           const a = e.a0 + (e.a1 - e.a0) * u / 8, r = e.rIn + (e.rOut - e.rIn) * v / 4;
-          const x = r * Math.cos(a), z = r * Math.sin(a);
+          const x = f.ox + f.ux * a + f.nx * r, z = f.oz + f.uz * a + f.nz * r;
           if (collideCircle(ld, x, z, CFG.WOLF_RADIUS).hit) clip++;
-          if (e.corridor === ld.rings - 1 && Math.abs(angleDiff(a, ld.startAngle)) < safeA) unsafe++;
-          if (locate(ld, x, z).corridor !== e.corridor) clip++;
+          for (const sp of ld.spawnPoints) if (Math.hypot(sp.x - x, sp.z - z) < CFG.START_SAFE_ARC) unsafe++;
         }
         if (clip) P(s, l, `enemy ${e.id} (${e.type}) bounds clip walls (${clip})`);
-        if (unsafe) P(s, l, `enemy ${e.id} covers start safe arc`);
+        if (unsafe) P(s, l, `enemy ${e.id} covers start safe area`);
       }
       // items
       if (ld.items.length < p.itemCount) P(s, l, `few items ${ld.items.length}/${p.itemCount}`);
       for (const it of ld.items) {
         if (collideCircle(ld, it.x, it.z, CFG.ITEM_RADIUS).hit) P(s, l, 'item in wall ' + it.id);
-        for (const sp of ld.spawnPoints) if (Math.hypot(sp.x - it.x, sp.z - it.z) < 2) P(s, l, 'item near spawn');
-        const lc = locate(ld, it.x, it.z);
-        if (lc.corridor < 0 || lc.corridor >= ld.rings) P(s, l, 'item outside maze');
+        if (locate(ld, it.x, it.z).leg < 0) P(s, l, 'item outside corridors');
       }
       ld.items.forEach((it, k) => { if (it.id !== k) P(s, l, 'item ids not sequential'); });
       ld.enemies.forEach((e, k) => { if (e.id !== k) P(s, l, 'enemy ids not sequential'); });
-      stats.radialWalls += ld.radialWalls.length;
       stats.enemies += ld.enemies.length;
       stats.items += ld.items.length;
     }

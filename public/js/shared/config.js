@@ -37,7 +37,7 @@ const CFG = {
   LEVEL_CLEAR_TIME: 2.4,     // seconds of celebration before next level
 };
 
-// Number of rings in the (fixed) map. 6 rings x 6 wide ≈ 870 units of running to the center.
+// Loops of the (fixed) square spiral map (see maze.js).
 const MAP_RINGS = 6;
 
 // Difficulty curve. level starts at 1.
@@ -49,9 +49,9 @@ function levelParams(level) {
   if (L >= 3) types.push('sweeper');
   return {
     rings: MAP_RINGS,                                               // fixed: same map every level
-    // Fixed wolf count on every level (~1 wolf per 4 units of the ~880-unit spiral);
+    // Fixed wolf count on every level (~1 wolf per 4 units of the ~840-unit square spiral);
     // levels get harder through speed, shorter pauses, bigger territories and new wolf types.
-    enemyCount: 220,
+    enemyCount: 180,
     enemySpeed: Math.min(2.4 * (1 + 0.08 * (L - 1)), 5.3),          // units / s (always below kitty speed)
     enemyPauseScale: Math.max(0.4, 1 - 0.07 * (L - 1)),             // wolves rest less each level
     enemyTypes: types,

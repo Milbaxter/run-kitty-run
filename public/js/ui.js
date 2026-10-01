@@ -443,21 +443,22 @@ function createUI(root) {
     g.clearRect(0, 0, M.staticCanvas.width, M.staticCanvas.height);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     const cx = S / 2, cy = S / 2;
-    const R = ld.ringRadii || [];
-    const outer = ld.outerRadius || R[R.length - 1] || 20;
+    const outer = ld.outerRadius || 20;
     const sc = (S / 2 - 9) / outer;
     M.scale = sc;
 
-    // corridor bands
-    for (let i = R.length - 2; i >= 0; i--) {
+    // corridor bands (one rectangle per leg, alternating per loop)
+    const W = ld.corridorWidth || 6, h = W / 2;
+    for (const l of ld.legs || []) {
+      const s0 = -h, s1 = l.len + h;
+      const pt = (sv, v) => [cx + (l.ox + l.ux * sv + l.nx * v) * sc, cy + (l.oz + l.uz * sv + l.nz * v) * sc];
       g.beginPath();
-      g.arc(cx, cy, R[i + 1] * sc, 0, Math.PI * 2);
-      g.arc(cx, cy, R[i] * sc, 0, Math.PI * 2, true);
-      g.fillStyle = i % 2 ? 'rgba(140,110,220,.16)' : 'rgba(110,200,170,.13)';
+      g.moveTo(...pt(s0, -h)); g.lineTo(...pt(s1, -h)); g.lineTo(...pt(s1, h)); g.lineTo(...pt(s0, h)); g.closePath();
+      g.fillStyle = l.loop % 2 ? 'rgba(140,110,220,.16)' : 'rgba(110,200,170,.13)';
       g.fill();
     }
     // center goal glow
-    const r0 = (R[0] || CFG.CENTER_RADIUS) * sc;
+    const r0 = (ld.centerRadius || CFG.CENTER_RADIUS) * sc;
     const grd = g.createRadialGradient(cx, cy, 0, cx, cy, r0 * 1.1);
     grd.addColorStop(0, 'rgba(255,250,210,.95)');
     grd.addColorStop(0.45, 'rgba(255,200,90,.6)');
@@ -465,18 +466,7 @@ function createUI(root) {
     g.fillStyle = grd;
     g.beginPath(); g.arc(cx, cy, r0 * 1.1, 0, Math.PI * 2); g.fill();
 
-    // gap highlights (soft glow behind walls)
-    for (const gp of ld.gaps || []) {
-      const rr = (R[gp.wall] != null ? R[gp.wall] : 0) * sc;
-      g.beginPath();
-      g.arc(cx, cy, rr, gp.angle - gp.halfAngle, gp.angle + gp.halfAngle);
-      g.strokeStyle = 'rgba(140,255,190,.55)';
-      g.lineWidth = 4;
-      g.lineCap = 'round';
-      g.stroke();
-    }
-
-    // ring walls
+    // walls
     const lw = Math.max(1.6, CFG.WALL_THICKNESS * sc * 1.2);
     g.lineCap = 'round';
     g.strokeStyle = 'rgba(0,0,0,.45)';
@@ -488,15 +478,9 @@ function createUI(root) {
   }
   function strokeWalls(g, ld, cx, cy, sc) {
     g.beginPath();
-    for (const a of ld.wallArcs || []) {
-      const r = a.radius * sc;
-      g.moveTo(cx + Math.cos(a.a0) * r, cy + Math.sin(a.a0) * r);
-      g.arc(cx, cy, r, a.a0, a.a1);
-    }
-    for (const w of ld.radialWalls || []) {
-      const c = Math.cos(w.angle), s = Math.sin(w.angle);
-      g.moveTo(cx + c * w.r0 * sc, cy + s * w.r0 * sc);
-      g.lineTo(cx + c * w.r1 * sc, cy + s * w.r1 * sc);
+    for (const w of ld.walls || []) {
+      g.moveTo(cx + w.ax * sc, cy + w.az * sc);
+      g.lineTo(cx + w.bx * sc, cy + w.bz * sc);
     }
     g.stroke();
   }
@@ -516,7 +500,7 @@ function createUI(root) {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // pulsing center
-    const R0 = ((ld.ringRadii && ld.ringRadii[0]) || CFG.CENTER_RADIUS) * sc;
+    const R0 = (ld.centerRadius || CFG.CENTER_RADIUS) * sc;
     g.beginPath();
     g.arc(cx, cy, R0 * (0.35 + 0.15 * Math.sin(t * 3)), 0, Math.PI * 2);
     g.fillStyle = 'rgba(255,255,230,.55)';

@@ -1,6 +1,6 @@
 # Run Kitty Run
 
-3D spiral-maze kitty runner (three.js) with solo, local co-op and **online lobbies (up to 8 players)**.
+3D square-spiral kitty runner (three.js): one long corridor of straight legs winding in to the goal room, with solo, local co-op and **online lobbies (up to 8 players)**.
 
 Live: https://80-47-225-25.nip.io (mirror: https://80-47-225-25.sslip.io)
 
@@ -30,5 +30,6 @@ leave, the next player in join order becomes host.
 
 ```bash
 node scripts/level-sync-test.mjs     # client mirror stays in sync across level changes
+node scripts/playthrough-test.mjs    # a kitty following the path clears the level
 node scripts/bot-test.mjs            # lobby/server behaviour (needs `npm start` running)
 ```

@@ -11,6 +11,11 @@ npm install
 npm start          # http://localhost:8080
 ```
 
+## Patch notes
+
+Player-facing notes live in `public/js/patchnotes.js` (newest first) and show on the title screen on desktop.
+Add a line there whenever you ship something players will notice.
+
 ## Layout
 
 - `public/` – the browser client (static files). `public/js/shared/` is the pure, deterministic game sim, used by both client and server.

@@ -1,5 +1,6 @@
 import { CFG } from './shared/config.js';
 import { TOUCH } from './device.js';
+import { PATCH_NOTES } from './patchnotes.js';
 
 // Run Kitty Run — UI layer (DOM + injected CSS + 2D canvas minimap).
 // Contract notes / interpretations:
@@ -195,6 +196,21 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-ico{width:34px;height:34px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:12px;background:rgba(0,0,0,.25);padding:4px;}
 .rkr-ico svg{width:100%;height:100%;}
 .rkr-ctl{flex:0 1 380px;}
+.rkr-notes{flex:1 1 100%;max-width:916px;max-height:230px;overflow:auto;text-align:left;}
+.rkr-note{margin-bottom:10px;}
+.rkr-note .rkr-nh{display:flex;gap:10px;align-items:baseline;font-weight:900;font-size:15px;}
+.rkr-note .rkr-nv{color:#ffcf5a;}
+.rkr-note .rkr-nd{opacity:.5;font-size:12px;font-weight:700;}
+.rkr-note ul{margin:4px 0 0;padding-left:20px;font-size:13.5px;font-weight:700;color:#efe7ff;line-height:1.45;}
+@media (min-width:1100px){
+  .rkr-tcol{max-width:1180px;}
+  .rkr-info{flex-wrap:nowrap;align-items:stretch;}
+  .rkr-how{flex:1 1 0;max-width:none;}
+  .rkr-how .rkr-items{grid-template-columns:1fr;}
+  .rkr-ctl{flex:0 0 auto;}
+  .rkr-notes{flex:1.2 1 0;max-width:none;max-height:330px;}
+}
+.rkr-notes h3 + .rkr-note .rkr-nh::after{content:'NEW';font-size:10px;letter-spacing:.12em;background:#ff5c93;color:#fff;border-radius:6px;padding:1px 6px;}
 .rkr-ctlgrid{display:grid;grid-template-columns:auto auto;gap:10px 18px;align-items:center;}
 .rkr-ctlgrid .rkr-lab{font-weight:800;font-size:14px;color:#efe7ff;}
 .rkr-ctlgrid .rkr-lab em{font-style:normal;font-weight:900;}
@@ -666,6 +682,9 @@ function createUI(root) {
 
   // ================= title =================
   let titleEl = null, titleBtns = [];
+  function notesHtml() {
+    return PATCH_NOTES.map((n) => `<div class="rkr-note"><div class="rkr-nh"><span class="rkr-nv">v${esc(n.version)}</span><span>${esc(n.title)}</span><span class="rkr-nd">${esc(n.date)}</span></div><ul>${n.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul></div>`).join('');
+  }
   function buildTitle() {
     const o = el('div', 'rkr-overlay rkr-title');
     const paws = el('div', 'rkr-paws');
@@ -715,6 +734,7 @@ function createUI(root) {
               <div class="rkr-krow"><span class="rkr-k">H</span></div><div class="rkr-lab">show / hide the HUD</div>
             </div>
           </div>
+          <div class="rkr-panel rkr-notes"><h3>What's new</h3>${notesHtml()}</div>
         </div>
         <div class="rkr-foot rkr-desk">Press <span class="rkr-k">1</span>, <span class="rkr-k">2</span> or <span class="rkr-k">3</span> &middot; <span class="rkr-k rkr-wide">Enter</span> to start</div>
       </div>`;

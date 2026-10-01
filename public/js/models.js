@@ -368,6 +368,42 @@ function ghostMaterial(tint) {
   });
 }
 
+// Gold crown (finished the previous run) and a soft glowing aura (finished 2+ runs).
+let crownGeoCache = null, auraTexCache = null;
+function crownGeometry() {
+  if (crownGeoCache) return crownGeoCache;
+  const parts = [];
+  const band = new THREE.CylinderGeometry(0.115, 0.125, 0.07, 10, 1, true);
+  parts.push(band);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const spike = new THREE.ConeGeometry(0.035, 0.09, 4);
+    spike.translate(Math.cos(a) * 0.11, 0.075, Math.sin(a) * 0.11);
+    parts.push(spike);
+  }
+  // merge (all non-indexed so attributes line up)
+  const geos = parts.map((g) => (g.index ? g.toNonIndexed() : g));
+  let n = 0; for (const g of geos) n += g.attributes.position.count;
+  const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3);
+  let o = 0;
+  for (const g of geos) { pos.set(g.attributes.position.array, o * 3); nor.set(g.attributes.normal.array, o * 3); o += g.attributes.position.count; }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  crownGeoCache = out;
+  return out;
+}
+function auraTexture() {
+  if (auraTexCache) return auraTexCache;
+  const c = document.createElement('canvas'); c.width = 4; c.height = 64;
+  const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 0, 64);
+  gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.55, 'rgba(255,255,255,.35)'); gr.addColorStop(1, 'rgba(255,255,255,.9)');
+  g.fillStyle = gr; g.fillRect(0, 0, 4, 64);
+  auraTexCache = new THREE.CanvasTexture(c);
+  return auraTexCache;
+}
+
 function createKittyModel(color) {
   const G = kittyGeos(color);
   const mat = VC_MAT();
@@ -542,8 +578,46 @@ function createKittyModel(color) {
   }
   for (const m of meshes) m.userData.shadow = m.castShadow;
 
-  update(0, {});
-  return { group, update, setGhost };
+  // crown sits on the head (follows its bob/tilt)
+  const crown = new THREE.Mesh(crownGeometry(), new THREE.MeshStandardMaterial({ color: 0xffd34a, emissive: 0xffa000, emissiveIntensity: 0.55, metalness: 0.6, roughness: 0.3, side: THREE.DoubleSide }));
+  crown.position.set(-0.02, 0.22, 0);
+  crown.rotation.z = -0.12;
+  crown.scale.setScalar(1.3);
+  crown.castShadow = true;
+  crown.visible = false;
+  head.add(crown);
+  // aura: a glowing column + ground ring in the kitty's colour
+  const auraCol = new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.35).multiplyScalar(1.6);
+  const auraMat = new THREE.MeshBasicMaterial({ map: auraTexture(), color: auraCol, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+  const aura = new THREE.Group();
+  const col = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.7, 1.3, 32, 1, true), auraMat);
+  col.position.y = 0.65;
+  const ringMat = new THREE.MeshBasicMaterial({ color: auraCol, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.86, 40), ringMat);
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.04;
+  aura.add(col, ring);
+  aura.visible = false;
+  group.add(aura);
+  const baseUpdate = update;
+  function updateAll(dt, s) {
+    baseUpdate(dt, s);
+    s = s || {};
+    const t = s.time || 0;
+    crown.visible = !!s.crown && rig.visible;
+    if (crown.visible) crown.position.y = 0.22 + Math.sin(t * 3) * 0.008;
+    aura.visible = !!s.aura;
+    if (aura.visible) {
+      const k = 0.75 + 0.25 * Math.sin(t * 3.2);
+      auraMat.opacity = 0.55 * k;
+      ringMat.opacity = 0.45 * k;
+      col.rotation.y = t * 0.6;
+      const sc = 1 + 0.05 * Math.sin(t * 2.1);
+      aura.scale.set(sc, 1, sc);
+    }
+  }
+
+  updateAll(0, {});
+  return { group, update: updateAll, setGhost };
 }
 
 // ---------------------------------------------------------------------------

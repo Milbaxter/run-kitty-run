@@ -80,6 +80,7 @@ function makePlayer(def) {
     inCenter: false,
     deaths: 0,
     rescues: 0,
+    finishes: 0,    // runs this kitty finished first (2+ = aura)
   };
 }
 
@@ -93,6 +94,7 @@ function createSim({ seed, players = [], startLevel = 1 } = {}) {
     levelData: null,
     enemies: [],
     enemyTicks: 0,
+    lastWinner: 0,  // id of the kitty that finished the previous run (wears the crown)
     players: [],
     items: [],
     circles: [],
@@ -380,6 +382,8 @@ function stepSim(sim, inputs, dt) {
       }
     } else if (aliveInCenter > 0) {
       const by = players.find((q) => q.alive && q.inCenter);
+      by.finishes = (by.finishes || 0) + 1;
+      sim.lastWinner = by.id;
       sim.state = 'levelclear';
       sim.stateTimer = CFG.LEVEL_CLEAR_TIME;
       sim.stats.levelsCleared++;

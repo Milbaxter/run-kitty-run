@@ -887,14 +887,14 @@ function createUI(root) {
     const mine = list.filter((p) => p.me).reduce((m, p) => Math.max(m, p.score), -Infinity);
     if (mine > best) { best = mine; try { localStorage.setItem('rkr-best', String(best)); } catch { /* ignore */ } }
     const rows = [...list].sort((a, b) => b.score - a.score);
-    const key = rows.map((p) => `${p.name}|${p.score}|${p.me}`).join(',') + '#' + best;
+    const key = rows.map((p) => `${p.name}|${p.score}|${p.me}|${p.crown}`).join(',') + '#' + best;
     if (key === scoresKey) return;
     scoresKey = key;
     scoresEl.textContent = '';
     scoresEl.appendChild(el('div', 'rkr-sh', 'SCORE'));
     for (const p of rows) {
       const r = el('div', 'rkr-sr' + (p.you ? ' rkr-me' : ''));
-      const n = el('span'); n.textContent = p.name; n.style.color = hexColor(p.color);
+      const n = el('span'); n.textContent = (p.crown ? '👑 ' : '') + p.name; n.style.color = hexColor(p.color);
       const v = el('span'); v.textContent = (p.score > 0 ? '+' : '') + p.score;
       r.append(n, v);
       scoresEl.appendChild(r);

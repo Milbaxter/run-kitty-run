@@ -625,6 +625,7 @@ function syncVisuals(dt, alpha) {
     k.model.update(dt, {
       speed01: Math.min(1, speed / (CFG.KITTY_SPEED * 1.2)),
       moving: p.moving, invuln: p.invuln, shield: p.shield, time: t,
+      crown: p.id === sim.lastWinner, aura: (p.finishes || 0) >= 2,
     });
     if (p.moving && sim.state !== 'gameover') {
       k.dustT -= dt;
@@ -662,7 +663,7 @@ function updateHUD() {
   feedback.setVisible(down);
   if (mode !== 'play') { ui.setScores(null); return; }
   // score: +1 per friend saved, -1 per time caught
-  ui.setScores(sim.players.map((p) => ({ name: p.name, color: p.color, score: p.rescues - p.deaths, me: online.playing ? p.id === online.me : true, you: online.playing && p.id === online.me })));
+  ui.setScores(sim.players.map((p) => ({ name: p.name, color: p.color, score: p.rescues - p.deaths, crown: p.id === sim.lastWinner, me: online.playing ? p.id === online.me : true, you: online.playing && p.id === online.me })));
   ui.setHUD({
     level: sim.level,
     players: sim.players.map((p) => ({
@@ -932,6 +933,7 @@ function applySnapshot(m) {
     catchUpWolves();
   }
 
+  sim.lastWinner = m.lw || 0;
   sim.state = m.st;
   sim.time = m.tm + (online.tick - m.k) * CFG.TICK;
   sim.stats = m.s;
@@ -942,7 +944,7 @@ function applySnapshot(m) {
   const seen = new Set();
   let rosterChanged = false;
   for (const a of m.p) {
-    const [id, x, z, vx, vz, heading, alive, inC, lives, speedMult, invuln, shield, deaths, rescues, margin] = a;
+    const [id, x, z, vx, vz, heading, alive, inC, lives, speedMult, invuln, shield, deaths, rescues, margin, finishes = 0] = a;
     seen.add(id);
     let p = sim.players.find((q) => q.id === id);
     const fresh = !p;
@@ -955,7 +957,7 @@ function applySnapshot(m) {
     }
     const wasAlive = p.alive;
     const oldX = p.x + (id === online.me ? online.errX : 0), oldZ = p.z + (id === online.me ? online.errZ : 0);
-    Object.assign(p, { vx, vz, heading, alive: !!alive, inCenter: !!inC, lives, speedMult, invuln, shield, deaths, rescues });
+    Object.assign(p, { vx, vz, heading, alive: !!alive, inCenter: !!inC, lives, speedMult, invuln, shield, deaths, rescues, finishes });
     p.moving = Math.hypot(vx, vz) > 0.5;
     if (id === online.me) {
       p.x = x; p.z = z;

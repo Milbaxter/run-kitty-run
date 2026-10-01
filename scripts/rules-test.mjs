@@ -78,3 +78,17 @@ ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG
   const ev2 = hit();
   ok(ev2.some((e) => e.type === 'death') && !p.alive && p.speedMult === 1, 'boots are lost when caught');
 }
+
+// crown + aura bookkeeping: the first kitty home wears the crown; finishes are counted per kitty
+{
+  const s = createSim({ seed: 31, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] });
+  stepSim(s, {}, CFG.TICK);
+  const finish = (p) => { for (const q of s.players) q.invuln = 99; p.x = 0; p.z = 0; let t = 0; while (t++ < 400 && !stepSim(s, {}, CFG.TICK).some((e) => e.type === 'levelStart')); };
+  const [a, b] = s.players;
+  finish(a);
+  ok(s.lastWinner === 1 && a.finishes === 1, 'first finisher wears the crown');
+  finish(b);
+  ok(s.lastWinner === 2 && b.finishes === 1 && a.finishes === 1, 'crown moves to the newest finisher');
+  finish(a);
+  ok(a.finishes === 2 && s.lastWinner === 1, 'two finishes = aura');
+}

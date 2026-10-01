@@ -5,7 +5,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET } from './shared/config.js';
 import { hashSeed } from './shared/rng.js';
-import { collideCircle } from './shared/maze.js';
+import { collideCircle, onIce } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
 import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
 import { createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel } from './models.js';
@@ -182,7 +182,7 @@ function readInput(index, playerCount) {
 }
 
 // Mouse: drives player 2 in co-op (player 1 in solo). Click = run to that spot, hold = steer toward cursor.
-const mouse = { ndc: new THREE.Vector2(), has: false, held: false, target: null };
+const mouse = { ndc: new THREE.Vector2(), has: false, held: false, target: null, iceDir: null };
 const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const mouseHit = new THREE.Vector3();
@@ -214,6 +214,7 @@ canvas.addEventListener('pointerdown', (e) => {
   }
   setMouseNdc(e);
   mouse.held = true;
+  mouse.iceDir = null;
   mouse.target = mouseGround();
   if (mouse.target) targetPulse = 1;
 });
@@ -236,8 +237,21 @@ function mousePlayerIndex() {
 }
 
 function mouseInput(p, kb) {
-  if (Math.hypot(kb.x, kb.z) > 0.1 || !p.alive) { mouse.target = null; return kb; }
+  if (Math.hypot(kb.x, kb.z) > 0.1 || !p.alive) { mouse.target = null; mouse.iceDir = null; return kb; }
   if (mouse.held && mouse.has) mouse.target = mouseGround() || mouse.target;
+  if (!onIce(sim.levelData, p.x, p.z)) mouse.iceDir = null;
+  else if (mouse.held || mouse.iceDir) {
+    // ice: a click sets a direction to skate in (not a spot to stop at); holding keeps steering at the cursor
+    if (mouse.target) {
+      const dx = mouse.target.x - p.x, dz = mouse.target.z - p.z, d = Math.hypot(dx, dz);
+      if (mouse.held && d > 0.3) mouse.iceDir = { x: dx / d, z: dz / d };
+      else if (mouse.iceDir && dx * mouse.iceDir.x + dz * mouse.iceDir.z < 0) mouse.target = null; // slid past the spot
+    }
+    return mouse.iceDir || kb;
+  } else if (mouse.target) {
+    const dx = mouse.target.x - p.x, dz = mouse.target.z - p.z, d = Math.hypot(dx, dz);
+    if (d > 0.3) { mouse.iceDir = { x: dx / d, z: dz / d }; return mouse.iceDir; }
+  }
   if (!mouse.target) return kb;
   const dx = mouse.target.x - p.x, dz = mouse.target.z - p.z;
   const d = Math.hypot(dx, dz);

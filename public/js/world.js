@@ -654,7 +654,60 @@ function buildFloors(levelData, theme, T) {
   tg.setIndex(ti);
   const tiles = new THREE.Mesh(T.g(tg), T.m(new THREE.MeshStandardMaterial({ map: makeSafeTileTexture(T), color: theme.plaza, roughness: 0.85 })));
   tiles.receiveShadow = true;
-  return [floor, plaza, tiles];
+  const out = [floor, plaza, tiles];
+  if (levelData.ice) out.push(buildIce(levelData, T));
+  return out;
+}
+
+// Glossy ice sheet over every corridor (under the safe tiles; the goal room stays snow).
+function buildIce(levelData, T) {
+  const rng = createRng(777);
+  const S = 512;
+  const map = T.t(canvasTex(S, (g) => {
+    g.fillStyle = '#cfeaff'; g.fillRect(0, 0, S, S);
+    blotches(g, S, rng, 40, 50, 140, [255, 255, 255, 0.22], [90, 150, 210, 0.16]);
+    g.lineCap = 'round';
+    // skate scratches: long faint arcs
+    for (let i = 0; i < 70; i++) {
+      const x = rng.range(0, S), y = rng.range(0, S), r = rng.range(60, 260), a = rng.range(0, TAU), sweep = rng.range(0.15, 0.5);
+      g.strokeStyle = `rgba(255,255,255,${rng.range(0.25, 0.55)})`; g.lineWidth = rng.range(0.8, 1.8);
+      wrapDraw(S, x, y, r + 4, (px, py) => { g.beginPath(); g.arc(px, py, r, a, a + sweep); g.stroke(); });
+    }
+    // cracks: short jagged dark-blue polylines
+    for (let i = 0; i < 18; i++) {
+      let x = rng.range(0, S), y = rng.range(0, S), a = rng.range(0, TAU);
+      const pts = [[x, y]];
+      for (let k = 0; k < 6; k++) { a += rng.range(-0.8, 0.8); x += Math.cos(a) * rng.range(8, 22); y += Math.sin(a) * rng.range(8, 22); pts.push([x, y]); }
+      g.strokeStyle = `rgba(70,120,180,${rng.range(0.25, 0.45)})`; g.lineWidth = rng.range(0.8, 1.6);
+      wrapDraw(S, pts[0][0], pts[0][1], 140, (px, py) => {
+        const ox = px - pts[0][0], oy = py - pts[0][1];
+        g.beginPath(); g.moveTo(px, py); for (const [qx, qy] of pts) g.lineTo(qx + ox, qy + oy); g.stroke();
+      });
+    }
+  }));
+  const W = levelData.corridorWidth, h = W / 2 - CFG.WALL_THICKNESS / 2, UVS = 1 / 9;
+  const pos = [], uv = [], idx = [];
+  levelData.legs.forEach((l, i) => {
+    const s0 = i === levelData.legs.length - 1 ? -h : -W / 2, s1 = l.len + h;
+    const b = pos.length / 3;
+    for (const [sv, v] of [[s0, -h], [s0, h], [s1, -h], [s1, h]]) {
+      const x = l.ox + l.ux * sv + l.nx * v, z = l.oz + l.uz * sv + l.nz * v;
+      pos.push(x, 0.007, z); uv.push(x * UVS, z * UVS);
+    }
+    if (l.ux * l.nz - l.uz * l.nx > 0) idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2); else idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(pos.map((_, k) => (k % 3 === 1 ? 1 : 0)), 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  const mat = new THREE.MeshStandardMaterial({
+    map, color: 0xd6efff, transparent: true, opacity: 0.82, roughness: 0.12, metalness: 0.25,
+    emissive: 0x5aa8f0, emissiveIntensity: 0.12, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1,
+  });
+  const ice = new THREE.Mesh(T.g(g), T.m(mat));
+  ice.receiveShadow = true;
+  return ice;
 }
 
 // ---------------------------------------------------------------- lanterns + chevrons

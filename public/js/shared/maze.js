@@ -28,6 +28,7 @@ const GRID_MAX_R = 1.0;           // grid query valid for radii up to this; larg
 const DIRS = [[-1, 0], [0, -1], [1, 0], [0, 1]];
 const ARMS = 19;                  // spiral wall arms; path ~845 units with 10.8-wide lanes
 const ROOM = 8;                   // goal room half-size
+const ICE_THEME = 2;              // Snowy Peaks
 
 // The 8 rotations/reflections of the plane; the spiral is mapped by the one that puts the start
 // in the top-left corner with the run going clockwise on screen (first step: to the right).
@@ -248,8 +249,9 @@ function generateLevel(level, seed) {
     enemies: [],
     items: [],
     path,
-    theme: (L - 1) % 4,
+    theme: CFG.ICE_TEST ? ICE_THEME : (L - 1) % 4,
   };
+  lvl.ice = lvl.theme === ICE_THEME;      // snowy level: corridors are ice, safe squares + goal room are not
   lvl.enemies = placeEnemies(rng, lvl, p);
   lvl.items = placeItems(rng, lvl, p);
   return lvl;
@@ -345,6 +347,17 @@ function locate(levelData, x, z) {
   return { leg: -2, s: 0, v: 0 };
 }
 
+// Ice level: everything except the goal room and the safe corner squares is ice.
+function onIce(levelData, x, z) {
+  if (!levelData.ice) return false;
+  const rh = levelData.roomHalf;
+  if (Math.abs(x) < rh && Math.abs(z) < rh) return false;
+  const h = levelData.corridorWidth / 2;
+  const sc = levelData.safeCorners;
+  for (let i = 0; i < sc.length; i++) if (Math.abs(x - sc[i].x) < h && Math.abs(z - sc[i].z) < h) return false;
+  return true;
+}
+
 function inCenter(levelData, x, z) {
   return Math.hypot(x, z) < levelData.centerRadius - HALF_T;
 }
@@ -417,4 +430,4 @@ function mazeSelfTest(levels = 12) {
   return { ok: problems.length === 0, problems, stats };
 }
 
-export { generateLevel, collideCircle, locate, inCenter, mazeSelfTest };
+export { generateLevel, collideCircle, locate, inCenter, onIce, mazeSelfTest };

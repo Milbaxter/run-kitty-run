@@ -2,6 +2,15 @@
 // When you ship something players will notice, add a line to the top entry (or start a new one).
 const PATCH_NOTES = [
   {
+    version: '0.8', date: '2026-10-01', title: 'Ice skating (test)',
+    items: [
+      'Test build: every level is the Snowy Peaks ice rink',
+      'On ice your kitty keeps sliding the way it faces until you click a new direction',
+      'Turning around carves a small curve instead of flipping on the spot',
+      'Safe stone squares and the goal room are not ice: walk normally there (and stop)',
+    ],
+  },
+  {
     version: '0.7', date: '2026-10-01', title: 'Phones & the final stretch',
     items: [
       'Play on your phone: hold your thumb down and your kitty follows it (tap to run to a spot)',

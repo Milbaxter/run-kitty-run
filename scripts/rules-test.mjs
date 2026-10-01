@@ -60,3 +60,21 @@ ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG
   const secs = (revivedAt + 1) * CFG.TICK;
   ok(revivedAt >= 0 && secs >= CFG.REVIVE_DELAY - 1e-9 && secs < CFG.REVIVE_DELAY + 0.05, `revive only after the ${CFG.REVIVE_DELAY}s cooldown (${secs.toFixed(2)}s)`);
 }
+
+// speed boots: 2 pairs max, lost when caught (an extra life keeps them)
+{
+  const s = createSim({ seed: 21, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] });
+  stepSim(s, {}, CFG.TICK);
+  const p = s.players[0];
+  const grab = () => { s.items.push({ id: 900 + s.items.length, type: 'boots', x: p.x, z: p.z, taken: false }); stepSim(s, {}, CFG.TICK); return s.items.at(-1).taken; };
+  const took = [grab(), grab(), grab()];
+  ok(took.join() === 'true,true,false' && Math.abs(p.speedMult - (1 + 2 * CFG.SPEED_BOOST)) < 1e-9, `2 pairs of boots max (picked ${took}, speed x${p.speedMult.toFixed(2)})`);
+  // (wolf positions are recomputed every tick, so move the kitty onto a wolf instead)
+  const w = s.enemies[0];
+  const hit = () => { p.invuln = 0; p.shield = 0; p.x = w.x; p.z = w.z; return stepSim(s, {}, CFG.TICK); };
+  p.lives = 1;
+  const ev1 = hit();
+  ok(ev1.some((e) => e.type === 'extraLife') && p.alive && p.speedMult > 1.1, 'an extra life keeps your boots');
+  const ev2 = hit();
+  ok(ev2.some((e) => e.type === 'death') && !p.alive && p.speedMult === 1, 'boots are lost when caught');
+}

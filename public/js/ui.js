@@ -719,7 +719,7 @@ function createUI(root) {
             <div class="rkr-items">
               ${item(ICONS.wolf, 'Wolves', 'one touch and you\'re down')}
               ${item(ICONS.revive, 'Revive circle', 'run over a friend\'s circle')}
-              ${item(ICONS.boots, 'Speed boots', '+6% speed (one pair max)')}
+              ${item(ICONS.boots, 'Speed boots', '+6% speed each, 2 pairs max, lost when caught')}
               ${item(ICONS.heart, 'Extra life', 'one automatic revive')}
               ${item(ICONS.shield, 'Shield', '4 seconds of safety')}
             </div>

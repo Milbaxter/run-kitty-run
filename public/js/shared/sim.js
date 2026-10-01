@@ -346,6 +346,7 @@ function stepSim(sim, inputs, dt) {
         p.shield = 0;
         p.invuln = 0;
         p.deaths++;
+        p.speedMult = 1; // speed boots are lost when caught
         sim.stats.deaths++;
         sim.circles.push({ playerId: p.id, x: p.x, z: p.z, t: 0 });
         events.push({ type: 'death', playerId: p.id, x: p.x, z: p.z, enemyId: en.id });

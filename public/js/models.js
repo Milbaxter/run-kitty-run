@@ -280,6 +280,8 @@ function kittyPalette(color) {
 const K_HEAD_POS = [0.22, 0.53, 0];
 const K_EYE_Y = 0.035;
 
+const SKATE_BOOT = 0xf4f6fa, SKATE_SOLE = 0x5b6472, SKATE_BLADE = 0x8e9cae;
+
 function kittyGeos(color) {
   const key = 'kitty:' + new THREE.Color(color).getHexString();
   return cgeo(key, () => {
@@ -336,7 +338,16 @@ function kittyGeos(color) {
       [P.ico1, mtx([0, 0.05, 0], null, [0.045, 0.075, 0.045]), light],
       [P.ico0, mtx([0, 0.0, 0], null, 0.04), base],
     ]);
-    return { body, head, eyes, ear, leg, tailSeg, tailTip };
+    // ice skate, in leg space (paw at y -0.215, +x = forward): white boot, steel blade with a curled toe
+    const skate = bake([
+      [P.ico1, mtx([0.02, -0.2, 0], null, [0.085, 0.06, 0.075]), SKATE_BOOT],
+      [P.cyl8, mtx([0.0, -0.155, 0], null, [0.062, 0.05, 0.062]), SKATE_BOOT],
+      [P.box, mtx([0.01, -0.235, 0], null, [0.1, 0.022, 0.05]), SKATE_SOLE],
+      [P.box, mtx([0.01, -0.27, 0], null, [0.21, 0.045, 0.016]), SKATE_BLADE],
+      [P.box, mtx([0.12, -0.25, 0], [0, 0, 0.9], [0.06, 0.025, 0.016]), SKATE_BLADE],
+      [P.box, mtx([0.0, -0.13, 0], null, [0.07, 0.012, 0.07]), dark],
+    ]);
+    return { body, head, eyes, ear, leg, tailSeg, tailTip, skate };
   });
 }
 
@@ -444,12 +455,14 @@ function createKittyModel(color) {
 
   // legs: 0 FL, 1 FR, 2 BL, 3 BR
   const legs = [];
+  const skates = [];
   const hips = [[0.12, 0.25, 0.105], [0.12, 0.25, -0.105], [-0.2, 0.25, 0.105], [-0.2, 0.25, -0.105]];
   for (const h of hips) {
     const p = new THREE.Group();
     p.position.set(h[0], h[1], h[2]);
     rig.add(p);
     mk(G.leg, p, true);
+    skates.push(mk(G.skate, p, true));
     legs.push(p);
   }
 
@@ -509,7 +522,9 @@ function createKittyModel(color) {
     // body bob + squash/stretch
     const bounce = Math.abs(Math.sin(phase));
     const sq = Math.cos(phase * 2) * 0.07 * runAmt;
-    rig.position.y = bounce * 0.07 * runAmt;
+    const onSkates = !!s.skates;
+    for (const sk of skates) sk.visible = onSkates;
+    rig.position.y = bounce * 0.07 * runAmt + (onSkates ? 0.045 : 0);
     const by = 1 - sq + breath * 0.022 * idle;
     rig.scale.set(1 + sq * 0.5, by, 1 + sq * 0.4 - breath * 0.01 * idle);
     rig.rotation.z = -0.1 * runAmt + Math.sin(phase * 2) * 0.03 * runAmt;

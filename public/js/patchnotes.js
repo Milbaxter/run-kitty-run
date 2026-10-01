@@ -2,6 +2,16 @@
 // When you ship something players will notice, add a line to the top entry (or start a new one).
 const PATCH_NOTES = [
   {
+    version: '0.8', date: '2026-10-01', title: 'Ice skating',
+    items: [
+      'Level 2 is now the Snowy Peaks ice rink (autumn moves to level 3)',
+      'On ice your kitty keeps sliding the way it faces until you click a new direction',
+      'Turning around carves a small curve instead of flipping on the spot',
+      'Safe stone squares and the goal room are not ice: walk normally there (and stop)',
+      'Kitties wear ice skates on the rink and leave skate marks behind them',
+    ],
+  },
+  {
     version: '0.7', date: '2026-10-01', title: 'Phones & the final stretch',
     items: [
       'Bragging rights: whoever finished the last run wears a crown 👑, finish 2+ runs to get a glowing aura',

@@ -15,6 +15,12 @@ const CFG = {
   SPAWN_INVULN: 2.0,         // seconds after level start / revive
   SHIELD_TIME: 4.0,          // seconds from shield pickup
 
+  // Ice (the snowy level): on ice a kitty keeps sliding at full speed in the way it faces and
+  // can only turn at ICE_TURN_RATE, so reversing carves a small U-turn instead of flipping around.
+  ICE_TURN_RATE: 5.5,        // rad/s (turn radius = speed / rate, ~1.2 units)
+  ICE_ACCEL_TAU: 0.3,        // speed build-up time constant on ice (s)
+  ICE_TEST: false,           // true = every level is the snowy ice level (for testing)
+
   // Revive
   REVIVE_DELAY: 0.5,         // seconds after going down before a friend can revive you
   REVIVE_RADIUS: 1.1,        // circle radius; living kitty center within REVIVE_RADIUS + KITTY_RADIUS revives

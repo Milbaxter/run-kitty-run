@@ -5,12 +5,13 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET } from './shared/config.js';
 import { hashSeed } from './shared/rng.js';
-import { collideCircle } from './shared/maze.js';
+import { collideCircle, onIce } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
 import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
 import { createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel } from './models.js';
 import { buildWorld, setupLighting } from './world.js';
 import { createEffects } from './effects.js';
+import { createIceTrail } from './trail.js';
 import { createAudio } from './audio.js';
 import { createUI } from './ui.js';
 import { createNet } from './net.js';
@@ -183,7 +184,7 @@ function readInput(index, playerCount) {
 }
 
 // Mouse: drives player 2 in co-op (player 1 in solo). Click = run to that spot, hold = steer toward cursor.
-const mouse = { ndc: new THREE.Vector2(), has: false, held: false, target: null };
+const mouse = { ndc: new THREE.Vector2(), has: false, held: false, target: null, iceDir: null };
 const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const mouseHit = new THREE.Vector3();
@@ -215,6 +216,7 @@ canvas.addEventListener('pointerdown', (e) => {
   }
   setMouseNdc(e);
   mouse.held = true;
+  mouse.iceDir = null;
   mouse.target = mouseGround();
   if (mouse.target) targetPulse = 1;
 });
@@ -237,8 +239,21 @@ function mousePlayerIndex() {
 }
 
 function mouseInput(p, kb) {
-  if (Math.hypot(kb.x, kb.z) > 0.1 || !p.alive) { mouse.target = null; return kb; }
+  if (Math.hypot(kb.x, kb.z) > 0.1 || !p.alive) { mouse.target = null; mouse.iceDir = null; return kb; }
   if (mouse.held && mouse.has) mouse.target = mouseGround() || mouse.target;
+  if (!onIce(sim.levelData, p.x, p.z)) mouse.iceDir = null;
+  else if (mouse.held || mouse.iceDir) {
+    // ice: a click sets a direction to skate in (not a spot to stop at); holding keeps steering at the cursor
+    if (mouse.target) {
+      const dx = mouse.target.x - p.x, dz = mouse.target.z - p.z, d = Math.hypot(dx, dz);
+      if (mouse.held && d > 0.3) mouse.iceDir = { x: dx / d, z: dz / d };
+      else if (mouse.iceDir && dx * mouse.iceDir.x + dz * mouse.iceDir.z < 0) mouse.target = null; // slid past the spot
+    }
+    return mouse.iceDir || kb;
+  } else if (mouse.target) {
+    const dx = mouse.target.x - p.x, dz = mouse.target.z - p.z, d = Math.hypot(dx, dz);
+    if (d > 0.3) { mouse.iceDir = { x: dx / d, z: dz / d }; return mouse.iceDir; }
+  }
   if (!mouse.target) return kb;
   const dx = mouse.target.x - p.x, dz = mouse.target.z - p.z;
   const d = Math.hypot(dx, dz);
@@ -348,16 +363,16 @@ function ensureKitties() {
       pip.position.y = 0.03;
       model.group.add(ring, pip);
       scene.add(model.group);
-      kitties.set(p.id, { model, dustT: 0, stepN: 0 });
+      kitties.set(p.id, { model, dustT: 0, stepN: 0, trail: createIceTrail(scene) });
     }
   }
   for (const [id, k] of kitties) {
-    if (!sim.players.find((p) => p.id === id)) { scene.remove(k.model.group); kitties.delete(id); }
+    if (!sim.players.find((p) => p.id === id)) { scene.remove(k.model.group); k.trail.dispose(); kitties.delete(id); }
   }
 }
 
 function removeKitties() {
-  for (const k of kitties.values()) scene.remove(k.model.group);
+  for (const k of kitties.values()) { scene.remove(k.model.group); k.trail.dispose(); }
   kitties.clear();
 }
 
@@ -612,7 +627,7 @@ function syncVisuals(dt, alpha) {
     const k = kitties.get(p.id);
     if (!k) continue;
     k.model.group.visible = p.alive;
-    if (!p.alive) continue;
+    if (!p.alive) { k.trail.update(dt, p.x, p.z, p.heading, false); continue; }
     let [x, z] = lerpPos('p' + p.id, p.x, p.z, alpha);
     if (online.playing && p.id === online.me) { x += online.errX; z += online.errZ; }
     k.model.group.position.set(x, 0, z);
@@ -622,12 +637,14 @@ function syncVisuals(dt, alpha) {
     d = Math.atan2(Math.sin(d), Math.cos(d));
     k.model.group.rotation.y = -(cur + d * (1 - Math.exp(-dt * 18)));
     const speed = Math.hypot(p.vx, p.vz);
+    const gliding = onIce(sim.levelData, p.x, p.z); // skating: hold still, no steps or dust
     k.model.update(dt, {
-      speed01: Math.min(1, speed / (CFG.KITTY_SPEED * 1.2)),
-      moving: p.moving, invuln: p.invuln, shield: p.shield, time: t,
+      speed01: gliding ? 0 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2)),
+      moving: p.moving && !gliding, skates: !!sim.levelData.ice, invuln: p.invuln, shield: p.shield, time: t,
       crown: p.id === sim.lastWinner, aura: (p.finishes || 0) >= 2,
     });
-    if (p.moving && sim.state !== 'gameover') {
+    k.trail.update(dt, x, z, -k.model.group.rotation.y, gliding && speed > 0.5);
+    if (p.moving && !gliding && sim.state !== 'gameover') {
       k.dustT -= dt;
       if (k.dustT <= 0) {
         k.dustT = 0.13;

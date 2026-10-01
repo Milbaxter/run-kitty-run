@@ -1,6 +1,6 @@
 import { CFG } from './config.js';
 import { hashSeed } from './rng.js';
-import { generateLevel, collideCircle, inCenter } from './maze.js';
+import { generateLevel, collideCircle, inCenter, onIce } from './maze.js';
 import { createEnemies, updateEnemies } from './enemies.js';
 
 // Deterministic game simulation core. Pure: no THREE, no DOM, no Math.random, no Date.
@@ -140,12 +140,33 @@ function movePlayer(sim, p, inp, dt) {
   if (n > MAX_SUBSTEPS) n = MAX_SUBSTEPS;
   const h = dt / n;
   const k = 1 - Math.exp(-h / CFG.KITTY_ACCEL_TAU);
+  const kIce = 1 - Math.exp(-h / CFG.ICE_ACCEL_TAU);
+  const maxTurn = CFG.ICE_TURN_RATE * h;
+  const steering = inp.x * inp.x + inp.z * inp.z > 0.01;
+  let iced = false;
   const wasInCenter = p.inCenter;
   const maxCenterR = ld.centerRadius - CFG.WALL_THICKNESS / 2 - 0.05;
 
   for (let s = 0; s < n; s++) {
-    p.vx += (tx - p.vx) * k;
-    p.vz += (tz - p.vz) * k;
+    if (onIce(ld, p.x, p.z)) {
+      // skating: keep going the way we face, turn toward the input at a limited rate
+      iced = true;
+      let sp = Math.sqrt(p.vx * p.vx + p.vz * p.vz);
+      let ang = sp > 0.05 ? Math.atan2(p.vz, p.vx) : p.heading;
+      if (steering) {
+        let d = Math.atan2(inp.z, inp.x) - ang;
+        while (d > Math.PI) d -= 2 * Math.PI;
+        while (d <= -Math.PI) d += 2 * Math.PI;
+        ang += d > maxTurn ? maxTurn : d < -maxTurn ? -maxTurn : d;
+      }
+      if (steering || sp > 0.05) sp += (maxSpeed - sp) * kIce;
+      p.vx = Math.cos(ang) * sp;
+      p.vz = Math.sin(ang) * sp;
+      p.heading = ang;
+    } else {
+      p.vx += (tx - p.vx) * k;
+      p.vz += (tz - p.vz) * k;
+    }
     const nx = p.x + p.vx * h;
     const nz = p.z + p.vz * h;
     const c = collideCircle(ld, nx, nz, CFG.KITTY_RADIUS);
@@ -185,8 +206,9 @@ function movePlayer(sim, p, inp, dt) {
   }
 
   const speed = Math.sqrt(p.vx * p.vx + p.vz * p.vz);
-  if (speed > 0.3) p.heading = Math.atan2(p.vz, p.vx);
+  if (speed > 0.3 && !iced) p.heading = Math.atan2(p.vz, p.vx);
   p.moving = speed > 0.5;
+  p.onIce = onIce(ld, p.x, p.z);
 }
 
 function nextLevel(sim, events) {

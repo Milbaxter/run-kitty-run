@@ -14,7 +14,7 @@ on:
 
 concurrency:
   group: ios-smoke-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false # a cold simulator boot takes ~4 min; don't throw runs away
 
 jobs:
   smoke:
@@ -109,6 +109,7 @@ jobs:
           IPHONE=$(pick '^iPhone [0-9]+ Pro$'); [ -n "$IPHONE" ] || IPHONE=$(pick '^iPhone')
           IPAD=$(pick '^iPad Pro'); [ -n "$IPAD" ] || IPAD=$(pick '^iPad')
           xcrun simctl list devices available | tee "$OUT/devices.txt"
+          [ -n "$IPAD" ] && xcrun simctl boot "$IPAD" & # first boot is slow (data migration): warm the iPad up meanwhile
 
           for UDID in $IPHONE $IPAD; do
             NAME=$(xcrun simctl list devices -j | jq -r --arg u "$UDID" '.devices[][] | select(.udid == $u) | .name')

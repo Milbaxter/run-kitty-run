@@ -277,13 +277,19 @@ function freeColorSlot(room) {
   return 0;
 }
 
-function joinRoom(client, room, name) {
+// The client's preferred colour (index into PLAYER_COLORS, sent with create / join) if no one in the lobby has it.
+function colorSlot(room, pref) {
+  const p = Number.isInteger(pref) && pref >= 0 && pref < Math.min(NET.MAX_PLAYERS, PLAYER_COLORS.length) ? pref : -1;
+  return p >= 0 && !room.members.some((m) => m.slot === p) ? p : freeColorSlot(room);
+}
+
+function joinRoom(client, room, name, pref) {
   // Covers every way in: lobby list, code, invite deep link, reconnect rejoin, mid-game join.
   // 'code' in the text makes clients drop ?room= from the URL so they don't retry the link.
   if (!modeOk(client, room.mode)) return send(client.ws, { t: 'error', msg: `That lobby code is for ${MODE_NAMES[room.mode]}, which needs the latest version - ${updateHow(client)} to play it.` });
   if (room.members.length >= NET.MAX_PLAYERS) return send(client.ws, { t: 'error', msg: `That lobby is full (${NET.MAX_PLAYERS}/${NET.MAX_PLAYERS}).` });
   leaveRoom(client);
-  const slot = freeColorSlot(room);
+  const slot = colorSlot(room, pref);
   client.room = room;
   client.slot = slot;
   client.name = cleanName(name, PLAYER_NAMES[slot]);
@@ -566,14 +572,14 @@ wss.on('connection', (ws, req) => {
           left: new Map() }; // tab token -> state of a kitty that left this game (reconnect grace)
         stats.lobbyCreated();
         rooms.set(r.code, r);
-        joinRoom(client, r, msg.name);
+        joinRoom(client, r, msg.name, msg.color);
         break;
       }
       case 'join': {
         const r = rooms.get(String(msg.code || '').toUpperCase().trim());
         if (!r) return send(ws, { t: 'error', msg: 'No lobby with that code.' });
         if (r === room) return;
-        joinRoom(client, r, msg.name);
+        joinRoom(client, r, msg.name, msg.color);
         break;
       }
       case 'leave':

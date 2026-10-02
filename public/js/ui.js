@@ -1,8 +1,9 @@
-import { CFG } from './shared/config.js';
+import { CFG, PLAYER_COLORS } from './shared/config.js';
 import { TOUCH } from './device.js';
 import { NATIVE, APP_VERSION, SERVER_ORIGIN, openExternal } from './platform.js';
 import { PATCH_NOTES } from './patchnotes.js';
 import { openStatsPage } from './analytics.js';
+import { createColorPicker, localSlots } from './kittycolor.js';
 
 // Run Kitty Run — UI layer (DOM + injected CSS + 2D canvas minimap).
 // Contract notes / interpretations:
@@ -889,9 +890,9 @@ function createUI(root) {
           <div class="rkr-panel rkr-ctl"><h3>Controls</h3>
             <div class="rkr-ctlgrid">
               <div class="rkr-krow"><span class="rkr-k rkr-wide">Mouse</span></div>
-              <div class="rkr-lab"><em style="color:${hexColor(0xffb347)}">Player 1</em><br>click to run there · hold to steer</div>
+              <div class="rkr-lab"><em class="rkr-p1">Player 1</em><br>click to run there · hold to steer</div>
               <div class="rkr-keys"><span class="rkr-k">W</span><span class="rkr-k">A</span><span class="rkr-k">S</span><span class="rkr-k">D</span></div>
-              <div class="rkr-lab">or move with the keys<br><em style="color:${hexColor(0x6ec6ff)}">Player 2</em> in co-op</div>
+              <div class="rkr-lab">or move with the keys<br><em class="rkr-p2">Player 2</em> in co-op</div>
               <div class="rkr-krow"><span class="rkr-k">M</span></div><div class="rkr-lab">sound on / off</div>
               <div class="rkr-krow"><span class="rkr-k">P</span><span class="rkr-k rkr-wide">Esc</span></div><div class="rkr-lab">pause</div>
               <div class="rkr-krow"><span class="rkr-k rkr-wide">Enter</span></div><div class="rkr-lab">chat (online)</div>
@@ -904,6 +905,14 @@ function createUI(root) {
         ${NATIVE ? `<div class="rkr-legal"><a data-page="privacy">Privacy</a>&middot;<a data-page="terms">Terms</a>&middot;<a data-page="support">Support</a>&middot;<span>v${esc(APP_VERSION)}</span></div>` : ''}
       </div>`;
     o.prepend(paws);
+    // preferred kitty colour (kittycolor.js): player 1 offline, and asked for when joining a lobby
+    const paintPlayers = () => {
+      const s = localSlots(2);
+      o.querySelector('.rkr-p1').style.color = hexColor(PLAYER_COLORS[s[0]]);
+      o.querySelector('.rkr-p2').style.color = hexColor(PLAYER_COLORS[s[1]]);
+    };
+    o.querySelector('.rkr-btns').after(createColorPicker(paintPlayers));
+    paintPlayers();
     o.querySelectorAll('.rkr-legal a').forEach((a) => a.addEventListener('click', () => openExternal(`${SERVER_ORIGIN}/${a.dataset.page}.html`)));
     const credits = el('div', 'rkr-credits', 'made by <a href="https://www.instagram.com/ben.bhc/" target="_blank" rel="noopener">Benjamin</a> and <a href="https://x.com/milimithrandir" target="_blank" rel="noopener">Maximilian</a>');
     o.appendChild(credits);

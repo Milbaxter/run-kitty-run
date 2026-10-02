@@ -16,6 +16,7 @@ import { createAudio } from './audio.js';
 import { createUI } from './ui.js';
 import { createNet } from './net.js';
 import { createLobbyUI } from './lobby.js';
+import { prefColor, localSlots } from './kittycolor.js';
 import { createChat } from './chat.js';
 import { createFeedback } from './feedback.js';
 import { analytics, openStatsPage } from './analytics.js';
@@ -526,7 +527,8 @@ function startGame(n, level = DEBUG_LEVEL) {
   mode = 'play';
   paused = false;
   const players = [];
-  for (let i = 0; i < n; i++) players.push({ id: i + 1, name: PLAYER_NAMES[i], color: PLAYER_COLORS[i] });
+  const slots = localSlots(n); // player 1 in the preferred colour (kittycolor.js)
+  for (let i = 0; i < n; i++) players.push({ id: i + 1, name: PLAYER_NAMES[slots[i]], color: PLAYER_COLORS[slots[i]] });
   removeKitties();
   startSim(players, level);
   analytics.runStart(n === 1 ? 'solo' : 'coop', 'mixed');
@@ -1148,8 +1150,8 @@ function updateHUD() {
 //  - shows other kitties extrapolated from their last snapshot to the same "present" as the wolves.
 const net = createNet();
 const lobbyUI = createLobbyUI(document.getElementById('ui'), {
-  onCreate: (name, mode) => net.send({ t: 'create', name, mode }),
-  onJoin: (code, name) => net.send({ t: 'join', code, name }),
+  onCreate: (name, mode) => net.send({ t: 'create', name, mode, color: prefColor() }),
+  onJoin: (code, name) => net.send({ t: 'join', code, name, color: prefColor() }),
   onLeave: () => net.send({ t: 'leave' }),
   onStart: () => net.send({ t: 'start' }),
   onRefresh: () => net.send({ t: 'list' }),
@@ -1229,7 +1231,7 @@ async function openOnline(joinCode) {
   net.connect();
   const code = joinCode || new URLSearchParams(location.search).get('room');
   lobbyUI.showBrowser();
-  if (code) net.send({ t: 'join', code, name: savedName() });
+  if (code) net.send({ t: 'join', code, name: savedName(), color: prefColor() });
 }
 
 // "Update the app" (native) / "Reload" (web) when the server says this build is too old.
@@ -1274,7 +1276,7 @@ net.on('open', () => {
   // back after a dropped connection (or the app was in the background): rejoin the same lobby
   const code = online.rejoin;
   online.rejoin = null;
-  if (code && !online.room) net.send({ t: 'join', code, name: savedName() });
+  if (code && !online.room) net.send({ t: 'join', code, name: savedName(), color: prefColor() });
 });
 net.on('close', () => {
   if (online.room) online.rejoin = online.room.code;

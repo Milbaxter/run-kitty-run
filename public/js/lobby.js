@@ -1,5 +1,6 @@
 // Online lobby screens (browser + room), styled with the same rkr-* look as ui.js.
 // All player-supplied text is inserted with textContent.
+import { createColorPicker } from './kittycolor.js';
 import { inviteUrl, share } from './platform.js';
 
 const CAT = `<svg viewBox="0 0 40 40"><path d="M5 4 L15 12 Q20 10.5 25 12 L35 4 L33.5 20 Q34 34.5 20 35.5 Q6 34.5 6.5 20 Z" fill="currentColor" stroke="#2b1840" stroke-width="2.6" stroke-linejoin="round"/><path d="M8.5 9 L13 12.6 L9.6 15.5 Z M31.5 9 L27 12.6 L30.4 15.5 Z" fill="#ff9ec4"/><ellipse cx="14.3" cy="21.5" rx="2.3" ry="3.1" fill="#2b1840"/><ellipse cx="25.7" cy="21.5" rx="2.3" ry="3.1" fill="#2b1840"/></svg>`;
@@ -168,7 +169,8 @@ function createLobbyUI(root, cb) {
     row1.append(create);
     const row2 = el('div', 'rkl-row');
     row2.append(code, join);
-    mount([h, sub, listLab, listEl, nameLab, name, modeLab, modes, tip, row1, row2, errEl, back]); // open lobbies first, then create / join by code
+    const colorPick = createColorPicker(); // preferred colour, sent with create / join (main.js)
+    mount([h, sub, listLab, listEl, nameLab, name, colorPick, modeLab, modes, tip, row1, row2, errEl, back]); // open lobbies first, then create / join by code
     listEl._getName = getName;
     cb.onRefresh();
     clearInterval(refreshT);

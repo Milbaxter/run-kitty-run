@@ -888,10 +888,10 @@ function createUI(root) {
           </div>
           <div class="rkr-panel rkr-ctl"><h3>Controls</h3>
             <div class="rkr-ctlgrid">
-              <div class="rkr-keys"><span class="rkr-k">W</span><span class="rkr-k">A</span><span class="rkr-k">S</span><span class="rkr-k">D</span></div>
-              <div class="rkr-lab"><em style="color:${hexColor(0xffb347)}">Player 1</em><br>move</div>
               <div class="rkr-krow"><span class="rkr-k rkr-wide">Mouse</span></div>
-              <div class="rkr-lab"><em style="color:${hexColor(0x6ec6ff)}">Player 2</em><br>click to run there · hold to steer</div>
+              <div class="rkr-lab"><em style="color:${hexColor(0xffb347)}">Player 1</em><br>click to run there · hold to steer</div>
+              <div class="rkr-keys"><span class="rkr-k">W</span><span class="rkr-k">A</span><span class="rkr-k">S</span><span class="rkr-k">D</span></div>
+              <div class="rkr-lab">or move with the keys<br><em style="color:${hexColor(0x6ec6ff)}">Player 2</em> in co-op</div>
               <div class="rkr-krow"><span class="rkr-k">M</span></div><div class="rkr-lab">sound on / off</div>
               <div class="rkr-krow"><span class="rkr-k">P</span><span class="rkr-k rkr-wide">Esc</span></div><div class="rkr-lab">pause</div>
               <div class="rkr-krow"><span class="rkr-k rkr-wide">Enter</span></div><div class="rkr-lab">chat (online)</div>

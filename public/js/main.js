@@ -183,10 +183,10 @@ ui.onMenuClick(() => {
 
 // ---------- input ----------
 const keys = new Set();
-// P2 is mouse-driven (see below); arrows remain a fallback for P2.
+// Co-op: P1 is mouse-driven (see below); P2 moves with WASD or the arrows.
 const KEYMAP = [
-  { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'] },
-  { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'] },
+  null,
+  { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'] },
 ];
 const SOLO_KEYMAP = { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'] };
 
@@ -240,7 +240,7 @@ function readInput(index, playerCount) {
   return { x, z };
 }
 
-// Mouse: drives player 2 in co-op (player 1 in solo). Click = run to that spot, hold = steer toward cursor.
+// Mouse: always drives player 1 (in co-op too). Click = run to that spot, hold = steer toward cursor.
 const mouse = { ndc: new THREE.Vector2(), has: false, held: false, target: null, iceDir: null };
 const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -328,7 +328,7 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 function mousePlayerIndex() {
   if (online.playing) return sim.players.findIndex((p) => p.id === online.me);
-  return playerCount === 2 ? 1 : 0;
+  return 0;
 }
 
 function mouseInput(p, kb) {

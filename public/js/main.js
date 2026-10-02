@@ -193,6 +193,7 @@ const KEYMAP = [
   { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'] },
 ];
 const SOLO_KEYMAP = { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'] };
+const SPECTATE_KEYS = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1, Tab: 1 };
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && online.room && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input')) {
@@ -210,6 +211,13 @@ window.addEventListener('keydown', (e) => {
   audio.unlock();
   if (e.code !== 'KeyM') syncTrack(); // browsers only start media after a user gesture
   if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
+  // spectating (online, your kitty down): Left/Right/A/D/Tab switch the watched kitty. These presses are kept out
+  // of `keys` so they don't count as movement held from before a revive (keyup deletes them harmlessly).
+  if (SPECTATE_KEYS[e.code] && spectating() && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input, textarea')) {
+    e.preventDefault();
+    if (!e.repeat) cycleWatch(e.code === 'Tab' && e.shiftKey ? -1 : SPECTATE_KEYS[e.code]);
+    return;
+  }
   if (e.repeat) { keys.add(e.code); return; }
   keys.add(e.code);
   if (e.code === 'KeyM') {
@@ -811,12 +819,14 @@ function updateIntro(dt) {
 
 // Gamepad on the overlays (victory / game over / pause): A or Start = confirm, d-pad / stick left-right = switch.
 // On the legends board: B or Start closes it, d-pad up/down (or the right stick) scrolls.
-const padNav = { confirm: false, prev: false, next: false, back: false };
+const padNav = { confirm: false, prev: false, next: false, back: false, spPrev: false, spNext: false };
 function pollPadNav() {
-  let confirm = false, prev = false, next = false, back = false, scroll = 0;
+  let confirm = false, prev = false, next = false, back = false, scroll = 0, spPrev = false, spNext = false;
   for (const pad of framePads || []) {
     if (!pad || !pad.connected) continue;
     const b = (i) => !!(pad.buttons[i] && pad.buttons[i].pressed);
+    spPrev = spPrev || b(4) || b(14); // LB / d-pad left
+    spNext = spNext || b(5) || b(15); // RB / d-pad right
     confirm = confirm || b(0) || b(9);
     prev = prev || b(14) || b(12) || (pad.axes[0] || 0) < -0.6;
     next = next || b(15) || b(13) || (pad.axes[0] || 0) > 0.6;
@@ -830,8 +840,12 @@ function pollPadNav() {
     if (prev && !padNav.prev) ui.navigate('prev');
     if (next && !padNav.next) ui.navigate('next');
     if (confirm && !padNav.confirm) ui.navigate('confirm');
+  } else if (spectating()) {
+    if (spPrev && !padNav.spPrev) cycleWatch(-1);
+    if (spNext && !padNav.spNext) cycleWatch(1);
   }
   padNav.confirm = confirm; padNav.prev = prev; padNav.next = next; padNav.back = back;
+  padNav.spPrev = spPrev; padNav.spNext = spNext;
 }
 
 function levelSubtitle(level) {
@@ -876,20 +890,58 @@ function pickWatch(meP) {
   watchId = best ? best.id : null;
   return best;
 }
-let watchEl = null, watchShown = '';
+// the kitties you can switch to while spectating, in player order (stable, so cycling is predictable)
+function watchCandidates() {
+  return sim.players.filter((p) => p.alive && p.id !== online.me);
+}
+function spectating() {
+  return online.playing && mode === 'play' && watchId != null && sim.state !== 'gameover' && !online.menu;
+}
+// manual switch: Left/Right/A/D/Tab, the pill's ‹ › buttons, or gamepad shoulders / d-pad. The pick sticks
+// (pickWatch keeps an alive watchId) until that kitty goes down or you're revived.
+function cycleWatch(dir) {
+  if (!spectating()) return;
+  const list = watchCandidates();
+  if (list.length < 2) return;
+  const i = list.findIndex((p) => p.id === watchId);
+  watchId = list[((i < 0 ? 0 : i + dir) % list.length + list.length) % list.length].id;
+  haptic('light');
+}
+const FINE_POINTER = typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches;
+let watchEl = null, watchNameEl = null, watchShown = '';
 function updateWatchLabel() {
   const p = online.playing && mode === 'play' && watchId != null && sim.state !== 'gameover' ? playerById(watchId) : null;
-  const txt = p ? 'Watching ' + p.name : '';
-  if (txt === watchShown) return;
-  watchShown = txt;
+  const multi = !!p && watchCandidates().length > 1;
+  const key = p ? p.id + '|' + p.name + '|' + multi : '';
+  if (key === watchShown) return;
+  watchShown = key;
   if (!watchEl) {
     watchEl = document.createElement('div');
-    watchEl.style.cssText = 'position:fixed;left:50%;bottom:18%;transform:translateX(-50%);padding:4px 12px;border-radius:999px;' +
-      'background:rgba(0,0,0,0.45);color:#fff;font:600 14px system-ui,sans-serif;pointer-events:none;z-index:5;';
+    watchEl.style.cssText = 'position:fixed;left:50%;bottom:18%;transform:translateX(-50%);display:flex;align-items:center;gap:4px;' +
+      'padding:2px;border-radius:999px;background:rgba(0,0,0,0.45);color:#fff;font:600 14px system-ui,sans-serif;' +
+      'z-index:5;user-select:none;-webkit-user-select:none;white-space:nowrap;touch-action:manipulation;';
+    const mkBtn = (label, dir, title) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.title = title;
+      b.setAttribute('aria-label', title);
+      b.style.cssText = 'width:40px;height:40px;border:0;border-radius:50%;background:rgba(255,255,255,0.18);color:#fff;' +
+        'font:700 24px/1 system-ui,sans-serif;cursor:pointer;padding:0;touch-action:manipulation;';
+      b.addEventListener('pointerdown', (e) => e.stopPropagation());
+      b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); cycleWatch(dir); b.blur(); });
+      return b;
+    };
+    watchEl.prevBtn = mkBtn('‹', -1, 'Previous kitty');
+    watchEl.nextBtn = mkBtn('›', 1, 'Next kitty');
+    watchNameEl = document.createElement('span');
+    watchNameEl.style.cssText = 'padding:4px 10px;pointer-events:none;';
+    watchEl.append(watchEl.prevBtn, watchNameEl, watchEl.nextBtn);
     document.body.appendChild(watchEl);
   }
-  watchEl.textContent = txt;
-  watchEl.style.display = txt ? '' : 'none';
+  watchNameEl.textContent = p ? 'Watching ' + p.name + (multi && FINE_POINTER ? '  (← → to switch)' : '') : '';
+  watchEl.prevBtn.style.display = watchEl.nextBtn.style.display = multi ? '' : 'none';
+  watchEl.style.pointerEvents = multi ? 'auto' : 'none';
+  watchEl.style.display = p ? 'flex' : 'none';
 }
 
 function updateCamera(dt, alpha) {

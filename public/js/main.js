@@ -583,7 +583,6 @@ function handleEvents(events) {
 function levelSubtitle(level) {
   const tips = [
     'Reach the heart of the labyrinth',
-    'Watch the wolves — they pause before they move',
     'Orbiters circle the rings. Wait for the gap!',
     'Grab boots: speed is forever',
     'Sweepers cut across corridors',

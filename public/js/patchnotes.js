@@ -7,7 +7,7 @@ const PATCH_NOTES = [
       'Skate only: wolves don\'t wander anymore, they run fixed patterns you can learn',
       'Every wolf goes end to end: across the lane from wall to wall, or charging down its own lane from one safe square to the next',
       'Many more wolves on ice: rows of crossers and lanes of chargers, busier and faster toward the middle and on later levels',
-      'Wolves pause a slightly different time at each end, so watch closely: there is always a gap, but no metronome',
+      'Wolves pause a slightly different time at each end, and now and then don\'t pause at all, so watch closely: there is always a gap, but no metronome',
       'Watch from a safe square, spot the rhythm, then skate through the gap',
       'Fixed: a key or joystick still held when a level starts no longer shoots your kitty off the start square onto the ice (let go once, then skate)',
       'Run + Skate is unchanged',

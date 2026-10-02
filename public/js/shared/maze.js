@@ -571,8 +571,9 @@ function placePatternEnemies(rng, lvl, p) {
       w.off = w.offT * w.cycle + w.offS;
       w.jitter = jitter;
       // erode by ~a third of the worst-case shift: the departure shift is (d0 - d1) / 2 of two independent draws, so
-      // it mostly stays within that; mazeSelfTest checks the real jittered motion (a gap at least every ~10 s)
-      w.jbins = Math.ceil(0.35 * jitter * Math.max(...w.route.map((q) => q.hold)) / PAT_BIN) + 1;
+      // it mostly stays within that; mazeSelfTest checks the real jittered motion (a gap at least every ~10 s).
+      // + a quarter hold for the occasional skipped hold (enemies.js NO_STOP_CHANCE), which shifts it a whole hold
+      w.jbins = Math.ceil((0.35 * jitter + 0.25) * Math.max(...w.route.map((q) => q.hold)) / PAT_BIN) + 1;
       wolfBox(w);
     }
     return { segs, T, D, v };

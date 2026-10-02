@@ -21,7 +21,7 @@ import { createRng, hashSeed, TAU } from './rng.js';
 
 
 const EASE_T = 0.15;          // accel / decel time at move start / end (s)
-const TURN_RATE_MOVE = 40;    // heading smoothing while moving (≈ exact after ease-in)
+const TURN_RATE_MOVE = 40;    // heading smoothing while moving (â‰ˆ exact after ease-in)
 const LONG_REST_CHANCE = 0.15; // chance a wolf stands still for a while before its next move
 const LONG_REST_MIN = 1.8, LONG_REST_MAX = 4.5;   // seconds
 
@@ -239,7 +239,7 @@ function createEnemy(spec) {
     }
     case 'sweeper': {
       st.center = clamp(Number.isFinite(spec.angle) ? spec.angle : 0.5 * (a0 + a1), a0, a1);
-      st.amp = 2.5;                               // ~±2.5 units of random drift along the leg per sweep
+      st.amp = 2.5;                               // ~Â±2.5 units of random drift along the leg per sweep
       st.r = rIn + phase * (rOut - rIn);
       st.th = clamp(st.center + st.amp * Math.sin(phase * TAU), a0, a1);
       st.toHigh = rng.chance(0.5);
@@ -386,7 +386,17 @@ function patternPose(plan, tc) {
 // spec.jitter (0..MAX_JITTER, default 0): every cycle each hold is stretched or shortened by up to jitter * hold,
 // from a hash of (seed, cycle, segment), then rebalanced so the cycle length stays the same. Wolves stop being
 // metronomes but stay deterministic (same on every client) and keep their beat with their neighbours.
+// Jittered wolves also skip a hold now and then (NO_STOP_CHANCE per hold per cycle): they turn straight round
+// without stopping, and the skipped time goes on their other holds, so the cycle length still stays the same.
 const MAX_JITTER = 0.45;
+const NO_STOP_CHANCE = 0.15;
+
+// deterministic 0..1 from (seed, tag, cycle, segment)
+function hash01(seed, tag, k, i) {
+  let h = hashSeed(seed, tag, k, i);
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b); h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35); h = (h ^ (h >>> 16)) >>> 0; // fmix: FNV alone is clumpy
+  return h / 4294967296;
+}
 
 function cyclePlan(e, k) {
   const plan = e._plan, j = e._jitter;
@@ -396,15 +406,18 @@ function cyclePlan(e, k) {
   const seed = e.spec.seed >>> 0;
   let sumD = 0, sumH = 0;
   const d = segs.map((s, i) => {
-    let h = hashSeed(seed, 'hold', k, i);
-    h = Math.imul(h ^ (h >>> 16), 0x85ebca6b); h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35); h = (h ^ (h >>> 16)) >>> 0; // fmix: FNV alone is clumpy
-    const u = h / 4294967296 * 2 - 1;
+    const u = hash01(seed, 'hold', k, i) * 2 - 1;
     sumD += j * s.hold * u; sumH += s.hold;
     return j * s.hold * u;
   });
+  let holds = segs.map((s, i) => Math.max(0, s.hold + d[i] - (sumH > 0 ? s.hold * sumD / sumH : 0)));
+  const skip = segs.map((s, i) => hash01(seed, 'skip', k, i) < NO_STOP_CHANCE);
+  let freed = 0, kept = 0;
+  holds.forEach((h, i) => { if (skip[i]) freed += h; else kept += h; });
+  if (freed > 0 && kept > 0) holds = holds.map((h, i) => (skip[i] ? 0 : h * (1 + freed / kept)));
   let t = 0;
   const out = segs.map((s, i) => {
-    const hold = Math.max(0, s.hold + d[i] - (sumH > 0 ? s.hold * sumD / sumH : 0));
+    const hold = holds[i];
     const o = Object.assign({}, s, { hold, tStart: t });
     t += hold + s.T;
     return o;

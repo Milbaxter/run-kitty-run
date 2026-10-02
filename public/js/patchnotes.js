@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Phones and tablets: tap the new 📜 button next to 💬 to scroll back through older chat messages',
       'Online: when you get caught, the camera follows the closest kitty still running (with a "Watching <name>" label) so you can see your rescue, then glides back to you once you\'re revived',
       'Run + Skate: the winter (ice) levels now have the new Skate only wolves, the same ones Skate only has on that level (winter on level 3 = Skate only level 3)',
       'Win 5 runs and your kitty puts on a pair of sunglasses (and so does its icon next to your name)',

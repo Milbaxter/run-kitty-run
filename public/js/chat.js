@@ -39,8 +39,23 @@ const CSS = `
   border:2px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;}
 .rkc-pop button:hover{background:rgba(255,255,255,.18);}
 .rkc-pop button.rkc-warn{border-color:#ff8fa3;color:#ffc2cd;}
+.rkc-btns{display:flex;gap:8px;align-self:flex-start;}
+.rkc.rkc-open .rkc-btns{display:none;}
+.rkc-hist{position:absolute;left:0;bottom:0;width:100%;box-sizing:border-box;pointer-events:auto;z-index:25;display:flex;flex-direction:column;gap:6px;
+  padding:8px;border-radius:16px;background:linear-gradient(160deg,rgba(52,30,96,.97),rgba(26,12,52,.97));border:2px solid rgba(255,215,110,.55);
+  box-shadow:0 10px 26px rgba(0,0,0,.45);max-height:min(60vh,420px);}
+.rkc-hist-head{display:flex;align-items:center;gap:6px;flex-shrink:0;}
+.rkc-hist-head span{flex:1;color:#ffcf5a;font-weight:900;padding-left:4px;}
+.rkc-hist-head button{font:inherit;font-weight:800;font-size:14px;min-height:36px;min-width:36px;padding:4px 10px;border-radius:10px;cursor:pointer;
+  border:2px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;}
+.rkc-hist-list{display:flex;flex-direction:column;gap:3px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  touch-action:pan-y;min-height:0;flex:1;}
+.rkc-hist-list .rkc-line,.rkc-hist-list .rkc-line.rkc-old{opacity:1;transition:none;flex-shrink:0;}
+.rkc-hist-list .rkc-line.rkc-old b{pointer-events:auto;}
+.rkc-hist-empty{opacity:.6;font-size:13px;font-weight:700;padding:6px 4px;}
 @media (max-height:500px){ .rkc{width:min(300px,calc(100vw - 160px));font-size:13px;} .rkc-log{max-height:30vh;}
-  .rkc-pop{gap:4px;padding:8px;} .rkc-pop button{min-height:34px;padding:5px 12px;font-size:14px;} }
+  .rkc-pop{gap:4px;padding:8px;} .rkc-pop button{min-height:34px;padding:5px 12px;font-size:14px;}
+  .rkc-hist{padding:6px;gap:4px;} .rkc-hist-head button{min-height:32px;font-size:13px;} }
 `;
 
 const SHOW_MS = 10000;
@@ -104,6 +119,7 @@ function createChat(root, { onSend, onOpen, onReport, onClose, touch = false }) 
     save(BLOCK_KEY, [...blockedNames].slice(-200));
     applyMuted();
     for (const line of log.children) if (line._msg && (line._msg.id === m.id || line._msg.name === m.name)) line.style.display = on ? 'none' : '';
+    fillHist();
   }
 
   function applyMuted() {
@@ -172,15 +188,88 @@ function createChat(root, { onSend, onOpen, onReport, onClose, touch = false }) 
     if (r.top < 8) { pop.style.maxHeight = Math.max(120, r.bottom - 8) + 'px'; pop.style.overflowY = 'auto'; }
   }
   document.addEventListener('pointerdown', (e) => { if (pop && !pop.contains(e.target)) closePop(); }, true);
-  document.addEventListener('keydown', (e) => { if (pop && e.key === 'Escape') closePop(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closePop(); closeHist(); } });
+  // Touch only: a scrollable history panel (older lines fade out and the keyboard covers the log on phones).
+  let hist = null, histList = null, histBtn = null;
+  function histLine(line) {
+    const c = line.cloneNode(true);
+    const m = line._msg;
+    if (m) {
+      c._msg = m;
+      const b = c.querySelector('b');
+      if (b) b.addEventListener('click', (e) => { e.stopPropagation(); closeHist(); openPop(m); });
+    }
+    return c;
+  }
+  function fillHist() {
+    if (!histList) return;
+    histList.replaceChildren(...[...log.children].map(histLine));
+    const empty = document.createElement('div');
+    empty.className = 'rkc-hist-empty';
+    empty.textContent = 'No messages yet';
+    if (!histList.children.length) histList.appendChild(empty);
+  }
+  // keep the panel inside the visible area (landscape phones, on-screen keyboard)
+  function fitHist() {
+    if (!hist) return;
+    const vv = window.visualViewport;
+    const top = vv ? vv.offsetTop : 0;
+    const h = vv ? vv.height : window.innerHeight;
+    const bottom = Math.min(box.getBoundingClientRect().bottom, top + h);
+    hist.style.maxHeight = Math.max(120, Math.min(bottom - top - 8, h * 0.6, 420)) + 'px';
+  }
+  function closeHist() { if (hist) hist.remove(); hist = histList = null; }
+  function openHist() {
+    if (!enabled) return;
+    closePop();
+    closeHist();
+    hist = document.createElement('div');
+    hist.className = 'rkc-hist';
+    const head = document.createElement('div');
+    head.className = 'rkc-hist-head';
+    const title = document.createElement('span');
+    title.textContent = 'Chat history';
+    const write = document.createElement('button');
+    write.textContent = '💬';
+    write.title = 'Write a message';
+    write.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); closeHist(); open(); });
+    const x = document.createElement('button');
+    x.textContent = '✕';
+    x.title = 'Close';
+    x.addEventListener('click', (e) => { e.stopPropagation(); closeHist(); });
+    head.append(title, write, x);
+    histList = document.createElement('div');
+    histList.className = 'rkc-hist-list';
+    hist.append(head, histList);
+    box.appendChild(hist);
+    fillHist();
+    fitHist();
+    histList.scrollTop = histList.scrollHeight;
+  }
+  document.addEventListener('pointerdown', (e) => {
+    if (hist && !hist.contains(e.target) && !(histBtn && histBtn.contains(e.target))) closeHist();
+  }, true);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitHist);
+    window.visualViewport.addEventListener('scroll', fitHist);
+  }
+  window.addEventListener('resize', fitHist);
   if (touch) {
+    const btns = document.createElement('div');
+    btns.className = 'rkc-btns';
     const btn = document.createElement('div');
     btn.className = 'rkc-btn';
     btn.textContent = '💬';
     btn.title = 'Chat';
     // pointerdown + preventDefault keeps focus handling simple on mobile keyboards
-    btn.addEventListener('pointerdown', (e) => { e.preventDefault(); open(); });
-    box.appendChild(btn);
+    btn.addEventListener('pointerdown', (e) => { e.preventDefault(); closeHist(); open(); });
+    histBtn = document.createElement('div');
+    histBtn.className = 'rkc-btn';
+    histBtn.textContent = '📜';
+    histBtn.title = 'Older messages';
+    histBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); if (hist) closeHist(); else openHist(); });
+    btns.append(btn, histBtn);
+    box.appendChild(btns);
   }
   root.appendChild(box);
 
@@ -232,6 +321,11 @@ function createChat(root, { onSend, onOpen, onReport, onClose, touch = false }) 
     }
     log.appendChild(line);
     while (log.children.length > MAX_LINES) log.firstChild.remove();
+    if (histList) {
+      const atEnd = histList.scrollHeight - histList.scrollTop - histList.clientHeight < 24;
+      fillHist();
+      if (atEnd) histList.scrollTop = histList.scrollHeight;
+    }
     setTimeout(() => line.classList.add('rkc-old'), SHOW_MS);
     return true;
   }
@@ -239,10 +333,10 @@ function createChat(root, { onSend, onOpen, onReport, onClose, touch = false }) 
   function setEnabled(on) {
     enabled = on;
     box.style.display = on ? '' : 'none';
-    if (!on) { close(); closePop(); }
+    if (!on) { close(); closePop(); closeHist(); }
   }
 
-  function clear() { log.textContent = ''; }
+  function clear() { log.textContent = ''; fillHist(); }
 
   return { open, close, isOpen, add, setEnabled, clear, isHidden: (m) => !m.sys && (off || isBlocked(m)) };
 }

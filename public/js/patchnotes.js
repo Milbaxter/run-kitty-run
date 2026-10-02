@@ -13,6 +13,7 @@ const PATCH_NOTES = [
       'Win 5 runs and your kitty puts on a pair of sunglasses (and so does its icon next to your name)',
       'Win 7 runs and your speed boots turn rainbow',
       'The speed boots you pick up now look just like the ones your kitty wears',
+      'Confetti is now confetti fish: little fish in every colour tumble down when a level is won',
       'Win a level (first into the finish circle) and you always get a crown, even if someone else grabbed the floating one',
       'The game now has an ending: level 9 is the boss level, THE FINAL RUN (Run + Skate and Skate only)',
       'Run + Skate seasons: summer, fall, winter, three times over, and the third winter is the final run',

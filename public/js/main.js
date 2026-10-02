@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET } from './shared/config.js';
 import { hashSeed } from './shared/rng.js';
-import { collideCircle, onIce, inTree } from './shared/maze.js';
+import { collideCircle, onIce, inTree, levelHash } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
 import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
 import { pregenNext } from './levelpregen.js';
@@ -20,7 +20,7 @@ import { createChat } from './chat.js';
 import { createFeedback } from './feedback.js';
 import { analytics, openStatsPage } from './analytics.js';
 import { TOUCH, QUALITY, goFullscreenLandscape, setKeepAwake, hideSplash } from './device.js';
-import { NATIVE, haptic, plugin, call, storeUrl, openExternal } from './platform.js';
+import { NATIVE, haptic, plugin, call, storeUrl, openExternal, APP_VERSION } from './platform.js';
 
 // Integration: renderer, input, camera, presentation of the pure sim.
 
@@ -966,7 +966,7 @@ function syncVisuals(dt, alpha) {
     const lp = lerpPos('e' + e.id, e.x, e.z, alpha), x = lp.x, z = lp.z;
     m.group.position.set(x, 0, z);
     m.group.rotation.y = -e.heading;
-    m.update(dt, { moving: e.moving, tell: e.tell, speed01: Math.min(1, (e.speedNow || 0) / 4), time: t });
+    m.update(dt, { moving: e.moving, speed01: Math.min(1, (e.speedNow || 0) / 4), time: t });
     view.wolfPack.add(m);
     if (e.pattern) {
       // push-off: shavings the moment a wolf turns round at the end of a run (its heading changes once per run)
@@ -1243,6 +1243,16 @@ net.on('wolves', (m) => {
   catchUpWolves();
 });
 
+// Desync tripwire: the server sends its level's hash (start message, levelStart events); a client that generated the
+// level differently (e.g. a float op that differs between JS engines) reports it. No fallback: wolf resyncs still apply.
+function checkLevelHash(level, lh) {
+  if (lh == null || !sim || sim.level !== level || !sim.levelData) return;
+  const mine = levelHash(sim.levelData);
+  if (mine === lh) return;
+  console.warn(`level ${level} (${sim.mode}) generated differently from the server: hash ${mine} vs ${lh}`);
+  analytics.levelMismatch(sim.mode, level, APP_VERSION);
+}
+
 function leadTicks() { return Math.ceil(net.rtt / 2 / (CFG.TICK * 1000)) + NET.INPUT_LEAD; }
 
 function beginOnlineGame(m) {
@@ -1280,6 +1290,7 @@ function beginOnlineGame(m) {
   catchUpWolves();
   cameraSnap = true;
   online.shownLevel = sim.level;
+  checkLevelHash(sim.level, m.lh);
   handleEvents([{ type: 'levelStart', level: sim.level }]);
   // joined (or reconnected) after the final run was won: the stored victory event won't come again
   if (m.st === 'victory') {
@@ -1472,6 +1483,7 @@ function applySnapshot(m) {
     if (e.type !== 'levelStart') return true;
     if (e.level === online.shownLevel) return false;
     online.shownLevel = e.level;
+    checkLevelHash(e.level, e.lh);
     return true;
   });
   if (events.length) handleEvents(events);

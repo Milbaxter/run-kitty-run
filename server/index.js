@@ -10,6 +10,7 @@ import { filterChat, filterName } from './filter.js';
 import { hashSeed } from '../public/js/shared/rng.js';
 import { GAME_MODES, createSim, stepSim, addPlayer, removePlayer } from '../public/js/shared/sim.js';
 import { serializeEnemies } from '../public/js/shared/enemies.js';
+import { levelHash } from '../public/js/shared/maze.js';
 import { createStats } from './stats.js';
 import { pregenNext } from './levelgen.js';
 
@@ -24,7 +25,8 @@ const VICTORY_TO_LOBBY_MS = 12000;
 // Older clients can still play the other modes; they can't create or join these lobbies and don't see them listed.
 //   2 = Skate only wolves walk deterministic patterns (protocol-1 clients simulate random wanderers)
 //   3 = Skate only level 8 (SKATE_FINAL_LEVEL) is the final run and clearing it wins (older clients build the spiral)
-const MODE_MIN_PROTOCOL = { ice: 3, mixed: 3 };   // 3 = the boss run on level 9 (and Run + Skate's summer/fall/winter order)
+//   4 = slim wolf resync format, used by every mode (with MIN_PROTOCOL 4 this only still matters for clients without 'hi')
+const MODE_MIN_PROTOCOL = { ice: 4, mixed: 4, run: 4 };
 const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
 const MODE_NAMES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
 const updateHow = (client) => (client.app === 'web' ? 'reload the page' : 'update the app');
@@ -53,7 +55,7 @@ const stats = createStats(process.env.STATS_FILE || path.join(path.dirname(FEEDB
 // Oldest client protocol still accepted at all (see PROTOCOL_VERSION in shared/config.js). App store builds lag the
 // web, so only raise this when old clients would really break; they get an 'outdated' notice instead of a broken game.
 // (Per-mode floors are MODE_MIN_PROTOCOL above.)
-const MIN_PROTOCOL = 1;
+const MIN_PROTOCOL = 4;   // 4: slim wolf resync format (every mode resyncs wolves; older clients would break)
 // Player reports (moderation) are appended here as JSON lines, next to the feedback file by default.
 const REPORTS_FILE = process.env.REPORTS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'reports.jsonl');
 const REPORTS_PER_HOUR = 10;        // per connection
@@ -373,6 +375,7 @@ function startMsg(room, withWolves) {
     st: sim.state, vic: room.victory || null, // mid-game joiners: the run may already be won (the 'victory' event went out before)
     players: sim.players.map((p) => ({ id: p.id, name: p.name, color: p.color })),
     wolves: withWolves ? serializeEnemies(sim.enemies) : null,
+    lh: levelHash(sim.levelData),   // level fingerprint: the client reports a mismatch (no fallback)
   };
 }
 
@@ -409,7 +412,10 @@ function stepRoom(room) {
   room.tick = k;
   for (const e of events) room.pending.push(e);
   for (const e of events) {
-    if (e.type === 'levelStart') pregenNext(sim); // next level off the event loop (makeLevel picks it up)
+    if (e.type === 'levelStart') {
+      e.lh = levelHash(sim.levelData);
+      pregenNext(sim); // next level off the event loop (makeLevel picks it up)
+    }
     else if (e.type === 'gameOver') room.overAt = Date.now() + GAMEOVER_TO_LOBBY_MS;
     else if (e.type === 'victory') {
       // final state: the sim keeps stepping (snapshots carry st 'victory') until the room goes back to the lobby

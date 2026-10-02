@@ -15,7 +15,7 @@ import { createEnemies, updateEnemies } from './enemies.js';
 // - Pickup 'life' when lives are already at MAX_EXTRA_LIVES is left on the ground.
 // - Game over only triggers if there is at least one player in the sim.
 // - Velocity component pointing into a wall is removed after collision (smooth sliding).
-// - Extra exports: simSummary, addPlayer, removePlayer.
+// - Extra exports: addPlayer, removePlayer.
 
 
 // Lobby game modes: running + skating (ice level 2), running only, skating only.
@@ -553,18 +553,6 @@ function findPlayer(sim, id) {
   return null;
 }
 
-function simSummary(sim) {
-  let alive = 0;
-  for (let i = 0; i < sim.players.length; i++) if (sim.players[i].alive) alive++;
-  return {
-    level: sim.level,
-    alive,
-    total: sim.players.length,
-    rescues: sim.stats.rescues,
-    deaths: sim.stats.deaths,
-  };
-}
-
 // Join mid-game: spawns alive at a spawn point with spawn invulnerability.
 function addPlayer(sim, { id, name, color }) {
   const existing = findPlayer(sim, id);
@@ -597,4 +585,4 @@ function loadLevel(sim, level) {
   makeLevel(sim, level);
 }
 
-export { GAME_MODES, pregenParams, createSim, stepSim, simSummary, addPlayer, removePlayer, predictPlayer, loadLevel };
+export { GAME_MODES, pregenParams, createSim, stepSim, addPlayer, removePlayer, predictPlayer, loadLevel };

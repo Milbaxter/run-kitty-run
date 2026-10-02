@@ -1,5 +1,5 @@
 import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES } from './config.js';
-import { createRng, hashSeed } from './rng.js';
+import { createRng, hashSeed, ipow, legPoint } from './rng.js';
 import { buildPlan, patternPose, patternSpeed, EASE_T, createEnemies, updateEnemies } from './enemies.js';
 
 // Square-spiral level generation + collision. Pure (no THREE, no DOM).
@@ -275,26 +275,19 @@ function placeEnemies(rng, lvl, p) {
     for (let k = 0; k < m; k++) {
       const t = (k + off * 0.6 + 0.2) / m;
       const cs = R0 + (R1 - R0) * Math.min(0.999, t) + rng.range(-0.15, 0.15) / m * (R1 - R0);
-      const type = rng.pick(p.enemyTypes);
-      let lo, hi;
-      if (type === 'orbiter') { lo = R0; hi = R1; }          // runs the whole leg
-      else {
-        const span = spanScale * (1 + 0.4 * dk) * (type === 'patroller' ? rng.range(8, 18) : type === 'wanderer' ? rng.range(10, 20) : rng.range(2, 5));
-        lo = Math.max(R0, cs - span / 2); hi = Math.min(R1, cs + span / 2);
-      }
-      if (hi - lo < (type === 'sweeper' ? 0.5 : 2.5)) continue;
+      const type = rng.pick(p.enemyTypes);   // always 'wanderer' now, but the pick's rng.next() keeps levels unchanged
+      const span = spanScale * (1 + 0.4 * dk) * rng.range(10, 20);
+      const lo = Math.max(R0, cs - span / 2), hi = Math.min(R1, cs + span / 2);
+      if (hi - lo < 2.5) continue;
       const id = enemies.length;
       const spec = {
         id, type, leg: li, frame,
         rIn: vIn, rOut: vOut, a0: lo, a1: hi,
-        speed: Math.min(CFG.KITTY_SPEED * 0.92, p.enemySpeed * (0.9 + 0.2 * dk) * rng.range(0.9, 1.1)) * (type === 'orbiter' ? 0.8 : type === 'sweeper' ? 0.9 : 1),
+        speed: Math.min(CFG.KITTY_SPEED * 0.92, p.enemySpeed * (0.9 + 0.2 * dk) * rng.range(0.9, 1.1)),
         phase: rng.next(),
         pauseScale: p.enemyPauseScale * (1.15 - 0.45 * dk),
         seed: hashSeed(seed, level, 'wolf', id),
       };
-      if (type === 'patroller' || type === 'orbiter') spec.r = rng.range(vIn + 0.2, vOut - 0.2);
-      if (type === 'orbiter') spec.dir = rng.chance(0.5) ? 1 : -1;
-      if (type === 'sweeper') spec.angle = (lo + hi) / 2;
       enemies.push(spec);
     }
   });
@@ -360,7 +353,7 @@ const PAT_TYPES = ['charger', 'crosser', 'diagonal', 'looper'];   // looper: car
 const PAT_WOLVES_L1 = 232.6, PAT_WOLVES_GROWTH = 1.1, PAT_WOLVES_TOP = 7;
 const PAT_PACK_MAX = 5;                       // wolves per charger lane, at most (lanes fill evenly: 4-5 only at level 6+)
 const PAT_PACK_GAP = 2.2;                     // distance between pack members (units): 1-2x this, at random
-const patWolfTarget = (level) => Math.round(PAT_WOLVES_L1 * Math.pow(PAT_WOLVES_GROWTH, Math.min(level, PAT_WOLVES_TOP) - 1));
+const patWolfTarget = (level) => Math.round(PAT_WOLVES_L1 * ipow(PAT_WOLVES_GROWTH, Math.min(level, PAT_WOLVES_TOP) - 1));
 const patDensity = (level) => Math.min(2, 1.2 + 0.14 * (Math.min(level, PAT_WOLVES_TOP) - 1));
 const NO_FRAME = { ox: 0, oz: 0, ux: 1, uz: 0, nx: 0, nz: 1 };
 
@@ -642,8 +635,7 @@ function skatePath(pts, vk = PAT_VK) {
 
 // Plan of a leg -> world polyline: start on the entry corner square in the first lane, lanes per segment.
 function planPoints(leg, lane, end = 0) {
-  const P = (r, th) => ({ x: leg.ox + leg.ux * th + leg.nx * r, z: leg.oz + leg.uz * th + leg.nz * r });
-  return [P(lane, leg.len), P(lane, end)];
+  return [legPoint(leg, lane, leg.len), legPoint(leg, lane, end)];
 }
 
 // For each launch bin (kitty at pts[0] at b * PAT_BIN), 1 if the path clears every wolf by `clear`, with `slack` s to spare.
@@ -660,7 +652,7 @@ function pathSafety(traj, wolves, N, clear, slack) {
     for (let b = 0; b < N; b++) {
       for (const k of idx) {
         const i = patPoseIdx(w, b * PAT_BIN + k / 60);
-        const wx = f.ox + f.ux * w.tth[i] + f.nx * w.tr[i], wz = f.oz + f.uz * w.tth[i] + f.nz * w.tr[i];
+        const wx = f.ox + f.ux * w.tth[i] + f.nx * w.tr[i], wz = f.oz + f.uz * w.tth[i] + f.nz * w.tr[i];   // legPoint, inlined (hot loop)
         const dx = traj.xs[k] - wx, dz = traj.zs[k] - wz;
         if (dx * dx + dz * dz < C2) { okw[b] = 0; break; }
       }
@@ -674,7 +666,7 @@ function wolfBox(w) {
   const f = w.frame;
   w.x0 = w.z0 = Infinity; w.x1 = w.z1 = -Infinity;
   for (const q of w.route) {
-    const x = f.ox + f.ux * q.th + f.nx * q.r, z = f.oz + f.uz * q.th + f.nz * q.r;
+    const { x, z } = legPoint(f, q.r, q.th);
     w.x0 = Math.min(w.x0, x); w.x1 = Math.max(w.x1, x); w.z0 = Math.min(w.z0, z); w.z1 = Math.max(w.z1, z);
   }
 }
@@ -862,7 +854,7 @@ function placePatternEnemies(rng, lvl, p) {
       if (w.type !== 'looper') w.holds = finaleHolds(w);
       wolfBox(w);
       segs.push({ ...sd, family: fam, top: cursor + PAT_SAFE, bottom: base - PAT_SAFE, base });
-      cursor = base - (FT.gap[0] + (FT.gap[1] - FT.gap[0]) * rng.next() ** FT.gapPow);
+      cursor = base - (FT.gap[0] + (FT.gap[1] - FT.gap[0]) * ipow(rng.next(), FT.gapPow));
     }
     return { segs, D };
   };
@@ -1210,7 +1202,7 @@ function placePatternEnemies(rng, lvl, p) {
       for (const doorK of [0, 1]) {
         const design = legDesign(li, D, prevPlan.beat, doorK);
         const N = prevPlan.N, pleg = legs[li - 1], leg = legs[li];
-        const P = (r, th) => ({ x: leg.ox + leg.ux * th + leg.nx * r, z: leg.oz + leg.uz * th + leg.nz * r });
+        const P = (r, th) => legPoint(leg, r, th);
         const doorW = design.segs.flatMap((sg) => sg.wolves);
         const tries = [];
         for (const r of [-1.8, 0, 1.8]) {
@@ -1341,7 +1333,7 @@ function placeItems(rng, lvl, p) {
     for (let s = 0; s < 40; s++) {
       const leg = pickWeighted(rng, legs, (l) => l.len);
       const along = rng.range(0, leg.len), lat = rng.range(-W / 2 + 1.2, W / 2 - 1.2);
-      const x = leg.ox + leg.ux * along + leg.nx * lat, z = leg.oz + leg.uz * along + leg.nz * lat;
+      const { x, z } = legPoint(leg, lat, along);
       if (!okSpot(x, z)) continue;
       items.push({ id: items.length, type, x, z });
       break;
@@ -1372,7 +1364,7 @@ function placeTrees(rng, legs) {
     const l = legs[i];
     if (l.len < 2 * W) continue;
     const s = rng.range(W, l.len - W), v = rng.range(-lat, lat);
-    trees.push({ x: l.ox + l.ux * s + l.nx * v, z: l.oz + l.uz * s + l.nz * v, leg: i });
+    trees.push({ ...legPoint(l, v, s), leg: i });
   }
   return trees;
 }
@@ -1570,7 +1562,7 @@ function patternGaps(ld, pl, step = 0.1) {
   const trajs = [];
   if (fin) {
     const L2 = legs[pl.leg], W = ld.corridorWidth;
-    const P = (r, th) => ({ x: L2.ox + L2.ux * th + L2.nx * r, z: L2.oz + L2.uz * th + L2.nz * r });
+    const P = (r, th) => legPoint(L2, r, th);
     trajs.push(skatePath(planPoints(leg, fin.lane, W / 2).concat([P(pl.lane, L2.len - 2), P(pl.lane, 1), P(W, 0), { x: 0, z: 0 }])));
   } else for (const r of pl.lanes || [pl.lane]) trajs.push(skatePath(planPoints(leg, r)));    // drifting rooms: any open lane
   const specs = ld.enemies.filter((e) => e.leg === pl.leg || (fin && e.leg === fin.leg));
@@ -1722,7 +1714,7 @@ function checkPatternWolves(ld, P, stats) {
       const A = pts[k - 1], B = pts[k], n = Math.max(1, Math.ceil(Math.hypot(B.r - A.r, B.th - A.th) / 0.25));
       for (let t = 0; t <= n; t++) {
         const r = A.r + (B.r - A.r) * t / n, th = A.th + (B.th - A.th) * t / n;
-        const x = f.ox + f.ux * th + f.nx * r, z = f.oz + f.uz * th + f.nz * r;
+        const { x, z } = legPoint(f, r, th);
         if (collideCircle(ld, x, z, CFG.WOLF_RADIUS).hit) clip++;
         for (const sp of ld.spawnPoints) if (Math.hypot(sp.x - x, sp.z - z) < CFG.START_SAFE_ARC) unsafe++;
       }
@@ -1807,7 +1799,7 @@ function mazeSelfTest(levels = 12, modes = ['mixed', 'ice']) {
           const f = e.frame;
           for (let u = 0; u <= 8; u++) for (let v = 0; v <= 4; v++) {
             const a = e.a0 + (e.a1 - e.a0) * u / 8, r = e.rIn + (e.rOut - e.rIn) * v / 4;
-            const x = f.ox + f.ux * a + f.nx * r, z = f.oz + f.uz * a + f.nz * r;
+            const { x, z } = legPoint(f, r, a);
             if (collideCircle(ld, x, z, CFG.WOLF_RADIUS).hit) clip++;
             for (const sp of ld.spawnPoints) if (Math.hypot(sp.x - x, sp.z - z) < CFG.START_SAFE_ARC) unsafe++;
           }
@@ -1831,4 +1823,11 @@ function mazeSelfTest(levels = 12, modes = ['mixed', 'ice']) {
   return { ok: problems.length === 0, problems, stats };
 }
 
-export { generateLevel, collideCircle, locate, inCenter, onIce, inTree, mazeSelfTest, finaleGaps };
+// Cheap fingerprint of a generated level (wolf specs without their shared leg frames, and items): the server sends
+// it with each level so clients can report a level they generated differently (e.g. a float op that differs between
+// JS engines). JSON number formatting is exact and engine independent.
+function levelHash(ld) {
+  return hashSeed(JSON.stringify([(ld.enemies || []).map(({ frame, ...s }) => s), ld.items || []]));
+}
+
+export { generateLevel, collideCircle, locate, inCenter, onIce, inTree, mazeSelfTest, finaleGaps, levelHash };

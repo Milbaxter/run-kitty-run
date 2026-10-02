@@ -14,6 +14,7 @@ const PATCH_NOTES = [
       'Every kitty that went down on the way is carried into the goal room for the party',
       'A giant fish waits behind the portal at the end of the final run. Win, walk up to it and the kitties eat it, crunch by crunch, down to the bones (the victory screen counts how much is gone)',
       'Menus and the game-over / victory screens work with a gamepad too (A to confirm, d-pad to switch)',
+      'Skate only: no more long lines of wolves in lockstep. Rows are shorter and most mix speeds (half, 1.5x, 2x, or drifting out of step), charger lanes run at different speeds with looser packs; if a room closes up for a moment, a gap comes round again within a few seconds',
     ],
   },
   {
@@ -21,8 +22,8 @@ const PATCH_NOTES = [
     items: [
       'Skate only: wolves don\'t wander anymore, they run fixed patterns you can learn',
       'Every wolf goes end to end: across the lane from wall to wall, or charging down its own lane from one safe square to the next',
-      'Many more wolves on ice: about twice as many on level 1, then 10% more every level up to level 7 (over 400). Long waves of crossers, fans of diagonals and packs of chargers, busier and faster toward the middle and on later levels, with a gap always there',
-      'Wolves never stand still: they turn straight round at each end. In many rooms one or two wolves run a little faster or slower than the rest, so the pattern slowly slides out of step and comes back together within a minute (there is always a gap)',
+      'Many more wolves on ice: about twice as many on level 1, then 10% more every level up to level 7 (over 400). Short rows of crossers, fans of diagonals and loose packs of chargers, busier and faster toward the middle and on later levels',
+      'Wolves never stand still and no longer march in long lockstep lines: most rows mix speeds (some wolves half as fast, 1.5x or 2x, or drifting out of step and back within a minute), charger lanes run at different speeds, and if a room closes up for a moment, the speeds open a gap again within a few seconds',
       'Watch from a safe square, spot the rhythm, then skate through the gap',
       'Fixed: a key or joystick still held when a level starts no longer shoots your kitty off the start square onto the ice (let go once, then skate)',
       'Run + Skate is unchanged',

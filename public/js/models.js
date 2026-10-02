@@ -488,6 +488,9 @@ function createKittyModel(color) {
   const legs = [];
   const skates = [];
   const speedBoots = [];   // one per leg, shown for each pair of speed boots (FL, FR, BL, BR)
+  const rainbowBoots = [];
+  const rainbowMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.45, flatShading: true, roughness: 0.45 });
+  const rainbowOff = Math.random();
   const hips = [[0.12, 0.25, 0.105], [0.12, 0.25, -0.105], [-0.2, 0.25, 0.105], [-0.2, 0.25, -0.105]];
   for (const h of hips) {
     const p = new THREE.Group();
@@ -498,6 +501,10 @@ function createKittyModel(color) {
     const sb = mk(G.speedBoot, p, true);
     sb.visible = false;
     speedBoots.push(sb);
+    const rb = new THREE.Mesh(rainbowBootGeometry(), rainbowMat);   // 8+ wins: a rainbow shell over the red boot
+    rb.visible = false;
+    sb.add(rb);
+    rainbowBoots.push(rb);
     legs.push(p);
   }
 
@@ -565,6 +572,10 @@ function createKittyModel(color) {
     for (const sk of skates) sk.visible = onSkates;
     const nb = s.boots | 0;
     for (let i = 0; i < speedBoots.length; i++) speedBoots[i].visible = i < nb;
+    // 8+ wins: rainbow boots, a full rainbow every ~2.2 s on their own clock (not in step with the aura's colour cycle)
+    const rainbow = !!s.rainbowBoots && !ghost && nb > 0;
+    for (const rb of rainbowBoots) rb.visible = rainbow;
+    if (rainbow) { rainbowMat.color.setHSL((time * 0.45 + rainbowOff) % 1, 1, 0.58); rainbowMat.emissive.copy(rainbowMat.color); }
     rig.position.y = bounce * 0.07 * runAmt + (onSkates ? 0.045 : 0);
     const by = 1 - sq + breath * 0.022 * idle;
     rig.scale.set(1 + sq * 0.5, by, 1 + sq * 0.4 - breath * 0.01 * idle);
@@ -1297,6 +1308,15 @@ function createPortalModel() {
 }
 
 // The crown up for grabs over the goal room's middle (above the portal): big, spinning, bobbing, with a golden glow.
+// Rainbow boots (8+ wins): the speed boot's red foot and shaft (kittyGeos speedBoot), a touch bigger so they cover
+// the red; the gold cuff and white wings show through unchanged. White: the material colour does the rainbow.
+function rainbowBootGeometry() {
+  return cgeo('rainbowBoot', () => bake([
+    [P.ico1, mtx([0.025, -0.205, 0], null, [0.096, 0.074, 0.086]), 0xffffff],
+    [P.cyl8, mtx([0.0, -0.15, 0], null, [0.069, 0.092, 0.069]), 0xffffff],
+  ]));
+}
+
 // Sunglasses (5+ wins), in kitty head space (+x forward): two dark lenses facing forward with a slight wrap, just in
 // front of the eye whites, a white shine streak on each, a gold bridge and gold arms back to the ears.
 function sunglassesGeometry() {

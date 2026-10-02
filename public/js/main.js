@@ -278,6 +278,12 @@ function mousePlayerIndex() {
 function mouseInput(p, kb) {
   if (Math.hypot(kb.x, kb.z) > 0.1 || !p.alive) { mouse.target = null; mouse.iceDir = null; return kb; }
   if (joy.on) return joyInput();
+  if (p.waitRelease) {
+    // the sim holds the kitty until it reads "let go" once: a click (or a press held from before the checkpoint)
+    // would aim at a spot the frozen kitty never reaches and keep it stuck, so drop it and send a release
+    mouse.target = null; mouse.iceDir = null; mouse.held = false;
+    return kb;
+  }
   if (mouse.held && mouse.has) mouse.target = mouseGround() || mouse.target;
   if (!onIce(sim.levelData, p.x, p.z)) mouse.iceDir = null;
   else if (mouse.held || mouse.iceDir) {

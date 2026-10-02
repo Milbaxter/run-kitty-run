@@ -41,46 +41,72 @@ function createIceTrail(scene) {
   mesh.renderOrder = 2;
   scene.add(mesh);
 
-  const samples = [];        // { x, z, px, pz (unit perpendicular), t, brk, strips }
+  // samples in a ring buffer (oldest at `tail`); no per-frame allocations
+  const sx = new Float32Array(MAX), sz = new Float32Array(MAX), spx = new Float32Array(MAX), spz = new Float32Array(MAX);
+  const st = new Float64Array(MAX), sbrk = new Uint8Array(MAX), sstrips = new Array(MAX).fill(null);
+  let tail = 0, n = 0;
   let time = 0, wasActive = false;
+
+  // one quad per strip between points a and b, coloured by the newer end (b)
+  function segment(q, ax, az, apx, apz, fa, bx, bz, bpx, bpz, fb, strips) {
+    for (let k = 0; k < strips.length; k++) {
+      const sp = strips[k], off = sp[0], h = sp[1] / 2, r = sp[2], g = sp[3], bl = sp[4], al = sp[5];
+      const v = q * 4, ca = al * fa * fa, cb = al * fb * fb;
+      let p3 = v * 3, p4 = v * 4;
+      // vertex 0/1: a at -h/+h, vertex 2/3: b at -h/+h
+      pos[p3] = ax + apx * (off - h); pos[p3 + 1] = Y; pos[p3 + 2] = az + apz * (off - h);
+      pos[p3 + 3] = ax + apx * (off + h); pos[p3 + 4] = Y; pos[p3 + 5] = az + apz * (off + h);
+      pos[p3 + 6] = bx + bpx * (off - h); pos[p3 + 7] = Y; pos[p3 + 8] = bz + bpz * (off - h);
+      pos[p3 + 9] = bx + bpx * (off + h); pos[p3 + 10] = Y; pos[p3 + 11] = bz + bpz * (off + h);
+      for (let j = 0; j < 4; j++, p4 += 4) { col[p4] = r; col[p4 + 1] = g; col[p4 + 2] = bl; col[p4 + 3] = j < 2 ? ca : cb; }
+      q++;
+    }
+    return q;
+  }
 
   // tint (optional colour): draw new marks in it (switches live; older marks keep theirs)
   function update(dt, x, z, heading, active, tint) {
     time += dt;
-    while (samples.length && time - samples[0].t > LIFE) samples.shift();
+    while (n && time - st[tail] > LIFE) { tail = (tail + 1) % MAX; n--; }
+    if (!active && n === 0) {
+      // idle: nothing to draw, skip the rebuild and the upload
+      if (mesh.visible) { mesh.visible = false; geo.setDrawRange(0, 0); }
+      wasActive = false;
+      return;
+    }
+    mesh.visible = true;
     if (tint && tint.getHex() !== tintHex) { tintHex = tint.getHex(); tinted = tintStrips(tint); }
     const px = -Math.sin(heading), pz = Math.cos(heading), strips = tint ? tinted : STRIPS;
     if (active) {
-      const last = samples[samples.length - 1];
-      if (!wasActive || !last || Math.hypot(x - last.x, z - last.z) >= STEP) {
-        samples.push({ x, z, px, pz, t: time, brk: !wasActive, strips });
-        if (samples.length > MAX) samples.shift();
+      const li = (tail + n - 1) % MAX;
+      if (!wasActive || !n || Math.hypot(x - sx[li], z - sz[li]) >= STEP) {
+        if (n === MAX) { tail = (tail + 1) % MAX; n--; }
+        const i = (tail + n) % MAX;
+        sx[i] = x; sz[i] = z; spx[i] = px; spz[i] = pz; st[i] = time; sbrk[i] = wasActive ? 0 : 1; sstrips[i] = strips;
+        n++;
       }
     }
     wasActive = active;
 
-    // segments between consecutive samples (+ a live one to the kitty itself), coloured by the newer end
-    const pts = active ? samples.concat([{ x, z, px, pz, t: time, brk: false, strips }]) : samples;
+    // segments between consecutive samples (+ a live one to the kitty itself)
     let q = 0;
-    for (let i = 1; i < pts.length; i++) {
-      const a = pts[i - 1], b = pts[i];
-      if (b.brk) continue;
-      const fa = Math.max(0, 1 - (time - a.t) / LIFE), fb = Math.max(0, 1 - (time - b.t) / LIFE);
-      for (const [off, w, r, g, bl, al] of b.strips) {
-        const v = q * 4;
-        const h = w / 2;
-        const put = (k, s, side, f) => {
-          const o = off + side * h;
-          pos[(v + k) * 3] = s.x + s.px * o; pos[(v + k) * 3 + 1] = Y; pos[(v + k) * 3 + 2] = s.z + s.pz * o;
-          col[(v + k) * 4] = r; col[(v + k) * 4 + 1] = g; col[(v + k) * 4 + 2] = bl; col[(v + k) * 4 + 3] = al * f * f;
-        };
-        put(0, a, -1, fa); put(1, a, 1, fa); put(2, b, -1, fb); put(3, b, 1, fb);
-        q++;
-      }
+    for (let k = 1; k < n; k++) {
+      const a = (tail + k - 1) % MAX, b = (tail + k) % MAX;
+      if (sbrk[b]) continue;
+      q = segment(q, sx[a], sz[a], spx[a], spz[a], Math.max(0, 1 - (time - st[a]) / LIFE),
+        sx[b], sz[b], spx[b], spz[b], Math.max(0, 1 - (time - st[b]) / LIFE), sstrips[b]);
+    }
+    if (active && n) {
+      const a = (tail + n - 1) % MAX;
+      q = segment(q, sx[a], sz[a], spx[a], spz[a], Math.max(0, 1 - (time - st[a]) / LIFE), x, z, px, pz, 1, strips);
     }
     geo.setDrawRange(0, q * 6);
-    geo.attributes.position.needsUpdate = true;
-    geo.attributes.color.needsUpdate = true;
+    const pa = geo.attributes.position, ca = geo.attributes.color;
+    pa.clearUpdateRanges(); ca.clearUpdateRanges();
+    if (q) {
+      pa.addUpdateRange(0, q * 12); ca.addUpdateRange(0, q * 16);
+      pa.needsUpdate = true; ca.needsUpdate = true;
+    }
   }
 
   function dispose() {

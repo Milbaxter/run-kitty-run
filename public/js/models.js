@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CFG } from './shared/config.js';
+import { QUALITY } from './device.js';
 
 // models.js — procedural low-poly models for Run Kitty Run.
 // All models face +X in local space, stand on y = 0.
@@ -661,7 +662,7 @@ function createKittyModel(color) {
   const hot = auraCol.clone().lerp(new THREE.Color(0xffffff), 0.45);
   const flameTex = auraTexture();
   const outerMat = new THREE.MeshBasicMaterial({ map: flameTex, color: auraCol, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide });
-  const innerMat = new THREE.MeshBasicMaterial({ map: flameTex, color: hot.clone().multiplyScalar(1.4), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+  const innerMat = new THREE.MeshBasicMaterial({ map: flameTex, color: hot.clone().multiplyScalar(1.4), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
   const aura = new THREE.Group();
   // flares outward toward the top, like the classic aura
   const outer = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.5, 1.7, 36, 1, true), outerMat);
@@ -1043,7 +1044,7 @@ function createItemModel(type) {
 
   if (type === 'boots') {
     const G = bootGeos();
-    const boot = new THREE.Mesh(G.boot, VC_MAT()); boot.castShadow = true; spin.add(boot);
+    const boot = new THREE.Mesh(G.boot, VC_MAT()); boot.castShadow = QUALITY.propShadows; spin.add(boot);
     const wingMat = cmat('wingMat', () => new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
     const wings = [];
     for (const sz of [1, -1]) {
@@ -1058,7 +1059,7 @@ function createItemModel(type) {
     };
   } else if (type === 'life') {
     const heartMat = cmat('heartMat', () => new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.5, emissive: 0xff2a5a, emissiveIntensity: 0.35 }));
-    const heart = new THREE.Mesh(heartGeo(), heartMat); heart.castShadow = true; spin.add(heart);
+    const heart = new THREE.Mesh(heartGeo(), heartMat); heart.castShadow = QUALITY.propShadows; spin.add(heart);
     const halo = new THREE.Mesh(cgeo('haloTorus', () => new THREE.TorusGeometry(0.19, 0.022, 6, 28)), basicGlow('halo', 0xffd76a, 2.6, { blending: THREE.NormalBlending, transparent: false, depthWrite: true }));
     halo.rotation.x = Math.PI / 2 - 0.25;
     halo.position.y = 0.45;
@@ -1224,7 +1225,7 @@ function createPortalModel() {
     const a = (i / 6) * TAU_ + Math.PI / 12;
     const x = Math.cos(a) * (R + 0.15), z = Math.sin(a) * (R + 0.15);
     const b = new THREE.Mesh(beamGeo, beamMat); b.position.set(x, 0.08, z); b.renderOrder = 3; group.add(b); beams.push(b);
-    const sh = new THREE.Mesh(shardGeo, shardMat); sh.position.set(x, 0.08, z); sh.rotation.y = a; sh.castShadow = true; group.add(sh);
+    const sh = new THREE.Mesh(shardGeo, shardMat); sh.position.set(x, 0.08, z); sh.rotation.y = a; sh.castShadow = QUALITY.propShadows; group.add(sh);
   }
 
   // central column + floating crystal

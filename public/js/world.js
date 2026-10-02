@@ -16,7 +16,7 @@ import { WOLF_TYPES } from './models.js';
 //   thickness at both ends so they butt against the ring walls.
 // - Lantern pillars sit flush at both ends of every gap (inset into the wall end) and every
 //   ~9 units along the outer wall. No real point lights: emissive orbs + additive ground glows.
-// - setupLighting expects renderer.shadowMap.enabled = true / PCFSoftShadowMap (done in main).
+// - setupLighting expects renderer.shadowMap.enabled = true / PCFSoftShadowMap (PCFShadowMap on phones; done in main).
 
 
 const THEMES = [
@@ -1020,7 +1020,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
       const p = sampleOuter(1.0, 6);
       pumps.push({ x: p.x, z: p.z, s: rng.range(0.6, 1.2), ry: rng.range(0, TAU), color: jitterColor(0xf08a24, 0.1) });
     }
-    meshes.push(...inst(pumpGeo, pumpMat, pumps, { cast: true }));
+    meshes.push(...inst(pumpGeo, pumpMat, pumps, { cast: QUALITY.propShadows }));
   } else if (ti === 2) {
     const moundGeo = T.g(new THREE.IcosahedronGeometry(0.5, 1));
     const moundMat = T.m(new THREE.MeshStandardMaterial({ color: 0xf4f8ff, roughness: 0.8, flatShading: true }));
@@ -1213,7 +1213,7 @@ function buildClimbTrees(levelData, theme, T) {
 // Checkpoint squares (ice levels): a glowing ring on the tile and a flag in its back corner.
 function buildCheckpoints(levelData, T) {
   const out = [];
-  const ringMat = T.m(new THREE.MeshBasicMaterial({ color: 0x8fdcff, transparent: true, opacity: 0.55, depthWrite: false, toneMapped: false }));
+  const ringMat = T.m(new THREE.MeshBasicMaterial({ color: 0x8fdcff, transparent: true, opacity: 0.55, depthWrite: false }));
   const poleMat = T.m(new THREE.MeshStandardMaterial({ color: 0xdfe6f0, roughness: 0.6, metalness: 0.3 }));
   const flagMat = T.m(new THREE.MeshStandardMaterial({ color: 0x3fb8ff, emissive: 0x2a8fe0, emissiveIntensity: 0.5, roughness: 0.7, side: THREE.DoubleSide }));
   const ringGeo = T.g(new THREE.RingGeometry(2.6, 3.0, 48));
@@ -1381,7 +1381,7 @@ function buildFinale(levelData, theme, T, rng) {
   const postMat = T.m(new THREE.MeshStandardMaterial({ roughness: 0.8, flatShading: true }));
   const poleMat = T.m(new THREE.MeshStandardMaterial({ color: 0xc8d2e0, roughness: 0.45, metalness: 0.4 }));
   const orbGeo = T.g(new THREE.IcosahedronGeometry(0.26, 2));
-  const orbMat = T.m(new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
+  const orbMat = T.m(new THREE.MeshBasicMaterial({ color: 0xffffff }));
   const posts = [], poles = [], orbs = [];
   const zp = h + 0.05, NP = 2.1, SY = 4.3, SW = 6.4, SH = 1.6;
   const tilt = new THREE.Vector3(0, Math.sin(CAM_TILT), Math.cos(CAM_TILT));   // sign normal
@@ -1434,6 +1434,8 @@ function buildFinale(levelData, theme, T, rng) {
         float edge = 1.0 - smoothstep(3.6, 5.2, abs(vP.y));
         float hole = smoothstep(uTree.z, uTree.z + 1.2, distance(vP, uTree.xy));
         gl_FragColor = vec4(col, clamp(a, 0.0, 1.0) * edge * hole * uK);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }`,
     transparent: true, depthWrite: false,
   }));
@@ -1532,7 +1534,8 @@ function setupLighting(scene) {
   sc.updateProjectionMatrix();
   sun.shadow.bias = -0.0005;
   sun.shadow.normalBias = 0.04;
-  sun.shadow.radius = 4;
+  // PCFSoft (desktop) ignores radius; plain PCF (phones) uses it as the 3x3 tap spread in texels
+  sun.shadow.radius = QUALITY.softShadows ? 1 : 1.5;
   scene.add(sun);
   scene.add(sun.target);
 

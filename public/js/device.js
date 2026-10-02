@@ -5,11 +5,18 @@ const params = new URLSearchParams(location.search);
 const forced = params.get('mobile');
 const TOUCH = forced != null
   ? forced !== '0'
-  : (window.matchMedia && matchMedia('(pointer: coarse)').matches) || (navigator.maxTouchPoints || 0) > 1;
+  : detectTouch();
+
+// Phones / tablets: primary pointer is coarse, or touch points with no fine pointer at all (iPad).
+// Touchscreen laptops have touch points AND a mouse/trackpad (any-pointer: fine) -> desktop profile.
+function detectTouch() {
+  const mm = (q) => !!(window.matchMedia && matchMedia(q).matches);
+  return mm('(pointer: coarse)') || ((navigator.maxTouchPoints || 0) > 1 && !mm('(any-pointer: fine)'));
+}
 
 const QUALITY = TOUCH
-  ? { pixelRatio: 1.5, antialias: false, bloom: false, shadowMap: 1024, particles: 0.45 }
-  : { pixelRatio: 2, antialias: true, bloom: true, shadowMap: 2048, particles: 1 };
+  ? { pixelRatio: 1.5, antialias: false, bloom: false, shadowMap: 1024, softShadows: false, propShadows: false, particles: 0.45 }
+  : { pixelRatio: 2, antialias: true, bloom: true, shadowMap: 2048, softShadows: true, propShadows: true, particles: 1 };
 
 const root = document.documentElement;
 if (TOUCH) root.classList.add('rkr-touch');

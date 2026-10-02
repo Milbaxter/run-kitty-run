@@ -9,6 +9,7 @@ const DEVICES = ['desktop', 'touch', 'ios', 'android'];
 const CID = /^[a-z0-9]{8,32}$/;
 const EVENT_TYPES = ['visit', 'run_start', 'level', 'run_end'];
 const EVENTS_PER_HOUR = 400;        // per IP (a long session sends maybe 50)
+const NEW_IDS_PER_HOUR = 20;        // per IP: new player ids (a family / school shares one; a script minting ids doesn't)
 const SAVE_EVERY_MS = 5000;
 
 const day = (t = Date.now()) => new Date(t).toISOString().slice(0, 10);
@@ -35,6 +36,7 @@ function createStats(file) {
   let todaySeen = new Set(s.today.day === day() ? s.today.seen : []);
   let dirty = false;
   const hits = new Map(); // ip -> [timestamps]
+  const newIds = new Map(); // ip -> [timestamps of new cids]
 
   function save() {
     if (!dirty) return;
@@ -47,9 +49,8 @@ function createStats(file) {
     });
   }
   setInterval(save, SAVE_EVERY_MS).unref();
-  const flush = () => { dirty = true; try { s.today = { day: day(), seen: [...todaySeen] }; fs.writeFileSync(file, JSON.stringify(s)); } catch { /* ignore */ } };
-  process.once('SIGTERM', () => { flush(); process.exit(0); });
-  process.once('SIGINT', () => { flush(); process.exit(0); });
+  // synchronous save for shutdown (index.js calls it on SIGTERM / SIGINT / a crash)
+  const flush = () => { try { s.today = { day: day(), seen: [...todaySeen] }; fs.writeFileSync(file, JSON.stringify(s)); dirty = false; } catch (e) { console.error('stats flush failed:', e.message); } };
 
   function today() {
     const d = day();
@@ -70,9 +71,16 @@ function createStats(file) {
 
   const num = (v, max) => (Number.isFinite(v) ? Math.max(0, Math.min(max, Math.floor(v))) : 0);
 
-  // ev: { cid, ev: 'visit' | 'run_start' | 'level' | 'run_end', ... }
-  function record(ev) {
+  // ev: { cid, ev: 'visit' | 'run_start' | 'level' | 'run_end', ... }; ip (optional) caps new ids per IP
+  function record(ev, ip) {
     if (!ev || !CID.test(String(ev.cid || '')) || !EVENT_TYPES.includes(ev.ev)) return false;
+    if (ip && !s.players[ev.cid]) {
+      const now = Date.now();
+      const h = (newIds.get(ip) || []).filter((t) => now - t < 3600e3);
+      newIds.set(ip, h);
+      if (h.length >= NEW_IDS_PER_HOUR) return false;
+      h.push(now);
+    }
     const D = touch(ev.cid, ev.device);
     const T = s.totals;
     switch (ev.ev) {
@@ -135,14 +143,17 @@ function createStats(file) {
     req.on('end', () => {
       let ev;
       try { ev = JSON.parse(body); } catch { return reply(400, { ok: false }); }
-      const ok = record(ev);
+      const ok = record(ev, ip);
       reply(ok ? 200 : 400, { ok });
     });
   }
   // forget old rate-limit buckets now and then
-  setInterval(() => { const now = Date.now(); for (const [ip, h] of hits) if (!h.some((t) => now - t < 3600e3)) hits.delete(ip); }, 600e3).unref();
+  setInterval(() => {
+    const now = Date.now();
+    for (const m of [hits, newIds]) for (const [ip, h] of m) if (!h.some((t) => now - t < 3600e3)) m.delete(ip);
+  }, 600e3).unref();
 
-  return { handle, record, lobbyCreated, onlineGameStarted, onlineGameWon, online, summary, save: flush };
+  return { handle, record, lobbyCreated, onlineGameStarted, onlineGameWon, online, summary, save: flush, flush };
 }
 
 export { createStats };

@@ -5,6 +5,17 @@ import { wsUrl, PLATFORM, APP_VERSION } from './platform.js';
 // Sent in the 'hi' handshake; the server gates modes on it (MODE_MIN_PROTOCOL in server/index.js).
 const PROTOCOL_VERSION = CONF.PROTOCOL_VERSION;
 
+// Per-tab token sent in 'hi': after a dropped connection the server recognises the kitty that comes back
+// (it keeps its lives, and stays down if it was down). sessionStorage: survives a reload, not shared between tabs.
+function tabToken() {
+  const fresh = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(36).padStart(2, '0')).join('');
+  try {
+    let t = sessionStorage.getItem('rkr-tok');
+    if (!t || !/^[\w-]{8,64}$/.test(t)) { t = fresh(); sessionStorage.setItem('rkr-tok', t); }
+    return t;
+  } catch { return fresh(); }
+}
+
 function createNet() {
   const handlers = new Map();
   let ws = null;
@@ -13,6 +24,10 @@ function createNet() {
   let pingT = 0;
   let lastMsgAt = 0;
   let wakeT = 0;
+  let tries = 0;       // failed connects in a row (backoff)
+  let tok = '';
+  // Messages sent while the very first socket is still connecting (openOnline sends a join right after connect()).
+  // After a drop nothing is queued: stale lobby actions are dropped, the 'open' handler in main.js rejoins.
   const queue = [];
   const net = {
     outdated: false,
@@ -25,12 +40,14 @@ function createNet() {
       wantOpen = true;
       if (ws && ws.readyState <= 1) return;
       clearTimeout(retryT);
-      ws = new WebSocket(wsUrl());
+      const sock = ws = new WebSocket(wsUrl());
       ws.onopen = () => {
         net.connected = true;
+        tries = 0;
         lastMsgAt = performance.now();
         // handshake first: lets the server tell old app builds to update
-        ws.send(JSON.stringify({ t: 'hi', v: PROTOCOL_VERSION, app: PLATFORM, ver: APP_VERSION }));
+        if (!tok) tok = tabToken();
+        ws.send(JSON.stringify({ t: 'hi', v: PROTOCOL_VERSION, app: PLATFORM, ver: APP_VERSION, tok }));
         while (queue.length) ws.send(queue.shift());
         emit('open', {});
         clearInterval(pingT);
@@ -49,16 +66,21 @@ function createNet() {
         emit(msg.t, msg);
       };
       ws.onclose = () => {
+        if (ws && ws !== sock) return; // an old socket closing after disconnect() + connect()
         const was = net.connected;
         net.connected = false;
+        if (was) queue.length = 0;
         clearInterval(pingT);
         if (was && !net.outdated) emit('close', {});
-        if (wantOpen) retryT = setTimeout(() => net.connect(), 1500);
+        // exponential backoff with jitter, so a restarted server isn't hit by everyone at once
+        if (wantOpen) retryT = setTimeout(() => net.connect(), Math.min(30000, 1000 * 2 ** tries++) * (0.5 + Math.random()));
       };
       ws.onerror = () => {};
     },
     disconnect() {
       wantOpen = false;
+      tries = 0;
+      queue.length = 0;
       clearTimeout(wakeT);
       clearTimeout(retryT);
       clearInterval(pingT);
@@ -90,7 +112,7 @@ function createNet() {
     send(msg) {
       const s = JSON.stringify(msg);
       if (ws && ws.readyState === 1) ws.send(s);
-      else if (msg.t !== 'in' && msg.t !== 'ping') queue.push(s);
+      else if (ws && ws.readyState === 0 && tries === 0 && msg.t !== 'in' && msg.t !== 'ping' && queue.length < 8) queue.push(s);
     },
   };
   function emit(type, msg) {

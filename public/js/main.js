@@ -1077,6 +1077,19 @@ function fishFinished() {
 
 const _seenCircles = new Set();
 const _kitArgs = {}; // reused kitty model.update() args (the model only reads them)
+// 8+ wins backpack passengers: the other players' colours (first PACK_MAX in player order; solo: a few default
+// cats). Returns the kitty's cached array, replaced only when the set changes (the model rebuilds on a new array).
+const PACK_MAX = 5, _packTmp = [];
+function packColors(k, p) {
+  _packTmp.length = 0;
+  for (const o of sim.players) if (o.id !== p.id && _packTmp.length < PACK_MAX) _packTmp.push(o.color);
+  if (!_packTmp.length) for (const c of PLAYER_COLORS) if (c !== p.color && _packTmp.length < 3) _packTmp.push(c);
+  const old = k.packCols;
+  let same = !!old && old.length === _packTmp.length;
+  for (let i = 0; same && i < old.length; i++) same = old[i] === _packTmp[i];
+  if (!same) k.packCols = _packTmp.slice();
+  return k.packCols;
+}
 function syncVisuals(dt, alpha) {
   if (!view) return;
   if (view.levelData !== sim.levelData) buildView();
@@ -1161,6 +1174,7 @@ function syncVisuals(dt, alpha) {
     ka.moving = (p.moving && !gliding) || !!(eat && eat.walking); ka.munch = !!(eat && eat.munch); ka.bites = k.bites | 0;
     ka.skates = !!sim.levelData.ice; ka.boots = Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST); ka.invuln = p.invuln; ka.shield = p.shield; ka.time = t;
     ka.crown = !!p.crowned; ka.crownStones = Math.max(0, Math.min(5, wins - 1)); ka.aura = wins >= 3; ka.auraColor = k.fx; ka.sunglasses = wins >= 5; ka.rainbowBoots = wins >= 7;
+    ka.backpack = wins >= 8; ka.packColors = ka.backpack ? packColors(k, p) : null;
     k.model.update(dt, ka);
     k.trail.update(dt, x, z, -k.model.group.rotation.y, gliding && speed > 0.5, paws ? k.fx : null);
     k.auraTrail.update(dt, x, k.climb, z, -k.model.group.rotation.y, wins >= 4 && speed > 1, k.fx);

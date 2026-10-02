@@ -684,6 +684,32 @@ function createKittyModel(color) {
   const shades = new THREE.Mesh(sunglassesGeometry(), cmat('shades', () => new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.2, metalness: 0.35 })));
   shades.visible = false;
   head.add(shades);
+  // backpack (8+ wins): a canvas pack on the back, open at the top, with little kittens in the other players'
+  // colours peeking out (you carry everyone). Heads are rebuilt only when the colour list (array identity) changes.
+  const pack = new THREE.Group();
+  pack.position.set(PACK_POS[0], PACK_POS[1], PACK_POS[2]);
+  const packBag = new THREE.Mesh(backpackGeometry(), mat);
+  packBag.castShadow = true;
+  pack.add(packBag);
+  pack.visible = false;
+  rig.add(pack);
+  let packCols = null;
+  const packHeads = [];
+  function setPackColors(cols) {
+    packCols = cols;
+    for (const h of packHeads) h.removeFromParent();
+    packHeads.length = 0;
+    const n = Math.min(cols ? cols.length : 0, PACK_SLOTS.length);
+    if (!n) return;
+    for (let i = 0; i < n; i++) {
+      const [x, y, z, yaw] = PACK_SLOTS[n - 1][i];
+      const m = new THREE.Mesh(kittenHeadGeometry(cols[i]), mat);
+      m.position.set(x, y, z); m.rotation.y = yaw; m.scale.setScalar(PACK_KIT_S); m.castShadow = true;
+      m.userData.y = y; m.userData.yaw = yaw;
+      pack.add(m);
+      packHeads.push(m);
+    }
+  }
   // crown stones: a win from 2 to 6 sets one gem on a point (front first, then pairs toward the back), in place of its pearl
   const tips = [0, 1, 4, 2, 3].map((i, n) => {
     const a = (i / 5) * TAU_, pearl = new THREE.Mesh(P.ico1, pearlMat());
@@ -748,6 +774,18 @@ function createKittyModel(color) {
     } else if (head.position.x !== K_HEAD_POS[0]) { head.position.x = K_HEAD_POS[0]; head.scale.set(1, 1, 1); }
     crown.visible = !!s.crown && rig.visible;
     shades.visible = !!s.sunglasses && !ghost;
+    pack.visible = !!s.backpack && !ghost;
+    if (pack.visible) {
+      if (s.packColors !== packCols) setPackColors(s.packColors);
+      // the passengers bounce with the stride (a beat behind the body) and look about when idle
+      for (let i = 0; i < packHeads.length; i++) {
+        const h = packHeads[i], o = i * 1.7 + seedOff;
+        h.position.y = h.userData.y + Math.abs(Math.sin(phase - 0.6 - i * 0.5)) * 0.022 * runAmt + Math.sin(t * 2.4 + o) * 0.005;
+        h.rotation.z = Math.sin(phase * 2 + o) * 0.08 * runAmt + Math.sin(t * 1.3 + o) * 0.1 * (1 - Math.min(1, runAmt));
+        h.rotation.y = h.userData.yaw + Math.sin(t * 0.8 + o) * 0.35 * (1 - Math.min(1, runAmt));
+        h.rotation.x = Math.sin(phase + o) * 0.1 * runAmt;
+      }
+    }
     if (crown.visible) {
       crown.position.y = 0.25 + Math.sin(t * 3) * 0.008;
       tips.forEach((p, n) => {
@@ -1288,6 +1326,62 @@ function sunglassesGeometry() {
       parts.push([P.box, mtx([0.075, 0.062, 0.2 * sz], [0, 0.1 * sz, 0], [0.22, 0.013, 0.01]), GOLD]);   // arm
     }
     parts.push([P.box, mtx([0.214, 0.066, 0], null, [0.014, 0.013, 0.05]), GOLD]);               // bridge
+    return bake(parts);
+  });
+}
+
+// Backpack (8+ wins), in pack space (pack group at PACK_POS in kitty rig space, +x forward): a rounded canvas bag
+// sitting on the back between shoulders and hips, open at the top (leather rim, dark inside), a rear pocket with a
+// flap and gold buckle, side pockets, and two straps round the body (a tilted chest strap and a belly strap).
+const PACK_POS = [-0.12, 0.6, 0];
+// passenger head slots by count (x, y, z, yaw): front row low (paws on the rim), back row a bit higher, fanned out
+const PACK_SLOTS = [
+  [[0.0, 0.17, 0, 0]],
+  [[0.0, 0.17, 0.065, -0.3], [0.0, 0.17, -0.065, 0.3]],
+  [[0.04, 0.16, 0.072, -0.35], [0.04, 0.16, -0.072, 0.35], [-0.05, 0.215, 0, 0]],
+  [[0.045, 0.16, 0.068, -0.3], [0.045, 0.16, -0.068, 0.3], [-0.05, 0.21, 0.07, -0.6], [-0.05, 0.21, -0.07, 0.6]],
+  [[0.055, 0.15, 0, 0], [0.035, 0.16, 0.1, -0.45], [0.035, 0.16, -0.1, 0.45], [-0.055, 0.21, 0.06, -0.5], [-0.055, 0.21, -0.06, 0.5]],
+];
+const PACK_KIT_S = 1.3;   // passenger head scale
+function backpackGeometry() {
+  return cgeo('backpack', () => {
+    const CANVAS = 0xb9814a, CANVAS_L = 0xd3a066, LEATHER = 0x7b4b28, INSIDE = 0x2b1b12, BUCKLE = 0xffd34a, STRAP = 0x6a3f22;
+    const ring = new THREE.TorusGeometry(1, 0.075, 4, 20).rotateY(Math.PI / 2);   // strap loop round the x axis
+    const out = bake([
+      [P.ico1, mtx([0, 0, 0], null, [0.13, 0.12, 0.15]), CANVAS],
+      [P.cyl18, mtx([0, 0.095, 0], null, [0.11, 0.03, 0.135]), LEATHER],                 // rim
+      [P.cyl18, mtx([0, 0.111, 0], null, [0.092, 0.002, 0.117]), INSIDE],                // the open top
+      [P.ico1, mtx([-0.115, -0.025, 0], null, [0.045, 0.07, 0.1]), CANVAS_L],            // rear pocket
+      [P.box, mtx([-0.152, 0.02, 0], [0, 0, -0.3], [0.012, 0.06, 0.15]), LEATHER],       // its flap
+      [P.box, mtx([-0.167, -0.012, 0], null, [0.012, 0.024, 0.032]), BUCKLE],
+      [P.ico1, mtx([-0.01, -0.035, 0.14], null, [0.055, 0.045, 0.025]), CANVAS_L],        // side pockets
+      [P.ico1, mtx([-0.01, -0.035, -0.14], null, [0.055, 0.045, 0.025]), CANVAS_L],
+      [ring, mtx([0.19, -0.24, 0], [0, 0, 0.35], [0.4, 0.205, 0.222]), STRAP],          // chest strap (top leans back to the pack)
+      [ring, mtx([-0.04, -0.26, 0], [0, 0, -0.12], [0.4, 0.205, 0.222]), STRAP],        // belly strap
+      [P.box, mtx([0.122, -0.026, 0], [0, 0, 0.35], [0.03, 0.012, 0.05]), BUCKLE],      // strap buckle on the shoulders
+    ]);
+    ring.dispose();
+    return out;
+  });
+}
+
+// a kitten head peeking out of the backpack (head space, +x = facing): fur in the player's colour, ears, big
+// eyes, pink nose and two paws hooked over the rim
+function kittenHeadGeometry(color) {
+  return cgeo('kitten:' + new THREE.Color(color).getHexString(), () => {
+    const { base, light } = kittyPalette(color);
+    const parts = [
+      [P.ico1, mtx([0, 0, 0], null, [0.055, 0.05, 0.058]), base],
+      [P.ico1, mtx([0.042, -0.014, 0], null, [0.022, 0.018, 0.03]), light],                 // muzzle
+      [P.ico0, mtx([0.062, -0.006, 0], null, 0.007), PINK],                                  // nose
+    ];
+    for (const sz of [1, -1]) {
+      parts.push([P.cone4, mtx([-0.005, 0.052, 0.03 * sz], [0.35 * sz, Math.PI / 4, 0], [0.026, 0.048, 0.024]), base]);
+      parts.push([P.cone4, mtx([0.003, 0.048, 0.029 * sz], [0.35 * sz, Math.PI / 4, 0], [0.015, 0.032, 0.014]), PINK]);
+      parts.push([P.ico1, mtx([0.044, 0.012, 0.022 * sz], null, [0.011, 0.016, 0.012]), PUPIL]);      // eyes
+      parts.push([P.ico0, mtx([0.053, 0.019, 0.02 * sz], null, 0.0045), EYE_WHITE]);
+      parts.push([P.ico1, mtx([0.05, -0.05, 0.026 * sz], null, [0.022, 0.014, 0.018]), light]);       // paws
+    }
     return bake(parts);
   });
 }

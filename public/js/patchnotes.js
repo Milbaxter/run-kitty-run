@@ -12,6 +12,7 @@ const PATCH_NOTES = [
       'Run + Skate: the winter (ice) levels now have the new Skate only wolves, the same ones Skate only has on that level (winter on level 3 = Skate only level 3)',
       'Win 5 runs and your kitty puts on a pair of sunglasses (and so does its icon next to your name)',
       'Win 7 runs and your speed boots turn rainbow',
+      'Win 8 runs and your kitty carries a little backpack full of kittens in your teammates\' colours (you\'re carrying the team)',
       'The speed boots you pick up now look just like the ones your kitty wears',
       'Confetti is now confetti fish: little fish in every colour tumble down when a level is won',
       'Win a level (first into the finish circle) and you always get a crown, even if someone else grabbed the floating one',

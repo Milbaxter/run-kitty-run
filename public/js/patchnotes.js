@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Win 5 runs and your kitty puts on a pair of sunglasses (and so does its icon next to your name)',
       'The game now has an ending: level 9 is the boss level, THE FINAL RUN (Run + Skate and Skate only)',
       'Run + Skate seasons: summer, fall, winter, three times over, and the third winter is the final run',
       'One long straight sheet of ice packed with wolves: no safe squares, no checkpoints, and you can never stop, only carve circles while you wait for a gap. Its wolves move like Skate only\'s: tight rows that never pause, broken up by wolves running faster or slower than the rest, rows from both walls, charger lanes at different speeds',

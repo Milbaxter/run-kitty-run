@@ -668,6 +668,10 @@ function createKittyModel(color) {
   crown.castShadow = true;
   crown.visible = false;
   head.add(crown);
+  // sunglasses (5+ wins): dark lenses just in front of the eyes, gold bridge, arms back to the ears
+  const shades = new THREE.Mesh(sunglassesGeometry(), cmat('shades', () => new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.2, metalness: 0.35 })));
+  shades.visible = false;
+  head.add(shades);
   // crown stones: a win from 2 to 6 sets one gem on a point (front first, then pairs toward the back), in place of its pearl
   const tips = [0, 1, 4, 2, 3].map((i, n) => {
     const a = (i / 5) * TAU_, pearl = new THREE.Mesh(P.ico1, pearlMat());
@@ -731,6 +735,7 @@ function createKittyModel(color) {
       if (!ghost && blinkT <= 0) eyes.scale.y = 1 - 0.7 * munchAmt;   // ^ ^
     } else if (head.position.x !== K_HEAD_POS[0]) { head.position.x = K_HEAD_POS[0]; head.scale.set(1, 1, 1); }
     crown.visible = !!s.crown && rig.visible;
+    shades.visible = !!s.sunglasses && !ghost;
     if (crown.visible) {
       crown.position.y = 0.25 + Math.sin(t * 3) * 0.008;
       tips.forEach((p, n) => {
@@ -1292,6 +1297,22 @@ function createPortalModel() {
 }
 
 // The crown up for grabs over the goal room's middle (above the portal): big, spinning, bobbing, with a golden glow.
+// Sunglasses (5+ wins), in kitty head space (+x forward): two dark lenses facing forward with a slight wrap, just in
+// front of the eye whites, a white shine streak on each, a gold bridge and gold arms back to the ears.
+function sunglassesGeometry() {
+  return cgeo('sunglasses', () => {
+    const LENS = 0x1e1a2b, SHINE = 0xffffff, GOLD = 0xffd34a, parts = [];
+    for (const sz of [1, -1]) {
+      const yaw = -0.3 * sz, cx = 0.208, cy = 0.05, cz = 0.1 * sz;   // wrap: outer edge swept back
+      parts.push([P.cyl18, mtx([cx, cy, cz], [0, yaw, -Math.PI / 2], [0.07, 0.014, 0.088]), LENS]);
+      parts.push([P.box, mtx([cx + 0.009, cy + 0.03, cz + 0.012 * sz], [0, yaw, 0], [0.004, 0.01, 0.042]), SHINE]);
+      parts.push([P.box, mtx([0.075, 0.062, 0.2 * sz], [0, 0.1 * sz, 0], [0.22, 0.013, 0.01]), GOLD]);   // arm
+    }
+    parts.push([P.box, mtx([0.214, 0.066, 0], null, [0.014, 0.013, 0.05]), GOLD]);               // bridge
+    return bake(parts);
+  });
+}
+
 // chunky solid crown (band, spikes, ball tips, red gems): reads from the top-down camera
 // (pearls = false: the worn crown, whose pearls are separate meshes so crown stones can replace them)
 function chunkyCrownGeometry(pearls = true) {

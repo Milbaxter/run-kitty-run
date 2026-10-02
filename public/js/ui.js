@@ -35,6 +35,8 @@ function esc(s) {
 
 // ---------- inline SVG icons ----------
 const INK = '#2b1840';
+// sunglasses laid over the player card's cat icon (5+ wins), on the cat's eyes (same 40x40 frame)
+const SHADES_SVG = `<svg viewBox="0 0 40 40" class="rkr-shades"><path d="M5 19.6 L10 18.8 M35 19.6 L30 18.8 M18.4 20.2 Q20 18.6 21.6 20.2" fill="none" stroke="#ffd34a" stroke-width="1.6" stroke-linecap="round"/><ellipse cx="14" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><ellipse cx="26" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><path d="M11.4 19.8 L14.6 19.1 M23.4 19.8 L26.6 19.1" stroke="#fff" stroke-width="1.2" stroke-linecap="round"/></svg>`;
 const ICONS = {
   fish: `<svg viewBox="0 0 40 40"><path d="M4 20 Q13 8 25 11 Q31 12.5 36 20 Q31 27.5 25 29 Q13 32 4 20 Z" fill="#ff9a7a" stroke="#7a2f3c" stroke-width="2.4" stroke-linejoin="round"/><path d="M5 20 L1 13 L1 27 Z" fill="#6d8fb3" stroke="#2f4c6b" stroke-width="2" stroke-linejoin="round"/><circle cx="29" cy="18" r="2" fill="#16121c"/><path d="M15 14 Q13 20 15 26 M20 13 Q18 20 20 27" stroke="#fff" stroke-width="1.6" fill="none" opacity=".7"/></svg>`,
   cat: `<svg viewBox="0 0 40 40" class="rkr-cat"><path d="M5 4 L15 12 Q20 10.5 25 12 L35 4 L33.5 20 Q34 34.5 20 35.5 Q6 34.5 6.5 20 Z" fill="currentColor" stroke="${INK}" stroke-width="2.6" stroke-linejoin="round"/><path d="M8.5 9 L13 12.6 L9.6 15.5 Z M31.5 9 L27 12.6 L30.4 15.5 Z" fill="#ff9ec4"/><g class="rkr-eyes"><ellipse cx="14.3" cy="21.5" rx="2.3" ry="3.1" fill="${INK}"/><ellipse cx="25.7" cy="21.5" rx="2.3" ry="3.1" fill="${INK}"/><circle cx="15" cy="20.4" r=".9" fill="#fff"/><circle cx="26.4" cy="20.4" r=".9" fill="#fff"/></g><g class="rkr-xeyes" stroke="${INK}" stroke-width="2" stroke-linecap="round"><path d="M12 19 L16.6 23.6 M16.6 19 L12 23.6 M23.4 19 L28 23.6 M28 19 L23.4 23.6"/></g><path d="M18.2 26.4 L21.8 26.4 L20 28.6 Z" fill="#ff6f9f" stroke="${INK}" stroke-width="1" stroke-linejoin="round"/><path d="M20 28.6 Q18.5 31 16.5 30 M20 28.6 Q21.5 31 23.5 30" fill="none" stroke="${INK}" stroke-width="1.3" stroke-linecap="round"/><path d="M3 25 L11 26 M3.5 29 L11 28 M37 25 L29 26 M36.5 29 L29 28" stroke="${INK}" stroke-width="1.1" stroke-linecap="round" opacity=".55"/></svg>`,
@@ -105,7 +107,10 @@ html.rkr-touch .rkr-touchonly{display:block;}
   background:linear-gradient(135deg,rgba(30,16,60,.72),rgba(30,16,60,.5));border:2px solid rgba(255,255,255,.14);
   box-shadow:inset 4px 0 0 var(--pc),0 6px 16px rgba(0,0,0,.3);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
   transition:transform .25s,border-color .25s;}
-.rkr-card .rkr-head{width:44px;height:44px;flex:none;color:var(--pc);filter:drop-shadow(0 2px 0 rgba(0,0,0,.35));}
+.rkr-card .rkr-head{position:relative;width:44px;height:44px;flex:none;color:var(--pc);filter:drop-shadow(0 2px 0 rgba(0,0,0,.35));}
+.rkr-card .rkr-head svg{display:block;width:100%;height:100%;}
+.rkr-card .rkr-shades{position:absolute;inset:0;display:none !important;}
+.rkr-card.rkr-cool:not(.rkr-down) .rkr-shades{display:block !important;}
 .rkr-xeyes{display:none;}
 .rkr-card.rkr-down .rkr-eyes{display:none;}
 .rkr-card.rkr-down .rkr-xeyes{display:inline;}
@@ -476,7 +481,7 @@ function createUI(root) {
 
   function makeCard() {
     const c = el('div', 'rkr-card',
-      `<div class="rkr-head">${ICONS.cat}</div>
+      `<div class="rkr-head">${ICONS.cat}${SHADES_SVG}</div>
        <div class="rkr-cbody">
          <div class="rkr-crow"><span class="rkr-name"></span><span class="rkr-status">ALIVE</span><span class="rkr-hearts"></span></div>
          <div class="rkr-crow"><span class="rkr-boots">${ICONS.boots}<span>+0%</span></span></div>
@@ -501,6 +506,7 @@ function createUI(root) {
     const v = card.v;
     if (p.name !== v.name) { v.name = p.name; card.name.textContent = p.name; }
     if (p.color !== v.color) { v.color = p.color; card.root.style.setProperty('--pc', hexColor(p.color)); }
+    if (!!p.cool !== v.cool) { v.cool = !!p.cool; card.root.classList.toggle('rkr-cool', v.cool); }   // 5+ wins: sunglasses
     const alive = !!p.alive;
     if (alive !== v.alive) {
       v.alive = alive;

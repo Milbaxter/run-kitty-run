@@ -24,9 +24,19 @@ const GAME_MODES = ['mixed', 'run', 'ice'];
 const MAX_SUBSTEP_DISP = 0.25;
 const MAX_SUBSTEPS = 64;
 
+// Level generation can take 100ms+ (Skate pattern wolves), so clients and the server pre-generate the next level
+// off-thread and hand it over in sim.pregen = { level, seed, mode, ld }: makeLevel takes it when it matches
+// (same inputs => the very same deterministic layout), otherwise generates synchronously.
+function pregenParams(sim, level = sim.level + 1) {
+  return { level, seed: hashSeed(sim.seed, level), mode: sim.mode };
+}
+
 function makeLevel(sim, level) {
+  const { seed, mode } = pregenParams(sim, level);
+  const pg = sim.pregen;
+  sim.pregen = null;
   sim.level = level;
-  sim.levelData = generateLevel(level, hashSeed(sim.seed, level), sim.mode);
+  sim.levelData = pg && pg.ld && pg.level === level && pg.seed === seed && pg.mode === mode ? pg.ld : generateLevel(level, seed, mode);
   sim.enemies = createEnemies(sim.levelData);
   sim.enemyTicks = 0;          // updateEnemies calls since this level's wolves were created (netcode)
   const src = sim.levelData.items || [];
@@ -118,6 +128,7 @@ function createSim({ seed, players = [], startLevel = 1, mode = 'mixed' } = {}) 
     time: 0,
     levelTime: 0,
     levelData: null,
+    pregen: null,   // { level, seed, mode, ld }: the next level, generated off-thread (see makeLevel)
     enemies: [],
     enemyTicks: 0,
     lastWinner: 0,  // id of the kitty that last grabbed the crown in the goal (wears it)
@@ -586,4 +597,4 @@ function loadLevel(sim, level) {
   makeLevel(sim, level);
 }
 
-export { GAME_MODES, createSim, stepSim, simSummary, addPlayer, removePlayer, predictPlayer, loadLevel };
+export { GAME_MODES, pregenParams, createSim, stepSim, simSummary, addPlayer, removePlayer, predictPlayer, loadLevel };

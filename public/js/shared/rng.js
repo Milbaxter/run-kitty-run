@@ -43,16 +43,17 @@ function hashSeed(...parts) {
 
 const TAU = Math.PI * 2;
 
-// Normalize angle to [0, TAU).
-function normAngle(a) {
-  a %= TAU;
-  return a < 0 ? a + TAU : a;
+// x ** n for a small non-negative integer n as plain multiplies: Math.pow / ** differ in the last bit between
+// V8 and JavaScriptCore (iOS), which would make the same seed generate a different level on the two.
+function ipow(x, n) {
+  let r = 1;
+  for (let i = 0; i < n; i++) r *= x;
+  return r;
 }
 
-// Smallest signed difference b - a in (-PI, PI].
-function angleDiff(a, b) {
-  let d = normAngle(b - a);
-  return d > Math.PI ? d - TAU : d;
+// Leg frame (ox/oz origin, u along, n lateral) -> world point; r = lateral offset, th = distance along the leg.
+function legPoint(f, r, th) {
+  return { x: f.ox + f.ux * th + f.nx * r, z: f.oz + f.uz * th + f.nz * r };
 }
 
-export { createRng, hashSeed, TAU, normAngle, angleDiff };
+export { createRng, hashSeed, TAU, ipow, legPoint };

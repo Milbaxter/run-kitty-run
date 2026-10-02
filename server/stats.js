@@ -7,7 +7,7 @@ const KINDS = ['solo', 'coop', 'online'];
 const MODES = ['mixed', 'run', 'ice'];
 const DEVICES = ['desktop', 'touch', 'ios', 'android'];
 const CID = /^[a-z0-9]{8,32}$/;
-const EVENT_TYPES = ['visit', 'run_start', 'level', 'run_end'];
+const EVENT_TYPES = ['visit', 'run_start', 'level', 'run_end', 'level_mismatch'];
 const EVENTS_PER_HOUR = 400;        // per IP (a long session sends maybe 50)
 const SAVE_EVERY_MS = 5000;
 
@@ -94,6 +94,10 @@ function createStats(file) {
         if (ev.won === true) { D.wins = (D.wins || 0) + 1; T.wins++; }   // older days were saved without wins
         break;
       }
+      case 'level_mismatch':   // an online client generated a level whose hash differs from the server's (desync tripwire)
+        T.levelMismatches = (T.levelMismatches || 0) + 1;
+        console.warn(`level hash mismatch: mode ${String(ev.mode).slice(0, 8)} level ${num(ev.level, 999)} device ${String(ev.device).slice(0, 8)} ver ${String(ev.ver ?? '').slice(0, 16)}`);
+        break;
     }
     dirty = true;
     return true;

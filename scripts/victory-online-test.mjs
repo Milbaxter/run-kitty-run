@@ -8,9 +8,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
-import { CFG, SKATE_FINAL_LEVEL as F } from '../public/js/shared/config.js';
+import { CFG, SKATE_FINAL_LEVEL as F, PROTOCOL_VERSION } from '../public/js/shared/config.js';
 import { createSim } from '../public/js/shared/sim.js';
 import { updateEnemies } from '../public/js/shared/enemies.js';
+import { levelHash } from '../public/js/shared/maze.js';
 
 const PORT = +process.env.PORT || 8134;
 const URL = `ws://127.0.0.1:${PORT}/ws`;
@@ -36,31 +37,25 @@ function bot(hi) {
   bots.push(b);
   return b;
 }
-const NEW = { v: 3, app: 'web', ver: 'test' };
+const NEW = { v: PROTOCOL_VERSION, app: 'web', ver: 'test' };
 
 try {
-  // ---- version gating: builds without the final run can't play Skate only (they'd build the spiral on level 8)
-  const noHi = bot(null), app2 = bot({ v: 2, app: 'ios', ver: '1.0' });
-  await Promise.all([noHi.ready, app2.ready]);
-  for (const [b, who] of [[noHi, 'no-hi client'], [app2, 'protocol-2 app']]) {
-    b.send({ t: 'create', name: 'Old', mode: 'ice' }); await sleep(150);
-    ok(b.last.error && /Skate only/.test(b.last.error.msg) && !b.last.room, `${who} can't create a Skate only lobby: "${b.last.error && b.last.error.msg}"`);
-  }
+  // ---- version gating: older builds are told to update (protocol 4: slim wolf resync, every mode); clients
+  // without a 'hi' can't play any mode
+  const noHi = bot(null), app3 = bot({ v: PROTOCOL_VERSION - 1, app: 'ios', ver: '1.0' });
+  await Promise.all([noHi.ready, app3.ready]); await sleep(150);
+  ok(app3.last.outdated && app3.ws.readyState >= 2, `protocol-${PROTOCOL_VERSION - 1} app told to update and dropped`);
+  noHi.send({ t: 'create', name: 'Old', mode: 'ice' }); await sleep(150);
+  ok(noHi.last.error && /Skate only/.test(noHi.last.error.msg) && !noHi.last.room, `no-hi client can't create a Skate only lobby: "${noHi.last.error && noHi.last.error.msg}"`);
   const host = bot(NEW); await host.ready;
   host.send({ t: 'create', name: 'Host', mode: 'ice' }); await sleep(150);
   const code = host.last.room && host.last.room.code;
-  ok(code && host.last.room.mode === 'ice', `protocol-3 client creates Skate only lobby ${code}`);
-  app2.send({ t: 'list' }); noHi.send({ t: 'list' }); host.send({ t: 'list' }); await sleep(150);
-  ok(!app2.last.lobbies.list.some((l) => l.code === code) && !noHi.last.lobbies.list.some((l) => l.code === code)
-    && host.last.lobbies.list.some((l) => l.code === code), 'Skate only lobby hidden from old clients, listed for new ones');
-  app2.last.error = null;
-  app2.send({ t: 'join', code, name: 'Old' }); await sleep(150);
-  ok(app2.last.error && /code/.test(app2.last.error.msg) && !app2.last.room, `old app can't join it by code: "${app2.last.error && app2.last.error.msg}"`);
-  app2.send({ t: 'create', name: 'Old', mode: 'mixed' }); await sleep(150);
-  ok(!app2.last.room && app2.last.error, 'old app can\'t create a Run + Skate lobby either (boss run on level 9)');
-  app2.last.error = null;
-  app2.send({ t: 'create', name: 'Old', mode: 'run' }); await sleep(150);
-  ok(app2.last.room && app2.last.room.mode === 'run', 'old app can still create a Run only lobby');
+  ok(code && host.last.room.mode === 'ice', `protocol-${PROTOCOL_VERSION} client creates Skate only lobby ${code}`);
+  noHi.send({ t: 'list' }); host.send({ t: 'list' }); await sleep(150);
+  ok(!noHi.last.lobbies.list.some((l) => l.code === code) && host.last.lobbies.list.some((l) => l.code === code), 'Skate only lobby hidden from old clients, listed for new ones');
+  noHi.last.error = null;
+  noHi.send({ t: 'join', code, name: 'Old' }); await sleep(150);
+  ok(noHi.last.error && /code/.test(noHi.last.error.msg) && !noHi.last.room, `no-hi client can't join it by code: "${noHi.last.error && noHi.last.error.msg}"`);
 
   // ---- start on the final run
   const guest = bot(NEW); await guest.ready;
@@ -76,6 +71,7 @@ try {
   const wd = Math.max(...snap.ec.map(([id, x, z]) => { const e = mirror.enemies.find((q) => q.id === id); return e ? Math.hypot(e.x - x, e.z - z) : Infinity; }));
   ok(mirror.levelData.finale && snap.lvl === F && snap.st === 'playing' && wd < 0.002,
     `client-built final run matches the server (${mirror.enemies.length} wolves, wolf check diff ${wd.toFixed(4)} after ${snap.lt} ticks)`);
+  ok(st.lh === levelHash(mirror.levelData), `start message level hash ${st.lh} matches the client-built level`);
 
   // ---- win
   guest.snaps.length = 0;

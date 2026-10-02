@@ -77,43 +77,35 @@ const chk = bot('C'); await chk.ready; chk.send({ t: 'list' }); await sleep(200)
 ok(!chk.last.lobbies.list.some((l) => l.code === code), 'empty lobby is removed');
 chk.ws.close();
 
-// Skate only / Run + Skate (final run, protocol 3): old app builds may play Run only but not these.
+// Every mode needs the current protocol (4: slim wolf resync). A client that never says hi can't see, create or join
+// any lobby; one below MIN_PROTOCOL is told to update and dropped.
 const nu = bot('New'); await nu.ready;
-const old = bot('Old', PROTOCOL_VERSION - 1); await old.ready;
 const nohi = bot('NoHi', null); await nohi.ready;
 await sleep(100);
-old.send({ t: 'create', name: 'Old', mode: 'ice' }); await sleep(200);
-ok(!old.last.room && old.last.error && /update the app/.test(old.last.error.msg), 'old client cannot create Skate only: ' + (old.last.error || {}).msg);
-old.last.error = null;
-old.send({ t: 'create', name: 'Old', mode: 'mixed' }); await sleep(200);
-ok(!old.last.room && old.last.error && /Run \+ Skate/.test(old.last.error.msg), 'old client cannot create Run + Skate: ' + (old.last.error || {}).msg);
+nohi.send({ t: 'create', name: 'NoHi', mode: 'run' }); await sleep(200);
+ok(!nohi.last.room && nohi.last.error && /Run only/.test(nohi.last.error.msg), 'client without hi cannot create Run only: ' + (nohi.last.error || {}).msg);
 nu.send({ t: 'create', name: 'New', mode: 'ice' }); await sleep(200);
 const iceCode = nu.last.room && nu.last.room.code;
 ok(nu.last.room && nu.last.room.mode === 'ice', `new client creates Skate only lobby ${iceCode}`);
-old.send({ t: 'list' }); nohi.send({ t: 'list' }); nu.send({ t: 'list' }); await sleep(200);
-ok(!old.last.lobbies.list.some((l) => l.code === iceCode) && !nohi.last.lobbies.list.some((l) => l.code === iceCode), 'Skate only lobby hidden from old clients');
+nohi.send({ t: 'list' }); nu.send({ t: 'list' }); await sleep(200);
+ok(!nohi.last.lobbies.list.some((l) => l.code === iceCode), 'Skate only lobby hidden from clients without hi');
 ok(nu.last.lobbies.list.some((l) => l.code === iceCode && l.mode === 'ice'), 'Skate only lobby listed for new clients');
-old.last.error = null;
-old.send({ t: 'join', code: iceCode.toLowerCase(), name: 'Old' }); nohi.send({ t: 'join', code: iceCode, name: 'NoHi' }); await sleep(200);
-ok(!old.last.room && /code/.test((old.last.error || {}).msg) && /Skate only/.test(old.last.error.msg), 'old client refused joining by code / link: ' + (old.last.error || {}).msg);
-ok(!nohi.last.room && nohi.last.error, 'client without hi refused too');
+nohi.last.error = null;
+nohi.send({ t: 'join', code: iceCode, name: 'NoHi' }); await sleep(200);
+ok(!nohi.last.room && nohi.last.error, 'client without hi refused joining by code');
 ok(nu.last.room.members.length === 1, 'refused clients never entered the lobby');
-// old clients still play the other modes, and a refused ice join keeps them in their current lobby
-old.send({ t: 'create', name: 'Old', mode: 'run' }); await sleep(200);
-const runCode = old.last.room && old.last.room.code;
-ok(old.last.room && old.last.room.mode === 'run', 'old client can still create Run only');
 nu.send({ t: 'start' }); await sleep(300);
-old.send({ t: 'join', code: iceCode, name: 'Old' }); await sleep(200);
-ok(old.last.room.code === runCode && !old.last.start, 'old client refused mid-game join, stays in its own lobby');
 const nu2 = bot('New2'); await nu2.ready; await sleep(50);
 nu2.send({ t: 'join', code: iceCode, name: 'New2' }); await sleep(300);
-ok(nu2.last.start && nu2.last.start.mode === 'ice' && Array.isArray(nu2.last.start.wolves), 'new client joins Skate only mid-game with wolf state');
-for (const b of [nu, nu2, old, nohi]) b.ws.close();
+ok(nu2.last.start && nu2.last.start.mode === 'ice' && Array.isArray(nu2.last.start.wolves) && Number.isFinite(nu2.last.start.lh), 'new client joins Skate only mid-game with wolf state and level hash');
+for (const b of [nu, nu2, nohi]) b.ws.close();
 await sleep(100);
 
 // a client below the server's MIN_PROTOCOL gets 'outdated' and is disconnected
-const ancient = bot('Ancient', 0); await ancient.ready; await sleep(200);
-ok(ancient.last.outdated && ancient.ws.readyState >= 2, 'protocol-0 client told to update and dropped');
+for (const v of [0, PROTOCOL_VERSION - 1]) {
+  const ancient = bot('Ancient', v); await ancient.ready; await sleep(200);
+  ok(ancient.last.outdated && ancient.ws.readyState >= 2, `protocol-${v} client told to update and dropped`);
+}
 
 // reports: three different reporters auto-mute a player's chat in that lobby
 // (the server counts distinct reporter IPs; all bots share 127.0.0.1, so only the reply is checked here)

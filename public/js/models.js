@@ -760,8 +760,6 @@ function createKittyModel(color) {
 const WOLF_TYPES = {
   patroller: { base: 0x8a909c, light: 0xd8dce4, dark: 0x464b57, accent: 0xffc23d },
   wanderer: { base: 0x8c5a38, light: 0xdcb48a, dark: 0x45291a, accent: 0xff8a2a },
-  orbiter: { base: 0x3e5088, light: 0x9fb2e0, dark: 0x1d2548, accent: 0x52d6ff },
-  sweeper: { base: 0xa83c33, light: 0xeaa58e, dark: 0x51201b, accent: 0xff3a3a },
   // Skate-only pattern wolves: wintry coats and a scarf in the type color. `track` = route color on ice.
   charger: { base: 0x343a4c, light: 0xaab4cc, dark: 0x181b26, accent: 0xff2a55, scarf: 0xd0163f, track: 0xe0244c },
   crosser: { base: 0xc9d6e8, light: 0xf6f9ff, dark: 0x5f7499, accent: 0x18d6ff, scarf: 0x1886c8, track: 0x0f8fd0 },
@@ -880,7 +878,7 @@ function createWolfModel(type) {
   }
 
   const seedOff = Math.random() * 100;
-  let phase = Math.random() * 6, runAmt = 0, tellS = 0, clock = 0;
+  let phase = Math.random() * 6, runAmt = 0, clock = 0;
 
   function update(dt, s) {
     s = s || {};
@@ -890,43 +888,31 @@ function createWolfModel(type) {
     const moving = !!s.moving;
     const sp = s.speed01 === undefined ? (moving ? 1 : 0) : Math.max(0, Math.min(1, s.speed01));
     runAmt = smoothTo(runAmt, moving ? Math.max(0.45, sp) : 0, 9, dt);
-    tellS = smoothTo(tellS, Math.max(0, Math.min(1, s.tell || 0)), 14, dt);
-    const tell = tellS;
     phase += dt * (7 + 7 * sp) * (runAmt > 0.01 ? 1 : 0);
     const sn = Math.sin(phase);
-    const idle = (1 - Math.min(1, runAmt)) * (1 - tell);
+    const idle = 1 - Math.min(1, runAmt);
 
-    // trot + crouch (legs splay to lower the body)
+    // trot
     const amp = 0.7 * runAmt;
-    const crouch = 0.6 * tell;
-    legs[0].rotation.z = sn * amp + crouch;
-    legs[3].rotation.z = sn * amp - crouch;
-    legs[1].rotation.z = -sn * amp + crouch;
-    legs[2].rotation.z = -sn * amp - crouch;
-    const drop = 0.5 * (1 - Math.cos(crouch));
-    let jitter = 0;
-    if (tell > 0.55) jitter = Math.sin(time * 75 + seedOff) * 0.014 * (tell - 0.55) / 0.45;
-    rig.position.set(jitter, -drop + Math.abs(Math.cos(phase)) * 0.045 * runAmt - 0.02 * runAmt + Math.sin(time * 2 + seedOff) * 0.006 * idle, 0);
-    rig.rotation.z = Math.sin(phase * 2) * 0.025 * runAmt - 0.05 * runAmt - 0.06 * tell;
+    legs[0].rotation.z = sn * amp;
+    legs[3].rotation.z = sn * amp;
+    legs[1].rotation.z = -sn * amp;
+    legs[2].rotation.z = -sn * amp;
+    rig.position.set(0, Math.abs(Math.cos(phase)) * 0.045 * runAmt - 0.02 * runAmt + Math.sin(time * 2 + seedOff) * 0.006 * idle, 0);
+    rig.rotation.z = Math.sin(phase * 2) * 0.025 * runAmt - 0.05 * runAmt;
 
-    head.position.y = 0.8 - 0.06 * tell + Math.sin(phase * 2 + 1) * 0.02 * runAmt;
-    head.position.x = 0.5 + 0.04 * tell;
-    head.rotation.z = -0.32 * tell - 0.08 * runAmt + Math.sin(time * 0.8 + seedOff) * 0.06 * idle;
+    head.position.y = 0.8 + Math.sin(phase * 2 + 1) * 0.02 * runAmt;
+    head.position.x = 0.5;
+    head.rotation.z = -0.08 * runAmt + Math.sin(time * 0.8 + seedOff) * 0.06 * idle;
     head.rotation.y = Math.sin(time * 0.5 + seedOff) * 0.35 * idle;
-    jaw.rotation.z = -0.38 * tell + (tell > 0.6 ? Math.sin(time * 30) * 0.06 : 0) - 0.08 * runAmt * (0.5 + 0.5 * Math.sin(phase * 2));
+    jaw.rotation.z = -0.08 * runAmt * (0.5 + 0.5 * Math.sin(phase * 2));
 
-    // tail: raises stiff during tell, sways when trotting
-    tailRoot.rotation.z = 2.05 - 0.45 * tell - 0.15 * runAmt;
+    // tail: sways when trotting
+    tailRoot.rotation.z = 2.05 - 0.15 * runAmt;
     for (let i = 0; i < tail.length; i++) {
-      tail[i].rotation.x = Math.sin(phase - i * 0.7) * 0.25 * runAmt + Math.sin(time * 1.3 + seedOff - i * 0.6) * 0.15 * idle + Math.sin(time * 40 - i) * 0.04 * tell;
-      if (i > 0) tail[i].rotation.z = -0.35 + 0.25 * tell;
+      tail[i].rotation.x = Math.sin(phase - i * 0.7) * 0.25 * runAmt + Math.sin(time * 1.3 + seedOff - i * 0.6) * 0.15 * idle;
+      if (i > 0) tail[i].rotation.z = -0.35;
     }
-
-    // glowing eyes 1 -> 4
-    const ei = 1 + 3 * tell;
-    eyeMat.color.copy(accent).multiplyScalar(ei);
-    const es = 1 + 0.25 * tell;
-    eyes.scale.set(es, es, es);
   }
 
   update(0, {});

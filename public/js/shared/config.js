@@ -30,7 +30,6 @@ const CFG = {
   RING_WIDTH: 10.8,          // corridor width
   WALL_THICKNESS: 0.5,
   WALL_HEIGHT: 1.4,
-  GAP_WIDTH: 2.8,            // linear width of a gap in a ring wall (units)
   START_SAFE_ARC: 7.0,       // linear arc length (units) on each side of start angle with no enemies
 
   // Enemies
@@ -103,6 +102,8 @@ const FINAL_MODES = ['mixed', 'ice'];
 // then decide who gets an "update" notice. App store builds lag the web by days, so avoid bumping casually.
 //   2 = Skate only wolves walk deterministic patterns
 //   3 = the boss final run on SKATE_FINAL_LEVEL (Run + Skate and Skate only) and Run + Skate's season order
-const PROTOCOL_VERSION = 3;
+//   4 = slim wolf resync format ([id, time] / [id, heading, rng, ...]) and ipow in level generation (level 9 boss
+//       run differed on iOS); start messages carry a level hash (lh)
+const PROTOCOL_VERSION = 4;
 
 export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION };

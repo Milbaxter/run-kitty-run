@@ -1,5 +1,5 @@
 import { CFG } from './config.js';
-import { createRng, TAU } from './rng.js';
+import { createRng, TAU, legPoint } from './rng.js';
 
 // Wolves: deterministic enemy behaviors. Pure (no THREE, no DOM).
 //
@@ -9,14 +9,12 @@ import { createRng, TAU } from './rng.js';
 //
 // Interpretation notes (contract ambiguities):
 // - EnemySpec has no start position; the start position is derived from spec.phase + spec.seed.
+// - Every wolf is a wanderer (random spots in its territory) or a pattern wolf (below; Skate only).
 // - Every enemy starts with a short phase-dependent pause so wolves are out of sync. There is no
-//   "tell": wolves give no warning before they move (e.tell stays 0).
-//   go, and are out of sync with each other.
-// - Patroller sub-range: legs longer than ~6 units may use a random sub-range (>=55% of the arc),
-//   and the patrolled arc is capped at 24 units so a lap stays readable on huge rings.
-// - Missing/invalid spec.r -> middle of [rIn,rOut]; rOut<rIn -> both collapse to the midpoint.
-// - Private per-enemy state lives in enemy._st (includes an RNG closure: not serializable;
-//   network clients should replicate x/z/heading/moving/tell rather than the internal state).
+//   "tell": wolves give no warning before they move.
+// - rOut<rIn -> both collapse to the midpoint.
+// - Private per-enemy state lives in enemy._st (includes an RNG closure; serializeEnemies ships its
+//   integer state).
 // - nearestEnemyDist returns Infinity when there are no enemies; distance is clamped at >= 0.
 
 
@@ -24,6 +22,8 @@ const EASE_T = 0.15;          // accel / decel time at move start / end (s)
 const TURN_RATE_MOVE = 40;    // heading smoothing while moving (â‰ˆ exact after ease-in)
 const LONG_REST_CHANCE = 0.15; // chance a wolf stands still for a while before its next move
 const LONG_REST_MIN = 1.8, LONG_REST_MAX = 4.5;   // seconds
+
+const UNIT_FRAME = { ox: 0, oz: 0, ux: 1, uz: 0, nx: 0, nz: 1 };
 
 function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
 
@@ -113,56 +113,19 @@ function legSpeed(st, mult) {
 }
 
 // Plans the next move target (st.nr, st.nth), the pause before it (st.pauseDur) and the leg speed.
-// Randomness: variable pauses, per-leg speed, occasional dashes, patrollers that stop short and
-// double back. Wanderers sometimes stand still for a few seconds (LONG_REST_*).
+// Randomness: variable pauses, per-leg speed, occasional dashes; sometimes a wolf stands still for a
+// few seconds (LONG_REST_*).
 function planNext(e, initial) {
   const st = e._st;
   const rng = st.rng;
-  switch (e.type) {
-    case 'wanderer':
-      pickWanderTarget(st);
-      st.longRest = false;
-      if (!initial) {
-        const roll = rng.next();
-        if (roll < LONG_REST_CHANCE) { st.pauseDur = rng.range(LONG_REST_MIN, LONG_REST_MAX); st.longRest = true; }
-        else st.pauseDur = roll < LONG_REST_CHANCE + 0.2 ? rng.range(0.12, 0.3) : rng.range(0.3, 1.1);
-      }
-      st.vLeg = legSpeed(st, rng.chance(0.18) ? 1.5 : rng.range(0.75, 1.25));
-      break;
-    case 'sweeper': {
-      if (!initial) st.toHigh = rng.chance(0.85) ? !st.toHigh : st.toHigh;
-      st.k++;
-      st.nr = st.toHigh ? st.rOut : rng.chance(0.5) ? st.rIn : rng.range(st.rIn, st.rOut);
-      if (Math.abs(st.nr - st.r) < 1) st.nr = st.r > 0.5 * (st.rIn + st.rOut) ? st.rIn : st.rOut;
-      st.nth = clamp(st.center + st.amp * rng.range(-1, 1), st.a0, st.a1);
-      if (!initial) st.pauseDur = rng.range(0.15, 0.7);
-      st.vLeg = legSpeed(st, rng.range(0.8, 1.3));
-      break;
-    }
-    case 'orbiter':
-    case 'patroller':
-    default: {
-      const eps = 1e-4;
-      const isOrb = e.type === 'orbiter';
-      if (!initial) {
-        if (st.th >= st.pa1 - eps) st.toHigh = false;
-        else if (st.th <= st.pa0 + eps) st.toHigh = true;
-        else st.toHigh = rng.chance(isOrb ? 0.7 : 0.5) ? !st.toHigh : st.toHigh;
-      }
-      const end = st.toHigh ? st.pa1 : st.pa0;
-      st.nr = isOrb ? st.r : clamp(st.r + rng.range(-0.8, 0.8), st.rIn, st.rOut);
-      const remain = Math.abs(end - st.th);
-      // ~40% of legs stop short somewhere along the way (if there is room), then pick a new direction.
-      if (!initial && remain > 4 && rng.chance(isOrb ? 0.25 : 0.4)) {
-        st.nth = st.th + (end - st.th) * rng.range(0.3, 0.75);
-      } else {
-        st.nth = end;
-      }
-      if (!initial) st.pauseDur = rng.range(isOrb ? 0.2 : 0.18, isOrb ? 0.6 : 0.8);
-      st.vLeg = legSpeed(st, rng.range(0.8, 1.3));
-      break;
-    }
+  pickWanderTarget(st);
+  st.longRest = false;
+  if (!initial) {
+    const roll = rng.next();
+    if (roll < LONG_REST_CHANCE) { st.pauseDur = rng.range(LONG_REST_MIN, LONG_REST_MAX); st.longRest = true; }
+    else st.pauseDur = roll < LONG_REST_CHANCE + 0.2 ? rng.range(0.12, 0.3) : rng.range(0.3, 1.1);
   }
+  st.vLeg = legSpeed(st, rng.chance(0.18) ? 1.5 : rng.range(0.75, 1.25));
   // Higher levels / inner legs: shorter rests (spec.pauseScale < 1); long rests only shrink a little.
   if (!initial) st.pauseDur = Math.max(0.12, st.pauseDur * (st.longRest ? 0.6 + 0.4 * Math.min(1, st.pauseScale) : st.pauseScale));
 }
@@ -186,9 +149,8 @@ function arrive(e) {
 }
 
 function place(e, r, th) {
-  const f = e._st.f;
-  e.x = f.ox + f.ux * th + f.nx * r;
-  e.z = f.oz + f.uz * th + f.nz * r;
+  const p = legPoint(e._st.f, r, th);
+  e.x = p.x; e.z = p.z;
 }
 
 function createEnemy(spec) {
@@ -201,14 +163,12 @@ function createEnemy(spec) {
   const phase = Number.isFinite(spec.phase) ? spec.phase : 0;
   const speed = Math.max(0.1, Number.isFinite(spec.speed) ? spec.speed : 2.4);
   const rMid = 0.5 * (rIn + rOut);
-  const fixedR = clamp(Number.isFinite(spec.r) ? spec.r : rMid, rIn, rOut);
-  const f = spec.frame || { ox: 0, oz: 0, ux: 1, uz: 0, nx: 0, nz: 1 };
+  const f = spec.frame || UNIT_FRAME;
 
   const st = {
-    rng, f, rIn, rOut, a0, a1, phase, speed,
-    r: rMid, th: a0, mode: 'pause', t: 0, pauseDur: 0,
+    rng, f, rIn, rOut, a0, a1, speed,
+    r: rMid, th: a0, mode: 'pause', t: 0, pauseDur: 0, longRest: false,
     nr: rMid, nth: a0, r0: 0, th0: 0, r1: 0, th1: 0, L: 0, T: 0,
-    toHigh: true, pa0: a0, pa1: a1, center: a0, amp: 0, k: 0, v: 0, dir: 1,
     vLeg: speed,
     pauseScale: Number.isFinite(spec.pauseScale) ? spec.pauseScale : 1,
   };
@@ -216,51 +176,13 @@ function createEnemy(spec) {
     id: spec.id, type: spec.type, spec,
     x: 0, z: 0, heading: 0,
     radius: CFG.WOLF_RADIUS,
-    moving: false, tell: 0, speedNow: 0,
+    moving: false, speedNow: 0,
     _st: st,
   };
-  const initialPause = 0.25 + phase * 0.75;
+  st.r = rng.range(rIn, rOut);
+  st.th = a0 + phase * (a1 - a0);
+  st.pauseDur = 0.2 + phase * 0.7;
 
-  switch (spec.type) {
-    case 'orbiter': {
-      st.r = fixedR;
-      st.dir = spec.dir < 0 ? -1 : 1;
-      st.th = a0 + phase * (a1 - a0);
-      st.pa0 = a0; st.pa1 = a1;
-      st.toHigh = st.dir > 0;
-      st.pauseDur = initialPause;
-      break;
-    }
-    case 'wanderer': {
-      st.r = rng.range(rIn, rOut);
-      st.th = a0 + phase * (a1 - a0);
-      st.pauseDur = 0.2 + phase * 0.7;
-      break;
-    }
-    case 'sweeper': {
-      st.center = clamp(Number.isFinite(spec.angle) ? spec.angle : 0.5 * (a0 + a1), a0, a1);
-      st.amp = 2.5;                               // ~Â±2.5 units of random drift along the leg per sweep
-      st.r = rIn + phase * (rOut - rIn);
-      st.th = clamp(st.center + st.amp * Math.sin(phase * TAU), a0, a1);
-      st.toHigh = rng.chance(0.5);
-      st.pauseDur = initialPause;
-      break;
-    }
-    case 'patroller':
-    default: {
-      st.r = fixedR;
-      const span = a1 - a0;
-      let subLen = span;
-      if (span > 6) subLen = rng.range(Math.max(6, 0.55 * span), span);
-      const subSpan = Math.min(span, subLen, 24);
-      st.pa0 = a0 + rng.range(0, Math.max(0, (a1 - a0) - subSpan));
-      st.pa1 = st.pa0 + subSpan;
-      st.th = st.pa0 + phase * subSpan;
-      st.toHigh = rng.chance(0.5);
-      st.pauseDur = initialPause;
-      break;
-    }
-  }
   planNext(e, true);
   e.heading = wrapPi(frameDir(st, 0, 1)); // face along the leg; never hint at the first move
   place(e, st.r, st.th);
@@ -293,7 +215,6 @@ function stepEnemy(e, dt) {
     r = st.r0 + (st.r1 - st.r0) * f;
     th = st.th0 + (st.th1 - st.th0) * f;
     e.moving = true;
-    e.tell = 0;
     e.speedNow = profileV(st.t, st.T, st.L, st.vLeg);
     if (st.L > 1e-5) {
       const dir = frameDir(st, st.r1 - st.r0, st.th1 - st.th0);
@@ -303,7 +224,6 @@ function stepEnemy(e, dt) {
     r = st.r; th = st.th;
     e.moving = false;
     e.speedNow = 0;
-    e.tell = 0; // no crouch / eye-glow warning before moving
     // keep facing the last direction while resting: wolves only turn as they set off
   }
   r = clamp(r, st.rIn, st.rOut);
@@ -326,9 +246,7 @@ function stepEnemy(e, dt) {
 //          2 holds; still a pure function of time: st.time is the whole state)
 //   rIn/rOut/a0/a1: bounding box of the route (kept for bounds checks / selftest)
 // Public extras on the enemy: e.route (the spec route), e.cycleT (cycle length, s), e.cycleU (0..1 now).
-// No tell: a pattern wolf turns round at the end of a run without warning (e.tell stays 0).
-
-const UNIT_FRAME = { ox: 0, oz: 0, ux: 1, uz: 0, nx: 0, nz: 1 };
+// No tell: a pattern wolf turns round at the end of a run without warning.
 
 function isPattern(spec) { return !!(spec && Array.isArray(spec.route) && spec.route.length >= 2); }
 
@@ -384,7 +302,7 @@ function poseEnemy(e) {
   const plan = e._plan;
   const tc = clamp(e._st.time, 0, plan.cycle - 1e-9);
   const p = patternPose(plan, tc);
-  e.heading = p.heading; e.moving = !p.hold; e.speedNow = p.speed; e.tell = 0;
+  e.heading = p.heading; e.moving = !p.hold; e.speedNow = p.speed;
   e.cycleU = tc / plan.cycle;
   place(e, p.r, p.th);
 }
@@ -394,12 +312,12 @@ function createPatternEnemy(spec) {
   const speed = Math.max(0.1, Number.isFinite(spec.speed) ? spec.speed : 2.4);
   const plan = buildPlan(spec, f, speed);
   const phase = Number.isFinite(spec.phase) ? spec.phase : 0;
-  // st is what serializeEnemies ships: keep it tiny (the time in the cycle is the whole state)
-  const st = { rng: createRng((spec.seed >>> 0) || 1), f, time: (((phase % 1) + 1) % 1) * plan.cycle };
+  // the time in the cycle is the whole state (all serializeEnemies ships)
+  const st = { f, time: (((phase % 1) + 1) % 1) * plan.cycle };
   const e = {
     id: spec.id, type: spec.type, spec, pattern: true,
     x: 0, z: 0, heading: 0, radius: CFG.WOLF_RADIUS,
-    moving: true, tell: 0, speedNow: 0,
+    moving: true, speedNow: 0,
     route: spec.route, loop: !!spec.loop, cycleT: plan.cycle, cycleU: 0,
     _st: st, _plan: plan,
   };
@@ -441,30 +359,28 @@ function nearestEnemyDist(enemies, x, z) {
   return best < 0 ? 0 : best;
 }
 
-// Network resync: full wolf state as plain data (the per-wolf RNG is stored as its integer state).
-const PUBLIC_FIELDS = ['x', 'z', 'heading', 'moving', 'tell', 'speedNow'];
+// Network resync: only the mutable state (spec constants and the frame are rebuilt from the level seed).
+// Pattern wolf: [id, time]. Wanderer: [id, heading, rngState, ...WANDER_SYNC]; x/z/moving/speedNow are derived.
+const WANDER_SYNC = ['r', 'th', 'mode', 't', 'pauseDur', 'nr', 'nth', 'r0', 'th0', 'r1', 'th1', 'L', 'T', 'vLeg', 'longRest'];
 
 function serializeEnemies(enemies) {
   return enemies.map((e) => {
-    const st = {};
-    for (const k in e._st) if (k !== 'rng') st[k] = e._st[k];
-    st.rngState = e._st.rng.getState();
-    const o = { id: e.id, st };
-    for (const k of PUBLIC_FIELDS) o[k] = e[k];
-    return o;
+    const st = e._st;
+    return e.pattern ? [e.id, st.time] : [e.id, e.heading, st.rng.getState(), ...WANDER_SYNC.map((k) => st[k])];
   });
 }
 
 function applyEnemyState(enemies, data) {
-  const byId = new Map(data.map((d) => [d.id, d]));
+  const byId = new Map(data.map((d) => [d[0], d]));
   for (const e of enemies) {
     const d = byId.get(e.id);
     if (!d) continue;
-    const { rngState, ...st } = d.st;
-    Object.assign(e._st, st);
-    e._st.rng.setState(rngState);
-    for (const k of PUBLIC_FIELDS) e[k] = d[k];
-    if (e.pattern) poseEnemy(e);
+    const st = e._st;
+    if (e.pattern) { st.time = d[1]; poseEnemy(e); continue; }
+    st.rng.setState(d[2]);
+    WANDER_SYNC.forEach((k, i) => { st[k] = d[3 + i]; });
+    stepEnemy(e, 0);   // x/z/moving/speedNow from the state (dt 0: nothing advances)
+    e.heading = d[1];  // after: stepEnemy's wrapPi could move the last bit
   }
 }
 

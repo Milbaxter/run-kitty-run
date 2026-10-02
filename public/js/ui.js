@@ -657,7 +657,7 @@ function createUI(root) {
     g.stroke();
   }
 
-  const ENEMY_COL = { patroller: '#ff4b4b', wanderer: '#ff7a33', orbiter: '#ff3d9a', sweeper: '#d81e1e' };
+  const ENEMY_COL = { wanderer: '#ff7a33' };   // pattern wolves: the default red
   const ITEM_COL = { boots: '#33e0ff', life: '#ff6fa8', shield: '#5aaaff' };
 
   // ================= final run progress bar =================

@@ -79,14 +79,14 @@ ok(old.last.outdated && /update/.test(old.last.outdated.msg) && old.closed, 'out
 
 const host = bot('Host'); await host.ready;
 host.send({ t: 'hi', v: PROTOCOL_VERSION, app: 'ios', ver: '1.0.0' });
-// Run only: a legacy client (no 'hi') may still join it (Run + Skate and Skate only need the current protocol)
 host.send({ t: 'create', name: 'Host', mode: 'run' }); await sleep(200);
 ok(!host.closed && host.last.room, 'current protocol accepted');
 const code = host.last.room.code;
 const droid = bot('Droid'); await droid.ready;
 droid.send({ t: 'hi', v: PROTOCOL_VERSION, app: 'android', ver: '1.0.0<script>' });
 droid.send({ t: 'join', code, name: 'Droid' });
-const legacy = bot('Legacy'); await legacy.ready; // never says hi (old cached web tab)
+const legacy = bot('Legacy'); await legacy.ready; // says hi without an app field (counts as web)
+legacy.send({ t: 'hi', v: PROTOCOL_VERSION });
 legacy.send({ t: 'join', code, name: 'Legacy' });
 const weird = bot('Weird'); await weird.ready;
 weird.send({ t: 'hi', v: PROTOCOL_VERSION, app: 'windows-phone' });
@@ -121,6 +121,7 @@ ok(fs.readFileSync(REPORTS_FILE, 'utf8').trim().split('\n').length === 1, 'canno
 
 // rate limit: 10 per hour per connection
 const spammer = bot('Spammer'); await spammer.ready;
+spammer.send({ t: 'hi', v: PROTOCOL_VERSION, app: 'web' });
 spammer.send({ t: 'join', code, name: 'Spammer' }); await sleep(150);
 for (let i = 0; i < 12; i++) spammer.send({ t: 'report', id: idOf(legacy), reason: 'bogus' });
 await sleep(300);

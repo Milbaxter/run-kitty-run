@@ -33,6 +33,7 @@ const analytics = {
     send('run_start', { kind, mode });
   },
   level(level) { if (run) send('level', { level }); },
+  levelMismatch(mode, level, ver) { send('level_mismatch', { mode, level, ver }); },
   runEnd(s = {}) {
     if (!run) return;
     send('run_end', { seconds: (performance.now() - run.t0) / 1000, deaths: s.deaths | 0, rescues: s.rescues | 0, ...(s.won ? { won: true } : {}) });

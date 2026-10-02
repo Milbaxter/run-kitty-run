@@ -8,7 +8,8 @@ import { hashSeed } from './shared/rng.js';
 import { collideCircle, onIce, inTree } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
 import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
-import { createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel } from './models.js';
+import { disposeModel, createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel } from './models.js';
+import { createWolfPack } from './wolfpack.js';
 import { buildWorld, setupLighting } from './world.js';
 import { createEffects } from './effects.js';
 import { createIceTrail } from './trail.js';
@@ -368,12 +369,12 @@ function clearView() {
   if (!view) return;
   view.world.dispose();
   scene.remove(view.world.group);
-  scene.remove(view.portal.group);
-  scene.remove(view.crown.group);
-  if (view.fish) scene.remove(view.fish.group);
-  for (const w of view.wolves.values()) scene.remove(w.group);
-  for (const it of view.items.values()) scene.remove(it.group);
-  for (const c of view.circles.values()) scene.remove(c.group);
+  disposeModel(view.portal.group);
+  disposeModel(view.crown.group);
+  if (view.fish) disposeModel(view.fish.group);
+  view.wolfPack.dispose(); // wolf models are proxy rigs outside the scene (cached geometries, no GPU state)
+  for (const it of view.items.values()) disposeModel(it.group);
+  for (const c of view.circles.values()) disposeModel(c.group);
   view = null;
 }
 
@@ -394,9 +395,9 @@ function buildView() {
     m.group.scale.setScalar(CFG.WOLF_RADIUS / 0.55); // models are built for the original 0.55 radius
     m.group.position.set(e.x, 0, e.z);
     m.group.rotation.y = -e.heading;
-    scene.add(m.group);
     wolves.set(e.id, m);
   }
+  const wolfPack = createWolfPack(scene, [...wolves.values()]); // draws all wolves instanced
   const items = new Map();
   for (const it of sim.items) {
     if (it.taken) continue;
@@ -408,7 +409,7 @@ function buildView() {
   // the final run: a giant fish waits in the goal room for the kitties (eaten client-side, see feast())
   let fish = null;
   if (ld.finale) { fish = createGiantFishModel(); scene.add(fish.group); }
-  view = { levelData: ld, world, portal, crown, fish, wolves, items, circles: new Map() };
+  view = { levelData: ld, world, portal, crown, fish, wolves, wolfPack, items, circles: new Map() };
   prevPos.clear();
 }
 
@@ -433,12 +434,12 @@ function ensureKitties() {
     }
   }
   for (const [id, k] of kitties) {
-    if (!sim.players.find((p) => p.id === id)) { scene.remove(k.model.group); k.trail.dispose(); k.auraTrail.dispose(); k.paws.dispose(); kitties.delete(id); }
+    if (!sim.players.find((p) => p.id === id)) { disposeModel(k.model.group); k.trail.dispose(); k.auraTrail.dispose(); k.paws.dispose(); kitties.delete(id); }
   }
 }
 
 function removeKitties() {
-  for (const k of kitties.values()) { scene.remove(k.model.group); k.trail.dispose(); k.auraTrail.dispose(); k.paws.dispose(); }
+  for (const k of kitties.values()) { disposeModel(k.model.group); k.trail.dispose(); k.auraTrail.dispose(); k.paws.dispose(); }
   kitties.clear();
 }
 
@@ -578,7 +579,7 @@ function handleEvents(events) {
         effects.floatText(ev.x, 1.4, ev.z, labels[ev.itemType] || '', hexCss(colors[ev.itemType] || 0xffffff));
         audio.play(ev.itemType, { pan: panFor(ev.x) });
         const m = view && view.items.get(ev.itemId);
-        if (m) { scene.remove(m.group); view.items.delete(ev.itemId); }
+        if (m) { disposeModel(m.group); view.items.delete(ev.itemId); }
         break;
       }
       case 'enterCenter': {
@@ -932,6 +933,7 @@ function syncVisuals(dt, alpha) {
   // With 100-200 wolves, only show/animate those near the camera (view + shadow range).
   const cullR = camDist * 1.35 + 12;
   const cullR2 = cullR * cullR;
+  view.wolfPack.begin();
   for (const e of sim.enemies) {
     const m = view.wolves.get(e.id);
     if (!m) continue;
@@ -942,12 +944,14 @@ function syncVisuals(dt, alpha) {
     m.group.position.set(x, 0, z);
     m.group.rotation.y = -e.heading;
     m.update(dt, { moving: e.moving, tell: e.tell, speed01: Math.min(1, (e.speedNow || 0) / 4), time: t });
+    view.wolfPack.add(m);
     if (e.pattern) {
       // push-off: shavings the moment a wolf turns round at the end of a run (its heading changes once per run)
       if (m.lastHeading !== undefined && e.heading !== m.lastHeading) effects.iceKick(x, z, e.heading);
       m.lastHeading = e.heading;
     }
   }
+  view.wolfPack.end();
   // items
   for (const m of view.items.values()) m.update(dt, t);
   // revive circles
@@ -964,7 +968,7 @@ function syncVisuals(dt, alpha) {
     m.group.position.set(c.x, 0, c.z);
     m.update(dt, t);
   }
-  for (const [id, m] of view.circles) if (!seen.has(id)) { scene.remove(m.group); view.circles.delete(id); }
+  for (const [id, m] of view.circles) if (!seen.has(id)) { disposeModel(m.group); view.circles.delete(id); }
   // portal
   view.portal.update(dt, t, { active: sim.state === 'levelclear' || sim.state === 'victory' });
   if (view.fish) view.fish.update(dt, t);

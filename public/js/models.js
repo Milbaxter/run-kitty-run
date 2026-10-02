@@ -380,30 +380,7 @@ function ghostMaterial(tint) {
 }
 
 // Gold crown (finished the previous run) and a soft glowing aura (finished 2+ runs).
-let crownGeoCache = null, auraTexCache = null;
-function crownGeometry() {
-  if (crownGeoCache) return crownGeoCache;
-  const parts = [];
-  const band = new THREE.CylinderGeometry(0.115, 0.125, 0.07, 10, 1, true);
-  parts.push(band);
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2;
-    const spike = new THREE.ConeGeometry(0.035, 0.09, 4);
-    spike.translate(Math.cos(a) * 0.11, 0.075, Math.sin(a) * 0.11);
-    parts.push(spike);
-  }
-  // merge (all non-indexed so attributes line up)
-  const geos = parts.map((g) => (g.index ? g.toNonIndexed() : g));
-  let n = 0; for (const g of geos) n += g.attributes.position.count;
-  const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3);
-  let o = 0;
-  for (const g of geos) { pos.set(g.attributes.position.array, o * 3); nor.set(g.attributes.normal.array, o * 3); o += g.attributes.position.count; }
-  const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  crownGeoCache = out;
-  return out;
-}
+let auraTexCache = null;
 function auraTexture() {
   if (auraTexCache) return auraTexCache;
   const c = document.createElement('canvas'); c.width = 4; c.height = 64;
@@ -594,10 +571,10 @@ function createKittyModel(color) {
   for (const m of meshes) m.userData.shadow = m.castShadow;
 
   // crown sits on the head (follows its bob/tilt)
-  const crown = new THREE.Mesh(crownGeometry(), new THREE.MeshStandardMaterial({ color: 0xffd34a, emissive: 0xffa000, emissiveIntensity: 0.55, metalness: 0.6, roughness: 0.3, side: THREE.DoubleSide }));
-  crown.position.set(-0.02, 0.22, 0);
+  const crown = new THREE.Mesh(chunkyCrownGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, emissive: 0x7a4a00, emissiveIntensity: 0.6, metalness: 0.45, roughness: 0.35, flatShading: true }));
+  crown.position.set(-0.02, 0.27, 0);
   crown.rotation.z = -0.12;
-  crown.scale.setScalar(1.3);
+  crown.scale.setScalar(2.2);
   crown.castShadow = true;
   crown.visible = false;
   head.add(crown);
@@ -619,7 +596,7 @@ function createKittyModel(color) {
     s = s || {};
     const t = s.time || 0;
     crown.visible = !!s.crown && rig.visible;
-    if (crown.visible) crown.position.y = 0.22 + Math.sin(t * 3) * 0.008;
+    if (crown.visible) crown.position.y = 0.27 + Math.sin(t * 3) * 0.008;
     aura.visible = !!s.aura;
     if (aura.visible) {
       const k = 0.75 + 0.25 * Math.sin(t * 3.2);
@@ -1164,11 +1141,9 @@ function createPortalModel() {
 }
 
 // The crown up for grabs over the goal's center: big, spinning, bobbing, with a golden glow.
-function createCrownPickupModel() {
-  const group = new THREE.Group();
-  group.name = 'crownPickup';
-  // chunky solid crown (the worn one is thin; this one has to read from far away): band, spikes, ball tips, red gems
-  const geo = cgeo('crownPickup', () => bake([
+// chunky solid crown (band, spikes, ball tips, red gems): reads from the top-down camera
+function chunkyCrownGeometry() {
+  return cgeo('crownChunky', () => bake([
     [P.cyl18, mtx([0, 0, 0], null, [0.13, 0.08, 0.13]), 0xffc83a],
     [P.cyl18, mtx([0, -0.035, 0], null, [0.14, 0.02, 0.14]), 0xe0a020],
     ...[0, 1, 2, 3, 4].flatMap((i) => {
@@ -1180,6 +1155,12 @@ function createCrownPickupModel() {
       ];
     }),
   ]));
+}
+
+function createCrownPickupModel() {
+  const group = new THREE.Group();
+  group.name = 'crownPickup';
+  const geo = chunkyCrownGeometry();
   const crown = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, emissive: 0x7a4a00, emissiveIntensity: 0.6, metalness: 0.45, roughness: 0.35, flatShading: true }));
   crown.scale.setScalar(7);
   crown.castShadow = true;

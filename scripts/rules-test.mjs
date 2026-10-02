@@ -100,6 +100,23 @@ ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG
   finish(a);
   ok(a.finishes === 2 && s.lastWinner === 1, 'two finishes = aura');
 }
+// autumn levels: a kitty up a climbable tree can't be caught
+{
+  const s = createSim({ seed: 41, startLevel: 3, players: [{ id: 1, name: 'a' }] });
+  stepSim(s, {}, CFG.TICK);
+  const p = s.players[0], t = s.levelData.trees[2];
+  ok(s.levelData.trees.length >= 10, `autumn level has climbable trees (${s.levelData.trees.length})`);
+  // (wolf positions are recomputed every tick, so put the kitty onto a wolf, with and without a tree there)
+  const w = s.enemies[0];
+  const onWolf = () => { p.invuln = 0; p.x = w.x; p.z = w.z; return stepSim(s, {}, CFG.TICK); };
+  s.levelData.trees.push({ x: w.x, z: w.z });
+  let ev = onWolf();
+  ok(p.alive && !ev.some((e) => e.type === 'death'), 'a kitty up a tree is safe');
+  s.levelData.trees.pop();
+  ev = onWolf();
+  ok(ev.some((e) => e.type === 'death'), 'the same spot without a tree is deadly');
+  void t;
+}
 // the crown is a pickup over the goal's center: reaching the goal's edge clears the level but doesn't grab it
 {
   const s = createSim({ seed: 32, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] });

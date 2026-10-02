@@ -5,7 +5,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET } from './shared/config.js';
 import { hashSeed } from './shared/rng.js';
-import { collideCircle, onIce } from './shared/maze.js';
+import { collideCircle, onIce, inTree } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
 import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
 import { createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel } from './models.js';
@@ -689,7 +689,9 @@ function syncVisuals(dt, alpha) {
     if (!p.alive) { k.trail.update(dt, p.x, p.z, p.heading, false); continue; }
     let [x, z] = lerpPos('p' + p.id, p.x, p.z, alpha);
     if (online.playing && p.id === online.me) { x += online.errX; z += online.errZ; }
-    k.model.group.position.set(x, 0, z);
+    // autumn levels: up a tree = standing on its canopy
+    k.climb = (k.climb || 0) + ((inTree(sim.levelData, x, z) ? 2.2 : 0) - (k.climb || 0)) * (1 - Math.exp(-dt * 12));
+    k.model.group.position.set(x, k.climb, z);
     // smooth turn
     const cur = -k.model.group.rotation.y;
     let d = p.heading - cur;

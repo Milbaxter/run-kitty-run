@@ -1,6 +1,6 @@
 import { CFG } from './config.js';
 import { hashSeed } from './rng.js';
-import { generateLevel, collideCircle, inCenter, onIce } from './maze.js';
+import { generateLevel, collideCircle, inCenter, onIce, inTree } from './maze.js';
 import { createEnemies, updateEnemies } from './enemies.js';
 
 // Deterministic game simulation core. Pure: no THREE, no DOM, no Math.random, no Date.
@@ -403,6 +403,7 @@ function stepSim(sim, inputs, dt) {
     const p = players[i];
     if (sim.state !== 'playing') break; // no deaths during the level-clear celebration
     if (!p.alive || p.inCenter || p.invuln > 0 || p.shield > 0) continue;
+    if (inTree(ld, p.x, p.z)) continue; // up a tree: safe
     for (let e = 0; e < enemies.length; e++) {
       const en = enemies[e];
       const dx = p.x - en.x;

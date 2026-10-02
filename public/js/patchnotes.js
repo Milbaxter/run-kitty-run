@@ -4,6 +4,8 @@ const PATCH_NOTES = [
   {
     version: '0.8', date: '2026-10-01', title: 'Ice skating',
     items: [
+      'Autumn levels have a climbable tree in every lane: run under it to climb up, wolves can\'t reach you there (room for several kitties)',
+      'The crown you wear is bigger and shinier',
       'The crown is now a real pickup: it floats over the middle of the goal, and whoever touches it first wears it',
       'Speed boots: carry up to 4 pairs now, +4% each (+16% with all four)',
       'Level 2 is now the Snowy Peaks ice rink (autumn moves to level 3)',

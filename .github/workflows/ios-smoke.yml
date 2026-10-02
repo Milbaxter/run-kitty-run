@@ -124,7 +124,11 @@ jobs:
           log() { echo "$(date +%T) [${SECONDS}s] $*" | tee -a "$OUT/timeline.txt"; }
           # CI has no GPU: the game's WebGL is software-rendered and the whole simulator crawls once it runs, so every
           # step is time-boxed and guarded by the step's elapsed $SECONDS.
-          shot() { [ $SECONDS -lt 480 ] || { log "skip shot $1 (time budget)"; return 1; }; log "shot $1"; to ${2:-60} xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null 2>&1 || log "shot $1 timed out"; }
+          # The game's WebKit GPU/WebContent processes are paused while a screenshot is taken: the last frame stays
+          # on screen and simctl doesn't queue behind minutes of software rendering.
+          freeze() { pkill -"$1" -f 'com.apple.WebKit.(GPU|WebContent)' 2>/dev/null; }
+          shot() { [ $SECONDS -lt 480 ] || { log "skip shot $1 (time budget)"; return 1; }; log "shot $1"; freeze STOP; sleep 1
+            to ${2:-60} xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null 2>&1 || log "shot $1 timed out"; freeze CONT; }
           IWDP=
           drive() { [ -n "$IWDP" ] || return 0; log "drive: $1"; echo "--- $1" >> "$LOG_JS"; (cd "$GITHUB_WORKSPACE" && to 60 node smoke-drive.mjs "$2") >> "$LOG_JS" 2>&1; }
           # Screenshot until the WebView has painted (a blank dark frame compresses to well under 150 KB).

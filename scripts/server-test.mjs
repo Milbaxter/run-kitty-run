@@ -26,7 +26,7 @@ const REPORTS_FILE = path.join(tmp, 'reports.jsonl');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const srv = spawn(process.execPath, ['server/index.js'], {
   cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
-  env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', RKR_TEST_HOOKS: '1', REPORTS_FILE,
+  env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', RKR_TEST_HOOKS: '1', MAX_CONN_PER_IP: '100', REPORTS_FILE,
     FEEDBACK_FILE: path.join(tmp, 'feedback.jsonl'), STATS_FILE: path.join(tmp, 'stats.json'),
     APPLE_TEAM_ID: 'TEAM123456', ANDROID_CERT_SHA256: 'AA:BB, CC:DD' },
 });

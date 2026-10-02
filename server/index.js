@@ -29,7 +29,7 @@ const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
 const MODE_NAMES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
 const updateHow = (client) => (client.app === 'web' ? 'reload the page' : 'update the app');
 const APPS = ['web', 'ios', 'android'];
-// Test hooks (scripts/victory-online-test.mjs): 'start' may pick a level and 'dbg' can drop a kitty in the goal.
+// Test hooks (scripts/server-test.mjs): 'start' may pick a level and 'dbg' can drop a kitty in the goal.
 // Never set this in production.
 const TEST_HOOKS = process.env.RKR_TEST_HOOKS === '1';
 // Player feedback is appended here as JSON lines (systemd gives the service /var/lib/run-kitty-run).
@@ -38,7 +38,7 @@ const FEEDBACK_MAX = 1000;          // characters per message
 const FEEDBACK_PER_HOUR = 6;        // per IP
 const MAX_ROOMS = 200;
 const FEEDBACK_FILE_MAX = 5 << 20;  // bytes; stop appending past this (someone has to read it)
-// Abuse limits per connection / IP. MAX_CONN_PER_IP can be raised for local load tests (scripts/bot-test.mjs opens ~35).
+// Abuse limits per connection / IP. MAX_CONN_PER_IP can be raised for local load tests (scripts/server-test.mjs opens ~35).
 const MAX_CONN_PER_IP = +process.env.MAX_CONN_PER_IP || 10;
 const MSG_RATE = 150, MSG_BURST = 300;   // any message; ~60 inputs/s + pings is normal play. Over it: disconnect
 const LOBBY_RATE = 1, LOBBY_BURST = 5;   // create / join / leave / list / start

@@ -242,6 +242,15 @@ const PAT_SLACK = 0.4;                        // spare time kept on both sides o
 const PAT_DRIFT_PERIOD = 60;                  // a drifting group is back in step with its room within this (s)
 const PAT_DRIFT_CHANCE = 0.75;                // rooms (after level 1's lessons) that get a drifting group, if one fits
 const PAT_TYPES = ['charger', 'crosser', 'diagonal'];
+// How many wolves a level has: level 1 ~2x the 116 of the first pattern design, +10% per level up to level 7.
+// Rooms are packed by density G (shorter spacers, longer and tighter waves, wider fans); the count is then made
+// exact with charger packs (followers in a charger's own lane, which is closed to the kitty anyway, so they cost no
+// launch window) or, if a level came out over, by shortening its longest waves (fewer wolves only widen the gaps).
+const PAT_WOLVES_L1 = 232.6, PAT_WOLVES_GROWTH = 1.1, PAT_WOLVES_TOP = 7;
+const PAT_PACK_MAX = 5;                    // wolves per charger lane, at most
+const PAT_PACK_GAP = 2.2;                     // distance between pack members (units)
+const patWolfTarget = (level) => Math.round(PAT_WOLVES_L1 * Math.pow(PAT_WOLVES_GROWTH, Math.min(level, PAT_WOLVES_TOP) - 1));
+const patDensity = (level) => Math.min(2, 1.2 + 0.14 * (Math.min(level, PAT_WOLVES_TOP) - 1));
 const NO_FRAME = { ox: 0, oz: 0, ux: 1, uz: 0, nx: 0, nz: 1 };
 
 function usableRanges(legs) {
@@ -261,11 +270,15 @@ function usableRanges(legs) {
 // wolf: { type, route: [{r, th}], loop, offT (fraction of its own cycle), offS (s) }. c = { D, rng, vOut }.
 
 function segCrosswalk(c, o = {}) {
-  const { rng, vOut } = c;
-  let sp = rng.range(2.7, 3.6);
-  const k = o.k || Math.max(1, Math.min(4, 1 + Math.floor(c.D * 2.5 + rng.next() * 1.2), 1 + Math.floor((o.room ?? 99) / sp)));
-  if (k === 1) sp = 0;
-  const variant = o.variant || (k === 1 ? 'single' : c.D < 0.3 ? 'wave' : rng.pick(c.D < 0.9 ? ['wave', 'comb', 'ripple', 'anti', 'comb', 'wave'] : ['wave', 'comb', 'ripple', 'anti', 'comb', 'anti']));
+  const { rng, vOut } = c, G = c.G || 0;
+  let k = o.k || Math.max(1, 1 + Math.floor(c.D * 2.5 + G * 2 + rng.next() * 1.6));
+  let variant = o.variant || (k === 1 ? 'single' : c.D < 0.3 || rng.chance(Math.min(0.75, 0.4 * G)) ? 'wave' : rng.pick(c.D < 0.9 ? ['wave', 'comb', 'ripple', 'anti', 'comb', 'wave'] : ['wave', 'comb', 'ripple', 'anti', 'comb', 'anti']));
+  // a wave meets a kitty in every lane in the same state, so it can be long and tight; the others cost window per wolf
+  const g = Math.min(1, G);
+  let sp = variant === 'wave' ? rng.range(2.6 - 0.8 * g, 3.4 - 1.0 * g) : rng.range(2.7 - 0.3 * g, 3.6 - 0.3 * g);
+  if (variant === 'wave') k += Math.floor(G * 4 * rng.next());
+  k = Math.min(k, variant === 'wave' ? 4 + Math.round(6 * g) : 4, 1 + Math.floor((o.room ?? 99) / sp));
+  if (k === 1) { sp = 0; if (!o.variant) variant = 'single'; }
   const side = rng.chance(0.5) ? 1 : -1;
   const wolves = [];
   for (let i = 0; i < k; i++) {
@@ -293,9 +306,11 @@ function segDiagonal(c, o = {}) {
       { type: 'diagonal', route: [{ r: B, th: 0 }, { r: A, th: d }], offT: 0.5, offS: 0 },
     ];
   } else if (variant === 'fan') {
-    const sp = rng.range(2.8, 3.4);
-    depth = d + sp;
-    wolves = [0, 1].map((i) => ({ type: 'diagonal', route: [{ r: A, th: i * sp }, { r: B, th: d + i * sp }], offT: 0, offS: -(1 - i) * sp / PAT_VK }));
+    // parallel swings, each one met in the same state (like a wave); denser levels fan out wider
+    const g = Math.min(1, c.G || 0), sp = rng.range(2.8 - 0.5 * g, 3.4 - 0.6 * g);
+    const m = Math.max(2, Math.min(2 + Math.floor((c.G || 0) * rng.next() * 1.5), 1 + Math.floor(((o.room ?? 99) - d) / sp)));
+    depth = d + (m - 1) * sp;
+    wolves = [...Array(m).keys()].map((i) => ({ type: 'diagonal', route: [{ r: A, th: i * sp }, { r: B, th: d + i * sp }], offT: 0, offS: -(m - 1 - i) * sp / PAT_VK }));
   } else wolves = [{ type: 'diagonal', route: [{ r: A, th: 0 }, { r: B, th: d }], offT: 0, offS: 0 }];
   return { name: 'diagonal-' + variant, depth, wolves };
 }
@@ -303,12 +318,14 @@ function segDiagonal(c, o = {}) {
 const PAT_FAMILIES = { crosswalk: segCrosswalk, diagonal: segDiagonal };
 
 // Level 1 eases in: two legs of plain crossers, then the first charger lane; after that it's the real thing.
-// Each lesson: [chargers (lanes) or null = random, segments to cycle through]
+// Each lesson: [chargers (lanes) or null = random, segments to cycle through]. Lessons are packed with density
+// PAT_LESSON_G (busier than they used to be, still one idea per room).
 const PAT_LESSONS = [
-  [[], [['crosswalk', { k: 1 }]]],
-  [[], [['crosswalk', { k: 2, variant: 'wave' }], ['crosswalk', { k: 1 }]]],
-  [[0], [['crosswalk', { k: 1 }], ['crosswalk', { k: 2, variant: 'comb' }]]],
+  [[], [['crosswalk', { k: 1 }], ['crosswalk', { k: 1 }], ['crosswalk', { k: 2, variant: 'wave' }]]],
+  [[], [['crosswalk', { k: 3, variant: 'wave' }], ['crosswalk', { k: 1 }]]],
+  [[0], [['crosswalk', { k: 1 }], ['crosswalk', { k: 2, variant: 'comb' }], ['crosswalk', { k: 3, variant: 'wave' }]]],
 ];
+const PAT_LESSON_G = 0.6;
 
 // --- timing helpers
 
@@ -510,6 +527,8 @@ function placePatternEnemies(rng, lvl, p) {
   const last = legs.length - 1;
   const enemies = [];
   const plans = [];
+  const G0 = patDensity(level);
+  const target = patWolfTarget(level);
   const frameOf = (leg) => ({ ox: leg.ox, oz: leg.oz, ux: leg.ux, uz: leg.uz, nx: leg.nx, nz: leg.nz });
   const finish = (w, leg) => {
     w.rMin = Math.min(...w.route.map((q) => q.r)); w.rMax = Math.max(...w.route.map((q) => q.r));
@@ -545,12 +564,14 @@ function placePatternEnemies(rng, lvl, p) {
     });
   };
 
-  const legDesign = (li, D, T0) => {
+  const legDesign = (li, D, T0, doorK = 0) => {
     const leg = legs[li];
     const { lo, hi } = ranges[li];
-    const spacer = () => Math.max(2.4, 8 - 5.5 * D) + rng.range(-0.8, 1.2);
-    const c = { D, rng, vOut };
     const lesson = level === 1 ? PAT_LESSONS[li] : null;
+    const G = lesson ? PAT_LESSON_G : G0;
+    // gap between segments: their nearest rows are at least 2 * PAT_SAFE * 0.7 (~1.6) apart
+    const spacer = () => (Math.max(2.4, 8 - 5.5 * D) + rng.range(-0.8, 1.2)) * Math.max(0.1, 1 - 0.8 * G) + 2 * PAT_SAFE * Math.max(0.7, 1 - 0.3 * G);
+    const c = { D, G, rng, vOut };
     // the room's beat: every crosser / diagonal runs there and back once per beat (at the speed that takes), so the
     // room repeats every T seconds
     const T = T0 || Math.round(Math.max(5, 7.5 - 2 * D) * 4) / 4;
@@ -562,7 +583,7 @@ function placePatternEnemies(rng, lvl, p) {
       for (let tries = 0; tries < 5 && !made; tries++) {
         let fam = 'crosswalk', opt = {};
         if (lesson) [fam, opt] = lesson[1][n % lesson[1].length];
-        else if (li === last) opt = { k: D < 0.5 ? 1 : 2, variant: 'comb' };     // the final door
+        else if (li === last) opt = doorK ? { k: 1 } : { k: D < 0.5 ? 1 : 2, variant: 'comb' };     // the final door
         else if (D >= 0.3 && rng.chance(0.3)) fam = 'diagonal';
         if (tries > 2) { fam = 'crosswalk'; opt = { k: 1 }; }
         const sd = PAT_FAMILIES[fam](c, { room: cursor - lo, ...opt });
@@ -584,7 +605,7 @@ function placePatternEnemies(rng, lvl, p) {
       if (!made) break;
       segs.push(made);
       if (li === last) break;
-      cursor = made.base - spacer() - 2 * PAT_SAFE;
+      cursor = made.base - spacer();
       if (cursor < lo) break;
     }
     for (const sg of segs) for (const w of sg.wolves.concat(sg.alt ? sg.alt.wolves : [])) {
@@ -729,42 +750,71 @@ function placePatternEnemies(rng, lvl, p) {
     if (li === last && plans.length && plans[plans.length - 1].leg === li - 1) {
       // final stretch: the door before the goal. Its first corner is ice, so it is timed together with the
       // previous leg (launch from the last safe square) using the skating model.
+      // A busy room before it can leave the door no gap: then a single crosser is tried.
       const prevPlan = plans[plans.length - 1];
-      const design = legDesign(li, D, prevPlan.beat);
-      const N = prevPlan.N, pleg = legs[li - 1], leg = legs[li];
-      const P = (r, th) => ({ x: leg.ox + leg.ux * th + leg.nx * r, z: leg.oz + leg.uz * th + leg.nz * r });
-      const doorW = design.segs.flatMap((sg) => sg.wolves);
-      const tries = [];
-      for (const r of [-1.8, 0, 1.8]) {
-        const pts = planPoints(pleg, prevPlan.lane, CFG.RING_WIDTH / 2).concat([P(r, leg.len - 2), P(r, 1), P(W, 0), { x: 0, z: 0 }]);
-        tries.push({ r, traj: skatePath(pts) });
-      }
-      const baseS = Math.floor(rng.next() * N);
-      let best = null;
-      for (let q = 0; q < 16; q++) {
-        const sh = (baseS + Math.round(q * N / 16)) % N;
-        for (const w of doorW) w.off += sh * PAT_BIN;
-        for (const tr of tries) {
-          const ok = pathSafety(tr.traj, doorW, N, PAT_SAFE, PAT_SLACK);
-          let n = 0;
-          for (let b = 0; b < N; b++) { ok[b] &= prevPlan.F[b]; n += ok[b]; }
-          const cd = { sh, run: maxRun(ok) * PAT_BIN, frac: n / N, tr };
-          const v = (x) => Math.min(x.run, wTarget) + 4 * Math.min(x.frac, fTarget) + 0.01 * x.frac;
-          if (!best || v(cd) > v(best)) best = cd;
+      for (const doorK of [0, 1]) {
+        const design = legDesign(li, D, prevPlan.beat, doorK);
+        const N = prevPlan.N, pleg = legs[li - 1], leg = legs[li];
+        const P = (r, th) => ({ x: leg.ox + leg.ux * th + leg.nx * r, z: leg.oz + leg.uz * th + leg.nz * r });
+        const doorW = design.segs.flatMap((sg) => sg.wolves);
+        const tries = [];
+        for (const r of [-1.8, 0, 1.8]) {
+          const pts = planPoints(pleg, prevPlan.lane, CFG.RING_WIDTH / 2).concat([P(r, leg.len - 2), P(r, 1), P(W, 0), { x: 0, z: 0 }]);
+          tries.push({ r, traj: skatePath(pts) });
         }
-        for (const w of doorW) w.off -= sh * PAT_BIN;
-      }
-      if (doorW.length && best && best.run >= PAT_HARD && best.frac >= PAT_FRAC_MIN) {
-        for (const w of doorW) w.off += best.sh * PAT_BIN;
-        prevPlan.finalLane = best.tr.r; prevPlan.window = best.run; prevPlan.frac = best.frac;
-        prevPlan.door = pathSafety(best.tr.traj, doorW, N, PAT_SAFE, 0);     // exact, for driftLeg
-        plans.push({ leg: li, beat: prevPlan.beat, segs: design.segs, lane: best.tr.r, launch: null, window: best.run, frac: best.frac, N, finale: true });
+        const baseS = Math.floor(rng.next() * N);
+        let best = null;
+        for (let q = 0; q < 16; q++) {
+          const sh = (baseS + Math.round(q * N / 16)) % N;
+          for (const w of doorW) w.off += sh * PAT_BIN;
+          for (const tr of tries) {
+            const ok = pathSafety(tr.traj, doorW, N, PAT_SAFE, PAT_SLACK);
+            let n = 0;
+            for (let b = 0; b < N; b++) { ok[b] &= prevPlan.F[b]; n += ok[b]; }
+            const cd = { sh, run: maxRun(ok) * PAT_BIN, frac: n / N, tr };
+            const v = (x) => Math.min(x.run, wTarget) + 4 * Math.min(x.frac, fTarget) + 0.01 * x.frac;
+            if (!best || v(cd) > v(best)) best = cd;
+          }
+          for (const w of doorW) w.off -= sh * PAT_BIN;
+        }
+        if (doorW.length && best && best.run >= PAT_HARD && best.frac >= PAT_FRAC_MIN) {
+          for (const w of doorW) w.off += best.sh * PAT_BIN;
+          prevPlan.finalLane = best.tr.r; prevPlan.window = best.run; prevPlan.frac = best.frac;
+          prevPlan.door = pathSafety(best.tr.traj, doorW, N, PAT_SAFE, 0);     // exact, for driftLeg
+          plans.push({ leg: li, beat: prevPlan.beat, segs: design.segs, lane: best.tr.r, launch: null, window: best.run, frac: best.frac, N, finale: true });
+          break;
+        }
       }
       continue;
     }
     const chargers = makeChargers(li, D, chargerLanes(li, D));
     const pl = solveLeg(li, legDesign(li, D, 0), chargers, wTarget, fTarget);
     if (pl) plans.push(pl);
+  }
+
+  // ---- wolf count: exactly `target` where the rooms allow it (see PAT_WOLVES_L1). Not in level 1's lessons.
+  const tamed = (pl) => pl.finale || (level === 1 && pl.leg < PAT_LESSONS.length);
+  let count = plans.reduce((a, pl) => a + pl.segs.reduce((b, sg) => b + sg.wolves.length, 0), 0);
+  const packs = [];
+  for (const pl of plans) {
+    const cs = tamed(pl) ? null : pl.segs.find((sg) => sg.chargers);
+    if (cs) for (const lead of cs.wolves.slice()) packs.push({ cs, lead, n: 1 });
+  }
+  while (count < target && packs.length) {
+    const n = Math.min(...packs.map((pk) => pk.n));
+    if (n >= PAT_PACK_MAX) break;
+    const cand = packs.filter((pk) => pk.n === n), pk = cand[Math.floor(rng.next() * cand.length)];
+    const w = { ...pk.lead, route: pk.lead.route.map((q) => ({ ...q })) };
+    w.off = pk.lead.off - pk.n * PAT_PACK_GAP / pk.lead.speed;         // following the leader down its lane
+    pk.cs.wolves.push(w); pk.n++; count++;
+  }
+  while (count > target) {
+    let best = null;
+    for (const pl of plans) if (!tamed(pl)) for (const sg of pl.segs) {
+      if (sg.name === 'crosswalk-wave' && sg.wolves.length > 3 && (!best || sg.wolves.length > best.wolves.length)) best = sg;
+    }
+    if (!best) break;
+    best.wolves.pop(); count--;
   }
 
   // ---- drift: not in level 1's lessons, nor in the final door (the room before it may drift, door included)

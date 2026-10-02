@@ -12,6 +12,7 @@ const PATCH_NOTES = [
       'Fixed: a key or joystick still held when a level starts no longer shoots your kitty off the start square onto the ice (let go once, then skate)',
       'Run + Skate is unchanged',
       'Wolves no longer have a glowing ring around them, and no ring flashes when they start moving',
+      'Fixed: the aura faded out on parts of the ice rink',
       'Fixed: clicking right after reaching a checkpoint (or holding the mouse as you arrive) could leave your kitty stuck there',
     ],
   },

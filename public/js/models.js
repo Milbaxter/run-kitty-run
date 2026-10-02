@@ -632,6 +632,7 @@ function createKittyModel(color) {
   const sparkSeed = [];
   for (let i = 0; i < NS; i++) sparkSeed.push([Math.random() * TAU_, 0.35 + Math.random() * 0.45, Math.random(), 0.8 + Math.random() * 0.7]);
   aura.add(outer, inner, ring, sparks);
+  for (const o of aura.children) o.renderOrder = 3; // after floor marks (skate trail, decals: 1-2)
   aura.visible = false;
   group.add(aura);
   const baseUpdate = update;

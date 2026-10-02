@@ -723,6 +723,9 @@ function buildIce(levelData, T) {
   });
   const ice = new THREE.Mesh(T.g(g), T.m(mat));
   ice.receiveShadow = true;
+  // one sheet for the whole map, sorted by its centre: without this it draws over see-through things (the aura)
+  // on whichever side of the map is farther from the camera than the centre. It's the floor: always draw it first.
+  ice.renderOrder = -1;
   return ice;
 }
 

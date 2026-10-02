@@ -14,7 +14,7 @@ const PATCH_NOTES = [
       'Every kitty that went down on the way is carried into the goal room for the party',
       'A giant fish waits behind the portal at the end of the final run. Win, walk up to it and the kitties eat it, crunch by crunch, down to the bones (the victory screen counts how much is gone)',
       'Menus and the game-over / victory screens work with a gamepad too (A to confirm, d-pad to switch)',
-      'Skate only: no more long lines of wolves in lockstep. Rows are shorter and most mix speeds (half, 1.5x, 2x, or drifting out of step), charger lanes run at different speeds with looser packs; if a room closes up for a moment, a gap comes round again within a few seconds',
+      'Skate only: rows of wolves now walk shoulder to shoulder, too tight to slip between. At least one wolf in every three or four runs about 10% faster or slower than the rest, so the walls break up in different places over time: watch, wait a bit, then go. Rows start from both walls, charger lanes run at different speeds with looser packs',
     ],
   },
   {

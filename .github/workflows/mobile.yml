@@ -59,14 +59,8 @@ jobs:
       - run: npm ci
       - name: Syntax check
         run: for f in server/*.js public/js/*.js public/js/shared/*.js scripts/*.mjs; do node --check "$f"; done
-      - name: Sim tests
-        run: |
-          node scripts/level-sync-test.mjs
-          node scripts/playthrough-test.mjs
-          node scripts/rules-test.mjs
-          node -e "import('./public/js/shared/maze.js').then(m => { const r = m.mazeSelfTest(4); if (!r.ok) { console.log(r.problems); process.exit(1); } console.log('maze self-test ok'); })"
-      - name: Moderation tests
-        run: if [ -f scripts/moderation-test.mjs ]; then node scripts/moderation-test.mjs; else echo "no moderation test"; fi
+      - name: Tests
+        run: npm test
 
   android:
     needs: test

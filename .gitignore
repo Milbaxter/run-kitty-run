@@ -1,8 +1,10 @@
 node_modules/
 .DS_Store
 square-spiral-preview.png
-feedback.jsonl
-reports.jsonl
+# server state (live copies are in /var/lib/run-kitty-run)
+feedback.jsonl*
+reports.jsonl*
+stats.json*
 
 # Capacitor web build
 www/

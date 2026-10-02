@@ -2,15 +2,9 @@ name: iOS smoke test
 # Builds the Simulator app, runs it on an iPhone + iPad simulator, drives the WebView over the Web Inspector
 # protocol (ios_webkit_debug_proxy; Capacitor debug builds are inspectable), exercises the runkittyrun:// deep link,
 # and uploads screenshots + native/JS logs as the "ios-smoke" artifact.
+# Manual only (Actions > iOS smoke test > Run workflow): running it on push cost a long string of CI-fix commits.
 on:
   workflow_dispatch:
-  push:
-    branches: [mobile-apps]
-    paths:
-      - 'ios/**'
-      - 'public/**'
-      - 'capacitor.config.json'
-      - '.github/workflows/ios-smoke.yml'
 
 concurrency:
   group: ios-smoke-${{ github.ref }}

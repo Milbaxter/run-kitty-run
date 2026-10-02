@@ -1,3 +1,4 @@
+// MANUAL tuning tool, not part of `npm test` / CI (slow). Run it when changing the final run's generator.
 // Skate only, THE FINAL RUN (level SKATE_FINAL_LEVEL of mode 'ice'): beatability proof by an oracle bot.
 //
 // The bot plays the real sim (createSim/stepSim, hits on, NOT invulnerable) with legal inputs only (one input

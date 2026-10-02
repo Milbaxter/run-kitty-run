@@ -1,6 +1,6 @@
 # Run Kitty Run
 
-3D square-spiral kitty runner (three.js): one long corridor of straight legs winding in to the goal room, with solo, local co-op and **online lobbies (up to 8 players)**.
+3D square-spiral kitty runner (three.js): one long corridor of straight legs winding in to the goal room, with solo, local co-op and **online lobbies (up to 32 players)**.
 
 Live: https://runkittyrun.fun (domain on Cloudflare, DNS only → the UpCloud box; Caddy gets the cert). The old free names (https://runkittyrun.80-47-225-25.nip.io, https://80-47-225-25.nip.io and the .sslip.io mirrors) redirect pages there but still serve /ws and /api for app builds.
 
@@ -55,7 +55,9 @@ leave, the next player in join order becomes host.
 ## Tests
 
 ```bash
-node scripts/level-sync-test.mjs     # client mirror stays in sync across level changes
-node scripts/playthrough-test.mjs    # a kitty following the path clears the level
-node scripts/bot-test.mjs            # lobby/server behaviour (needs `npm start` running)
+npm test                              # CI set (~12s): sim-test + level-sync-test + ice-pattern-test (1 seed)
+node scripts/server-test.mjs          # manual: starts its own server on a free port (finale, moderation, lobbies)
+node scripts/finale-test.mjs          # manual tuning tool for the final run (slow)
 ```
+
+`scripts/sim-test.mjs` holds the rules, playthrough, victory, chat-filter and maze self-test checks: add new checks there.

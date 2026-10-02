@@ -8,7 +8,6 @@ import { CFG } from './shared/config.js';
 //   share ONE MeshStandardMaterial (flatShading, vertexColors) to keep draw calls and programs low.
 // - Glowing parts use MeshBasicMaterial / ShaderMaterial with colors > 1 so the bloom pass picks them up.
 // - createKittyModel(...).setGhost(on, tint?) accepts an optional tint color (used by the revive circle).
-// - createWolfModel adds a faint type-colored ground ring for readability from above.
 
 // ---------------------------------------------------------------------------
 // Caches & helpers
@@ -768,7 +767,7 @@ function wolfGeos(type) {
 
 const SKATE_LIFT = 0.06;
 
-// opts: { pattern: Skate-only pattern wolf (countdown ring), skate: on an ice level (glide instead of trot) }
+// opts: { skate: on an ice level (glide instead of trot) }
 function createWolfModel(type, opts) {
   if (!WOLF_TYPES[type]) type = 'patroller';
   opts = opts || {};
@@ -810,13 +809,6 @@ function createWolfModel(type, opts) {
     const m = new THREE.Mesh(G.tail[i], mat); if (i === 1) m.castShadow = true; seg.add(m);
     tail.push(seg); parent = seg;
   }
-
-  // ground ring (type color) for readability from above
-  const ringMat = new THREE.MeshBasicMaterial({ color: glowColor(T.accent, 1.2), transparent: true, opacity: 0.4, depthWrite: false, blending: THREE.AdditiveBlending });
-  const ring = new THREE.Mesh(cgeo('wolfRing', () => flatRing(0.62, 0.72, 28)), ringMat);
-  ring.position.y = 0.025;
-  ring.renderOrder = 1;
-  group.add(ring);
 
   const seedOff = Math.random() * 100;
   let phase = Math.random() * 6, runAmt = 0, tellS = 0, clock = 0;
@@ -877,17 +869,6 @@ function createWolfModel(type, opts) {
     eyeMat.color.copy(accent).multiplyScalar(ei);
     const es = 1 + 0.25 * tell;
     eyes.scale.set(es, es, es);
-
-    if (!opts.pattern) {
-      ringMat.opacity = 0.32 + 0.55 * tell;
-      const rs = 1 + 0.12 * tell + 0.03 * Math.sin(time * 3 + seedOff);
-      ring.scale.set(rs, 1, rs);
-      return;
-    }
-    // pattern wolves: the ring snaps tight like a countdown before the wolf moves
-    ringMat.opacity = 0.38 + 0.6 * tell + (tell > 0.05 ? 0.2 * Math.sin(time * 26) * tell : 0);
-    const rs = 1.12 - 0.3 * tell + 0.03 * Math.sin(time * 3 + seedOff) * (1 - tell);
-    ring.scale.set(rs, 1, rs);
   }
 
   update(0, {});

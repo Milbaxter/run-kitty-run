@@ -4,9 +4,11 @@ const PATCH_NOTES = [
   {
     version: '0.9', date: '2026-10-02', title: 'Wolf patterns on ice',
     items: [
-      'Skate only: wolves don\'t wander anymore, they walk fixed patterns you can learn: charging along the lane, crossing it wall to wall, zig-zagging, or circling',
+      'Skate only: wolves don\'t wander anymore, they run fixed patterns you can learn',
+      'Every wolf goes end to end: across the lane from wall to wall, or charging down its own lane from one safe square to the next',
+      'Many more wolves on ice: rows of crossers and lanes of chargers, busier and faster toward the middle and on later levels',
+      'Wolves pause a slightly different time at each end, so watch closely: there is always a gap, but no metronome',
       'Watch from a safe square, spot the rhythm, then skate through the gap',
-      'Wolves turn toward their next move just before they go',
       'Run + Skate is unchanged',
     ],
   },

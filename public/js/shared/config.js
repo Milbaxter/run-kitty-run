@@ -65,9 +65,9 @@ function levelParams(level) {
     enemyTypes: types,
     itemCount: 8 + Math.floor(L / 2),
     // Skate only mode: pattern wolves (maze.js placePatternEnemies). Level part of the room difficulty
-    // (0 = gentle lessons; each leg adds up to +0.45 toward the middle): faster wolves, shorter holds,
-    // busier rooms, tighter launch windows.
-    patternHeat: Math.min(1.05, 0.17 * (L - 1)),
+    // (level 1's first legs are gentle lessons; each leg adds up to +0.5 toward the middle): faster wolves,
+    // shorter holds, more crosser rows and charger lanes, tighter launch windows.
+    patternHeat: Math.min(1.2, 0.2 + 0.17 * (L - 1)),
   };
 }
 

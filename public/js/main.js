@@ -667,15 +667,15 @@ function syncVisuals(dt, alpha) {
     if (!m) continue;
     const near = (e.x - camTarget.x) ** 2 + (e.z - camTarget.z) ** 2 < cullR2;
     m.group.visible = near;
-    if (!near) { m.tellPrev = 0; continue; }
+    if (!near) { m.wasMoving = undefined; continue; }
     const [x, z] = lerpPos('e' + e.id, e.x, e.z, alpha);
     m.group.position.set(x, 0, z);
     m.group.rotation.y = -e.heading;
     m.update(dt, { moving: e.moving, tell: e.tell, speed01: Math.min(1, (e.speedNow || 0) / 4), time: t });
     if (e.pattern) {
-      // push-off: shavings + a ring the moment the tell turns into a move
-      if (m.tellPrev > 0.3 && e.moving) effects.iceKick(x, z, e.heading, WOLF_TYPES[e.type] ? WOLF_TYPES[e.type].accent : 0xffffff);
-      m.tellPrev = e.moving ? 0 : Math.max(m.tellPrev || 0, e.tell);
+      // push-off: shavings + a ring the moment a held wolf sets off
+      if (m.wasMoving === false && e.moving) effects.iceKick(x, z, e.heading, WOLF_TYPES[e.type] ? WOLF_TYPES[e.type].accent : 0xffffff);
+      m.wasMoving = e.moving;
     }
   }
   // items

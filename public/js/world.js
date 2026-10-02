@@ -380,57 +380,51 @@ function makeSeasonTileTexture(style, T) {
         drawLeaf(g, x, y, rng.range(7, 13), rng.range(0, TAU), rng.pick(cols));
       }
     } else if (style === 'winter') {
-      // cosy winter: warm cream flags with gingerbread joints, a candy-cane border with an iced gingerbread trim,
-      // a little snow dusted into the corners, a golden glow and a cranberry paw with gold sparkles. Warm colours and a
-      // red-and-white rim: reads clearly as solid ground next to the pale blue ice and the white snow.
-      g.fillStyle = 'rgb(188,124,72)'; g.fillRect(0, 0, S, S);
-      const B = 44, n = 4, cell = (S - 2 * B) / n;
+      // "cats enjoy warmth": a warm hearth in the cold. Amber/terracotta flagstones warmed by golden light pooling in
+      // the middle, the snow melted back to a thin drift round the rim (a dark wet line where it's thawing), ember
+      // specks and a warm terracotta paw. Warm and solid: reads clearly as ground next to the pale blue ice.
+      g.fillStyle = 'rgb(150,98,66)'; g.fillRect(0, 0, S, S);
+      const n = 4, cell = S / n;
       for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-        drawSlab(g, rng, B + i * cell + 5, B + j * cell + 5, cell - 10, cell - 10, 12, [rng.int(244, 252), rng.int(230, 240), rng.int(204, 216)], 50);
+        const terra = rng.chance(0.3);
+        const col = terra ? [rng.int(212, 226), rng.int(140, 156), rng.int(100, 114)] : [rng.int(226, 240), rng.int(180, 198), rng.int(126, 144)];
+        drawSlab(g, rng, i * cell + 6, j * cell + 6, cell - 12, cell - 12, 14, col, 60);
       }
-      // candy-cane border: red and white diagonal stripes
-      g.save();
-      g.beginPath(); g.rect(0, 0, S, S); g.rect(28, 28, S - 56, S - 56); g.clip('evenodd');
-      g.fillStyle = 'rgb(252,248,240)'; g.fillRect(0, 0, S, S);
-      g.fillStyle = 'rgb(214,40,52)';
-      for (let k = -S; k < 2 * S; k += 36) { g.beginPath(); g.moveTo(k, 0); g.lineTo(k + 18, 0); g.lineTo(k + 18 - S, S); g.lineTo(k - S, S); g.closePath(); g.fill(); }
-      g.restore();
-      g.strokeStyle = 'rgba(120,30,30,0.5)'; g.lineWidth = 2; g.strokeRect(28, 28, S - 56, S - 56);
-      // gingerbread trim with white icing dots
-      g.fillStyle = 'rgb(176,108,58)';
-      g.beginPath(); g.rect(28, 28, S - 56, S - 56); g.rect(B, B, S - 2 * B, S - 2 * B); g.fill('evenodd');
-      g.fillStyle = 'rgb(255,252,246)';
-      for (let t = 36; t <= S - 36; t += 16) {
-        for (const [x, y] of [[t, 36], [t, S - 36], [36, t], [S - 36, t]]) { g.beginPath(); g.arc(x, y, 3.2, 0, TAU); g.fill(); }
+      // golden light pooling on the stone
+      let gr = g.createRadialGradient(C, C, 20, C, C, 230);
+      gr.addColorStop(0, 'rgba(255,210,120,0.55)'); gr.addColorStop(0.6, 'rgba(255,190,100,0.25)'); gr.addColorStop(1, 'rgba(255,190,100,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, S, S);
+      // thaw: darker wet stone just inside the rim, then the last of the snow drifted against the edges
+      for (const [x0, y0, x1, y1] of [[0, 0, 0, 1], [0, 0, 1, 0], [S, 0, -1, 0], [0, S, 0, -1]]) {
+        const lg = g.createLinearGradient(x0, y0, x0 + x1 * 60, y0 + y1 * 60);
+        lg.addColorStop(0, 'rgba(80,50,34,0.35)'); lg.addColorStop(1, 'rgba(80,50,34,0)');
+        g.fillStyle = lg; g.fillRect(0, 0, S, S);
       }
-      // a dusting of snow in the inner corners
-      for (const [x, y] of [[B, B], [S - B, B], [B, S - B], [S - B, S - B]]) {
-        for (let k = 0; k < 6; k++) {
-          const px = x + (x < C ? 1 : -1) * rng.range(0, 40), py = y + (y < C ? 1 : -1) * rng.range(0, 40), r = rng.range(14, 26);
-          const gr = g.createRadialGradient(px, py, 0, px, py, r);
-          gr.addColorStop(0, 'rgba(255,253,248,0.95)'); gr.addColorStop(1, 'rgba(255,253,248,0)');
-          g.fillStyle = gr; g.beginPath(); g.arc(px, py, r, 0, TAU); g.fill();
-        }
+      for (let i = 0; i < 150; i++) {
+        const side = rng.int(0, 3), t = rng.range(0, S), d = rng.range(-6, 10);
+        const x = side === 0 ? t : side === 1 ? S - d : side === 2 ? t : d, y = side === 0 ? d : side === 1 ? t : side === 2 ? S - d : t;
+        const r = rng.range(8, 20), sg = g.createRadialGradient(x, y, 0, x, y, r);
+        sg.addColorStop(0, 'rgba(252,252,255,0.95)'); sg.addColorStop(0.65, 'rgba(244,247,252,0.8)'); sg.addColorStop(1, 'rgba(244,247,252,0)');
+        g.fillStyle = sg; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
       }
-      // golden glow + a red ring (like a wreath ribbon) behind the paw
-      const gr = g.createRadialGradient(C, C, 40, C, C, 128);
-      gr.addColorStop(0, 'rgba(255,214,120,0.85)'); gr.addColorStop(0.75, 'rgba(255,206,110,0.55)'); gr.addColorStop(1, 'rgba(255,206,110,0)');
-      g.fillStyle = gr; g.beginPath(); g.arc(C, C, 128, 0, TAU); g.fill();
-      g.strokeStyle = 'rgb(46,128,70)'; g.lineWidth = 9; g.beginPath(); g.arc(C, C, 104, 0, TAU); g.stroke();
-      g.strokeStyle = 'rgb(214,40,52)'; g.lineWidth = 3; g.setLineDash([10, 8]); g.beginPath(); g.arc(C, C, 104, 0, TAU); g.stroke(); g.setLineDash([]);
-      drawPaw(g, C, C + 4, 1.45, 'rgb(196,36,58)', 'rgb(246,196,84)', 5);
-      // sparkles: little four-point stars in gold and white
-      const star = (x, y, r, col) => {
-        g.fillStyle = col; g.beginPath();
-        for (let k = 0; k < 8; k++) { const a = k / 8 * TAU, rr = k % 2 ? r * 0.3 : r; g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
-        g.closePath(); g.fill();
-      };
+      // drips of meltwater glinting near the rim
       for (let i = 0; i < 40; i++) {
-        const x = rng.range(B + 6, S - B - 6), y = rng.range(B + 6, S - B - 6);
-        if (nearPaw(x, y, 4)) continue;
-        star(x, y, rng.range(4, 8), rng.chance(0.6) ? 'rgb(236,176,60)' : 'rgb(255,255,255)');
+        const side = rng.int(0, 3), t = rng.range(20, S - 20), d = rng.range(22, 40);
+        const x = side === 0 ? t : side === 1 ? S - d : side === 2 ? t : d, y = side === 0 ? d : side === 1 ? t : side === 2 ? S - d : t;
+        g.fillStyle = 'rgba(110,70,48,0.35)'; g.beginPath(); g.ellipse(x, y, rng.range(3, 7), rng.range(2, 4), rng.range(0, TAU), 0, TAU); g.fill();
       }
-      for (const [dx, dy, r] of [[-30, 30, 7], [34, 34, 6], [0, -64, 6], [-58, -40, 5], [60, -38, 5]]) star(C + dx, C + dy + 4, r, 'rgb(255,236,170)');
+      // a warm hearthstone ring round the paw
+      gr = g.createRadialGradient(C, C, 70, C, C, 118);
+      gr.addColorStop(0, 'rgba(255,214,140,0.85)'); gr.addColorStop(1, 'rgba(255,214,140,0)');
+      g.fillStyle = gr; g.beginPath(); g.arc(C, C, 118, 0, TAU); g.fill();
+      g.strokeStyle = 'rgb(176,96,52)'; g.lineWidth = 6; g.beginPath(); g.arc(C, C, 104, 0, TAU); g.stroke();
+      drawPaw(g, C, C + 4, 1.45, 'rgb(206,92,44)', 'rgb(255,226,160)', 5);
+      // a few glowing ember specks
+      for (let i = 0; i < 40; i++) {
+        const a = rng.range(0, TAU), r = rng.range(110, 200), x = C + Math.cos(a) * r, y = C + Math.sin(a) * r;
+        g.fillStyle = rng.pick(['rgba(255,150,60,0.9)', 'rgba(255,200,100,0.9)', 'rgba(230,90,40,0.8)']);
+        g.beginPath(); g.arc(x, y, rng.range(1.5, 3), 0, TAU); g.fill();
+      }
     } else {
       // spring: pale cream flags with mossy joints, a pink paw, blossom petals and little flowers in the corners
       g.fillStyle = '#93c06c'; g.fillRect(0, 0, S, S);
@@ -580,40 +574,39 @@ function buildSafeProps(levelData, style, T) {
     }
     kinds.push([mergeGeos(leaves), 1, [1, 1.3]]);
   } else if (style === 'winter') {
-    // wrapped presents: a box with a ribbon cross and a bow (two colourways, the second a little stack of two)
-    const present = (x, z, w, hgt, box, ribbon, y0 = 0, ry = 0) => {
-      const c = Math.cos(ry), s = Math.sin(ry), X = (u, v) => x + u * c + v * s, Z = (u, v) => z - u * s + v * c;
-      return [
-        paint(place(new THREE.BoxGeometry(w, hgt, w), x, y0 + hgt / 2, z, 1, 1, 1, 0, ry, 0), box),
-        paint(place(new THREE.BoxGeometry(w * 1.02, hgt * 1.02, w * 0.18), x, y0 + hgt / 2, z, 1, 1, 1, 0, ry, 0), ribbon),
-        paint(place(new THREE.BoxGeometry(w * 0.18, hgt * 1.02, w * 1.02), x, y0 + hgt / 2, z, 1, 1, 1, 0, ry, 0), ribbon),
-        paint(place(new THREE.TorusGeometry(w * 0.16, w * 0.05, 4, 8), X(-w * 0.13, 0), y0 + hgt + w * 0.1, Z(-w * 0.13, 0), 1, 1, 1, 0, ry + Math.PI / 2, 0.5), ribbon),
-        paint(place(new THREE.TorusGeometry(w * 0.16, w * 0.05, 4, 8), X(w * 0.13, 0), y0 + hgt + w * 0.1, Z(w * 0.13, 0), 1, 1, 1, 0, ry + Math.PI / 2, -0.5), ribbon),
-      ];
-    };
-    kinds.push([mergeGeos([...present(0, 0, 0.34, 0.26, 0xd8303a, 0xf6c84c), ...present(0.3, 0.12, 0.24, 0.2, 0x2f8a4a, 0xf4f0e6, 0, 0.5)]), 2, [1.2, 1.5], 'face']);
-    kinds.push([mergeGeos([...present(0, 0, 0.36, 0.24, 0xf4efe4, 0xd8303a), ...present(0.02, 0.01, 0.24, 0.18, 0x2f8a4a, 0xf6c84c, 0.25, 0.6)]), 1, [1.2, 1.5], 'face']);
-    // a cheerful little snowman with a red scarf, a carrot nose and coal buttons (faces the camera)
-    kinds.push([mergeGeos([
-      paint(place(new THREE.IcosahedronGeometry(0.22, 2), 0, 0.2, 0), 0xfffcf6),
-      paint(place(new THREE.IcosahedronGeometry(0.16, 2), 0, 0.5, 0), 0xfffcf6),
-      paint(place(new THREE.TorusGeometry(0.12, 0.04, 5, 12), 0, 0.4, 0, 1, 1, 1, Math.PI / 2, 0, 0), 0xd8303a),
-      paint(place(new THREE.BoxGeometry(0.06, 0.16, 0.02), 0.08, 0.32, 0.12, 1, 1, 1, 0.3, 0, 0.3), 0xd8303a),
-      paint(place(new THREE.ConeGeometry(0.03, 0.13, 5), 0, 0.52, 0.2, 1, 1, 1, Math.PI / 2, 0, 0), 0xff8a2a),
-      ...[[-0.055, 0.57], [0.055, 0.57]].map(([x, y]) => paint(place(new THREE.IcosahedronGeometry(0.022, 0), x, y, 0.14), 0x2a2a3a)),
-      ...[0.22, 0.3].map((y) => paint(place(new THREE.IcosahedronGeometry(0.025, 0), 0, y, 0.21), 0x2a2a3a)),
-      paint(place(new THREE.CylinderGeometry(0.1, 0.1, 0.03, 10), 0, 0.64, 0), 0xd8303a),
-      paint(place(new THREE.CylinderGeometry(0.07, 0.08, 0.1, 10), 0, 0.7, 0), 0xd8303a),
-      paint(place(new THREE.IcosahedronGeometry(0.035, 1), 0, 0.77, 0), 0xfffcf6),
-    ]), 1, [1.1, 1.3], 'face']);
-    // a holly sprig on a little snow pile
-    const holly = [paint(place(new THREE.IcosahedronGeometry(0.26, 1), 0, 0, 0, 1.2, 0.4, 1.1), 0xfffcf6)];
-    for (let k = 0; k < 5; k++) {
-      const a = k / 5 * TAU + 0.3;
-      holly.push(paint(place(new THREE.OctahedronGeometry(0.14, 0), Math.cos(a) * 0.14, 0.11, Math.sin(a) * 0.14, 1.3, 0.25, 0.55, 0, -a, 0.25), 0x2f8a3e));
+    // "cats enjoy warmth": a warm refuge in the cold. Little campfires, glowing lanterns and a cushion on a folded
+    // blanket at the corners; the fire and lantern light are unlit (always warm) and pool softly on the tile.
+    const STONE = 0x9a8878, LOG = 0x7a4a2c, LOG2 = 0x5e3820;
+    const fire = [], flames = [];
+    for (let k = 0; k < 8; k++) {
+      const a = k / 8 * TAU;
+      fire.push(paint(place(new THREE.DodecahedronGeometry(0.075, 0), Math.cos(a) * 0.3, 0.05, Math.sin(a) * 0.3, 1.2, 0.8, 1, 0, a, 0), k % 2 ? STONE : 0xb09c88));
     }
-    for (const [x, z] of [[0.03, 0.02], [-0.05, 0.05], [0.02, -0.06]]) holly.push(paint(place(new THREE.IcosahedronGeometry(0.06, 1), x, 0.17, z), 0xe8202c));
-    kinds.push([mergeGeos(holly), 2, [1.2, 1.5]]);
+    fire.push(paint(place(new THREE.CylinderGeometry(0.25, 0.25, 0.02, 10), 0, 0.01, 0), 0x3a2018));   // ash bed
+    for (const [a, c] of [[0.3, LOG], [1.35, LOG2], [2.4, LOG]]) {
+      const lg = new THREE.CylinderGeometry(0.045, 0.05, 0.42, 6);
+      lg.rotateX(Math.PI / 2 - 0.25); lg.rotateY(a); lg.translate(0, 0.08, 0);   // leaning in, tipi-style
+      fire.push(paint(lg, c));
+    }
+    flames.push(paint(place(new THREE.ConeGeometry(0.17, 0.5, 6), 0, 0.31, 0), 0xff6a24));
+    flames.push(paint(place(new THREE.ConeGeometry(0.1, 0.34, 6), 0.08, 0.24, 0.06, 1, 1, 1, 0, 0, -0.25), 0xff9a34));
+    flames.push(paint(place(new THREE.ConeGeometry(0.1, 0.32, 6), 0, 0.24, 0.08), 0xffd060));
+    flames.push(paint(place(new THREE.IcosahedronGeometry(0.11, 0), 0, 0.09, 0, 1.6, 0.4, 1.6), 0xd8441c));   // the embers
+    kinds.push([mergeGeos(fire), 1, [1.2, 1.4], null, mergeGeos(flames), { s: 3.8, color: 0xffa040, k: 0.45 }]);
+    // a lantern: a stone foot, a wooden post and a little lamp house with a warm glowing core
+    kinds.push([mergeGeos([
+      paint(place(new THREE.CylinderGeometry(0.13, 0.16, 0.08, 8), 0, 0.04, 0), STONE),
+      paint(place(new THREE.CylinderGeometry(0.035, 0.04, 0.5, 6), 0, 0.33, 0), LOG),
+      paint(place(new THREE.BoxGeometry(0.2, 0.03, 0.2), 0, 0.59, 0), 0x4a3020),
+      ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => paint(place(new THREE.BoxGeometry(0.025, 0.2, 0.025), sx * 0.085, 0.7, sz * 0.085), 0x4a3020)),
+      paint(place(new THREE.ConeGeometry(0.11, 0.1, 4), 0, 0.9, 0, 1, 1, 1, 0, Math.PI / 4, 0), 0x6a3a26),
+    ]), 2, [1.1, 1.3], null, mergeGeos([paint(place(new THREE.IcosahedronGeometry(0.125, 1), 0, 0.72, 0, 1, 1.2, 1), 0xffd890)]), { s: 2.6, color: 0xffb860, k: 0.42 }]);
+    // a plump cushion on a folded woollen blanket (warm red with cream stripes)
+    const blanket = [paint(place(new THREE.BoxGeometry(0.62, 0.05, 0.46), 0, 0.025, 0), 0xc8442e)];
+    for (const x of [-0.2, 0, 0.2]) blanket.push(paint(place(new THREE.BoxGeometry(0.05, 0.052, 0.462), x, 0.026, 0), 0xf2dcb0));
+    blanket.push(paint(place(new THREE.SphereGeometry(0.2, 12, 8), 0.04, 0.12, 0.02, 1, 0.38, 0.9), 0xe8a040));
+    blanket.push(paint(place(new THREE.IcosahedronGeometry(0.03, 1), 0.04, 0.2, 0.02), 0xf2dcb0));
+    kinds.push([mergeGeos(blanket), 1, [1.2, 1.4], 'face']);
   } else if (style === 'spring') {
     const tulip = (x, z, y, col) => [
       paint(place(new THREE.CylinderGeometry(0.015, 0.015, y, 4), x, y / 2, z), 0x4f9a3a),
@@ -629,8 +622,8 @@ function buildSafeProps(levelData, style, T) {
   const total = kinds.reduce((a, k) => a + k[1], 0);
   const pick = () => { let r = rng.range(0, total); for (let i = 0; i < kinds.length; i++) { r -= kinds[i][1]; if (r <= 0) return i; } return kinds.length - 1; };
   const lists = kinds.map(() => []);
-  const add = (x, z, along) => {
-    const i = pick(), [lo, hi] = kinds[i][2], mode = kinds[i][3];
+  const add = (x, z, along, force = -1) => {
+    const i = force >= 0 ? force : pick(), [lo, hi] = kinds[i][2], mode = kinds[i][3];
     // 'face': turned (roughly) toward the camera, which looks toward -z; 'along': lies along its edge
     const ry = mode === 'face' ? rng.range(-0.5, 0.5) : mode === 'along' ? along + rng.range(-0.25, 0.25) : rng.range(0, TAU);
     lists[i].push({ x, z, s: rng.range(lo, hi), ry });
@@ -640,16 +633,37 @@ function buildSafeProps(levelData, style, T) {
     const cp = cps.find((p) => Math.abs(p.x - c.x) < 0.5 && Math.abs(p.z - c.z) < 0.5);
     // the flag stands in the corner behind the run direction, on the left (see buildCheckpoints)
     const flag = cp ? [Math.sign(-Math.cos(cp.heading) - Math.sin(cp.heading)), Math.sign(-Math.sin(cp.heading) + Math.cos(cp.heading))] : null;
+    // winter: every square gets one campfire, in a far (-z) corner where it can't hide a kitty
+    const fireSx = rng.chance(0.5) ? -1 : 1;
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
       if (flag && flag[0] === sx && flag[1] === sz) continue;
       const cx = c.x + sx * (h - 0.6), cz = c.z + sz * (h - 0.6);
-      add(cx, cz, rng.chance(0.5) ? 0 : Math.PI / 2);
+      add(cx, cz, rng.chance(0.5) ? 0 : Math.PI / 2, style === 'winter' && sz < 0 && (sx === fireSx || (flag && flag[1] < 0)) ? 0 : -1);
       // one or two more along the two edges that meet here
       add(c.x + sx * (h - 0.5), cz - sz * rng.range(1.1, 2.2), Math.PI / 2);
       if (rng.chance(0.6)) add(cx - sx * rng.range(1.1, 2.2), c.z + sz * (h - 0.5), 0);
     }
   }
-  return kinds.map(([geo], i) => makeInstanced(T.g(geo), mat, lists[i], { cast: true, receive: true }));
+  const out = kinds.map(([geo], i) => makeInstanced(T.g(geo), mat, lists[i], { cast: true, receive: true }));
+  // kinds may carry a glowing part (flames, lantern light: unlit vertex colours, same instances) and a soft pool of
+  // light on the tile (additive glow decal; dim, no glare)
+  let glowMat = null, glowGeo = null;
+  const pools = [];
+  kinds.forEach(([, , , , lit, pool], i) => {
+    if (lit) {
+      const m = makeInstanced(T.g(lit), T.m(new THREE.MeshBasicMaterial({ vertexColors: true })), lists[i]);
+      out.push(m);
+    }
+    if (pool) for (const it of lists[i]) pools.push({ x: it.x, z: it.z, y: 0.02, s: pool.s * it.s, color: new THREE.Color(pool.color).multiplyScalar(pool.k) });
+  });
+  if (pools.length) {
+    glowGeo = T.g(new THREE.PlaneGeometry(1, 1)); glowGeo.rotateX(-Math.PI / 2);
+    glowMat = T.m(new THREE.MeshBasicMaterial({ map: makeGlowTexture(T), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    const g = makeInstanced(glowGeo, glowMat, pools);
+    g.renderOrder = 1;
+    out.push(g);
+  }
+  return out;
 }
 
 // The final run's start square: the remains of kitties that didn't make it (cat skulls with ear ridges and big eye

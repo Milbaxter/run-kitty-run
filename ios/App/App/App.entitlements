@@ -5,6 +5,7 @@
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:80-47-225-25.nip.io</string>
+		<string>applinks:runkittyrun.80-47-225-25.nip.io</string>
 	</array>
 </dict>
 </plist>

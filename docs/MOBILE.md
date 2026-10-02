@@ -7,7 +7,7 @@ Everything needed to build, test and ship the store apps. Work top to bottom; se
 - **Capacitor** wraps `public/` (copied to `www/` by `npm run build:www`) into native iOS/Android shells. The game files are bundled in the app; nothing is loaded from the web at startup.
 - The apps play on the **same server** as the website (`https://80-47-225-25.nip.io`), so web, iOS and Android players share lobbies (cross-play). Solo / local co-op work offline.
 - **Protocol gate:** on connect the client sends `{t:'hi', v:PROTOCOL_VERSION}`; the server rejects `v < MIN_PROTOCOL` with an "update the app" screen. Web players always get the newest code, app players don't — an app update takes days (review + users updating), so the server must stay backward compatible (see §9).
-- **Deep links:** invite links `https://80-47-225-25.nip.io/?room=ABCD` open the app if installed (iOS Universal Links via `/.well-known/apple-app-site-association`, Android App Links via `/.well-known/assetlinks.json`), plus the `runkittyrun://join?room=ABCD` scheme.
+- **Deep links:** invite links on either host (`https://80-47-225-25.nip.io/?room=ABCD` or `https://runkittyrun.80-47-225-25.nip.io/?room=ABCD`) open the app if installed (iOS Universal Links via `/.well-known/apple-app-site-association`, Android App Links via `/.well-known/assetlinks.json`), plus the `runkittyrun://join?room=ABCD` scheme.
 - **Moderation** (required by both stores for chat): server-side name/chat filter, Report and Block in the chat player menu (`public/js/chat.js`), terms acceptance before first online game (`public/js/terms.js`), reports in `/var/lib/run-kitty-run/reports.jsonl`.
 - Native bits: haptics, native share sheet, keep-awake, status bar/splash (`public/js/platform.js`).
 
@@ -199,7 +199,7 @@ Only `public/`-only changes? The website updates on deploy as usual; the apps ke
 - **iPad**: the app is universal, so iPad screenshots are mandatory and reviewers test on iPad.
 - **Xcode version**: Apple only accepts builds from the current Xcode/SDK; CI uses `latest-stable` on the newest macOS runner. If uploads get rejected for SDK version, bump `runs-on` in `mobile.yml`.
 - **Google**: target the latest API level (`targetSdkVersion` in `android/variables.gradle`, 36 now) — Play enforces this each August. Data safety form must match `store/answers.md`.
-- **Domain**: deep links ride on `80-47-225-25.nip.io`. If the server ever moves, update the entitlement (`ios/App/App/App.entitlements`), the Android intent filter, `PROD_ORIGIN` in `platform.js` — and old apps will point at the old host, so keep it alive. A real domain is worth buying before launch.
+- **Domain**: the apps talk to `80-47-225-25.nip.io` (`PROD_ORIGIN`); deep links accept it and `runkittyrun.80-47-225-25.nip.io`, so both must keep serving the game and the `/.well-known` files. If the server ever moves, update the entitlement (`ios/App/App/App.entitlements`), the Android intent filter, `PROD_ORIGIN` in `platform.js` — and old apps will point at the old host, so keep it alive. A real domain is worth buying before launch.
 
 ## 11. Troubleshooting
 

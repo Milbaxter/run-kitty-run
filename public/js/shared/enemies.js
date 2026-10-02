@@ -461,4 +461,4 @@ function applyEnemyState(enemies, data) {
   }
 }
 
-export { createEnemies, updateEnemies, nearestEnemyDist, serializeEnemies, applyEnemyState, isPattern, patternPose, buildPlan, patternSpeed };
+export { createEnemies, updateEnemies, nearestEnemyDist, serializeEnemies, applyEnemyState, isPattern, patternPose, buildPlan, patternSpeed, EASE_T };

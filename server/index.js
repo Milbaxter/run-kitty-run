@@ -23,6 +23,13 @@ const MAX_ROOMS = 200;
 // Oldest client protocol still accepted (see PROTOCOL_VERSION in shared/config.js). App store builds lag the web,
 // so only raise this when old clients would really break; they get an "update" notice instead of a broken game.
 const MIN_PROTOCOL = 1;
+// Per-mode protocol floor: older clients can still play the other modes. Protocol 2 = Skate only uses
+// deterministic pattern wolves; a protocol-1 client would simulate random wanderers there and desync.
+// Such clients can't create or join these lobbies and don't see them in the list.
+const MODE_MIN_PROTOCOL = { ice: 2 };
+const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
+const MODE_NAMES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
+const updateHow = (client) => (client.app === 'web' ? 'reload the page' : 'update the app');
 const APPS = ['web', 'ios', 'android'];
 // Player reports (moderation) are appended here as JSON lines, next to the feedback file by default.
 const REPORTS_FILE = process.env.REPORTS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'reports.jsonl');
@@ -190,10 +197,11 @@ function sendRoom(room) {
   for (const m of room.members) send(m.ws, { ...info, you: m.id });
 }
 
-function lobbyList() {
+function lobbyList(client) {
   const list = [];
   for (const r of rooms.values()) {
     if (r.members.length === 0) continue;
+    if (!modeOk(client, r.mode)) continue; // this client's build can't play that mode
     list.push({
       code: r.code, players: r.members.length, max: NET.MAX_PLAYERS, phase: r.phase,
       host: (r.members.find((m) => m.id === r.hostId) || r.members[0]).name,
@@ -209,6 +217,9 @@ function freeColorSlot(room) {
 }
 
 function joinRoom(client, room, name) {
+  // Covers every way in: lobby list, code, invite deep link, reconnect rejoin, mid-game join.
+  // 'code' in the text makes old clients drop ?room= from the URL so they don't retry the link.
+  if (!modeOk(client, room.mode)) return send(client.ws, { t: 'error', msg: `That lobby code is for ${MODE_NAMES[room.mode]}, which needs the latest version — ${updateHow(client)} to play it.` });
   if (room.members.length >= NET.MAX_PLAYERS) return send(client.ws, { t: 'error', msg: 'That lobby is full (8/8).' });
   leaveRoom(client);
   const slot = freeColorSlot(room);
@@ -346,7 +357,7 @@ const clients = new Map(); // id -> client (kept ~10 min after disconnect so lat
 
 wss.on('connection', (ws, req) => {
   // app/ver come from the client's 'hi'; clients that never send one are old web tabs
-  const client = { id: nextClientId++, ws, room: null, name: '', app: 'web', ver: '', hi: false, ip: clientIp(req), chatLog: [], reportTimes: [] };
+  const client = { id: nextClientId++, ws, room: null, name: '', app: 'web', ver: '', hi: false, v: 0, ip: clientIp(req), chatLog: [], reportTimes: [] };
   clients.set(client.id, client);
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
@@ -361,6 +372,7 @@ wss.on('connection', (ws, req) => {
       case 'hi': {
         const v = Number.isFinite(msg.v) ? msg.v : 0;
         client.hi = true;
+        client.v = v;
         client.app = APPS.includes(msg.app) ? msg.app : 'web';
         client.ver = String(msg.ver ?? '').replace(/[^\w.+-]/g, '').slice(0, 16);
         if (v < MIN_PROTOCOL) {
@@ -373,11 +385,12 @@ wss.on('connection', (ws, req) => {
         handleReport(client, msg);
         break;
       case 'list':
-        send(ws, { t: 'lobbies', list: lobbyList() });
+        send(ws, { t: 'lobbies', list: lobbyList(client) });
         break;
       case 'create': {
         if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', msg: 'Server is full, try again later.' });
         const mode = GAME_MODES.includes(msg.mode) ? msg.mode : 'mixed';
+        if (!modeOk(client, mode)) return send(ws, { t: 'error', msg: `${MODE_NAMES[mode]} needs the latest version — ${updateHow(client)} to play it. The other modes work as usual.` });
         const r = { code: makeCode(), mode, members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0,
           reports: new Map(), mutes: new Map() }; // reported id -> Set(reporter ips); muted id -> until
         rooms.set(r.code, r);

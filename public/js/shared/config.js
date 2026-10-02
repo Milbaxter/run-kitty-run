@@ -64,6 +64,10 @@ function levelParams(level) {
     enemyPauseScale: Math.max(0.4, 1 - 0.07 * (L - 1)),             // wolves rest less each level
     enemyTypes: types,
     itemCount: 8 + Math.floor(L / 2),
+    // Skate only mode: pattern wolves (maze.js placePatternEnemies). Level part of the room difficulty
+    // (0 = gentle lessons; each leg adds up to +0.45 toward the middle): faster wolves, shorter holds,
+    // busier rooms, tighter launch windows.
+    patternHeat: Math.min(1.05, 0.17 * (L - 1)),
   };
 }
 
@@ -81,6 +85,6 @@ const NET = {
 // Online protocol version, sent by clients in their first 'hi' message. Bump it whenever the sim or netcode
 // changes incompatibly (anything that would desync an older client); the server's MIN_PROTOCOL then decides
 // who gets an "update the app" notice. App store builds lag the web by days, so avoid bumping casually.
-const PROTOCOL_VERSION = 1;
+const PROTOCOL_VERSION = 2;
 
 export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, PROTOCOL_VERSION };

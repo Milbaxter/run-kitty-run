@@ -1,9 +1,12 @@
 // Server smoke test: lobby limits, host start/migration, inputs, snapshots.
 import WebSocket from 'ws';
+import { PROTOCOL_VERSION } from '../public/js/shared/config.js';
 const URL = process.env.URL || 'ws://localhost:8080/ws';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-function bot(name) {
+// v: protocol sent in the client's 'hi' (omitted: an old client that never says hi)
+function bot(name, v) {
   const ws = new WebSocket(URL);
+  if (v != null) ws.on('open', () => ws.send(JSON.stringify({ t: 'hi', v, app: 'ios', ver: 'test' })));
   const b = { name, ws, msgs: [], last: {}, snaps: 0 };
   ws.on('message', (d) => { const m = JSON.parse(d); b.last[m.t] = m; if (m.t === 'snap') b.snaps++; else b.msgs.push(m); });
   b.send = (m) => ws.send(JSON.stringify(m));
@@ -72,3 +75,34 @@ lister.ws.close();
 const chk = bot('C'); await chk.ready; chk.send({ t: 'list' }); await sleep(200);
 ok(!chk.last.lobbies.list.some((l) => l.code === code), 'empty lobby is removed');
 chk.ws.close();
+
+// Skate only (pattern wolves, protocol 2): old app builds may play the other modes but not this one.
+const nu = bot('New', PROTOCOL_VERSION); await nu.ready;
+const old = bot('Old', 1); await old.ready;
+const nohi = bot('NoHi'); await nohi.ready;
+await sleep(100);
+old.send({ t: 'create', name: 'Old', mode: 'ice' }); await sleep(200);
+ok(!old.last.room && old.last.error && /update the app/.test(old.last.error.msg), 'old client cannot create Skate only: ' + (old.last.error || {}).msg);
+nu.send({ t: 'create', name: 'New', mode: 'ice' }); await sleep(200);
+const iceCode = nu.last.room && nu.last.room.code;
+ok(nu.last.room && nu.last.room.mode === 'ice', `new client creates Skate only lobby ${iceCode}`);
+old.send({ t: 'list' }); nohi.send({ t: 'list' }); nu.send({ t: 'list' }); await sleep(200);
+ok(!old.last.lobbies.list.some((l) => l.code === iceCode) && !nohi.last.lobbies.list.some((l) => l.code === iceCode), 'Skate only lobby hidden from old clients');
+ok(nu.last.lobbies.list.some((l) => l.code === iceCode && l.mode === 'ice'), 'Skate only lobby listed for new clients');
+old.last.error = null;
+old.send({ t: 'join', code: iceCode.toLowerCase(), name: 'Old' }); nohi.send({ t: 'join', code: iceCode, name: 'NoHi' }); await sleep(200);
+ok(!old.last.room && /code/.test((old.last.error || {}).msg) && /Skate only/.test(old.last.error.msg), 'old client refused joining by code / link: ' + (old.last.error || {}).msg);
+ok(!nohi.last.room && nohi.last.error, 'client without hi refused too');
+ok(nu.last.room.members.length === 1, 'refused clients never entered the lobby');
+// old clients still play the other modes, and a refused ice join keeps them in their current lobby
+old.send({ t: 'create', name: 'Old', mode: 'run' }); await sleep(200);
+const runCode = old.last.room && old.last.room.code;
+ok(old.last.room && old.last.room.mode === 'run', 'old client can still create Run only');
+nu.send({ t: 'start' }); await sleep(300);
+old.send({ t: 'join', code: iceCode, name: 'Old' }); await sleep(200);
+ok(old.last.room.code === runCode && !old.last.start, 'old client refused mid-game join, stays in its own lobby');
+const nu2 = bot('New2', PROTOCOL_VERSION); await nu2.ready; await sleep(50);
+nu2.send({ t: 'join', code: iceCode, name: 'New2' }); await sleep(300);
+ok(nu2.last.start && nu2.last.start.mode === 'ice' && Array.isArray(nu2.last.start.wolves), 'new client joins Skate only mid-game with wolf state');
+for (const b of [nu, nu2, old, nohi]) b.ws.close();
+await sleep(100);

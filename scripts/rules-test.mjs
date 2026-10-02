@@ -37,7 +37,8 @@ const n = ld.legs.length;
 const fin = ld.enemies.filter((e) => e.leg === n - 1);
 ok(fin.length >= 8, `final stretch is crowded (${fin.length} wolves)`);
 {
-  const ice = generateLevel(sim.level, sim.levelData.seed, 'ice');
+  // the default mode's ice rink (level 2) keeps wanderers; Skate only mode has pattern wolves (ice-pattern-test.mjs)
+  const ice = generateLevel(sim.level, sim.levelData.seed, 'mixed');
   const sp = (l, f) => avg(l.enemies.filter(f).map((e) => e.speed));
   const gain = (l) => sp(l, (e) => e.leg >= half) / sp(l, (e) => e.leg < half);
   ok(ice.ice && gain(ice) < gain(ld), `ice levels ramp more gently (inner/outer speed x${gain(ice).toFixed(3)} vs x${gain(ld).toFixed(3)} running)`);

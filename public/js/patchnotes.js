@@ -2,6 +2,15 @@
 // When you ship something players will notice, add a line to the top entry (or start a new one).
 const PATCH_NOTES = [
   {
+    version: '0.9', date: '2026-10-02', title: 'Wolf patterns on ice',
+    items: [
+      'Skate only: wolves don\'t wander anymore, they walk fixed patterns you can learn: charging along the lane, crossing it wall to wall, zig-zagging, or circling',
+      'Watch from a safe square, spot the rhythm, then skate through the gap',
+      'Wolves turn toward their next move just before they go',
+      'Run + Skate is unchanged',
+    ],
+  },
+  {
     version: '0.8', date: '2026-10-01', title: 'Ice skating',
     items: [
       'Autumn levels have a climbable tree in every lane: run under it to climb up, wolves can\'t reach you there (room for several kitties), and there\'s a pair of speed boots on top of each one',

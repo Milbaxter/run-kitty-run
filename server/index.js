@@ -36,6 +36,17 @@ const FEEDBACK_FILE = process.env.FEEDBACK_FILE || path.resolve(path.dirname(fil
 const FEEDBACK_MAX = 1000;          // characters per message
 const FEEDBACK_PER_HOUR = 6;        // per IP
 const MAX_ROOMS = 200;
+const FEEDBACK_FILE_MAX = 5 << 20;  // bytes; stop appending past this (someone has to read it)
+// Abuse limits per connection / IP. MAX_CONN_PER_IP can be raised for local load tests (scripts/bot-test.mjs opens ~35).
+const MAX_CONN_PER_IP = +process.env.MAX_CONN_PER_IP || 10;
+const MSG_RATE = 150, MSG_BURST = 300;   // any message; ~60 inputs/s + pings is normal play. Over it: disconnect
+const LOBBY_RATE = 1, LOBBY_BURST = 5;   // create / join / leave / list / start
+const LOBBY_MSGS = new Set(['create', 'join', 'leave', 'list', 'start']);
+// A client that stops reading would make us buffer its messages forever. Snapshots are ~1-10 KB at 20 Hz,
+// so 1 MB is many seconds behind: it can't play anyway, drop it (it reconnects).
+const MAX_BUFFERED = 1 << 20;
+// Reconnect grace: a kitty that drops out mid-game and comes back (same tab token) within this keeps its state.
+const REJOIN_GRACE_MS = 60e3;
 // Anonymous play stats (title screen STATS page) live next to the feedback file.
 const stats = createStats(process.env.STATS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'stats.json'));
 // Oldest client protocol still accepted at all (see PROTOCOL_VERSION in shared/config.js). App store builds lag the
@@ -75,8 +86,26 @@ const WELL_KNOWN = {
 const PAGES = { '/privacy': '/privacy.html', '/terms': '/terms.html', '/support': '/support.html' };
 
 const server = http.createServer((req, res) => {
-  const url = new URL(req.url, 'http://x');
-  if (url.pathname === '/healthz') { res.end('ok'); return; }
+  try { handleHttp(req, res); } catch (err) {
+    console.error('http handler failed:', err);
+    if (!res.headersSent) res.writeHead(500);
+    res.end();
+  }
+});
+
+// weak validator: size + mtime is enough for files that are only ever replaced by a deploy
+const etagOf = (st) => `W/"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
+function notModified(req, st, etag) {
+  const inm = req.headers['if-none-match'];
+  if (inm) return inm.split(',').some((t) => { t = t.trim(); return t === '*' || t === etag || t === etag.slice(2); });
+  const ims = Date.parse(req.headers['if-modified-since'] || '');
+  return Number.isFinite(ims) && Math.floor(st.mtimeMs / 1000) * 1000 <= ims;
+}
+
+function handleHttp(req, res) {
+  let url;
+  try { url = new URL(req.url, 'http://x'); } catch { res.writeHead(400).end(); return; }
+  if (url.pathname === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }).end('ok'); return; }
   if (url.pathname.startsWith('/api/')) {
     const origin = req.headers.origin;
     if (origin && CORS_ORIGINS.has(origin)) {
@@ -103,16 +132,25 @@ const server = http.createServer((req, res) => {
   }
   let p;
   try { p = decodeURIComponent(PAGES[url.pathname] || url.pathname); } catch { res.writeHead(400).end(); return; }
+  if (p.includes('\0')) { res.writeHead(400).end(); return; }
   if (p.endsWith('/')) p += 'index.html';
   const file = path.join(ROOT, p);
   if (!file.startsWith(ROOT + path.sep)) { res.writeHead(403).end(); return; }
   fs.stat(file, (err, st) => {
     if (err || !st.isFile()) { res.writeHead(404).end('not found'); return; }
+    // no-cache = revalidate every time, which the ETag makes a cheap 304 (vendor/ isn't versioned, so it gets the same)
+    const etag = etagOf(st);
     const headers = {
       'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream',
       'Cache-Control': p.startsWith('/music/') ? 'public, max-age=86400' : 'no-cache',
       'Accept-Ranges': 'bytes',
+      ETag: etag,
+      'Last-Modified': st.mtime.toUTCString(),
     };
+    if ((req.method === 'GET' || req.method === 'HEAD') && notModified(req, st, etag)) {
+      res.writeHead(304, { ETag: etag, 'Last-Modified': headers['Last-Modified'], 'Cache-Control': headers['Cache-Control'] }).end();
+      return;
+    }
     // Range requests: needed for seeking audio, and Safari won't play media without them.
     const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
     if (m && (m[1] || m[2])) {
@@ -130,15 +168,20 @@ const server = http.createServer((req, res) => {
     if (req.method === 'HEAD') { res.end(); return; }
     fs.createReadStream(file).pipe(res);
   });
-});
+}
 
 // ---------------- feedback ----------------
 const feedbackHits = new Map(); // ip -> [timestamps]
+setInterval(() => { const now = Date.now(); for (const [ip, h] of feedbackHits) if (!h.some((t) => now - t < 3600e3)) feedbackHits.delete(ip); }, 600e3).unref();
 
+const isLoopback = (a) => a === '::1' || /^(::ffff:)?127\./.test(a || '');
 function clientIp(req) {
-  // behind Caddy: the first X-Forwarded-For entry is the real client
+  const ra = req.socket.remoteAddress || '?';
+  // behind Caddy (same box, so loopback): the first X-Forwarded-For entry is the real client.
+  // From anywhere else the header is whatever the client made up.
+  if (!isLoopback(ra)) return ra;
   const xf = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-  return xf || req.socket.remoteAddress || '?';
+  return xf || ra;
 }
 
 function handleFeedback(req, res) {
@@ -147,12 +190,15 @@ function handleFeedback(req, res) {
   const ip = clientIp(req);
   const now = Date.now();
   const hits = (feedbackHits.get(ip) || []).filter((t) => now - t < 3600e3);
+  feedbackHits.set(ip, hits);
   if (hits.length >= FEEDBACK_PER_HOUR) return reply(429, { ok: false, msg: 'Thanks! That is plenty of feedback for now.' });
+  hits.push(now); // counted up front: junk and oversized bodies use up the allowance too
   let body = '';
   req.on('data', (c) => { body += c; if (body.length > 8192) req.destroy(); });
   req.on('end', () => {
     let m;
     try { m = JSON.parse(body); } catch { return reply(400, { ok: false }); }
+    if (!m || typeof m !== 'object') return reply(400, { ok: false });
     const clean = (v, n) => String(v ?? '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, n);
     const text = clean(m.text, FEEDBACK_MAX);
     if (text.length < 2) return reply(400, { ok: false, msg: 'Type a little more first.' });
@@ -161,11 +207,12 @@ function handleFeedback(req, res) {
       name: clean(m.name, 20), mode: clean(m.mode, 12), app: clean(m.app, 8), ver: clean(m.ver, 16), level: Number.isFinite(m.level) ? m.level | 0 : null,
       ua: clean(req.headers['user-agent'], 160),
     };
-    hits.push(now);
-    feedbackHits.set(ip, hits);
-    fs.appendFile(FEEDBACK_FILE, JSON.stringify(entry) + '\n', (err) => {
-      if (err) { console.error('feedback write failed:', err.message); return reply(500, { ok: false }); }
-      reply(200, { ok: true });
+    fs.stat(FEEDBACK_FILE, (e, st) => {
+      if (!e && st.size > FEEDBACK_FILE_MAX) { console.error('feedback file full, dropping feedback'); return reply(503, { ok: false, msg: 'Feedback is full right now, try again later.' }); }
+      fs.appendFile(FEEDBACK_FILE, JSON.stringify(entry) + '\n', (err) => {
+        if (err) { console.error('feedback write failed:', err.message); return reply(500, { ok: false }); }
+        reply(200, { ok: true });
+      });
     });
   });
 }
@@ -189,7 +236,9 @@ function cleanName(n, fallback) {
 }
 
 function send(ws, msg) {
-  if (ws.readyState === 1) ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg));
+  if (ws.readyState !== 1) return;
+  if (ws.bufferedAmount > MAX_BUFFERED) { ws.terminate(); return; }
+  ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg));
 }
 
 function broadcast(room, msg) {
@@ -251,6 +300,7 @@ function joinRoom(client, room, name) {
   if (room.phase === 'playing') {
     // Join mid-game: spawn now; send full state (including wolves) so the newcomer is in sync.
     const p = addPlayer(room.sim, { id: client.id, name: client.name, color: client.color });
+    restoreLeft(room, client, p);
     // Mid-victory: join the party in the goal room instead of starting alone at the far end of the final run.
     if (room.sim.state === 'victory') {
       const a = room.sim.players.length * 2.399963, r = 3.3;
@@ -262,11 +312,52 @@ function joinRoom(client, room, name) {
   }
 }
 
+// ---- reconnect grace ----
+// Someone who leaves a running game (dropped socket or LEAVE) and comes back within REJOIN_GRACE_MS gets their kitty
+// back as it was: lives, deaths, rescues, crown... and a kitty that was down stays down (in its rescue circle) on the
+// same level, so leaving and rejoining is not a free revive. Matched by the tab token from 'hi' (net.js); a downed
+// kitty is also matched by IP, so a new tab / cleared storage doesn't dodge it either. Anyone else joining mid-game is
+// a genuine drop-in and spawns alive with spawn invulnerability, as before (that is how friends join a running game).
+function pruneLeft(room, now = Date.now()) {
+  for (const [k, r] of room.left) if (now - r.at > REJOIN_GRACE_MS || r.sim !== room.sim) room.left.delete(k);
+}
+
+function rememberLeft(room, client) {
+  const sim = room.sim;
+  const p = sim && room.phase === 'playing' && sim.players.find((q) => q.id === client.id);
+  if (!p) return;
+  pruneLeft(room);
+  const circ = sim.circles.find((c) => c.playerId === p.id);
+  room.left.set(client.tok || `ip:${client.ip}#${client.id}`, {
+    at: Date.now(), sim, level: sim.level, ip: client.ip,
+    alive: p.alive, x: p.x, z: p.z, circleT: circ ? circ.t : 0,
+    lives: p.lives, deaths: p.deaths, rescues: p.rescues, finishes: p.finishes, crowned: p.crowned, speedMult: p.speedMult,
+  });
+}
+
+function restoreLeft(room, client, p) {
+  if (!room.left) return;
+  pruneLeft(room);
+  let key = client.tok && room.left.has(client.tok) ? client.tok : null;
+  if (!key) for (const [k, r] of room.left) if (!r.alive && r.ip === client.ip) { key = k; break; }
+  if (!key) return;
+  const r = room.left.get(key);
+  room.left.delete(key);
+  const sim = room.sim;
+  Object.assign(p, { lives: r.lives, deaths: r.deaths, rescues: r.rescues, finishes: r.finishes, crowned: r.crowned, speedMult: r.speedMult });
+  // a new level (or the victory party) revives everyone anyway
+  if (!r.alive && r.level === sim.level && sim.state !== 'victory') {
+    Object.assign(p, { alive: false, x: r.x, z: r.z, vx: 0, vz: 0, moving: false, inCenter: false, invuln: 0, shield: 0, speedMult: 1 });
+    sim.circles.push({ playerId: p.id, x: r.x, z: r.z, t: r.circleT });
+  }
+}
+
 function leaveRoom(client) {
   const room = client.room;
   if (!room) return;
   client.room = null;
   room.members = room.members.filter((m) => m !== client);
+  rememberLeft(room, client);
   if (room.sim) removePlayer(room.sim, client.id);
   if (room.members.length === 0) { rooms.delete(room.code); return; }
   if (room.hostId === client.id) room.hostId = room.members[0].id; // next in join order
@@ -291,6 +382,7 @@ function startGame(room, startLevel = 1) {
   room.pending = [];
   room.overAt = 0;
   room.victory = null;
+  room.left = new Map();
   const seed = hashSeed(Date.now(), Math.random(), room.code) >>> 0;
   room.sim = createSim({
     seed, startLevel, mode: room.mode,
@@ -370,7 +462,10 @@ setInterval(() => {
   if (acc > 0.25) acc = 0.25; // never spiral after a stall
   while (acc >= CFG.TICK) {
     acc -= CFG.TICK;
-    for (const room of rooms.values()) if (room.phase === 'playing') stepRoom(room);
+    for (const room of rooms.values()) {
+      if (room.phase !== 'playing') continue;
+      try { stepRoom(room); } catch (err) { roomCrashed(room, err); }
+    }
   }
   for (const room of rooms.values()) {
     if (room.phase === 'playing' && room.overAt && Date.now() >= room.overAt) {
@@ -383,25 +478,61 @@ setInterval(() => {
   }
 }, 1000 / 120);
 
+// A sim bug in one room must not take the other rooms down: log it and send that room back to the lobby.
+function roomCrashed(room, err) {
+  console.error(`room ${room.code} step failed:`, err);
+  room.phase = 'lobby'; room.sim = null; room.victory = null; room.overAt = 0; room.pending = []; room.left = new Map();
+  try {
+    sendRoom(room);
+    broadcast(room, { t: 'chat', sys: true, text: 'Something went wrong — back to the lobby' });
+  } catch (e) { console.error('room reset failed:', e); }
+}
+
 // ---------------- websocket ----------------
-const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 16 * 1024 });
+// Compress only big messages (the full wolf state for 'resync' / mid-game 'start'); snapshots go out as they are.
+const wss = new WebSocketServer({
+  server, path: '/ws', maxPayload: 16 * 1024,
+  perMessageDeflate: { threshold: 16384, zlibDeflateOptions: { level: 1 }, serverNoContextTakeover: true, clientNoContextTakeover: true },
+});
 
 const clients = new Map(); // id -> client (kept ~10 min after disconnect so late reports still work)
+const connsPerIp = new Map(); // ip -> open sockets
+
+// token bucket on client[key + 'Tok'] / [key + 'At']: true if a message may pass
+function take(client, key, rate, burst, now) {
+  const tok = Math.min(burst, (client[key + 'Tok'] ?? burst) + (now - (client[key + 'At'] ?? now)) / 1000 * rate);
+  client[key + 'At'] = now;
+  if (tok < 1) { client[key + 'Tok'] = tok; return false; }
+  client[key + 'Tok'] = tok - 1;
+  return true;
+}
 
 wss.on('connection', (ws, req) => {
+  const ip = clientIp(req);
+  const n = (connsPerIp.get(ip) || 0) + 1;
+  if (n > MAX_CONN_PER_IP) { ws.close(1013, 'too many connections'); return; }
+  connsPerIp.set(ip, n);
   stats.online(wss.clients.size);
-  // v/app/ver come from the client's 'hi' (sent before anything else); clients that never send one are old web tabs
-  const client = { id: nextClientId++, ws, room: null, name: '', app: 'web', ver: '', hi: false, v: 0, ip: clientIp(req), chatLog: [], reportTimes: [] };
+  // v/app/ver/tok come from the client's 'hi' (sent before anything else); clients that never send one are old web tabs
+  const client = { id: nextClientId++, ws, room: null, name: '', app: 'web', ver: '', hi: false, v: 0, tok: '', ip, chatLog: [], reportTimes: [] };
   clients.set(client.id, client);
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
   send(ws, { t: 'hello', id: client.id });
 
   ws.on('message', (raw) => {
+    if (!take(client, 'msg', MSG_RATE, MSG_BURST, Date.now())) { ws.terminate(); return; } // flooding: not a real client
+    try { onMessage(raw); } catch (err) { console.error('ws message failed:', err); }
+  });
+  function onMessage(raw) {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
     if (!msg || typeof msg.t !== 'string') return;
     const room = client.room;
+    if (LOBBY_MSGS.has(msg.t) && !take(client, 'lobby', LOBBY_RATE, LOBBY_BURST, Date.now())) {
+      if (msg.t !== 'list') send(ws, { t: 'error', msg: 'Slow down a little!' });
+      return;
+    }
     switch (msg.t) {
       case 'hi': {
         const v = Number.isFinite(msg.v) ? msg.v : 0;
@@ -409,6 +540,7 @@ wss.on('connection', (ws, req) => {
         client.v = v;
         client.app = APPS.includes(msg.app) ? msg.app : 'web';
         client.ver = String(msg.ver ?? '').replace(/[^\w.+-]/g, '').slice(0, 16);
+        if (typeof msg.tok === 'string' && /^[\w-]{8,64}$/.test(msg.tok)) client.tok = msg.tok; // reconnect grace (net.js)
         if (v < MIN_PROTOCOL) {
           send(ws, { t: 'outdated', msg: 'A new version of Run Kitty Run is out - update to keep playing online.' });
           ws.close(4000, 'outdated');
@@ -426,7 +558,8 @@ wss.on('connection', (ws, req) => {
         const mode = GAME_MODES.includes(msg.mode) ? msg.mode : 'mixed';
         if (!modeOk(client, mode)) return send(ws, { t: 'error', msg: `${MODE_NAMES[mode]} needs the latest version - ${updateHow(client)} to play it. The other modes work as usual.` });
         const r = { code: makeCode(), mode, members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0, victory: null,
-          reports: new Map(), mutes: new Map() }; // reported id -> Set(reporter ips); muted id -> until
+          reports: new Map(), mutes: new Map(), // reported id -> Set(reporter ips); muted id -> until
+          left: new Map() }; // tab token -> state of a kitty that left this game (reconnect grace)
         stats.lobbyCreated();
         rooms.set(r.code, r);
         joinRoom(client, r, msg.name);
@@ -449,10 +582,15 @@ wss.on('connection', (ws, req) => {
         }
         break;
       case 'dbg': {
-        // test hook: put the sender's kitty in the goal (it clears the level on the next tick)
+        // test hooks: put the sender's kitty in the goal (it clears the level on the next tick) ...
         if (!TEST_HOOKS || !room || !room.sim) return;
         const p = room.sim.players.find((q) => q.id === client.id);
         if (p && msg.do === 'goal') { p.alive = true; p.x = 0; p.z = 0; p.vx = 0; p.vz = 0; }
+        if (p && p.alive && msg.do === 'die') { // ... or knock it down where it stands (rescue circle and all)
+          Object.assign(p, { alive: false, vx: 0, vz: 0, moving: false, shield: 0, invuln: 0, speedMult: 1 });
+          p.deaths++;
+          room.sim.circles.push({ playerId: p.id, x: p.x, z: p.z, t: 0 });
+        }
         break;
       }
       case 'in': {
@@ -471,10 +609,7 @@ wss.on('connection', (ws, req) => {
         if (!room) return;
         // token bucket: bursts of 5, refills one message per second
         const now = Date.now();
-        client.chatTokens = Math.min(5, (client.chatTokens ?? 5) + (now - (client.chatAt || now)) / 1000);
-        client.chatAt = now;
-        if (client.chatTokens < 1) return send(ws, { t: 'chat', sys: true, text: 'Slow down a little!' });
-        client.chatTokens -= 1;
+        if (!take(client, 'chat', 1, 5, now)) return send(ws, { t: 'chat', sys: true, text: 'Slow down a little!' });
         const raw = String(msg.text || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120);
         if (!raw) return;
         client.chatLog.push({ at: new Date(now).toISOString(), room: room.code, text: raw });
@@ -488,13 +623,20 @@ wss.on('connection', (ws, req) => {
       case 'ping':
         send(ws, { t: 'pong', c: msg.c, k: room && room.phase === 'playing' ? room.tick : 0 });
         break;
-      case 'resync':
-        if (room && room.sim) send(ws, { t: 'wolves', lvl: room.sim.level, lt: room.sim.enemyTicks, wolves: serializeEnemies(room.sim.enemies) });
+      case 'resync': {
+        // the client asks at most every 2 s (main.js); the full wolf state is big, so hold it to 1/s
+        const now = Date.now();
+        if (!room || !room.sim || now - (client.resyncAt || 0) < 1000) return;
+        client.resyncAt = now;
+        send(ws, { t: 'wolves', lvl: room.sim.level, lt: room.sim.enemyTicks, wolves: serializeEnemies(room.sim.enemies) });
         break;
+      }
     }
-  });
+  }
 
   ws.on('close', () => {
+    const left = (connsPerIp.get(ip) || 1) - 1;
+    if (left > 0) connsPerIp.set(ip, left); else connsPerIp.delete(ip);
     leaveRoom(client);
     setTimeout(() => clients.delete(client.id), 10 * 60e3);
   });
@@ -548,5 +690,28 @@ setInterval(() => {
     ws.ping();
   }
 }, 15000);
+
+// Last resort: anything that still escapes is logged; state may be inconsistent, so exit and let systemd restart us.
+process.on('uncaughtException', (err) => {
+  console.error('uncaught:', err);
+  try { stats.flush(); } catch { /* ignore */ }
+  process.exit(1);
+});
+
+// Deploy / restart: tell the players, close with 1012 (service restart) so clients reconnect, save stats, go.
+let stopping = false;
+function shutdown() {
+  if (stopping) return;
+  stopping = true;
+  for (const room of rooms.values()) {
+    try { broadcast(room, { t: 'chat', sys: true, text: 'Server restarting…' }); } catch { /* ignore */ }
+  }
+  for (const ws of wss.clients) { try { ws.close(1012, 'restarting'); } catch { /* ignore */ } }
+  stats.flush();
+  server.close();
+  setTimeout(() => process.exit(0), 300);
+}
+process.once('SIGTERM', shutdown);
+process.once('SIGINT', shutdown);
 
 server.listen(PORT, HOST, () => console.log(`Run Kitty Run server on http://${HOST}:${PORT}`));

@@ -368,17 +368,20 @@ function kittyGeos(color) {
       [P.box, mtx([0.12, -0.25, 0], [0, 0, 0.9], [0.06, 0.025, 0.016]), SKATE_BLADE],
       [P.box, mtx([0.0, -0.13, 0], null, [0.07, 0.012, 0.07]), dark],
     ]);
-    // speed boot (one per pair picked up), in leg space: red boot with a gold cuff and little white wings,
-    // a touch bigger than the skate boot so it covers it on ice
-    const speedBoot = bake([
-      [P.ico1, mtx([0.025, -0.205, 0], null, [0.092, 0.07, 0.082]), BOOT_RED],
-      [P.cyl8, mtx([0.0, -0.15, 0], null, [0.066, 0.09, 0.066]), BOOT_RED],
-      [P.cyl8, mtx([0.0, -0.1, 0], null, [0.072, 0.028, 0.072]), BOOT_CUFF],
-      [P.box, mtx([-0.035, -0.13, 0.07], [0.5, 0, 0.5], [0.07, 0.03, 0.012]), 0xffffff],
-      [P.box, mtx([-0.035, -0.13, -0.07], [-0.5, 0, 0.5], [0.07, 0.03, 0.012]), 0xffffff],
-    ]);
-    return { body, head, eyes, ear, leg, tailSeg, tailTip, skate, speedBoot };
+    return { body, head, eyes, ear, leg, tailSeg, tailTip, skate, speedBoot: speedBootGeometry() };
   });
+}
+
+// speed boot (one per pair picked up), in leg space (paw at y -0.215): red boot with a gold cuff and little white
+// wings, a touch bigger than the skate boot so it covers it on ice. The boots pickup is this same model, scaled up.
+function speedBootGeometry() {
+  return cgeo('speedBoot', () => bake([
+    [P.ico1, mtx([0.025, -0.205, 0], null, [0.092, 0.07, 0.082]), BOOT_RED],
+    [P.cyl8, mtx([0.0, -0.15, 0], null, [0.066, 0.09, 0.066]), BOOT_RED],
+    [P.cyl8, mtx([0.0, -0.1, 0], null, [0.072, 0.028, 0.072]), BOOT_CUFF],
+    [P.box, mtx([-0.035, -0.13, 0.07], [0.5, 0, 0.5], [0.07, 0.03, 0.012]), 0xffffff],
+    [P.box, mtx([-0.035, -0.13, -0.07], [-0.5, 0, 0.5], [0.07, 0.03, 0.012]), 0xffffff],
+  ]));
 }
 
 function whiskerGeo() {
@@ -970,40 +973,6 @@ function itemDisc(type) {
   return m;
 }
 
-function bootGeos() {
-  return cgeo('boots', () => {
-    const red = 0xe2493b, sole = 0x5a3426, cuff = 0xffd36b, lace = 0xfff3e0;
-    const boot = bake([
-      [P.box, mtx([-0.03, 0.12, 0], null, [0.16, 0.26, 0.15]), red],
-      [P.ico1, mtx([0.08, -0.02, 0], null, [0.17, 0.09, 0.09]), red],
-      [P.box, mtx([0.03, -0.085, 0], null, [0.34, 0.04, 0.17]), sole],
-      [P.cyl8, mtx([-0.03, 0.26, 0], null, [0.11, 0.06, 0.11]), cuff],
-      [P.box, mtx([0.06, 0.07, 0], [0, 0, 0.6], [0.02, 0.1, 0.12]), lace],
-    ]);
-    const s = new THREE.Shape();
-    s.moveTo(0, 0);
-    s.quadraticCurveTo(-0.06, 0.24, -0.3, 0.32);
-    s.lineTo(-0.24, 0.23); s.lineTo(-0.36, 0.22); s.lineTo(-0.26, 0.13);
-    s.lineTo(-0.35, 0.09); s.lineTo(-0.22, 0.04);
-    s.quadraticCurveTo(-0.1, -0.02, 0, 0);
-    const wg = new THREE.ShapeGeometry(s, 6);
-    const wing = new THREE.BufferGeometry();
-    const src = wg.toNonIndexed();
-    const pa = src.attributes.position;
-    const col = [];
-    const cw = new THREE.Color(0xffffff), cg = new THREE.Color(0x7fe8ff);
-    for (let i = 0; i < pa.count; i++) {
-      const t = Math.min(1, Math.max(0, (-pa.getX(i) - 0.14) / 0.2));
-      _c.copy(cw).lerp(cg, t * t);
-      col.push(_c.r, _c.g, _c.b);
-    }
-    wing.setAttribute('position', pa.clone());
-    wing.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-    wg.dispose(); src.dispose();
-    return { boot, wing };
-  });
-}
-
 function heartGeo() {
   return cgeo('heart', () => {
     const s = new THREE.Shape();
@@ -1064,20 +1033,11 @@ function createItemModel(type) {
   let animate = null;
 
   if (type === 'boots') {
-    const G = bootGeos();
-    const boot = new THREE.Mesh(G.boot, VC_MAT()); boot.castShadow = QUALITY.propShadows; spin.add(boot);
-    const wingMat = cmat('wingMat', () => new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
-    const wings = [];
-    for (const sz of [1, -1]) {
-      const p = new THREE.Group(); p.position.set(-0.08, 0.17, 0.085 * sz); spin.add(p);
-      const w = new THREE.Mesh(G.wing, wingMat); p.add(w);
-      wings.push({ p, sz });
-    }
+    // the same speed boot the kitty wears (speedBootGeometry), scaled up to the pickup's usual size (~0.4 tall)
+    const boot = new THREE.Mesh(speedBootGeometry(), VC_MAT()); boot.castShadow = QUALITY.propShadows;
+    boot.scale.setScalar(2.1); boot.position.set(-0.05, 0.47, 0);
+    spin.add(boot);
     spin.rotation.z = 0.12;
-    animate = (t) => {
-      const f = Math.sin(t * 9 + off);
-      for (const w of wings) w.p.rotation.x = (0.35 + 0.45 * f) * w.sz;
-    };
   } else if (type === 'life') {
     const heartMat = cmat('heartMat', () => new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.5, emissive: 0xff2a5a, emissiveIntensity: 0.35 }));
     const heart = new THREE.Mesh(heartGeo(), heartMat); heart.castShadow = QUALITY.propShadows; spin.add(heart);

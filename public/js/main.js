@@ -26,7 +26,6 @@ import { TOUCH, QUALITY, goFullscreenLandscape } from './device.js';
 const params = new URLSearchParams(location.search);
 const DEBUG_LEVEL = Math.max(1, parseInt(params.get('level') || '1', 10) || 1);
 const DEBUG_MODE = ['mixed', 'run', 'ice'].includes(params.get('mode')) ? params.get('mode') : undefined; // offline testing: ?mode=ice
-const DEBUG_GOD = params.has('god');
 
 // ---------- renderer / scene ----------
 const canvas = document.getElementById('game');
@@ -655,19 +654,6 @@ function snapshotPrev() {
   }
 }
 
-// Pattern wolf: distance left to the end of its current (or next, while holding) move, and that move's heading
-// (in patternDir). Reads the plan built by shared/enemies.js; 0 if it isn't there.
-let patternDir = 0;
-function patternRemain(e) {
-  const plan = e._plan, f = e.spec && e.spec.frame;
-  if (!plan || !f) return 0;
-  const tc = e.cycleU * plan.cycle;
-  let s = plan.segs[plan.segs.length - 1];
-  for (const sg of plan.segs) if (tc < sg.tStart + sg.hold + sg.T) { s = sg; break; }
-  patternDir = s.dir;
-  return Math.hypot(f.ox + f.ux * s.th1 + f.nx * s.r1 - e.x, f.oz + f.uz * s.th1 + f.nz * s.r1 - e.z);
-}
-
 function syncVisuals(dt, alpha) {
   if (!view) return;
   if (view.levelData !== sim.levelData) buildView();
@@ -685,7 +671,7 @@ function syncVisuals(dt, alpha) {
     const [x, z] = lerpPos('e' + e.id, e.x, e.z, alpha);
     m.group.position.set(x, 0, z);
     m.group.rotation.y = -e.heading;
-    m.update(dt, { moving: e.moving, tell: e.tell, speed01: Math.min(1, (e.speedNow || 0) / 4), time: t, nextLen: e.pattern ? patternRemain(e) : 0, nextDir: patternDir, heading: e.heading });
+    m.update(dt, { moving: e.moving, tell: e.tell, speed01: Math.min(1, (e.speedNow || 0) / 4), time: t });
     if (e.pattern) {
       // push-off: shavings + a ring the moment the tell turns into a move
       if (m.tellPrev > 0.3 && e.moving) effects.iceKick(x, z, e.heading, WOLF_TYPES[e.type] ? WOLF_TYPES[e.type].accent : 0xffffff);
@@ -1135,7 +1121,6 @@ function tick(dt) {
         });
         if (window.__bot) Object.assign(inputs, window.__bot(sim));
       }
-      if (DEBUG_GOD) for (const p of sim.players) { p.invuln = Math.max(p.invuln, 0.5); }
       const events = stepSim(sim, inputs, CFG.TICK);
       if (mode === 'play') handleEvents(events);
       else if (events.some((e) => e.type === 'levelStart')) buildView();

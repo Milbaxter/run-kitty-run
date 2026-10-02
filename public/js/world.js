@@ -1172,93 +1172,6 @@ function buildCheckpoints(levelData, T) {
   return out;
 }
 
-// ---------------------------------------------------------------- pattern wolf routes
-
-// Skate-only pattern wolves: each route is etched into the ice in the wolf's type color so players can read
-// (and learn) where every wolf goes: a soft frost band with two blade grooves, claw-scratch rings where it
-// stops, and chevrons along one-way loops. Everything is ONE vertex-colored mesh just above the ice sheet.
-const ROUTE_Y = 0.01;   // ice sheet 0.004 < routes < safe tiles 0.012 / skate trail 0.02
-
-function buildWolfRoutes(levelData, T) {
-  const specs = (levelData.enemies || []).filter((e) => Array.isArray(e.route) && e.route.length >= 2 && e.frame);
-  if (!specs.length) return [];
-  const pos = [], col = [];
-  let cr = 1, cg = 1, cb = 1;
-  // quad a-b-c-d (a,b at one end, c,d at the other) with per-corner alpha
-  const quad = (ax, az, bx, bz, cx, cz, dx, dz, aa, ab, ac, ad) => {
-    pos.push(ax, ROUTE_Y, az, cx, ROUTE_Y, cz, bx, ROUTE_Y, bz, bx, ROUTE_Y, bz, cx, ROUTE_Y, cz, dx, ROUTE_Y, dz);
-    for (const a of [aa, ac, ab, ab, ac, ad]) col.push(cr, cg, cb, a);
-  };
-  // straight strip from p to q, lateral offset `off`, half width `w`, alpha a0 -> a1 (a = [inner, outer] for soft edges)
-  const strip = (px, pz, qx, qz, off, w, a0, a1) => {
-    const L = Math.hypot(qx - px, qz - pz) || 1, tx = (qx - px) / L, tz = (qz - pz) / L, nx = -tz, nz = tx;
-    const o1 = off - w, o2 = off + w;
-    quad(px + nx * o1, pz + nz * o1, px + nx * o2, pz + nz * o2, qx + nx * o1, qz + nz * o1, qx + nx * o2, qz + nz * o2, a0, a0, a1, a1);
-  };
-  const ring = (x, z, r0, r1, n, a) => {
-    for (let i = 0; i < n; i++) {
-      const t0 = i / n * TAU, t1 = (i + 1) / n * TAU, c0 = Math.cos(t0), s0 = Math.sin(t0), c1 = Math.cos(t1), s1 = Math.sin(t1);
-      quad(x + c0 * r0, z + s0 * r0, x + c0 * r1, z + s0 * r1, x + c1 * r0, z + s1 * r0, x + c1 * r1, z + s1 * r1, a, a, a, a);
-    }
-  };
-  const c = new THREE.Color();
-  for (const sp of specs) {
-    const W = WOLF_TYPES[sp.type] || WOLF_TYPES.patroller;
-    c.set(W.track || W.accent); cr = c.r; cg = c.g; cb = c.b;
-    const f = sp.frame;
-    const pts = sp.route.map((w) => {
-      const th = Number(w.th) || 0, r = Number(w.r) || 0;
-      return { x: f.ox + f.ux * th + f.nx * r, z: f.oz + f.uz * th + f.nz * r, hold: Number.isFinite(w.hold) ? w.hold : Number.isFinite(sp.hold) ? sp.hold : 0.5 };
-    });
-    const n = pts.length, segs = sp.loop ? n : n - 1;
-    for (let i = 0; i < segs; i++) {
-      const a = pts[i], b = pts[(i + 1) % n];
-      const L = Math.hypot(b.x - a.x, b.z - a.z);
-      if (L < 0.05) continue;
-      const tx = (b.x - a.x) / L, tz = (b.z - a.z) / L;
-      // stop short of the stop rings
-      const ax = a.x + tx * 0.42, az = a.z + tz * 0.42, bx = b.x - tx * 0.42, bz = b.z - tz * 0.42;
-      if (L > 0.84) {
-        // frost band (soft edges), then two blade grooves
-        const nx = -tz, nz = tx;
-        for (const [o0, o1, i0, i1] of [[-0.45, -0.15, 0, 0.2], [-0.15, 0.15, 0.2, 0.2], [0.15, 0.45, 0.2, 0]]) {
-          quad(ax + nx * o0, az + nz * o0, ax + nx * o1, az + nz * o1, bx + nx * o0, bz + nz * o0, bx + nx * o1, bz + nz * o1, i0, i1, i0, i1);
-        }
-        strip(ax, az, bx, bz, -0.12, 0.022, 0.55, 0.55);
-        strip(ax, az, bx, bz, 0.12, 0.022, 0.55, 0.55);
-        // chevrons: one-way loops show their direction; ping-pong routes get small tick dots
-        const step = 1.6, k = Math.floor((L - 0.84) / step);
-        for (let j = 1; j <= k; j++) {
-          const d = 0.42 + (L - 0.84) * j / (k + 1), cx = a.x + tx * d, cz = a.z + tz * d;
-          if (sp.loop) {
-            for (const sd of [-1, 1]) strip(cx - tx * 0.18 + nx * sd * 0.22, cz - tz * 0.18 + nz * sd * 0.22, cx + tx * 0.04, cz + tz * 0.04, 0, 0.035, 0.6, 0.6);
-          } else ring(cx, cz, 0, 0.055, 6, 0.5);
-        }
-      }
-    }
-    pts.forEach((p, i) => {
-      // stop ring + three claw scratches raking toward the next move (longer holds = bolder ring)
-      const k = Math.min(1, 0.4 + p.hold * 0.5);
-      ring(p.x, p.z, 0.3, 0.38, 20, 0.6 * k);
-      ring(p.x, p.z, 0, 0.3, 14, 0.12);
-      const q = pts[i + 1 < n ? i + 1 : sp.loop ? 0 : i - 1];
-      const d = Math.hypot(q.x - p.x, q.z - p.z) || 1, ux = (q.x - p.x) / d, uz = (q.z - p.z) / d;
-      const sx = ux * 0.94 - uz * 0.34, sz = uz * 0.94 + ux * 0.34; // slanted a little
-      for (const o of [-0.09, 0, 0.09]) {
-        const cx = p.x - uz * o, cz = p.z + ux * o;
-        strip(cx - sx * 0.16, cz - sz * 0.16, cx + sx * 0.16, cz + sz * 0.16, 0, 0.018, 0.1, 0.65);
-      }
-    });
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
-  g.computeBoundingSphere();
-  const mesh = new THREE.Mesh(T.g(g), T.m(new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true })));
-  mesh.renderOrder = 1;
-  return [mesh];
-}
-
 // ---------------------------------------------------------------- public API
 
 function buildWorld(scene, levelData) {
@@ -1271,7 +1184,6 @@ function buildWorld(scene, levelData) {
 
   for (const m of buildFloors(levelData, theme, T)) group.add(m);
   for (const m of buildCheckpoints(levelData, T)) group.add(m);
-  for (const m of buildWolfRoutes(levelData, T)) group.add(m);
   for (const m of buildClimbTrees(levelData, theme, T)) group.add(m);
   for (const m of buildWalls(levelData, theme, T)) group.add(m);
   const lanterns = buildLanterns(levelData, theme, T, rng);

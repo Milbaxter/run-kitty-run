@@ -766,42 +766,9 @@ function wolfGeos(type) {
   });
 }
 
-// Danger lane (pattern wolves): a flat strip ahead of the wolf (+X) that shoots out to its next waypoint during the
-// tell. Chevrons march along it; drawn only while the tell is up.
-const LANE_VERT = /* glsl */`
-varying vec2 vUv;
-#include <fog_pars_vertex>
-void main() {
-  vUv = uv;
-  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-  gl_Position = projectionMatrix * mvPosition;
-  #include <fog_vertex>
-}`;
-const LANE_FRAG = /* glsl */`
-uniform vec3 uColor;
-uniform float uOpacity;
-uniform float uLen;
-uniform float uTime;
-varying vec2 vUv;
-#include <fog_pars_fragment>
-void main() {
-  float along = vUv.x * uLen;
-  float across = abs(vUv.y - 0.5) * 2.0;
-  float q = along + across * 0.28;
-  float chev = smoothstep(0.0, 0.08, fract(q / 0.62 - uTime * 2.2)) * (1.0 - smoothstep(0.26, 0.36, fract(q / 0.62 - uTime * 2.2)));
-  float edge = 1.0 - smoothstep(0.7, 1.0, across);
-  float start = smoothstep(0.0, 0.5, along);
-  float tip = 1.0 - smoothstep(uLen - 0.25, uLen, along);
-  float a = (0.22 + 0.78 * chev) * edge * start * tip * uOpacity;
-  gl_FragColor = vec4(uColor * (0.75 + 0.5 * chev), a);
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
-  #include <fog_fragment>
-}`;
-
 const SKATE_LIFT = 0.06;
 
-// opts: { pattern: Skate-only pattern wolf (lane + countdown ring), skate: on an ice level (glide instead of trot) }
+// opts: { pattern: Skate-only pattern wolf (countdown ring), skate: on an ice level (glide instead of trot) }
 function createWolfModel(type, opts) {
   if (!WOLF_TYPES[type]) type = 'patroller';
   opts = opts || {};
@@ -851,25 +818,8 @@ function createWolfModel(type, opts) {
   ring.renderOrder = 1;
   group.add(ring);
 
-  let lane = null, laneMat = null;
-  if (opts.pattern) {
-    laneMat = new THREE.ShaderMaterial({
-      uniforms: Object.assign(THREE.UniformsUtils.clone(THREE.UniformsLib.fog), {
-        uColor: { value: glowColor(T.accent, 1.1) }, uOpacity: { value: 0 }, uLen: { value: 1 }, uTime: { value: 0 },
-      }),
-      vertexShader: LANE_VERT, fragmentShader: LANE_FRAG,
-      transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true,
-    });
-    lane = new THREE.Mesh(cgeo('wolfLane', () => { const g = new THREE.PlaneGeometry(1, 1); g.rotateX(-Math.PI / 2); g.translate(0.5, 0, 0); return g; }), laneMat);
-    lane.position.set(0.6, 0.03, 0);
-    lane.scale.set(0.01, 1, 0.62);
-    lane.renderOrder = 1;
-    lane.visible = false;
-    group.add(lane);
-  }
-
   const seedOff = Math.random() * 100;
-  let phase = Math.random() * 6, runAmt = 0, tellS = 0, clock = 0, laneA = 0, laneGrow = 0, laneLen = 1;
+  let phase = Math.random() * 6, runAmt = 0, tellS = 0, clock = 0;
 
   function update(dt, s) {
     s = s || {};
@@ -934,28 +884,10 @@ function createWolfModel(type, opts) {
       ring.scale.set(rs, 1, rs);
       return;
     }
-    // pattern wolves: the ring snaps tight like a countdown, then the lane shoots out to the next stop
-    const rawTell = Math.max(0, Math.min(1, s.tell || 0));
+    // pattern wolves: the ring snaps tight like a countdown before the wolf moves
     ringMat.opacity = 0.38 + 0.6 * tell + (tell > 0.05 ? 0.2 * Math.sin(time * 26) * tell : 0);
     const rs = 1.12 - 0.3 * tell + 0.03 * Math.sin(time * 3 + seedOff) * (1 - tell);
     ring.scale.set(rs, 1, rs);
-    if (s.nextLen > 0) laneLen = s.nextLen / (group.scale.x || 1);
-    const on = rawTell > 0.01;
-    laneA = smoothTo(laneA, on ? 1 : 0, on ? 30 : 5, dt);
-    laneGrow = on ? Math.max(laneGrow, 1 - (1 - rawTell) * (1 - rawTell)) : (moving ? laneGrow : 0);
-    if (laneA < 0.01) laneGrow = 0;
-    lane.visible = laneA > 0.01;
-    if (lane.visible) {
-      const L = Math.max(0.05, (laneLen - 0.6) * Math.max(0.05, laneGrow));
-      lane.scale.x = L;
-      // aim at the stop, not the nose (the wolf is still turning during the tell)
-      const a = s.nextDir !== undefined ? -(s.nextDir - (s.heading || 0)) : 0;
-      lane.rotation.y = a;
-      lane.position.set(0.6 * Math.cos(a), 0.03, -0.6 * Math.sin(a));
-      laneMat.uniforms.uLen.value = L;
-      laneMat.uniforms.uOpacity.value = laneA * (0.65 + 0.35 * tell);
-      laneMat.uniforms.uTime.value = time;
-    }
   }
 
   update(0, {});

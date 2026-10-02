@@ -11,6 +11,7 @@ import { hashSeed } from '../public/js/shared/rng.js';
 import { GAME_MODES, createSim, stepSim, addPlayer, removePlayer } from '../public/js/shared/sim.js';
 import { serializeEnemies } from '../public/js/shared/enemies.js';
 import { createStats } from './stats.js';
+import { pregenNext } from './levelgen.js';
 
 const PORT = +process.env.PORT || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -408,7 +409,8 @@ function stepRoom(room) {
   room.tick = k;
   for (const e of events) room.pending.push(e);
   for (const e of events) {
-    if (e.type === 'gameOver') room.overAt = Date.now() + GAMEOVER_TO_LOBBY_MS;
+    if (e.type === 'levelStart') pregenNext(sim); // next level off the event loop (makeLevel picks it up)
+    else if (e.type === 'gameOver') room.overAt = Date.now() + GAMEOVER_TO_LOBBY_MS;
     else if (e.type === 'victory') {
       // final state: the sim keeps stepping (snapshots carry st 'victory') until the room goes back to the lobby
       room.victory = e;

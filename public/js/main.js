@@ -8,6 +8,7 @@ import { hashSeed } from './shared/rng.js';
 import { collideCircle, onIce, inTree } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
 import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
+import { pregenNext } from './levelpregen.js';
 import { createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel } from './models.js';
 import { buildWorld, setupLighting } from './world.js';
 import { createEffects } from './effects.js';
@@ -502,6 +503,7 @@ function handleEvents(events) {
   for (const ev of events) {
     switch (ev.type) {
       case 'levelStart': {
+        pregenNext(sim); // the next level, off the main thread (offline nextLevel and online loadLevel pick it up)
         mouse.target = null; mouse.iceDir = null;
         buildView();
         ensureKitties();
@@ -1467,7 +1469,7 @@ function tick(dt) {
       }
       const events = stepSim(sim, inputs, CFG.TICK);
       if (mode === 'play') handleEvents(events);
-      else if (events.some((e) => e.type === 'levelStart')) buildView();
+      else if (events.some((e) => e.type === 'levelStart')) { pregenNext(sim); buildView(); }
       accumulator -= CFG.TICK;
       steps++;
     }

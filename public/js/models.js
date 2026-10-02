@@ -16,9 +16,29 @@ import { QUALITY } from './device.js';
 const GEO_CACHE = new Map();
 const MAT_CACHE = new Map();
 const TEX_CACHE = new Map();
-function cgeo(key, fn) { let g = GEO_CACHE.get(key); if (!g) { g = fn(); GEO_CACHE.set(key, g); } return g; }
-function cmat(key, fn) { let m = MAT_CACHE.get(key); if (!m) { m = fn(); MAT_CACHE.set(key, m); } return m; }
-function ctex(key, fn) { let t = TEX_CACHE.get(key); if (!t) { t = fn(); TEX_CACHE.set(key, t); } return t; }
+// Cached resources are flagged userData.shared so disposeModel() leaves them alone.
+// (cgeo may also cache a bundle of geometries — an object/array of them — flagged one by one.)
+function shared(r) {
+  if (r && r.userData) r.userData.shared = true;
+  else if (r && typeof r === 'object') for (const v of Object.values(r)) shared(v);
+  return r;
+}
+function cgeo(key, fn) { let g = GEO_CACHE.get(key); if (!g) { g = shared(fn()); GEO_CACHE.set(key, g); } return g; }
+function cmat(key, fn) { let m = MAT_CACHE.get(key); if (!m) { m = shared(fn()); MAT_CACHE.set(key, m); } return m; }
+function ctex(key, fn) { let t = TEX_CACHE.get(key); if (!t) { t = shared(fn()); TEX_CACHE.set(key, t); } return t; }
+
+// Detach a model and free the GPU buffers / programs of everything it created itself (per-model geometries
+// and materials). Shared (cached) geometries/materials and all textures are kept.
+function disposeModel(root) {
+  if (!root) return;
+  root.removeFromParent();
+  const done = new Set();
+  const free = (r) => { if (r && !done.has(r) && !r.userData.shared) { done.add(r); r.dispose(); } };
+  root.traverse((o) => {
+    free(o.geometry);
+    if (Array.isArray(o.material)) o.material.forEach(free); else free(o.material);
+  });
+}
 
 const TAU_ = Math.PI * 2;
 const _e = new THREE.Euler();
@@ -52,6 +72,7 @@ const P = {
   oct: new THREE.OctahedronGeometry(1, 0),
   torus: new THREE.TorusGeometry(1, 0.32, 4, 10),
 };
+for (const g of Object.values(P)) shared(g);
 
 // parts: [geometry, matrix, color | (x,y,z,outColor)=>void]
 function bake(parts) {
@@ -396,7 +417,7 @@ let auraTexCache = null;
 const AURA_WHITE = new THREE.Color(0xffffff);
 // crown stones (wins 2-6), in fill order: blue, yellow, red, purple, green
 const STONE_COLORS = [0x3d7bff, 0xffd23d, 0xff3b4e, 0xa24dff, 0x30d97a];
-const STONE_GEO = new THREE.OctahedronGeometry(1, 0);
+const STONE_GEO = shared(new THREE.OctahedronGeometry(1, 0));
 function stoneMat(n) {
   return cmat('stone' + n, () => new THREE.MeshStandardMaterial({ color: STONE_COLORS[n], emissive: STONE_COLORS[n], emissiveIntensity: 0.85, metalness: 0.2, roughness: 0.25, flatShading: true }));
 }
@@ -420,7 +441,7 @@ function auraTexture() {
     g.quadraticCurveTo(x0 + (x1 - x0) * 0.62, H * 0.38, x1, H * 0.6);
   }
   g.lineTo(W, H); g.closePath(); g.fill();
-  auraTexCache = new THREE.CanvasTexture(c);
+  auraTexCache = shared(new THREE.CanvasTexture(c));
   auraTexCache.wrapS = THREE.RepeatWrapping;
   return auraTexCache;
 }
@@ -1675,4 +1696,4 @@ function createGiantFishModel() {
   };
 }
 
-export { WOLF_TYPES, createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel };
+export { WOLF_TYPES, disposeModel, createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel };

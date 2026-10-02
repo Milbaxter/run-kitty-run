@@ -713,7 +713,7 @@ function createUI(root) {
         <div class="rkr-logo">${word('RUN')}${word('KITTY', 'rkr-kitty')}<span style="position:relative">${word('RUN')}<span class="rkr-logocat">${ICONS.cat}</span></span></div>
         <div class="rkr-sub">Reach the <b>heart of the labyrinth</b>. Don't touch the wolves. <b>Never leave a kitty behind.</b></div>
         <div class="rkr-btns">
-          <button class="rkr-btn" data-p="3"><span><span class="rkr-kk">1</span>MULTIPLAYER</span><small>online, up to 8 kitties</small></button>
+          <button class="rkr-btn" data-p="3"><span><span class="rkr-kk">1</span>MULTIPLAYER</span><small>online, up to 32 kitties</small></button>
           <button class="rkr-btn" data-p="1"><span><span class="rkr-kk">2</span>SINGLE PLAYER</span><small>solo run</small></button>
           <button class="rkr-btn rkr-alt rkr-desk" data-p="2"><span><span class="rkr-kk">3</span>LOCAL CO-OP</span><small>2 players, one keyboard</small></button>
         </div>
@@ -892,7 +892,11 @@ function createUI(root) {
     scoresEl.style.display = '';
     const mine = list.filter((p) => p.me).reduce((m, p) => Math.max(m, p.score), -Infinity);
     if (mine > best) { best = mine; try { localStorage.setItem('rkr-best', String(best)); } catch { /* ignore */ } }
-    const rows = [...list].sort((a, b) => b.score - a.score);
+    const all = [...list].sort((a, b) => b.score - a.score);
+    // big lobbies: top 8, plus you if you're further down
+    const rows = all.slice(0, 8);
+    const meRow = all.find((p) => p.you);
+    if (meRow && !rows.includes(meRow)) rows.push(meRow);
     const key = rows.map((p) => `${p.name}|${p.score}|${p.me}|${p.crown}`).join(',') + '#' + best;
     if (key === scoresKey) return;
     scoresKey = key;
@@ -905,6 +909,7 @@ function createUI(root) {
       r.append(n, v);
       scoresEl.appendChild(r);
     }
+    if (all.length > rows.length) { const more = el('div', 'rkr-best'); more.textContent = `+${all.length - rows.length} more`; scoresEl.appendChild(more); }
     const b = el('div', 'rkr-best'); b.textContent = `best ${best > 0 ? '+' : ''}${best}`;
     scoresEl.appendChild(b);
   }

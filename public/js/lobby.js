@@ -32,7 +32,8 @@ const CSS = `
 .rkl-empty{opacity:.6;font-weight:700;text-align:center;padding:10px;}
 .rkl-err{min-height:20px;color:#ff8fa3;font-weight:800;}
 .rkl-label{font-size:13px;font-weight:900;letter-spacing:.14em;color:#ffcf5a;text-transform:uppercase;margin-top:4px;}
-.rkl-slots{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;width:100%;}
+.rkl-slots{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;width:100%;max-height:34vh;overflow:auto;}
+.rkl-slot{min-width:0;}
 .rkl-slot{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:14px;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.12);
   font-weight:800;min-height:46px;text-align:left;}
 .rkl-slot.rkl-open{opacity:.35;border-style:dashed;}
@@ -115,7 +116,7 @@ function createLobbyUI(root, cb) {
     roomRefs = null;
     errEl = null;
     const h = el('h2', null, 'ONLINE');
-    const sub = el('div', 'rkr-gsub', 'Up to 8 kitties per lobby. The first one in starts the run.');
+    const sub = el('div', 'rkr-gsub', 'Up to 32 kitties per lobby. The first one in starts the run.');
     const nameLab = el('div', 'rkl-label', 'Your name');
     const name = el('input', 'rkl-in rkl-name');
     name.maxLength = 14;
@@ -224,7 +225,9 @@ function createLobbyUI(root, cb) {
     url.searchParams.set('room', info.code);
     r.link.textContent = url.toString();
     r.slots.textContent = '';
-    for (let i = 0; i < 8; i++) {
+    // everyone in the lobby + one open slot (up to info.max)
+    const max = info.max || 32;
+    for (let i = 0; i < Math.min(max, info.members.length + 1); i++) {
       const m = info.members[i];
       const s = el('div', 'rkl-slot' + (m ? '' : ' rkl-open') + (m && m.id === info.you ? ' rkl-me' : ''));
       const cat = el('div', 'rkl-cat', CAT);
@@ -241,7 +244,7 @@ function createLobbyUI(root, cb) {
     r.start.style.display = isHost && info.phase === 'lobby' ? '' : 'none';
     r.wait.textContent = info.phase !== 'lobby'
       ? 'A run is in progress. Joining…'
-      : isHost ? `You're the host. Start whenever you're ready (${info.members.length}/8).`
+      : isHost ? `You're the host. Start whenever you're ready (${info.members.length}/${max}).`
         : `Waiting for ${host ? host.name : 'the host'} to start…`;
   }
 

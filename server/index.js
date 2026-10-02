@@ -128,7 +128,7 @@ function broadcast(room, msg) {
 
 function roomInfo(room) {
   return {
-    t: 'room', code: room.code, host: room.hostId, phase: room.phase, mode: room.mode,
+    t: 'room', code: room.code, host: room.hostId, phase: room.phase, mode: room.mode, max: NET.MAX_PLAYERS,
     members: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
   };
 }
@@ -157,7 +157,7 @@ function freeColorSlot(room) {
 }
 
 function joinRoom(client, room, name) {
-  if (room.members.length >= NET.MAX_PLAYERS) return send(client.ws, { t: 'error', msg: 'That lobby is full (8/8).' });
+  if (room.members.length >= NET.MAX_PLAYERS) return send(client.ws, { t: 'error', msg: `That lobby is full (${NET.MAX_PLAYERS}/${NET.MAX_PLAYERS}).` });
   leaveRoom(client);
   const slot = freeColorSlot(room);
   client.room = room;

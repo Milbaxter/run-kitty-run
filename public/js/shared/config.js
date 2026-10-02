@@ -67,13 +67,23 @@ function levelParams(level) {
   };
 }
 
-// Kitty colors for up to 8 players (online lobbies hold 8).
-const PLAYER_COLORS = [0xffb347, 0x6ec6ff, 0xff7eb6, 0x9dff7a, 0xc59bff, 0xfff06a, 0x5ff3d0, 0xff6b5b];
-const PLAYER_NAMES = ['Mittens', 'Biscuit', 'Pixel', 'Noodle', 'Pumpkin', 'Waffles', 'Mochi', 'Ziggy'];
+// Kitty colors + default names for up to 32 players (online lobbies hold NET.MAX_PLAYERS).
+const PLAYER_COLORS = [
+  0xffb347, 0x6ec6ff, 0xff7eb6, 0x9dff7a, 0xc59bff, 0xfff06a, 0x5ff3d0, 0xff6b5b,
+  0xffd9a0, 0x3d8bff, 0xd94fff, 0x4fd16a, 0xff9e3d, 0xa8f0ff, 0xffb3d1, 0xc8ff4f,
+  0x8f7bff, 0xffe0f0, 0x2fd6b0, 0xff4f8b, 0xb8885a, 0x7fb4ff, 0xf2f2f2, 0xe8c547,
+  0x6fe8e8, 0xff7a3d, 0xb0ffb0, 0xd0a8ff, 0xff9999, 0x9fe05f, 0x5fb8d6, 0xffc0ff,
+];
+const PLAYER_NAMES = [
+  'Mittens', 'Biscuit', 'Pixel', 'Noodle', 'Pumpkin', 'Waffles', 'Mochi', 'Ziggy',
+  'Pepper', 'Muffin', 'Socks', 'Tofu', 'Ginger', 'Luna', 'Peanut', 'Sushi',
+  'Cookie', 'Bean', 'Olive', 'Nacho', 'Toast', 'Pickle', 'Maple', 'Clover',
+  'Bubbles', 'Taco', 'Mango', 'Sprout', 'Dumpling', 'Kiwi', 'Pudding', 'Whiskers',
+];
 
 // Online play
 const NET = {
-  MAX_PLAYERS: 8,
+  MAX_PLAYERS: 32,
   SNAP_EVERY: 3,       // server sends a snapshot every N ticks (20 Hz)
   INPUT_LEAD: 3,       // ticks of safety margin client inputs should arrive ahead of the server
 };

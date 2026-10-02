@@ -1,5 +1,7 @@
 // Server smoke test: lobby limits, host start/migration, inputs, snapshots.
 import WebSocket from 'ws';
+import { NET } from '../public/js/shared/config.js';
+const MAXP = NET.MAX_PLAYERS;
 const URL = process.env.URL || 'ws://localhost:8080/ws';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function bot(name) {
@@ -17,14 +19,14 @@ host.send({ t: 'create', name: 'Host' }); await sleep(200);
 const code = host.last.room.code;
 ok(/^[A-Z]{4}$/.test(code) && host.last.room.host === host.last.room.you, `create lobby ${code}, creator is host`);
 const others = [];
-for (let i = 0; i < 8; i++) { const b = bot('B' + i); await b.ready; b.send({ t: 'join', code, name: 'Bot' + i }); others.push(b); await sleep(30); }
+for (let i = 0; i < MAXP; i++) { const b = bot('B' + i); await b.ready; b.send({ t: 'join', code, name: 'Bot' + i }); others.push(b); await sleep(30); }
 await sleep(300);
-ok(host.last.room.members.length === 8, `8 members (${host.last.room.members.length})`);
-ok(others[7].last.error && /full/.test(others[7].last.error.msg), '9th player rejected: ' + (others[7].last.error || {}).msg);
+ok(host.last.room.members.length === MAXP, `${MAXP} members (${host.last.room.members.length})`);
+ok(others[MAXP - 1].last.error && /full/.test(others[MAXP - 1].last.error.msg), `${MAXP + 1}th player rejected: ` + (others[MAXP - 1].last.error || {}).msg);
 others[0].send({ t: 'start' }); await sleep(200);
 ok(host.last.room.phase === 'lobby', 'non-host cannot start');
 const lister = bot('L'); await lister.ready; lister.send({ t: 'list' }); await sleep(200);
-ok(lister.last.lobbies.list.some((l) => l.code === code && l.players === 8), 'lobby appears in list');
+ok(lister.last.lobbies.list.some((l) => l.code === code && l.players === MAXP), 'lobby appears in list');
 
 // chat: broadcast to the lobby, sanitized, rate limited, not leaked to other lobbies
 const chats = (b) => b.msgs.filter((m) => m.t === 'chat' && !m.sys);
@@ -40,7 +42,7 @@ ok(others[0].msgs.some((m) => m.t === 'chat' && m.sys && /joined/.test(m.text)),
 outsider.ws.close();
 
 host.send({ t: 'start' }); await sleep(100);
-ok(others[0].last.start && others[0].last.start.players.length === 8, 'host starts, everyone gets start');
+ok(others[0].last.start && others[0].last.start.players.length === MAXP, 'host starts, everyone gets start');
 // host runs right for 1s using tick-tagged inputs
 const s0 = others[0].snaps;
 const me = host.last.room.you;
@@ -60,7 +62,7 @@ ok(Array.isArray(host.last.snap.ec) && host.last.snap.ec.length === 8, 'wolf che
 // host leaves mid-game -> next player becomes host
 host.ws.close(); await sleep(300);
 ok(others[0].last.room.host === others[0].last.room.you, 'host migrates to next player');
-ok(others[0].last.snap.p.length === 7, 'leaver removed from sim');
+ok(others[0].last.snap.p.length === MAXP - 1, 'leaver removed from sim');
 
 // mid-game join gets wolves
 const late = bot('Late'); await late.ready; late.send({ t: 'join', code, name: 'Late' }); await sleep(300);

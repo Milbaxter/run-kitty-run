@@ -49,12 +49,24 @@ function makeLevel(sim, level) {
 function spawnPoint(levelData, index) {
   const pts = levelData.spawnPoints || [];
   if (pts.length === 0) return { x: 0, z: 0, heading: 0 };
-  const p = pts[index % pts.length];
-  const round = Math.floor(index / pts.length);
-  if (round === 0) return { x: p.x, z: p.z, heading: p.heading };
-  // more players than spawn points: nudge along heading
-  const off = 0.9 * round;
-  return { x: p.x + Math.cos(p.heading) * off, z: p.z + Math.sin(p.heading) * off, heading: p.heading };
+  if (index < pts.length) return { x: pts[index].x, z: pts[index].z, heading: pts[index].heading };
+  // more players than spawn points: fill the rest of the start square (its center is levelData.corners[0])
+  const c = levelData.corners[0], h = pts[0].heading;
+  return squareSlot(c.x, c.z, h, index);
+}
+
+// Slot k of a 6x6 grid (1.35 apart) on a corner square, filled from the middle outwards; rows run across `heading`.
+// (Slots 0-3 are the middle 2x2, which the 4 regular spawn points already cover.)
+const SLOT_ORDER = [2, 3, 1, 4, 0, 5];
+function squareSlot(cx, cz, heading, k) {
+  k %= 36;
+  const ring = [];
+  for (const r of SLOT_ORDER) for (const c of SLOT_ORDER) ring.push([r, c]);
+  ring.sort((A, B) => Math.max(Math.abs(A[0] - 2.5), Math.abs(A[1] - 2.5)) - Math.max(Math.abs(B[0] - 2.5), Math.abs(B[1] - 2.5)));
+  const [row, col] = ring[k];
+  const a = (2.5 - row) * 1.35, b = (col - 2.5) * 1.35;
+  const fx = Math.cos(heading), fz = Math.sin(heading);
+  return { x: cx + fx * a - fz * b, z: cz + fz * a + fx * b, heading };
 }
 
 function placeAtSpawn(sim, p, index) {
@@ -381,11 +393,10 @@ function stepSim(sim, inputs, dt) {
       const p = players[i];
       if (p.inCenter) continue;
       if (!p.alive) { p.alive = true; p.shield = 0; revived.push(p.id); }
-      // 3x3 block centered on the square, rows across the leg
-      const a = 1.2 * (1 - Math.floor(slot / 3) % 3), b = 1.2 * ((slot % 3) - 1);
-      const px = -Math.sin(cp.heading), pz = Math.cos(cp.heading);
-      p.x = cp.x + Math.cos(cp.heading) * a + px * b;
-      p.z = cp.z + Math.sin(cp.heading) * a + pz * b;
+      // a grid filling the square from the middle out (room for 36)
+      const sp = squareSlot(cp.x, cp.z, cp.heading, slot);
+      p.x = sp.x;
+      p.z = sp.z;
       p.heading = cp.heading;
       p.vx = 0; p.vz = 0; p.moving = false;
       p.invuln = 0;

@@ -43,12 +43,12 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   const fin = ld.enemies.filter((e) => e.leg === n - 1);
   ok(fin.length >= 8, `final stretch is crowded (${fin.length} wolves)`);
   {
-    // the default mode's winter ice rink keeps wanderers; Skate only mode has pattern wolves (ice-pattern-test.mjs)
+    // the default mode's winter (ice) levels have exactly Skate only's pattern wolves for that level number
+    // (ice-pattern-test.mjs); its other levels keep wanderers
     const winter = [1, 2, 3, 4].find((L) => generateLevel(L, sim.levelData.seed, 'mixed').ice);
-    const ice = generateLevel(winter, sim.levelData.seed, 'mixed');
-    const sp = (l, f) => avg(l.enemies.filter(f).map((e) => e.speed));
-    const gain = (l) => sp(l, (e) => e.leg >= half) / sp(l, (e) => e.leg < half);
-    ok(ice.ice && gain(ice) < gain(ld), `ice levels ramp more gently (inner/outer speed x${gain(ice).toFixed(3)} vs x${gain(ld).toFixed(3)} running)`);
+    const ice = generateLevel(winter, sim.levelData.seed, 'mixed'), skate = generateLevel(winter, sim.levelData.seed, 'ice');
+    ok(ice.ice && ice.enemies.every((e) => e.pattern) && JSON.stringify(ice.enemies) === JSON.stringify(skate.enemies) && ld.enemies.every((e) => !e.pattern),
+      `Run + Skate winter level ${winter} has Skate only level ${winter}'s ${skate.enemies.length} pattern wolves; running levels keep wanderers`);
   }
   ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG.RING_WIDTH / 2), 'the goal-door corner is not a safe square');
   {

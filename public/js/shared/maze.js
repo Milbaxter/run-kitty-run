@@ -779,7 +779,9 @@ function generateLevel(level, seed, mode = 'mixed') {
   } else {
     lvl.trees = lvl.theme === TREE_THEME && !lvl.ice ? placeTrees(createRng(hashSeed(seed, L, 'trees')), legs) : [];
   }
-  lvl.enemies = mode === 'ice' || finale ? placePatternEnemies(rng, lvl, p) : placeEnemies(rng, lvl, p);   // the boss run has pattern wolves in every mode
+  // every ice level has pattern wolves (Run + Skate's winter levels = Skate only's wolves for that level number;
+  // the boss run has them in every mode)
+  lvl.enemies = lvl.ice || finale ? placePatternEnemies(rng, lvl, p) : placeEnemies(rng, lvl, p);
   lvl.items = placeItems(rng, lvl, p);
   for (const t of lvl.trees) lvl.items.push({ id: lvl.items.length, type: 'boots', x: t.x, z: t.z, tree: true }); // a pair of boots up every tree
   return lvl;
@@ -976,7 +978,8 @@ function mazeSelfTest(levels = 12, modes = ['mixed', 'ice']) {
       const P = (s, l, msg) => { if (problems.length < 200) problems.push(`${mode} seed ${s} L${l}: ${msg}`); };
       const ld = generateLevel(l, s, mode);
       const p = levelParams(l);
-      const pattern = mode === 'ice' || ld.finale;
+      const pattern = ld.ice || ld.finale;
+      if (pattern !== ld.enemies.every((e) => e.pattern)) P(s, l, `ice ${ld.ice}: pattern wolves ${!pattern ? 'on a non-ice level' : 'missing'}`);
       stats.levels++;
       if (JSON.stringify(ld) !== JSON.stringify(generateLevel(l, s, mode))) P(s, l, 'not deterministic');
       // path: starts at start, ends in center, never inside walls

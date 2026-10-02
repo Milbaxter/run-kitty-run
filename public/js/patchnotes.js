@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Run + Skate: the winter (ice) levels now have the new Skate only wolves, the same ones Skate only has on that level (winter on level 3 = Skate only level 3)',
       'Win 5 runs and your kitty puts on a pair of sunglasses (and so does its icon next to your name)',
       'Win 7 runs and your speed boots turn rainbow',
       'Win a level (first into the finish circle) and you always get a crown, even if someone else grabbed the floating one',

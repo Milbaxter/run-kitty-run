@@ -5,10 +5,10 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET } from './shared/config.js';
 import { hashSeed } from './shared/rng.js';
-import { collideCircle, onIce } from './shared/maze.js';
+import { collideCircle, onIce, inTree } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
 import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
-import { createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel } from './models.js';
+import { createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel } from './models.js';
 import { buildWorld, setupLighting } from './world.js';
 import { createEffects } from './effects.js';
 import { createIceTrail } from './trail.js';
@@ -349,6 +349,7 @@ function clearView() {
   view.world.dispose();
   scene.remove(view.world.group);
   scene.remove(view.portal.group);
+  scene.remove(view.crown.group);
   for (const w of view.wolves.values()) scene.remove(w.group);
   for (const it of view.items.values()) scene.remove(it.group);
   for (const c of view.circles.values()) scene.remove(c.group);
@@ -363,6 +364,8 @@ function buildView() {
   lighting.setTheme(ld.theme);
   const portal = createPortalModel();
   scene.add(portal.group);
+  const crown = createCrownPickupModel();
+  scene.add(crown.group);
   const wolves = new Map();
   for (const e of sim.enemies) {
     const m = createWolfModel(e.type);
@@ -376,11 +379,11 @@ function buildView() {
   for (const it of sim.items) {
     if (it.taken) continue;
     const m = createItemModel(it.type);
-    m.group.position.set(it.x, 0, it.z);
+    m.group.position.set(it.x, inTree(ld, it.x, it.z) ? 2.2 : 0, it.z); // tree boots sit on the canopy
     scene.add(m.group);
     items.set(it.id, m);
   }
-  view = { levelData: ld, world, portal, wolves, items, circles: new Map() };
+  view = { levelData: ld, world, portal, crown, wolves, items, circles: new Map() };
   prevPos.clear();
 }
 
@@ -504,6 +507,14 @@ function handleEvents(events) {
         effects.floatText(ev.x, 1.6, ev.z, 'SAVED!', p ? hexCss(p.color) : '#fff');
         audio.play('revive', { pan: panFor(ev.x) });
         if (p && by) ui.toast(`${by.name} saved ${p.name}!`, hexCss(by.color));
+        break;
+      }
+      case 'crown': {
+        const p = playerById(ev.playerId);
+        effects.pickup(0, 0, 0xffd34a);
+        effects.floatText(0, 2.4, 0, 'CROWN!', '#ffd34a');
+        audio.play('extraLife');
+        if (p) ui.toast(`👑 ${p.name} grabbed the crown!`, hexCss(p.color));
         break;
       }
       case 'checkpoint': {
@@ -681,6 +692,8 @@ function syncVisuals(dt, alpha) {
   for (const [id, m] of view.circles) if (!seen.has(id)) { scene.remove(m.group); view.circles.delete(id); }
   // portal
   view.portal.update(dt, t, { active: sim.state === 'levelclear' });
+  view.crown.group.visible = !sim.crownTaken;
+  if (!sim.crownTaken) view.crown.update(dt, t, camera);
   // kitties
   for (const p of sim.players) {
     const k = kitties.get(p.id);
@@ -689,7 +702,9 @@ function syncVisuals(dt, alpha) {
     if (!p.alive) { k.trail.update(dt, p.x, p.z, p.heading, false); continue; }
     let [x, z] = lerpPos('p' + p.id, p.x, p.z, alpha);
     if (online.playing && p.id === online.me) { x += online.errX; z += online.errZ; }
-    k.model.group.position.set(x, 0, z);
+    // autumn levels: up a tree = standing on its canopy
+    k.climb = (k.climb || 0) + ((inTree(sim.levelData, x, z) ? 2.2 : 0) - (k.climb || 0)) * (1 - Math.exp(-dt * 12));
+    k.model.group.position.set(x, k.climb, z);
     // smooth turn
     const cur = -k.model.group.rotation.y;
     let d = p.heading - cur;
@@ -1061,6 +1076,7 @@ function applySnapshot(m) {
   }
 
   sim.lastWinner = m.lw || 0;
+  sim.crownTaken = !!m.ct;
   sim.state = m.st;
   sim.time = m.tm + (online.tick - m.k) * CFG.TICK;
   sim.stats = m.s;

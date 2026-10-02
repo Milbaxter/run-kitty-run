@@ -1092,6 +1092,43 @@ function buildParticles(theme, rng, radius, T) {
   return { points: pts, update };
 }
 
+// Climbable trees (autumn levels): a thick trunk and a broad, flat-topped canopy the kitties stand on (CLIMB_Y).
+const CLIMB_Y = 2.2;
+function buildClimbTrees(levelData, theme, T) {
+  const trees = levelData.trees || [];
+  if (!trees.length) return [];
+  const R = CFG.TREE_RADIUS;
+  const rng = createRng(hashSeed(levelData.seed ?? 1, levelData.level ?? 1, 'climbtrees'));
+  const trunkGeo = T.g(new THREE.CylinderGeometry(0.28, 0.42, CLIMB_Y, 7));
+  trunkGeo.translate(0, CLIMB_Y / 2 - 0.1, 0);
+  const blobGeo = T.g(new THREE.IcosahedronGeometry(1, 1));
+  const trunkMat = T.m(new THREE.MeshStandardMaterial({ color: theme.trunk, roughness: 1, flatShading: true }));
+  const leafMat = T.m(new THREE.MeshStandardMaterial({ roughness: 0.9, flatShading: true }));
+  const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, trees.length);
+  const per = 6;
+  const blobs = new THREE.InstancedMesh(blobGeo, leafMat, trees.length * per);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), pos = new THREE.Vector3(), sc = new THREE.Vector3();
+  const c = new THREE.Color();
+  trees.forEach((t, i) => {
+    m.compose(pos.set(t.x, 0, t.z), q.setFromEuler(e.set(0, rng.range(0, TAU), 0)), sc.set(1, 1, 1));
+    trunks.setMatrixAt(i, m);
+    // one big flat center pad (what the kitties stand on) + puffs around its rim
+    for (let k = 0; k < per; k++) {
+      let x = t.x, z = t.z, y = CLIMB_Y - 0.45, sx = R + 0.2, sy = 0.45, sz = R + 0.2;
+      if (k > 0) {
+        const a = (k / (per - 1)) * TAU + rng.range(-0.3, 0.3), d = R * 0.85;
+        x += Math.cos(a) * d; z += Math.sin(a) * d; y = CLIMB_Y - 0.55; sx = sz = rng.range(0.7, 0.95); sy = 0.5;
+      }
+      m.compose(pos.set(x, y, z), q.setFromEuler(e.set(0, rng.range(0, TAU), 0)), sc.set(sx, sy, sz));
+      blobs.setMatrixAt(i * per + k, m);
+      blobs.setColorAt(i * per + k, c.set(theme.crowns[(i + k) % theme.crowns.length]).multiplyScalar(k ? 0.9 : 1));
+    }
+  });
+  trunks.castShadow = blobs.castShadow = true;
+  blobs.receiveShadow = true;
+  return [trunks, blobs];
+}
+
 // Checkpoint squares (ice levels): a glowing ring on the tile and a flag in its back corner.
 function buildCheckpoints(levelData, T) {
   const out = [];
@@ -1134,6 +1171,7 @@ function buildWorld(scene, levelData) {
 
   for (const m of buildFloors(levelData, theme, T)) group.add(m);
   for (const m of buildCheckpoints(levelData, T)) group.add(m);
+  for (const m of buildClimbTrees(levelData, theme, T)) group.add(m);
   for (const m of buildWalls(levelData, theme, T)) group.add(m);
   const lanterns = buildLanterns(levelData, theme, T, rng);
   for (const m of lanterns.meshes) group.add(m);

@@ -1,6 +1,7 @@
 # Free hostnames that resolve to the box's IP; Caddy gets Let's Encrypt certs automatically.
 # (Two providers, because some routers/DNS filters block one of them.)
-80-47-225-25.nip.io, 80-47-225-25.sslip.io {
+# runkittyrun.* is the friendly name; the bare-IP names stay so old links and app builds keep working.
+runkittyrun.80-47-225-25.nip.io, runkittyrun.80-47-225-25.sslip.io, 80-47-225-25.nip.io, 80-47-225-25.sslip.io {
 	encode gzip
 	reverse_proxy 127.0.0.1:8080
 }

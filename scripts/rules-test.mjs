@@ -69,14 +69,14 @@ ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG
   ok(revivedAt >= 0 && secs >= CFG.REVIVE_DELAY - 1e-9 && secs < CFG.REVIVE_DELAY + 0.05, `revive only after the ${CFG.REVIVE_DELAY}s cooldown (${secs.toFixed(2)}s)`);
 }
 
-// speed boots: 2 pairs max, lost when caught (an extra life keeps them)
+// speed boots: 4 pairs max, lost when caught (an extra life keeps them)
 {
   const s = createSim({ seed: 21, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] });
   stepSim(s, {}, CFG.TICK);
   const p = s.players[0];
   const grab = () => { s.items.push({ id: 900 + s.items.length, type: 'boots', x: p.x, z: p.z, taken: false }); stepSim(s, {}, CFG.TICK); return s.items.at(-1).taken; };
-  const took = [grab(), grab(), grab()];
-  ok(took.join() === 'true,true,false' && Math.abs(p.speedMult - (1 + 2 * CFG.SPEED_BOOST)) < 1e-9, `2 pairs of boots max (picked ${took}, speed x${p.speedMult.toFixed(2)})`);
+  const took = [grab(), grab(), grab(), grab(), grab()];
+  ok(took.join() === 'true,true,true,true,false' && Math.abs(p.speedMult - (1 + 4 * CFG.SPEED_BOOST)) < 1e-9, `4 pairs of boots max (picked ${took}, speed x${p.speedMult.toFixed(2)})`);
   // (wolf positions are recomputed every tick, so move the kitty onto a wolf instead)
   const w = s.enemies[0];
   const hit = () => { p.invuln = 0; p.shield = 0; p.x = w.x; p.z = w.z; return stepSim(s, {}, CFG.TICK); };
@@ -99,4 +99,36 @@ ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG
   ok(s.lastWinner === 2 && b.finishes === 1 && a.finishes === 1, 'crown moves to the newest finisher');
   finish(a);
   ok(a.finishes === 2 && s.lastWinner === 1, 'two finishes = aura');
+}
+// autumn levels: a kitty up a climbable tree can't be caught
+{
+  const s = createSim({ seed: 41, startLevel: 3, players: [{ id: 1, name: 'a' }] });
+  stepSim(s, {}, CFG.TICK);
+  const p = s.players[0], t = s.levelData.trees[2];
+  ok(s.levelData.trees.length >= 10, `autumn level has climbable trees (${s.levelData.trees.length})`);
+  // (wolf positions are recomputed every tick, so put the kitty onto a wolf, with and without a tree there)
+  const w = s.enemies[0];
+  const onWolf = () => { p.invuln = 0; p.x = w.x; p.z = w.z; return stepSim(s, {}, CFG.TICK); };
+  s.levelData.trees.push({ x: w.x, z: w.z });
+  let ev = onWolf();
+  ok(p.alive && !ev.some((e) => e.type === 'death'), 'a kitty up a tree is safe');
+  s.levelData.trees.pop();
+  ev = onWolf();
+  ok(ev.some((e) => e.type === 'death'), 'the same spot without a tree is deadly');
+  const tb = s.levelData.items.filter((it) => it.tree);
+  ok(tb.length === s.levelData.trees.length && tb.every((it, i) => it.type === 'boots' && it.x === s.levelData.trees[i].x), `a pair of boots on top of every tree (${tb.length})`);
+  void t;
+}
+// the crown is a pickup over the goal's center: reaching the goal's edge clears the level but doesn't grab it
+{
+  const s = createSim({ seed: 32, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] });
+  stepSim(s, {}, CFG.TICK);
+  const [a, b] = s.players;
+  for (const q of s.players) q.invuln = 99;
+  a.x = s.levelData.centerRadius - 1; a.z = 0;
+  let ev = stepSim(s, {}, CFG.TICK);
+  ok(ev.some((e) => e.type === 'levelClear') && !s.crownTaken && s.lastWinner === 0, 'goal edge clears the level, crown still up for grabs');
+  b.x = 0.3; b.z = 0;                       // a teammate darts to the middle during the celebration
+  ev = stepSim(s, {}, CFG.TICK);
+  ok(ev.some((e) => e.type === 'crown' && e.playerId === 2) && s.lastWinner === 2 && a.finishes === 1, 'whoever touches the crown wears it');
 }

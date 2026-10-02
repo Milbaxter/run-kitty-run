@@ -29,6 +29,7 @@ const DIRS = [[-1, 0], [0, -1], [1, 0], [0, 1]];
 const ARMS = 19;                  // spiral wall arms; path ~845 units with 10.8-wide lanes
 const ROOM = 8;                   // goal room half-size
 const ICE_THEME = 2;              // Snowy Peaks
+const TREE_THEME = 1;             // Autumn Grove: one climbable tree per lane
 const ICE_RAMP = 0.3;              // ice levels: how much of the usual toward-the-goal difficulty ramp applies
 const THEME_ORDER = [0, ICE_THEME, 1, 3]; // meadow, snow (ice), autumn, neon: level 2 is the ice rink
 
@@ -199,6 +200,7 @@ function placeItems(rng, lvl, p) {
     for (const s of spawnPoints) if (Math.hypot(s.x - x, s.z - z) < 4) return false;
     for (const t of items) if (Math.hypot(t.x - x, t.z - z) < 6) return false;
     if (collideCircle(lvl, x, z, CFG.ITEM_RADIUS + 0.15).hit) return false;
+    for (const t of lvl.trees || []) if (Math.hypot(t.x - x, t.z - z) < CFG.TREE_RADIUS + 1) return false; // not hidden under a canopy
     return true;
   };
   const types = [['boots', 5], ['life', 2], ['shield', 3]];
@@ -226,6 +228,32 @@ function pickCheckpoints(corners, legs, nSafe) {
   let third = 1;
   for (let i = 1; i < late; i++) if (Math.abs(cum[i] - total / 3) < Math.abs(cum[third] - total / 3)) third = i;
   return [third, late].map((i) => ({ corner: i, x: corners[i].x, z: corners[i].z, heading: Math.atan2(-legs[i].uz, -legs[i].ux) })); // run direction is -u
+}
+
+// Autumn levels: one climbable tree per lane (not the final stretch), somewhere in the middle of the leg,
+// off to one side. A kitty under its canopy (within CFG.TREE_RADIUS) has climbed up and wolves can't reach it.
+function placeTrees(rng, legs) {
+  const W = CFG.RING_WIDTH;
+  const lat = W / 2 - CFG.WALL_THICKNESS / 2 - CFG.TREE_RADIUS - 0.4; // keep the canopy off the walls
+  const trees = [];
+  for (let i = 0; i < legs.length - 1; i++) {
+    const l = legs[i];
+    if (l.len < 2 * W) continue;
+    const s = rng.range(W, l.len - W), v = rng.range(-lat, lat);
+    trees.push({ x: l.ox + l.ux * s + l.nx * v, z: l.oz + l.uz * s + l.nz * v, leg: i });
+  }
+  return trees;
+}
+
+function inTree(levelData, x, z) {
+  const t = levelData.trees;
+  if (!t || !t.length) return false;
+  const r2 = CFG.TREE_RADIUS * CFG.TREE_RADIUS;
+  for (let i = 0; i < t.length; i++) {
+    const dx = x - t[i].x, dz = z - t[i].z;
+    if (dx * dx + dz * dz < r2) return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------- generation
@@ -271,8 +299,10 @@ function generateLevel(level, seed, mode = 'mixed') {
   };
   lvl.ice = mode !== 'run' && lvl.theme === ICE_THEME;
   lvl.checkpoints = lvl.ice ? pickCheckpoints(corners, legs, lvl.safeCorners.length) : [];
+  lvl.trees = lvl.theme === TREE_THEME && !lvl.ice ? placeTrees(createRng(hashSeed(seed, L, 'trees')), legs) : [];
   lvl.enemies = placeEnemies(rng, lvl, p);
   lvl.items = placeItems(rng, lvl, p);
+  for (const t of lvl.trees) lvl.items.push({ id: lvl.items.length, type: 'boots', x: t.x, z: t.z, tree: true }); // a pair of boots up every tree
   return lvl;
 }
 
@@ -449,4 +479,4 @@ function mazeSelfTest(levels = 12) {
   return { ok: problems.length === 0, problems, stats };
 }
 
-export { generateLevel, collideCircle, locate, inCenter, onIce, mazeSelfTest };
+export { generateLevel, collideCircle, locate, inCenter, onIce, inTree, mazeSelfTest };

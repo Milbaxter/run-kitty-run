@@ -160,6 +160,10 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:auto;overflow:auto;padding:20px 16px;}
 .rkr-title{background:radial-gradient(ellipse at 50% 35%,rgba(70,30,120,.3),rgba(14,6,34,.72) 75%),linear-gradient(180deg,rgba(20,8,48,.15),rgba(8,2,22,.6));
   animation:rkr-fadein .6s ease-out;}
+.rkr-credits{position:absolute;right:max(16px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));z-index:2;
+  font-weight:800;font-size:14px;color:rgba(239,231,255,.75);}
+.rkr-credits a{color:#ffcf5a;text-decoration:none;}
+.rkr-credits a:hover{text-decoration:underline;}
 .rkr-title.rkr-leaving{animation:rkr-fadeout .45s ease-in forwards;pointer-events:none;}
 .rkr-tcol{display:flex;flex-direction:column;align-items:center;gap:18px;max-width:980px;width:100%;margin:auto;}
 .rkr-logo{position:relative;display:flex;flex-wrap:wrap;justify-content:center;gap:0 .35em;font-weight:900;font-size:clamp(46px,9.5vw,118px);line-height:1.02;
@@ -727,7 +731,7 @@ function createUI(root) {
             <div class="rkr-items">
               ${item(ICONS.wolf, 'Wolves', 'one touch and you\'re down')}
               ${item(ICONS.revive, 'Revive circle', 'run over a friend\'s circle')}
-              ${item(ICONS.boots, 'Speed boots', '+6% speed each, 2 pairs max, lost when caught')}
+              ${item(ICONS.boots, 'Speed boots', '+4% speed each, 4 pairs max, lost when caught')}
               ${item(ICONS.heart, 'Extra life', 'one automatic revive')}
               ${item(ICONS.shield, 'Shield', '4 seconds of safety')}
             </div>
@@ -751,6 +755,8 @@ function createUI(root) {
       </div>`;
     o.prepend(paws);
     o.querySelectorAll('.rkr-legal a').forEach((a) => a.addEventListener('click', () => openExternal(`${SERVER_ORIGIN}/${a.dataset.page}.html`)));
+    const credits = el('div', 'rkr-credits', 'made by <a href="https://www.instagram.com/ben.bhc/" target="_blank" rel="noopener">Benjamin</a> and <a href="https://x.com/milimithrandir" target="_blank" rel="noopener">Maximilian</a>');
+    o.appendChild(credits);
     titleBtns = [...o.querySelectorAll('.rkr-btn')];
     titleBtns.forEach((b) => {
       b.addEventListener('click', () => startGame(+b.dataset.p));

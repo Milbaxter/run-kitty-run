@@ -12,6 +12,7 @@ import { createKittyModel, createWolfModel, createItemModel, createReviveCircleM
 import { buildWorld, setupLighting } from './world.js';
 import { createEffects } from './effects.js';
 import { createIceTrail } from './trail.js';
+import { createAuraTrail } from './auratrail.js';
 import { createAudio } from './audio.js';
 import { createUI } from './ui.js';
 import { createNet } from './net.js';
@@ -411,16 +412,16 @@ function ensureKitties() {
       pip.position.y = 0.03;
       model.group.add(ring, pip);
       scene.add(model.group);
-      kitties.set(p.id, { model, dustT: 0, stepN: 0, trail: createIceTrail(scene) });
+      kitties.set(p.id, { model, dustT: 0, stepN: 0, trail: createIceTrail(scene), auraTrail: createAuraTrail(scene, p.color) });
     }
   }
   for (const [id, k] of kitties) {
-    if (!sim.players.find((p) => p.id === id)) { scene.remove(k.model.group); k.trail.dispose(); kitties.delete(id); }
+    if (!sim.players.find((p) => p.id === id)) { scene.remove(k.model.group); k.trail.dispose(); k.auraTrail.dispose(); kitties.delete(id); }
   }
 }
 
 function removeKitties() {
-  for (const k of kitties.values()) { scene.remove(k.model.group); k.trail.dispose(); }
+  for (const k of kitties.values()) { scene.remove(k.model.group); k.trail.dispose(); k.auraTrail.dispose(); }
   kitties.clear();
 }
 
@@ -709,7 +710,7 @@ function syncVisuals(dt, alpha) {
     const k = kitties.get(p.id);
     if (!k) continue;
     k.model.group.visible = p.alive;
-    if (!p.alive) { k.trail.update(dt, p.x, p.z, p.heading, false); continue; }
+    if (!p.alive) { k.trail.update(dt, p.x, p.z, p.heading, false); k.auraTrail.update(dt, p.x, 0, p.z, p.heading, false); continue; }
     let [x, z] = lerpPos('p' + p.id, p.x, p.z, alpha);
     if (online.playing && p.id === online.me) { x += online.errX; z += online.errZ; }
     // autumn levels: up a tree = standing on its canopy
@@ -728,6 +729,7 @@ function syncVisuals(dt, alpha) {
       crown: p.id === sim.lastWinner, aura: (p.finishes || 0) >= 2,
     });
     k.trail.update(dt, x, z, -k.model.group.rotation.y, gliding && speed > 0.5);
+    k.auraTrail.update(dt, x, k.climb, z, -k.model.group.rotation.y, (p.finishes || 0) >= 3 && speed > 1);
     if (p.moving && !gliding && sim.state !== 'gameover') {
       k.dustT -= dt;
       if (k.dustT <= 0) {

@@ -16,6 +16,7 @@ const PATCH_NOTES = [
       'Fixed: clicking right after reaching a checkpoint (or holding the mouse as you arrive) could leave your kitty stuck there',
       'Your kitty\'s tail now swings out when you carve a turn on the ice, and streams behind you as you glide',
       'The minimap is now square, so you can see the whole maze, corners included',
+      'Finish 3+ runs first and your aura leaves a short trail of flames in your kitty\'s colour behind you as you move',
     ],
   },
   {

@@ -1379,8 +1379,8 @@ function buildCheckpoints(levelData, T) {
 // ---------------------------------------------------------------- the final run (last level)
 //
 // Set dressing for levelData.finale, a frozen hell (no start / finish markings, nothing that tells how far is left):
-// fire braziers outside both walls at a steady rhythm, a faint blood-red shimmer on the ice, and a snow patch with a
-// warm pulsing ring under the halfway tree (the one place to rest). At the end, the goal room is the sweet reward:
+// fire braziers outside both walls at a steady rhythm, a faint blood-red shimmer on the ice, and a snow patch under
+// the halfway tree (the one place to rest). At the end, the goal room is the sweet reward:
 // cushions, yarn balls, bowls of milk and golden sparkles round the giant fish (models.js). Nothing tall stands on
 // the near (+z) side: the camera looks down toward -z at ~56° and it would hide the kitties.
 
@@ -1465,8 +1465,7 @@ function buildFinale(levelData, theme, T, rng) {
   aurora.frustumCulled = false;
   meshes.push(aurora);
 
-  // ---- the halfway tree: a disc of snow over the ice (you can stand still here) and a warm ring that breathes
-  let ringMat = null;
+  // ---- the halfway tree: a disc of snow over the ice (you can stand still here)
   if (levelData.trees && levelData.trees.length) {
     const snowTex = textTexture(T, 128, 128, (g, S) => {
       const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
@@ -1476,14 +1475,10 @@ function buildFinale(levelData, theme, T, rng) {
     });
     const snowGeo = T.g(new THREE.PlaneGeometry(2 * R + 1.4, 2 * R + 1.4)); snowGeo.rotateX(-Math.PI / 2);
     const snowMat = T.m(new THREE.MeshStandardMaterial({ map: snowTex, transparent: true, roughness: 0.85, depthWrite: false, emissive: 0x9fb8e0, emissiveIntensity: 0.15 }));
-    const ringGeo = T.g(new THREE.RingGeometry(R + 0.15, R + 0.45, 48)); ringGeo.rotateX(-Math.PI / 2);
-    ringMat = T.m(new THREE.MeshBasicMaterial({ color: 0xffb340, transparent: true, opacity: 0.8, depthWrite: false }));
     for (const t of levelData.trees) {
       const snow = new THREE.Mesh(snowGeo, snowMat);
       snow.position.set(t.x, 0.011, t.z); snow.renderOrder = 1; snow.receiveShadow = true;
-      const ring = new THREE.Mesh(ringGeo, ringMat);
-      ring.position.set(t.x, 0.016, t.z); ring.renderOrder = 2;
-      meshes.push(snow, ring);
+      meshes.push(snow);
     }
   }
 
@@ -1493,7 +1488,6 @@ function buildFinale(levelData, theme, T, rng) {
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), s = new THREE.Vector3();
   const update = (time) => {
     auroraMat.uniforms.uTime.value = time;
-    if (ringMat) ringMat.opacity = 0.6 + 0.3 * Math.sin(time * 2.2);
     for (let i = 0; i < flames.length; i++) {
       const f = flames[i], k = f.ph;
       const fy = 0.85 + 0.2 * Math.sin(time * 9.1 + k * 7) + 0.1 * Math.sin(time * 23.7 + k * 3);

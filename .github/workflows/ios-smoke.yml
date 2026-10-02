@@ -156,24 +156,27 @@ jobs:
           sleep 15; shot_until_painted 01-title 240
           [ $SECONDS -lt 270 ] && drive "title state" "$STATE"
 
-          # 2) Deep link runkittyrun://join?room=TEST while running. iOS first asks "Open in Run Kitty Run?"
-          #    (a system alert simctl can't answer); try a raw touch on Open via AXe, then capture what happens.
+          # 2) Cold start from the deep link runkittyrun://join?room=TEST (app killed first so the simulator is idle).
+          #    iOS first asks "Open in Run Kitty Run?" on the home screen (a system alert simctl can't answer):
+          #    press Open with a raw AXe touch, then expect the terms notice / online lobby instead of the title.
+          to 30 xcrun simctl terminate "$UDID" "$BID"; sleep 3
           log "openurl"
           (to 240 xcrun simctl openurl "$UDID" "runkittyrun://join?room=TEST" &)
           sleep 8; shot 02-link-sheet
           if command -v axe >/dev/null && [ -f "$OUT/02-link-sheet.png" ]; then
             W=$(sips -g pixelWidth "$OUT/02-link-sheet.png" | awk '/pixelWidth/{print $2}'); H=$(sips -g pixelHeight "$OUT/02-link-sheet.png" | awk '/pixelHeight/{print $2}')
-            # Open is the right-hand button; the screenshot is portrait-framebuffer, the app is landscape.
-            X=$(( W * 46 / 100 / 3 )); Y=$(( H * 58 / 100 / 3 ))
+            X=$(( W * 69 / 100 / 3 )); Y=$(( H * 535 / 1000 / 3 )) # "Open" on the portrait home-screen alert, in points
             log "axe touch $X,$Y (screen ${W}x${H}px)"
             to 45 axe touch -x "$X" -y "$Y" --down --up --udid "$UDID" 2>&1 | tail -2 | tee -a "$OUT/timeline.txt"
           fi
-          sleep 15; shot 03-after-link
+          sleep 20; shot_until_painted 03-deeplink $(( SECONDS + 90 ))
           [ $SECONDS -lt 420 ] && drive "after deep link" "$STATE"
 
           log "device log"
           to 60 xcrun simctl spawn "$UDID" log show --start "$START" --style compact --predicate 'process == "App" AND (messageType == error OR messageType == fault)' > "$OUT/device-log-errors.txt" 2>&1
           [ -n "$IWDP" ] && kill $IWDP
+          # Stop the software-rendered game before the artifact upload, or the runner crawls for minutes.
+          to 30 xcrun simctl terminate "$UDID" "$BID"; (to 60 xcrun simctl shutdown "$UDID" &)
           ls -la "$OUT"; echo "--- webview"; cut -c1-400 "$LOG_JS"; echo "--- app console"; grep -a '⚡️' "$OUT/app-console.txt" | cut -c1-300 | head -80
           exit 0
       - uses: actions/upload-artifact@v4

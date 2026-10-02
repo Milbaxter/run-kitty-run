@@ -1077,12 +1077,30 @@ function fishFinished() {
 
 const _seenCircles = new Set();
 const _kitArgs = {}; // reused kitty model.update() args (the model only reads them)
-// 8+ wins backpack passengers: the other players' colours (first PACK_MAX in player order; solo: a few default
-// cats). Returns the kitty's cached array, replaced only when the set changes (the model rebuilds on a new array).
+// 8+ wins backpack passengers: the other players' colours (more than PACK_MAX others: the PACK_MAX with the lowest
+// scoreboard score, ties by player order, shown in player order; solo: a few default cats). Returns the kitty's
+// cached array, replaced only when the chosen set changes (the model rebuilds the heads on a new array).
 const PACK_MAX = 5, _packTmp = [];
+const packScore = (o) => (o.rescues | 0) - (o.deaths | 0) + 20 * (o.finishes || 0);   // as on the scoreboard
 function packColors(k, p) {
   _packTmp.length = 0;
-  for (const o of sim.players) if (o.id !== p.id && _packTmp.length < PACK_MAX) _packTmp.push(o.color);
+  const ps = sim.players, crowded = ps.length - 1 > PACK_MAX;
+  for (let i = 0; i < ps.length; i++) {
+    const o = ps[i];
+    if (o.id === p.id) continue;
+    if (crowded) {   // rank = other players ahead of o (lower score, or same score earlier in order)
+      const s = packScore(o);
+      let rank = 0;
+      for (let j = 0; j < ps.length && rank < PACK_MAX; j++) {
+        const q = ps[j];
+        if (q.id === p.id || j === i) continue;
+        const sq = packScore(q);
+        if (sq < s || (sq === s && j < i)) rank++;
+      }
+      if (rank >= PACK_MAX) continue;
+    }
+    _packTmp.push(o.color);
+  }
   if (!_packTmp.length) for (const c of PLAYER_COLORS) if (c !== p.color && _packTmp.length < 3) _packTmp.push(c);
   const old = k.packCols;
   let same = !!old && old.length === _packTmp.length;

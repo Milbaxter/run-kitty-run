@@ -173,7 +173,7 @@ jobs:
           sleep 3
           log "openurl"
           (to 120 xcrun simctl openurl "$UDID" "runkittyrun://join?room=TEST" &)
-          sleep 8; shot 02-deeplink-alert
+          sleep 15; shot 02-deeplink-alert; sleep 10; shot 03-deeplink-alert-later
           log "device log"
           to 30 xcrun simctl spawn "$UDID" log show --start "$START" --style compact --predicate 'process == "App" AND (messageType == error OR messageType == fault)' > "$OUT/device-log-errors.txt" 2>&1
           [ -n "$IWDP" ] && kill $IWDP

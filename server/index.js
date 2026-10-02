@@ -1,5 +1,5 @@
 // Run Kitty Run online server: serves the static client and runs authoritative lobbies over WebSockets.
-// One Room = one lobby (max 8). The first player in the lobby is its host and decides when to start.
+// One Room = one lobby (max NET.MAX_PLAYERS). The first player in the lobby is its host and decides when to start.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,6 +9,7 @@ import { CFG, NET, PLAYER_COLORS, PLAYER_NAMES } from '../public/js/shared/confi
 import { hashSeed } from '../public/js/shared/rng.js';
 import { GAME_MODES, createSim, stepSim, addPlayer, removePlayer } from '../public/js/shared/sim.js';
 import { serializeEnemies } from '../public/js/shared/enemies.js';
+import { createStats } from './stats.js';
 
 const PORT = +process.env.PORT || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -19,6 +20,8 @@ const FEEDBACK_FILE = process.env.FEEDBACK_FILE || path.resolve(path.dirname(fil
 const FEEDBACK_MAX = 1000;          // characters per message
 const FEEDBACK_PER_HOUR = 6;        // per IP
 const MAX_ROOMS = 200;
+// Anonymous play stats (title screen STATS page) live next to the feedback file.
+const stats = createStats(process.env.STATS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'stats.json'));
 
 // ---------------- static files ----------------
 const TYPES = {
@@ -31,6 +34,7 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/healthz') { res.end('ok'); return; }
   if (url.pathname === '/api/feedback') { handleFeedback(req, res); return; }
+  if (url.pathname === '/api/event' || url.pathname === '/api/stats') { stats.handle(req, res, clientIp(req), () => wss.clients.size); return; }
   let p = decodeURIComponent(url.pathname);
   if (p.endsWith('/')) p += 'index.html';
   const file = path.join(ROOT, p);
@@ -200,6 +204,7 @@ function startMsg(room, withWolves) {
 }
 
 function startGame(room) {
+  stats.onlineGameStarted();
   room.phase = 'playing';
   room.tick = 0;
   room.pending = [];
@@ -289,6 +294,7 @@ setInterval(() => {
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 16 * 1024 });
 
 wss.on('connection', (ws) => {
+  stats.online(wss.clients.size);
   const client = { id: nextClientId++, ws, room: null, name: '' };
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
@@ -307,6 +313,7 @@ wss.on('connection', (ws) => {
         if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', msg: 'Server is full, try again later.' });
         const mode = GAME_MODES.includes(msg.mode) ? msg.mode : 'mixed';
         const r = { code: makeCode(), mode, members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0 };
+        stats.lobbyCreated();
         rooms.set(r.code, r);
         joinRoom(client, r, msg.name);
         break;

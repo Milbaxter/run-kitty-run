@@ -13,6 +13,7 @@ const PATCH_NOTES = [
   {
     version: '0.8', date: '2026-10-01', title: 'Ice skating',
     items: [
+      'New STATS page on the title screen (computer): how many people have played, runs, levels, play time and which modes people play',
       'The aura (finish 2+ runs first) is now a super-saiyan flame aura in your kitty\'s own colour, and it shows on snow and ice too',
       'You can see your speed boots: each pair you pick up puts a little red boot on one more paw',
       'Online lobbies now hold up to 32 kitties',

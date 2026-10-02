@@ -1,0 +1,138 @@
+// Anonymous play stats. Clients send small events (POST /api/event) under a random per-browser id
+// (no names, no IPs stored); the server keeps running totals + one row per day and serves them at
+// GET /api/stats for the title screen's STATS page. State is one JSON file, saved every few seconds.
+import fs from 'node:fs';
+
+const KINDS = ['solo', 'coop', 'online'];
+const MODES = ['mixed', 'run', 'ice'];
+const DEVICES = ['desktop', 'touch', 'ios', 'android'];
+const CID = /^[a-z0-9]{8,32}$/;
+const EVENT_TYPES = ['visit', 'run_start', 'level', 'run_end'];
+const EVENTS_PER_HOUR = 400;        // per IP (a long session sends maybe 50)
+const SAVE_EVERY_MS = 5000;
+
+const day = (t = Date.now()) => new Date(t).toISOString().slice(0, 10);
+const blankDay = () => ({ newPlayers: 0, players: 0, runs: 0, levels: 0, deaths: 0, rescues: 0, seconds: 0, lobbies: 0 });
+
+function createStats(file) {
+  let s = {
+    since: day(), players: {},                               // cid -> first day seen
+    totals: { runs: 0, levels: 0, deaths: 0, rescues: 0, seconds: 0, lobbies: 0, onlineGames: 0, bestLevel: 0 },
+    kinds: Object.fromEntries(KINDS.map((k) => [k, 0])),
+    modes: Object.fromEntries(MODES.map((k) => [k, 0])),
+    devices: Object.fromEntries(DEVICES.map((k) => [k, 0])),
+    days: {},                                                // 'YYYY-MM-DD' -> blankDay()
+    today: { day: day(), seen: [] },                         // cids active today (for the daily unique count)
+    peakOnline: { count: 0, at: null },
+  };
+  try {
+    const old = JSON.parse(fs.readFileSync(file, 'utf8'));
+    s = { ...s, ...old, totals: { ...s.totals, ...old.totals } };
+  } catch { /* first run, or unreadable: start fresh */ }
+  let todaySeen = new Set(s.today.day === day() ? s.today.seen : []);
+  let dirty = false;
+  const hits = new Map(); // ip -> [timestamps]
+
+  function save() {
+    if (!dirty) return;
+    dirty = false;
+    s.today = { day: day(), seen: [...todaySeen] };
+    const tmp = file + '.tmp';
+    fs.writeFile(tmp, JSON.stringify(s), (err) => {
+      if (err) { console.error('stats save failed:', err.message); return; }
+      fs.rename(tmp, file, () => {});
+    });
+  }
+  setInterval(save, SAVE_EVERY_MS).unref();
+  const flush = () => { dirty = true; try { s.today = { day: day(), seen: [...todaySeen] }; fs.writeFileSync(file, JSON.stringify(s)); } catch { /* ignore */ } };
+  process.once('SIGTERM', () => { flush(); process.exit(0); });
+  process.once('SIGINT', () => { flush(); process.exit(0); });
+
+  function today() {
+    const d = day();
+    if (s.today.day !== d) { s.today = { day: d, seen: [] }; todaySeen = new Set(); }
+    return (s.days[d] ||= blankDay());
+  }
+
+  function touch(cid, device) {
+    const D = today();
+    if (!s.players[cid]) {
+      s.players[cid] = s.today.day;
+      D.newPlayers++;
+      if (DEVICES.includes(device)) s.devices[device]++;
+    }
+    if (!todaySeen.has(cid)) { todaySeen.add(cid); D.players++; }
+    return D;
+  }
+
+  const num = (v, max) => (Number.isFinite(v) ? Math.max(0, Math.min(max, Math.floor(v))) : 0);
+
+  // ev: { cid, ev: 'visit' | 'run_start' | 'level' | 'run_end', ... }
+  function record(ev) {
+    if (!ev || !CID.test(String(ev.cid || '')) || !EVENT_TYPES.includes(ev.ev)) return false;
+    const D = touch(ev.cid, ev.device);
+    const T = s.totals;
+    switch (ev.ev) {
+      case 'visit': break;
+      case 'run_start':
+        D.runs++; T.runs++;
+        if (KINDS.includes(ev.kind)) s.kinds[ev.kind]++;
+        if (ev.kind === 'online' && MODES.includes(ev.mode)) s.modes[ev.mode]++; // lobby mode (solo/co-op are always Run + Skate)
+        break;
+      case 'level':
+        D.levels++; T.levels++;
+        T.bestLevel = Math.max(T.bestLevel, num(ev.level, 999));
+        break;
+      case 'run_end': {
+        const sec = num(ev.seconds, 6 * 3600);
+        D.seconds += sec; T.seconds += sec;
+        const de = num(ev.deaths, 999), re = num(ev.rescues, 999);
+        D.deaths += de; T.deaths += de; D.rescues += re; T.rescues += re;
+        break;
+      }
+    }
+    dirty = true;
+    return true;
+  }
+
+  // server-side facts
+  function lobbyCreated() { today().lobbies++; s.totals.lobbies++; dirty = true; }
+  function onlineGameStarted() { s.totals.onlineGames++; dirty = true; }
+  function online(count) {
+    if (count > s.peakOnline.count) { s.peakOnline = { count, at: new Date().toISOString() }; dirty = true; }
+  }
+
+  function summary(onlineNow) {
+    today();
+    const days = Object.keys(s.days).sort().map((d) => ({ day: d, ...s.days[d] }));
+    return {
+      since: s.since, players: Object.keys(s.players).length, playersToday: todaySeen.size,
+      onlineNow, peakOnline: s.peakOnline, totals: s.totals, kinds: s.kinds, modes: s.modes, devices: s.devices,
+      days: days.slice(-120),
+    };
+  }
+
+  function handle(req, res, ip, onlineNow) {
+    const reply = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
+    if (req.method === 'GET') return reply(200, summary(onlineNow()));
+    if (req.method !== 'POST') return reply(405, { ok: false });
+    const now = Date.now();
+    const h = (hits.get(ip) || []).filter((t) => now - t < 3600e3);
+    if (h.length >= EVENTS_PER_HOUR) return reply(429, { ok: false });
+    h.push(now); hits.set(ip, h);
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 2048) req.destroy(); });
+    req.on('end', () => {
+      let ev;
+      try { ev = JSON.parse(body); } catch { return reply(400, { ok: false }); }
+      const ok = record(ev);
+      reply(ok ? 200 : 400, { ok });
+    });
+  }
+  // forget old rate-limit buckets now and then
+  setInterval(() => { const now = Date.now(); for (const [ip, h] of hits) if (!h.some((t) => now - t < 3600e3)) hits.delete(ip); }, 600e3).unref();
+
+  return { handle, record, lobbyCreated, onlineGameStarted, online, summary, save: flush };
+}
+
+export { createStats };

@@ -1,6 +1,7 @@
 import { CFG } from './shared/config.js';
 import { TOUCH } from './device.js';
 import { PATCH_NOTES } from './patchnotes.js';
+import { openStatsPage } from './analytics.js';
 
 // Run Kitty Run — UI layer (DOM + injected CSS + 2D canvas minimap).
 // Contract notes / interpretations:
@@ -159,6 +160,10 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:auto;overflow:auto;padding:20px 16px;}
 .rkr-title{background:radial-gradient(ellipse at 50% 35%,rgba(70,30,120,.3),rgba(14,6,34,.72) 75%),linear-gradient(180deg,rgba(20,8,48,.15),rgba(8,2,22,.6));
   animation:rkr-fadein .6s ease-out;}
+.rkr-statsbtn{position:absolute;left:max(16px,env(safe-area-inset-left));bottom:max(12px,env(safe-area-inset-bottom));z-index:2;
+  pointer-events:auto;cursor:pointer;font:inherit;font-weight:900;font-size:14px;letter-spacing:.06em;color:#fff6d8;
+  padding:7px 14px;border-radius:999px;border:2px solid rgba(255,255,255,.25);background:rgba(20,8,48,.55);}
+.rkr-statsbtn:hover{background:rgba(60,30,110,.75);}
 .rkr-credits{position:absolute;right:max(16px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));z-index:2;
   font-weight:800;font-size:14px;color:rgba(239,231,255,.75);}
 .rkr-credits a{color:#ffcf5a;text-decoration:none;}
@@ -747,6 +752,10 @@ function createUI(root) {
     o.prepend(paws);
     const credits = el('div', 'rkr-credits', 'made by <a href="https://www.instagram.com/ben.bhc/" target="_blank" rel="noopener">Benjamin</a> and <a href="https://x.com/milimithrandir" target="_blank" rel="noopener">Maximilian</a>');
     o.appendChild(credits);
+    // desktop: anonymous play stats page
+    const statsBtn = el('button', 'rkr-statsbtn rkr-desk', '📊 STATS');
+    statsBtn.addEventListener('click', () => openStatsPage(root));
+    o.appendChild(statsBtn);
     titleBtns = [...o.querySelectorAll('.rkr-btn')];
     titleBtns.forEach((b) => {
       b.addEventListener('click', () => startGame(+b.dataset.p));

@@ -18,6 +18,7 @@ import { createNet } from './net.js';
 import { createLobbyUI } from './lobby.js';
 import { createChat } from './chat.js';
 import { createFeedback } from './feedback.js';
+import { analytics, openStatsPage } from './analytics.js';
 import { TOUCH, QUALITY, goFullscreenLandscape } from './device.js';
 
 // Integration: renderer, input, camera, presentation of the pure sim.
@@ -420,6 +421,7 @@ function removeKitties() {
 
 // ---------- flow ----------
 function enterTitle(showTitleScreen = true) {
+  if (mode === 'play' && sim) analytics.runEnd(runSummary());
   mode = 'title';
   paused = false;
   online.playing = false;
@@ -444,6 +446,7 @@ function startGame(n) {
   for (let i = 0; i < n; i++) players.push({ id: i + 1, name: PLAYER_NAMES[i], color: PLAYER_COLORS[i] });
   removeKitties();
   startSim(players, DEBUG_LEVEL);
+  analytics.runStart(n === 1 ? 'solo' : 'coop', 'mixed');
   cameraSnap = true;
   // First step emits levelStart which triggers buildView.
 }
@@ -456,6 +459,12 @@ function togglePause() {
     ui.hidePause();
   }
   audio.play('click');
+}
+
+// stats for the anonymous play counter: your own kitty online, the whole team offline
+function runSummary() {
+  const me = online.playing ? playerById(online.me) : null;
+  return me ? { deaths: me.deaths, rescues: me.rescues } : { deaths: sim.stats.deaths, rescues: sim.stats.rescues };
 }
 
 function playerById(id) { return sim.players.find((p) => p.id === id); }
@@ -546,10 +555,12 @@ function handleEvents(events) {
         effects.shake(0.2);
         const by = playerById(ev.by);
         ui.banner(by && sim.players.length > 1 ? `${by.name.toUpperCase()} MADE IT!` : 'MADE IT!', 'Everyone back to the start…', 2000);
+        analytics.level(ev.level);
         audio.play('levelClear');
         break;
       }
       case 'gameOver': {
+        analytics.runEnd(runSummary());
         audio.play('gameOver');
         musicStop();
         break;
@@ -883,6 +894,7 @@ function beginOnlineGame(m) {
   playerCount = m.players.length;
   removeKitties();
   sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode });
+  analytics.runStart('online', m.mode || 'mixed');
   sim.started = true;
   gameOverShown = false;
   prevPos.clear();
@@ -1173,6 +1185,7 @@ function tick(dt) {
 }
 
 enterTitle();
+if (params.has('stats')) openStatsPage(document.getElementById('ui')); // shareable link straight to the STATS page
 if (params.get('room')) { ui.hideTitle(); openOnline(); }
 requestAnimationFrame(frame);
 
@@ -1182,4 +1195,4 @@ window.__kitty = {
   advance(seconds) { const n = Math.round(seconds * 60); for (let i = 0; i < n; i++) tick(1 / 60); },
 };
 
-
+analytics.visit();

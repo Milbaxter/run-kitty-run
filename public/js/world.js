@@ -31,6 +31,7 @@ const THEMES = [
     floorStyle: 'grass', wallStyle: 'hedge', particles: 'pollen', crownEmissive: 0,
     crowns: [0x5cb84a, 0x4aa63f, 0x78c850, 0x3f9a45, 0x8fd35a],
     smalls: [0xffffff, 0xff8fc8, 0xffe14d, 0xb48cff, 0xff6b6b],
+    safeStyle: 'summer', safeTint: 0xeeeeee,   // seasonal safe squares (makeSeasonTileTexture / buildSafeProps)
   },
   {
     name: 'Autumn Grove',
@@ -43,6 +44,7 @@ const THEMES = [
     floorStyle: 'autumn', wallStyle: 'hedge', particles: 'leaves', crownEmissive: 0,
     crowns: [0xe8642c, 0xd83f2a, 0xf2a03a, 0xf5c542, 0xb8462e],
     smalls: [0xe8642c, 0xd83f2a, 0xf2a03a, 0xf5c542, 0x9c3b22],
+    safeStyle: 'autumn', safeTint: 0xeeeeee,
   },
   {
     name: 'Snowy Peaks',
@@ -55,6 +57,7 @@ const THEMES = [
     floorStyle: 'snow', wallStyle: 'stone', particles: 'snow', crownEmissive: 0,
     crowns: [0x2f6b52, 0x3a7a5e, 0x2a5e4a, 0x497f68, 0xbfd8dc],
     smalls: [0xffffff, 0xd8ecff, 0x9fd8ff],
+    safeStyle: 'winter', safeTint: 0xeeeeee,
   },
   {
     name: 'Neon Garden',
@@ -79,6 +82,7 @@ const THEMES = [
     floorStyle: 'grass', wallStyle: 'hedge', particles: 'leaves', crownEmissive: 0,
     crowns: [0xffb7d5, 0xff9ec7, 0xffc9df, 0xf7a8c8, 0xfff0f6],   // cherry blossom trees (and falling petals)
     smalls: [0xffffff, 0xffb7d5, 0xfff07a, 0xb7e4ff, 0xd6b8ff],
+    safeStyle: 'spring', safeTint: 0xe2dede,
   },
 ];
 
@@ -95,6 +99,7 @@ const HELL = {
   floorEmissive: 0xff5a20, floorEmissiveIntensity: 0.55,
   ice: 0xa9bdd4, iceEmissive: 0x24476e,
   particles: 'motes', particlePalette: [0xff7a3a, 0xffa040, 0xd8401c],
+  safeStyle: null,   // the start square keeps the plain stone tile
 };
 const HELL_LIGHT = { sky: 0x0e0507, fog: 0x1c0a0c, fogNear: 30, fogFar: 88, hemiSky: 0xb898a8, hemiGround: 0x4a1a1a, hemiIntensity: 1.15, sunColor: 0xffb098, sunIntensity: 1.25 };
 const HEAVEN_LIGHT = { sky: 0xffd9a8, fog: 0xf5d2a0, fogNear: 48, fogFar: 125, hemiSky: 0xfff0d8, hemiGround: 0x8a6a4a, hemiIntensity: 1.2, sunColor: 0xffe2b8, sunIntensity: 1.9 };
@@ -247,7 +252,314 @@ function makeFloorTextures(style, T) {
   return { map, emissiveMap };
 }
 
-// Square stone tile with a bright border and a paw print: marks the wolf-free corner squares.
+// ---- seasonal safe squares (the wolf-free corner squares): a stone tile themed per season, always with a paw print
+// in the middle (safe = paw print), plus a few small props round its corners (see buildSafeProps). Purely cosmetic.
+
+function rrect(g, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  g.beginPath();
+  g.moveTo(x + r, y); g.lineTo(x + w - r, y); g.quadraticCurveTo(x + w, y, x + w, y + r);
+  g.lineTo(x + w, y + h - r); g.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  g.lineTo(x + r, y + h); g.quadraticCurveTo(x, y + h, x, y + h - r);
+  g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y);
+  g.closePath();
+}
+
+// A paw print centred on (cx, cy); k scales the 256-px original. rim: a soft outline drawn under it.
+function drawPaw(g, cx, cy, k, fill, rim, rimW = 6) {
+  const pads = [[0, 14, 30, 25, 0], [-37, -14, 11, 14, -0.35], [-14, -37, 12, 15, -0.12], [14, -37, 12, 15, 0.12], [37, -14, 11, 14, 0.35]];
+  const path = (grow) => {
+    g.beginPath();
+    for (const [dx, dy, rx, ry, rot] of pads) {
+      const x = cx + dx * k, y = cy + dy * k;
+      g.moveTo(x + Math.cos(rot) * (rx * k + grow), y + Math.sin(rot) * (rx * k + grow));
+      g.ellipse(x, y, rx * k + grow, ry * k + grow, rot, 0, TAU);
+    }
+  };
+  if (rim) { g.fillStyle = rim; path(rimW * k); g.fill(); }
+  g.fillStyle = fill; path(0); g.fill();
+}
+
+// Bevelled slab: base colour, a light top-left edge and a darker bottom-right edge, plus fine speckle.
+function drawSlab(g, rng, x, y, w, h, r, [cr, cg, cb], speck = 40) {
+  rrect(g, x, y, w, h, r); g.fillStyle = `rgb(${cr},${cg},${cb})`; g.fill();
+  g.save(); rrect(g, x, y, w, h, r); g.clip();
+  const gr = g.createLinearGradient(x, y, x + w, y + h);
+  gr.addColorStop(0, 'rgba(255,255,255,0.22)'); gr.addColorStop(0.35, 'rgba(255,255,255,0)');
+  gr.addColorStop(0.7, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.16)');
+  g.fillStyle = gr; g.fillRect(x, y, w, h);
+  for (let i = 0; i < speck; i++) {
+    g.fillStyle = rng.chance(0.5) ? 'rgba(255,255,255,0.18)' : 'rgba(60,40,20,0.10)';
+    g.beginPath(); g.arc(x + rng.range(0, w), y + rng.range(0, h), rng.range(0.8, 2.2), 0, TAU); g.fill();
+  }
+  g.restore();
+}
+
+function drawLeaf(g, x, y, len, rot, col) {
+  g.save(); g.translate(x, y); g.rotate(rot);
+  g.fillStyle = col;
+  g.beginPath(); g.moveTo(-len, 0); g.quadraticCurveTo(0, -len * 0.62, len, 0); g.quadraticCurveTo(0, len * 0.62, -len, 0); g.fill();
+  g.strokeStyle = 'rgba(90,40,20,0.45)'; g.lineWidth = 1.2;
+  g.beginPath(); g.moveTo(-len * 1.25, 0); g.lineTo(len * 0.8, 0); g.stroke();
+  g.restore();
+}
+
+function drawBlossom(g, x, y, r, petal, centre, rot = 0) {
+  g.fillStyle = petal;
+  for (let k = 0; k < 5; k++) {
+    const a = rot + k / 5 * TAU;
+    g.beginPath(); g.ellipse(x + Math.cos(a) * r * 0.62, y + Math.sin(a) * r * 0.62, r * 0.5, r * 0.36, a, 0, TAU); g.fill();
+  }
+  g.fillStyle = centre; g.beginPath(); g.arc(x, y, r * 0.3, 0, TAU); g.fill();
+}
+
+function makeSeasonTileTexture(style, T) {
+  const rng = createRng(hashSeed('safeTile', style));
+  const S = 512, C = S / 2;
+  // keep scattered bits off the paw print
+  const nearPaw = (x, y, m = 0) => Math.hypot(x - C, y - C + 6) < 118 + m;
+  return T.t(canvasTex(S, (g) => {
+    if (style === 'summer') {
+      // warm sandstone slabs inside a frame of terracotta tiles, a sun inlay behind a terracotta paw
+      g.fillStyle = '#b98d62'; g.fillRect(0, 0, S, S);
+      const n = 8, cell = S / n;
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+        if (i > 0 && i < n - 1 && j > 0 && j < n - 1) continue;
+        drawSlab(g, rng, i * cell + 4, j * cell + 4, cell - 8, cell - 8, 8, [rng.int(200, 222), rng.int(112, 132), rng.int(74, 90)], 18);
+      }
+      const inner = (S - 2 * cell) / 3;
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+        drawSlab(g, rng, cell + i * inner + 4, cell + j * inner + 4, inner - 8, inner - 8, 10, [rng.int(236, 248), rng.int(212, 226), rng.int(164, 180)], 60);
+      }
+      // the sun: a warm disc with rays
+      g.fillStyle = 'rgba(244,184,70,0.85)';
+      for (let k = 0; k < 12; k++) {
+        const a = k / 12 * TAU, a0 = a - 0.11, a1 = a + 0.11;
+        g.beginPath(); g.moveTo(C + Math.cos(a0) * 96, C + Math.sin(a0) * 96); g.lineTo(C + Math.cos(a) * 138, C + Math.sin(a) * 138); g.lineTo(C + Math.cos(a1) * 96, C + Math.sin(a1) * 96); g.fill();
+      }
+      g.fillStyle = 'rgb(250,206,96)'; g.beginPath(); g.arc(C, C, 100, 0, TAU); g.fill();
+      g.strokeStyle = 'rgb(236,160,64)'; g.lineWidth = 5; g.beginPath(); g.arc(C, C, 100, 0, TAU); g.stroke();
+      drawPaw(g, C, C + 4, 1.45, 'rgb(196,98,58)', null);
+      // a few loose grass blades creeping in at the frame
+      g.lineCap = 'round';
+      for (let i = 0; i < 160; i++) {
+        const side = rng.int(0, 3), t = rng.range(0, S), d = rng.range(0, 22);
+        const x = side === 0 ? t : side === 1 ? S - d : side === 2 ? t : d, y = side === 0 ? d : side === 1 ? t : side === 2 ? S - d : t;
+        const a = rng.range(0, TAU), len = rng.range(5, 11);
+        g.strokeStyle = `rgba(${rng.int(80, 120)},${rng.int(150, 185)},${rng.int(50, 80)},0.85)`; g.lineWidth = rng.range(1.5, 2.6);
+        g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len); g.stroke();
+      }
+    } else if (style === 'autumn') {
+      // mossy cobblestones, a curb frame, an amber paw and fallen leaves drifted to the edges
+      g.fillStyle = '#8c7c58'; g.fillRect(0, 0, S, S);
+      const n = 8, cell = S / n;
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+        const jx = rng.range(-5, 5), jy = rng.range(-5, 5), w = cell - rng.range(7, 12), h = cell - rng.range(7, 12);
+        const v = rng.int(205, 232);
+        drawSlab(g, rng, i * cell + (cell - w) / 2 + jx, j * cell + (cell - h) / 2 + jy, w, h, 22, [v, (v * 0.93) | 0, (v * 0.8) | 0], 30);
+      }
+      // moss in the joints, thicker toward the edges
+      for (let i = 0; i < 260; i++) {
+        const x = rng.range(0, S), y = rng.range(0, S), edge = Math.min(x, y, S - x, S - y);
+        if (rng.chance(edge / 200)) continue;
+        const r = rng.range(5, 16), gr = g.createRadialGradient(x, y, 0, x, y, r);
+        gr.addColorStop(0, 'rgba(104,138,58,0.55)'); gr.addColorStop(1, 'rgba(104,138,58,0)');
+        g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+      }
+      g.strokeStyle = 'rgb(120,96,62)'; g.lineWidth = 12; g.strokeRect(6, 6, S - 12, S - 12);
+      g.strokeStyle = 'rgb(226,204,160)'; g.lineWidth = 6; g.strokeRect(6, 6, S - 12, S - 12);
+      // amber paw on a round millstone inlay
+      g.fillStyle = 'rgb(140,104,66)'; g.beginPath(); g.arc(C, C, 108, 0, TAU); g.fill();
+      g.fillStyle = 'rgb(240,222,184)'; g.beginPath(); g.arc(C, C, 100, 0, TAU); g.fill();
+      drawPaw(g, C, C + 4, 1.45, 'rgb(232,124,40)', 'rgb(150,70,30)', 5);
+      const cols = ['rgb(230,108,40)', 'rgb(206,62,40)', 'rgb(242,170,58)', 'rgb(245,200,72)', 'rgb(160,78,40)'];
+      for (let i = 0; i < 150; i++) {
+        let x, y, tries = 0;
+        do { x = rng.range(10, S - 10); y = rng.range(10, S - 10); tries++; } while ((nearPaw(x, y, 8) || (Math.min(x, y, S - x, S - y) > 90 && rng.chance(0.75))) && tries < 20);
+        if (nearPaw(x, y, 8)) continue;
+        drawLeaf(g, x, y, rng.range(7, 13), rng.range(0, TAU), rng.pick(cols));
+      }
+    } else if (style === 'winter') {
+      // frosted slate flags with snow packed in the joints and drifted round the edges, a pressed-snow paw.
+      // Clearly stone, not ice: darker, matte, blocky, with a white snowy rim.
+      g.fillStyle = '#eef3fa'; g.fillRect(0, 0, S, S);
+      const n = 4, cell = S / n;
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+        const v = rng.int(150, 172);
+        drawSlab(g, rng, i * cell + 7, j * cell + 7, cell - 14, cell - 14, 12, [v, v + 4, v + 16], 70);
+      }
+      // frost bloom on the stones
+      blotches(g, S, rng, 26, 30, 80, [255, 255, 255, 0.16], [210, 225, 245, 0.1]);
+      // snow drifts round the rim (heavier in the corners)
+      for (let i = 0; i < 140; i++) {
+        const side = rng.int(0, 3), t = rng.range(0, S), d = rng.range(0, 30);
+        const x = side === 0 ? t : side === 1 ? S - d : side === 2 ? t : d, y = side === 0 ? d : side === 1 ? t : side === 2 ? S - d : t;
+        const r = rng.range(16, 34), gr = g.createRadialGradient(x, y, 0, x, y, r);
+        gr.addColorStop(0, 'rgba(250,252,255,0.95)'); gr.addColorStop(0.6, 'rgba(246,250,255,0.75)'); gr.addColorStop(1, 'rgba(246,250,255,0)');
+        g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+      }
+      for (const [x, y] of [[0, 0], [S, 0], [0, S], [S, S]]) {
+        const gr = g.createRadialGradient(x, y, 0, x, y, 80);
+        gr.addColorStop(0, 'rgba(250,252,255,1)'); gr.addColorStop(0.55, 'rgba(250,252,255,0.85)'); gr.addColorStop(1, 'rgba(250,252,255,0)');
+        g.fillStyle = gr; g.beginPath(); g.arc(x, y, 80, 0, TAU); g.fill();
+      }
+      // little frost crystals
+      g.lineCap = 'round';
+      for (let i = 0; i < 26; i++) {
+        const x = rng.range(40, S - 40), y = rng.range(40, S - 40);
+        if (nearPaw(x, y, 10)) continue;
+        const r = rng.range(5, 10), a0 = rng.range(0, TAU);
+        g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 1.6;
+        g.beginPath();
+        for (let k = 0; k < 6; k++) { const a = a0 + k / 6 * TAU; g.moveTo(x, y); g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); }
+        g.stroke();
+      }
+      // the paw: pressed into a round patch of snow
+      const gr = g.createRadialGradient(C, C, 70, C, C, 116);
+      gr.addColorStop(0, 'rgba(250,252,255,0.95)'); gr.addColorStop(1, 'rgba(250,252,255,0)');
+      g.fillStyle = gr; g.beginPath(); g.arc(C, C, 116, 0, TAU); g.fill();
+      drawPaw(g, C, C + 4, 1.45, 'rgb(96,120,168)', 'rgb(196,212,236)', 5);
+    } else {
+      // spring: pale cream flags with mossy joints, a pink paw, blossom petals and little flowers in the corners
+      g.fillStyle = '#93c06c'; g.fillRect(0, 0, S, S);
+      const n = 4, cell = S / n;
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+        const pink = rng.chance(0.3);
+        const col = pink ? [rng.int(236, 246), rng.int(200, 212), rng.int(206, 218)] : [rng.int(234, 244), rng.int(222, 232), rng.int(200, 214)];
+        drawSlab(g, rng, i * cell + 6, j * cell + 6, cell - 12, cell - 12, 16, col, 50);
+      }
+      g.fillStyle = 'rgba(255,178,206,0.7)'; g.beginPath(); g.arc(C, C, 102, 0, TAU); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,0.9)'; g.lineWidth = 5; g.beginPath(); g.arc(C, C, 102, 0, TAU); g.stroke();
+      drawPaw(g, C, C + 4, 1.45, 'rgb(232,112,158)', 'rgba(255,255,255,0.9)', 5);
+      // corner flower clusters
+      const fl = [['rgb(255,255,255)', 'rgb(255,206,60)'], ['rgb(255,170,205)', 'rgb(255,236,130)'], ['rgb(200,170,255)', 'rgb(255,236,130)'], ['rgb(255,232,110)', 'rgb(240,150,50)']];
+      for (const [x0, y0] of [[0, 0], [S, 0], [0, S], [S, S]]) {
+        for (let k = 0; k < 9; k++) {
+          const x = x0 + (x0 ? -1 : 1) * rng.range(10, 70), y = y0 + (y0 ? -1 : 1) * rng.range(10, 70);
+          if (Math.hypot(x - x0, y - y0) > 80) continue;
+          const [p, c] = rng.pick(fl);
+          drawBlossom(g, x, y, rng.range(8, 13), p, c, rng.range(0, TAU));
+        }
+      }
+      // drifting petals
+      for (let i = 0; i < 120; i++) {
+        const x = rng.range(8, S - 8), y = rng.range(8, S - 8);
+        if (nearPaw(x, y, 6)) continue;
+        g.fillStyle = rng.pick(['rgb(250,150,190)', 'rgb(255,186,212)', 'rgb(255,255,255)', 'rgb(238,120,170)']);
+        g.beginPath(); g.ellipse(x, y, rng.range(3.5, 6), rng.range(2.2, 3.5), rng.range(0, TAU), 0, TAU); g.fill();
+      }
+    }
+  }, { repeat: false }));
+}
+
+// Small props round the corners of every safe square, themed per season (instanced; one shared vertex-colour material).
+// Kept low (< ~0.6 tall) and tucked into the corners so they never hide a kitty. A checkpoint's flag corner is left clear.
+function buildSafeProps(levelData, style, T) {
+  const rng = createRng(hashSeed('safeProps', levelData.seed ?? 1, levelData.level ?? 1));
+  const size = levelData.corridorWidth - CFG.WALL_THICKNESS, h = size / 2;
+  const mat = T.m(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: true }));
+  const blade = (x, z, col, hgt = 0.36) => {
+    const a = rng.range(0, TAU);
+    return paint(place(new THREE.ConeGeometry(0.05, hgt, 3), x + Math.cos(a) * 0.05, hgt / 2, z + Math.sin(a) * 0.05, 1, rng.range(0.75, 1.2), 1, Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35), col);
+  };
+  const flower = (x, z, y, petal, centre, r = 0.075) => {
+    const out = [];
+    for (let k = 0; k < 5; k++) {
+      const a = (k / 5) * TAU;
+      out.push(paint(place(new THREE.OctahedronGeometry(r, 0), x + Math.cos(a) * r * 1.1, y, z + Math.sin(a) * r * 1.1, 1, 0.35, 0.65, 0, -a, 0), petal));
+    }
+    out.push(paint(place(new THREE.OctahedronGeometry(r * 0.7, 0), x, y + 0.02, z, 1, 0.6, 1), centre));
+    out.push(paint(place(new THREE.CylinderGeometry(0.014, 0.014, y, 4), x, y / 2, z), 0x4f9a3a));
+    return out;
+  };
+  const tuft = (col, n = 7, spread = 0.12, hgt = 0.36) => {
+    const out = [];
+    for (let k = 0; k < n; k++) out.push(blade(rng.range(-spread, spread), rng.range(-spread, spread), col, hgt * rng.range(0.8, 1.15)));
+    return out;
+  };
+  const kinds = [];   // [geometry, weight, scaleRange]
+  if (style === 'summer') {
+    kinds.push([mergeGeos([...tuft(0x5fae45, 8), ...flower(0.08, 0.02, 0.34, 0xffd84a, 0xff9a2a), ...flower(-0.12, -0.08, 0.27, 0xffd84a, 0xff9a2a, 0.06)]), 2, [1.3, 1.7]]);
+    kinds.push([mergeGeos([...tuft(0x6cbc4a, 7), ...flower(-0.06, 0.08, 0.32, 0xffffff, 0xffc830), ...flower(0.13, -0.06, 0.26, 0xff5a4a, 0x3a2420, 0.065)]), 2, [1.3, 1.7]]);
+    kinds.push([mergeGeos(tuft(0x58a640, 10, 0.18, 0.42)), 1, [1, 1.4]]);
+  } else if (style === 'autumn') {
+    const pumpkin = [];
+    for (let k = 0; k < 6; k++) { const a = k / 6 * TAU; pumpkin.push(paint(place(new THREE.SphereGeometry(0.16, 8, 6), Math.cos(a) * 0.09, 0.15, Math.sin(a) * 0.09, 0.85, 0.9, 0.85, 0, -a, 0), 0xe8792a)); }
+    pumpkin.push(paint(place(new THREE.SphereGeometry(0.15, 8, 6), 0, 0.17, 0, 1, 0.9, 1), 0xf08a32));
+    pumpkin.push(paint(place(new THREE.CylinderGeometry(0.025, 0.04, 0.12, 5), 0.01, 0.33, 0, 1, 1, 1, 0, 0, -0.3), 0x4f6a24));
+    pumpkin.push(paint(place(new THREE.SphereGeometry(0.07, 6, 4), 0.09, 0.3, 0.03, 1.2, 0.25, 0.7, 0, 0.5, 0), 0x5f8a2c));
+    kinds.push([mergeGeos(pumpkin), 2, [1.4, 2.0]]);
+    const mush = (x, z, s, cap) => [
+      paint(place(new THREE.CylinderGeometry(0.045 * s, 0.06 * s, 0.2 * s, 6), x, 0.1 * s, z), 0xf2ead8),
+      paint(place(new THREE.SphereGeometry(0.15 * s, 10, 5, 0, TAU, 0, Math.PI / 2), x, 0.18 * s, z, 1, 0.7, 1), cap),
+      ...[0, 2.1, 4.2].map((a) => paint(place(new THREE.IcosahedronGeometry(0.025 * s, 0), x + Math.cos(a) * 0.08 * s, 0.25 * s, z + Math.sin(a) * 0.08 * s), 0xfff6e8)),
+    ];
+    kinds.push([mergeGeos([...mush(0, 0, 1.2, 0xd8402a), ...mush(0.17, 0.1, 0.8, 0xd8402a), ...mush(-0.12, 0.14, 0.65, 0xc8662a)]), 2, [1, 1.35]]);
+    const leafShape = new THREE.Shape();
+    leafShape.moveTo(-0.5, 0); leafShape.quadraticCurveTo(0, 0.32, 0.5, 0); leafShape.quadraticCurveTo(0, -0.32, -0.5, 0);
+    const leaves = [];
+    for (let k = 0; k < 5; k++) {
+      const lg = new THREE.ShapeGeometry(leafShape, 3); lg.rotateX(-Math.PI / 2);
+      leaves.push(paint(place(lg, rng.range(-0.3, 0.3), 0.02 + k * 0.006, rng.range(-0.3, 0.3), 0.3, 1, 0.3, rng.range(-0.15, 0.15), rng.range(0, TAU), 0), [0xe8642c, 0xd83f2a, 0xf2a03a, 0xf5c542, 0xb8462e][k]));
+    }
+    kinds.push([mergeGeos(leaves), 1, [1, 1.3]]);
+  } else if (style === 'winter') {
+    kinds.push([mergeGeos([
+      paint(place(new THREE.IcosahedronGeometry(0.5, 1), 0, 0.02, 0, 1.1, 0.34, 0.75), 0xf6f9ff),
+      paint(place(new THREE.IcosahedronGeometry(0.34, 1), 0.42, 0.0, 0.12, 1, 0.3, 0.8), 0xf2f6ff),
+    ]), 3, [1, 1.4]]);
+    const crystals = [];
+    for (let k = 0; k < 4; k++) {
+      const a = k / 4 * TAU + 0.4, d = k ? 0.13 : 0, hk = k ? rng.range(0.5, 0.75) : 1;
+      crystals.push(paint(place(new THREE.OctahedronGeometry(0.1, 0), Math.cos(a) * d, 0.18 * hk, Math.sin(a) * d, 0.8, 2.0 * hk, 0.8, Math.sin(a) * 0.4 * (k ? 1 : 0), 0, -Math.cos(a) * 0.4 * (k ? 1 : 0)), k % 2 ? 0xbfe4fa : 0x9fd2f4));
+    }
+    crystals.push(paint(place(new THREE.IcosahedronGeometry(0.22, 1), 0, 0, 0, 1.2, 0.35, 1.1), 0xf6f9ff));
+    kinds.push([mergeGeos(crystals), 2, [1, 1.3]]);
+    // a holly sprig on a little snow pile: a warm accent
+    const holly = [paint(place(new THREE.IcosahedronGeometry(0.26, 1), 0, 0, 0, 1.2, 0.4, 1.1), 0xf6f9ff)];
+    for (let k = 0; k < 4; k++) {
+      const a = k / 4 * TAU + 0.3;
+      holly.push(paint(place(new THREE.OctahedronGeometry(0.13, 0), Math.cos(a) * 0.13, 0.1, Math.sin(a) * 0.13, 1.3, 0.25, 0.55, 0, -a, 0.25), 0x2f7a3a));
+    }
+    for (const [x, z] of [[0.03, 0.02], [-0.05, 0.05], [0.02, -0.06]]) holly.push(paint(place(new THREE.IcosahedronGeometry(0.055, 1), x, 0.15, z), 0xd8282a));
+    kinds.push([mergeGeos(holly), 1, [1.1, 1.4]]);
+  } else if (style === 'spring') {
+    const tulip = (x, z, y, col) => [
+      paint(place(new THREE.CylinderGeometry(0.015, 0.015, y, 4), x, y / 2, z), 0x4f9a3a),
+      paint(place(new THREE.CylinderGeometry(0.075, 0.045, 0.13, 6), x, y + 0.05, z), col),
+      paint(place(new THREE.ConeGeometry(0.05, 0.3, 3), x + 0.05, 0.13, z, 1, 1, 0.4, 0, 0.3, -0.35), 0x5fae45),
+    ];
+    kinds.push([mergeGeos([...tulip(0, 0, 0.34, 0xff7fb4), ...tulip(0.14, 0.07, 0.28, 0xffd84a), ...tulip(-0.11, 0.1, 0.3, 0xff9ec8), ...tuft(0x6cc24f, 5, 0.12, 0.28)]), 2, [1.3, 1.7]]);
+    kinds.push([mergeGeos([...tulip(0.05, -0.04, 0.32, 0xc8a0ff), ...tulip(-0.1, 0.06, 0.27, 0xffffff), ...flower(0.14, 0.12, 0.2, 0xffb7d5, 0xfff07a, 0.06), ...tuft(0x6cc24f, 5, 0.12, 0.28)]), 2, [1.3, 1.7]]);
+    kinds.push([mergeGeos([...tuft(0x74c858, 6, 0.14, 0.3), ...flower(0, 0, 0.18, 0xffffff, 0xffd040, 0.06), ...flower(0.12, 0.08, 0.15, 0xffb7d5, 0xffd040, 0.055)]), 1, [1, 1.3]]);
+  }
+  if (!kinds.length) return [];
+  const total = kinds.reduce((a, k) => a + k[1], 0);
+  const pick = () => { let r = rng.range(0, total); for (let i = 0; i < kinds.length; i++) { r -= kinds[i][1]; if (r <= 0) return i; } return kinds.length - 1; };
+  const lists = kinds.map(() => []);
+  const add = (x, z, along) => {
+    const i = pick(), [lo, hi] = kinds[i][2];
+    // winter drifts lie along the edge they're piled against
+    lists[i].push({ x, z, s: rng.range(lo, hi), ry: style === 'winter' && i === 0 ? along + rng.range(-0.25, 0.25) : rng.range(0, TAU) });
+  };
+  const cps = levelData.checkpoints || [];
+  for (const c of levelData.safeCorners) {
+    const cp = cps.find((p) => Math.abs(p.x - c.x) < 0.5 && Math.abs(p.z - c.z) < 0.5);
+    // the flag stands in the corner behind the run direction, on the left (see buildCheckpoints)
+    const flag = cp ? [Math.sign(-Math.cos(cp.heading) - Math.sin(cp.heading)), Math.sign(-Math.sin(cp.heading) + Math.cos(cp.heading))] : null;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      if (flag && flag[0] === sx && flag[1] === sz) continue;
+      const cx = c.x + sx * (h - 0.6), cz = c.z + sz * (h - 0.6);
+      add(cx, cz, rng.chance(0.5) ? 0 : Math.PI / 2);
+      // one or two more along the two edges that meet here
+      add(c.x + sx * (h - 0.5), cz - sz * rng.range(1.1, 2.2), Math.PI / 2);
+      if (rng.chance(0.6)) add(cx - sx * rng.range(1.1, 2.2), c.z + sz * (h - 0.5), 0);
+    }
+  }
+  return kinds.map(([geo], i) => makeInstanced(T.g(geo), mat, lists[i], { cast: true, receive: true }));
+}
+
+// The final run's start square (and the out-of-rotation neon theme): plain stone tile with a bright border and a paw print.
 function makeSafeTileTexture(T) {
   const rng = createRng(4242);
   const S = 256;
@@ -705,9 +1017,12 @@ function buildFloors(levelData, theme, T) {
   tg.setAttribute('normal', new THREE.Float32BufferAttribute(tn, 3));
   tg.setAttribute('uv', new THREE.Float32BufferAttribute(tuv, 2));
   tg.setIndex(ti);
-  const tiles = new THREE.Mesh(T.g(tg), T.m(new THREE.MeshStandardMaterial({ map: makeSafeTileTexture(T), color: theme.tile ?? theme.plaza, roughness: 0.85 })));
+  const seasonal = !!theme.safeStyle;
+  const tileMap = seasonal ? makeSeasonTileTexture(theme.safeStyle, T) : makeSafeTileTexture(T);
+  const tiles = new THREE.Mesh(T.g(tg), T.m(new THREE.MeshStandardMaterial({ map: tileMap, color: seasonal ? theme.safeTint : theme.tile ?? theme.plaza, roughness: 0.9 })));
   tiles.receiveShadow = true;
   const out = [floor, plaza, tiles];
+  if (seasonal) out.push(...buildSafeProps(levelData, theme.safeStyle, T));
   if (levelData.ice) out.push(buildIce(levelData, T, theme));
   return out;
 }

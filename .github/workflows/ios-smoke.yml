@@ -149,10 +149,10 @@ jobs:
             ios_webkit_debug_proxy -s "unix:$SOCK" -F > "$OUT/iwdp.txt" 2>&1 & IWDP=$!
           fi
 
-          # Keep the runner responsive: the simulated app + WebKit + the simulator's render server run at the lowest
-          # priority (background QoS), otherwise the software-rendered game starves the runner agent itself.
+          # Keep the runner responsive: the simulated app + WebKit + the simulator's render server run niced, otherwise
+          # the software-rendered game can starve the runner agent itself (background QoS starves the app instead).
           (while :; do for p in $(pgrep -f "Devices/$UDID/|SimRenderServer|WebKit.GPU|WebKit.WebContent"); do
-             sudo renice -n 20 -p $p >/dev/null 2>&1; taskpolicy -b -p $p >/dev/null 2>&1; done; sleep 3; done) &
+             sudo renice -n 10 -p $p >/dev/null 2>&1; done; sleep 3; done) &
           NICE=$!
           # 1) Launch -> title screen. Capacitor prints "⚡️ [log] ..." (JS console + plugin calls) to stdout; a pty
           #    keeps it unbuffered.
@@ -168,12 +168,9 @@ jobs:
           log "openurl"
           (to 240 xcrun simctl openurl "$UDID" "runkittyrun://join?room=TEST" &)
           sleep 8; shot 02-link-sheet
-          if command -v axe >/dev/null && [ -f "$OUT/02-link-sheet.png" ]; then
-            W=$(sips -g pixelWidth "$OUT/02-link-sheet.png" | awk '/pixelWidth/{print $2}'); H=$(sips -g pixelHeight "$OUT/02-link-sheet.png" | awk '/pixelHeight/{print $2}')
-            X=$(( W * 69 / 100 / 3 )); Y=$(( H * 535 / 1000 / 3 )) # "Open" on the portrait home-screen alert, in points
-            log "axe touch $X,$Y (screen ${W}x${H}px)"
-            to 45 axe touch -x "$X" -y "$Y" --down --up --udid "$UDID" 2>&1 | tail -2 | tee -a "$OUT/timeline.txt"
-          fi
+          # AXe/simctl can't press system alerts, so a raw touch is best effort; the alert itself proves iOS routes
+          # runkittyrun:// to the app.
+          to 30 axe touch -x 277 -y 467 --down --up --udid "$UDID" 2>&1 | tail -1 | tee -a "$OUT/timeline.txt"
           sleep 20; shot_until_painted 03-deeplink $(( SECONDS + 90 ))
           [ $SECONDS -lt 420 ] && drive "after deep link" "$STATE"
 

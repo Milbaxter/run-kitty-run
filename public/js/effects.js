@@ -13,7 +13,7 @@ const PX = 0, PY = 1, PZ = 2, VX = 3, VY = 4, VZ = 5, AGE = 6, LIFE = 7, S0 = 8,
   GRAV = 10, DRAG = 11, CR = 12, CG = 13, CB = 14, A0 = 15, ROT = 16, SPIN = 17, PH = 18, FREQ = 19,
   SHAPE = 20, OX = 21, OZ = 22, OMEGA = 23;
 const S = 24;
-const SHAPE_ROUND = 0, SHAPE_TWINKLE = 1, SHAPE_RECT = 2, SHAPE_HEART = 3;
+const SHAPE_ROUND = 0, SHAPE_TWINKLE = 1, SHAPE_RECT = 2, SHAPE_HEART = 3, SHAPE_FISH = 4;
 
 const TAU = Math.PI * 2;
 const rand = Math.random;
@@ -54,6 +54,18 @@ void main() {
     float h = pow(q.x * q.x + q.y * q.y - 1.0, 3.0) - q.x * q.x * q.y * q.y * q.y;
     a = 1.0 - smoothstep(-0.04, 0.02, h);
     c = vColor;
+  } else if (vSquash > 1.0) {
+    // confetti fish (SHAPE_FISH): oval body + fan tail + eye, squashed by the flutter (squash = vSquash - 1)
+    float sq = vSquash - 1.0;
+    vec2 q = vec2(vRot.x * p.x - vRot.y * p.y, vRot.y * p.x + vRot.x * p.y);
+    float sy = 0.12 + 0.88 * sq;
+    vec2 b = vec2((q.x + 0.07) / 0.27, q.y / (0.15 * sy));
+    float body = 1.0 - smoothstep(0.86, 1.0, length(b));
+    float tw = (q.x - 0.14) * 0.85 * sy - abs(q.y);
+    float tail = smoothstep(0.0, 0.02, tw) * smoothstep(0.14, 0.17, q.x) * (1.0 - smoothstep(0.40, 0.44, q.x));
+    a = max(body, tail);
+    float eye = 1.0 - smoothstep(0.025, 0.04, length(vec2(q.x + 0.2, q.y + 0.03 * sy)));
+    c = vColor * (0.5 + 0.5 * sq) * (1.0 - 0.75 * eye * step(0.5, sq));
   } else if (vSquash > 0.0) {
     vec2 q = vec2(vRot.x * p.x - vRot.y * p.y, vRot.y * p.x + vRot.x * p.y);
     float hy = 0.22 * vSquash + 0.025;
@@ -231,6 +243,10 @@ function createEffects(scene) {
         rot = d[o + ROT] + d[o + SPIN] * dt; d[o + ROT] = rot;
         const ph = d[o + PH] + d[o + FREQ] * dt; d[o + PH] = ph;
         squash = 0.1 + 0.9 * Math.abs(Math.sin(ph));
+      } else if (shape === SHAPE_FISH) {   // flutters like confetti; 1 + squash tells the shader it's a fish
+        rot = d[o + ROT] + d[o + SPIN] * dt; d[o + ROT] = rot;
+        const ph = d[o + PH] + d[o + FREQ] * dt; d[o + PH] = ph;
+        squash = 1.1 + 0.9 * Math.abs(Math.sin(ph));
       } else if (shape === SHAPE_HEART) {
         squash = -1;
       }
@@ -541,7 +557,7 @@ function createEffects(scene) {
       if (p < 0) break;
       const d = soft.data;
       d[p + GRAV] = -9; d[p + DRAG] = rr(1.4, 2.2);
-      d[p + SHAPE] = SHAPE_RECT; d[p + SPIN] = rr(-9, 9); d[p + FREQ] = rr(5, 12);
+      d[p + SHAPE] = SHAPE_FISH; d[p + SPIN] = rr(-9, 9); d[p + FREQ] = rr(5, 12);
     }
     for (let i = 0; i < 40; i++) {
       const a = rand() * TAU, tilt = rand() * 0.8, sp = rr(6, 13);
@@ -676,7 +692,7 @@ function createEffects(scene) {
       if (p < 0) return;
       const d = soft.data;
       d[p + GRAV] = -2.6; d[p + DRAG] = 1.2;
-      d[p + SHAPE] = SHAPE_RECT; d[p + SPIN] = rr(-7, 7); d[p + FREQ] = rr(4, 10);
+      d[p + SHAPE] = SHAPE_FISH; d[p + SPIN] = rr(-7, 7); d[p + FREQ] = rr(4, 10);
     }
   }
 

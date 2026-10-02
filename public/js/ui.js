@@ -135,10 +135,10 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-hint{font-size:12px;font-weight:800;color:rgba(255,255,255,.7);display:flex;gap:6px;align-items:center;}
 
 /* ---------------- minimap ---------------- */
-.rkr-map{position:absolute;right:16px;bottom:16px;width:190px;height:190px;border-radius:50%;
+.rkr-map{position:absolute;right:16px;bottom:16px;width:190px;height:190px;border-radius:18px;overflow:hidden;
   background:radial-gradient(circle at 50% 40%,rgba(50,30,90,.75),rgba(15,8,30,.82));
   border:3px solid rgba(255,255,255,.85);box-shadow:0 0 0 4px rgba(60,30,110,.6),0 10px 30px rgba(0,0,0,.45),inset 0 0 24px rgba(0,0,0,.5);}
-.rkr-map canvas{position:absolute;inset:0;width:100%;height:100%;border-radius:50%;}
+.rkr-map canvas{position:absolute;inset:0;width:100%;height:100%;}
 
 /* ---------------- banner & toasts ---------------- */
 .rkr-banner{position:absolute;left:0;right:0;top:30%;display:flex;flex-direction:column;align-items:center;text-align:center;pointer-events:none;opacity:0;}
@@ -532,13 +532,22 @@ function createUI(root) {
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, M.staticCanvas.width, M.staticCanvas.height);
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const cx = S / 2, cy = S / 2;
-    const outer = ld.outerRadius || 20;
-    const sc = (S / 2 - 9) / outer;
-    M.scale = sc;
+    // fit the whole level (walls + corridor bands) into the square with a small margin
+    const W = ld.corridorWidth || 6, h = W / 2;
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    const grow = (x, z) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (z < z0) z0 = z; if (z > z1) z1 = z; };
+    for (const w of ld.walls || []) { grow(w.ax, w.az); grow(w.bx, w.bz); }
+    for (const l of ld.legs || []) {
+      for (const sv of [-h, l.len + h]) for (const v of [-h, h]) grow(l.ox + l.ux * sv + l.nx * v, l.oz + l.uz * sv + l.nz * v);
+    }
+    if (!isFinite(x0)) { const o = ld.outerRadius || 20; x0 = z0 = -o; x1 = z1 = o; }
+    const pad = 8; // css px margin inside the frame
+    const sc = (S - pad * 2) / Math.max(x1 - x0, z1 - z0, 1);
+    // canvas coords of world origin (maze centre), with the level bbox centred in the square
+    const cx = S / 2 - ((x0 + x1) / 2) * sc, cy = S / 2 - ((z0 + z1) / 2) * sc;
+    M.scale = sc; M.cx = cx; M.cy = cy;
 
     // corridor bands (one rectangle per leg, alternating per loop)
-    const W = ld.corridorWidth || 6, h = W / 2;
     for (const l of ld.legs || []) {
       const s0 = -h, s1 = l.len + h;
       const pt = (sv, v) => [cx + (l.ox + l.ux * sv + l.nx * v) * sc, cy + (l.oz + l.uz * sv + l.nz * v) * sc];
@@ -585,7 +594,7 @@ function createUI(root) {
     if (!ld) return;
     const resized = ensureMapSize();
     if (resized || M.staticFor !== ld) { buildStatic(ld); M.staticFor = ld; }
-    const g = M.ctx, S = M.cssSize, dpr = M.dpr, sc = M.scale, cx = S / 2, cy = S / 2;
+    const g = M.ctx, dpr = M.dpr, sc = M.scale, cx = M.cx, cy = M.cy;
     const t = performance.now() / 1000;
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, mapCanvas.width, mapCanvas.height);

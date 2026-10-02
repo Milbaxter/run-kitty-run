@@ -19,6 +19,7 @@ import { createLobbyUI } from './lobby.js';
 import { prefColor, localSlots } from './kittycolor.js';
 import { createChat } from './chat.js';
 import { createFeedback } from './feedback.js';
+import { createLegends } from './legends.js';
 import { analytics, openStatsPage } from './analytics.js';
 import { TOUCH, QUALITY, goFullscreenLandscape, setKeepAwake, hideSplash } from './device.js';
 import { NATIVE, haptic, plugin, call, storeUrl, openExternal, APP_VERSION } from './platform.js';
@@ -505,6 +506,7 @@ function enterTitle(showTitleScreen = true) {
   paused = false;
   online.playing = false;
   ui.hideVictory();
+  if (showTitleScreen) legends.reset(); // back to the lobby keeps an open board (sign while the others head back)
   ui.hideHUD();
   removeKitties();
   startSim([], 1 + Math.floor(Math.random() * 3));
@@ -524,6 +526,7 @@ function startGame(n, level = DEBUG_LEVEL) {
   ui.hideTitle();
   ui.hideGameOver();
   ui.hideVictory();
+  legends.reset();
   mode = 'play';
   paused = false;
   const players = [];
@@ -712,6 +715,14 @@ function startVictory(ev) {
   mouse.target = null; mouse.iceDir = null;
   if (online.menu) { online.menu = false; ui.hidePause(); } // the victory screen replaces the online menu
   analytics.runEnd({ ...runSummary(), won: true });
+  if (!online.playing) {
+    // offline win: the board, and a line for each local kitty (player 1 signs with the saved online name if there is one)
+    const p1 = savedName();
+    legends.fetchOffline({
+      mode: sim.mode, time: sim.time, runTime: ev && Number.isFinite(ev.time) ? ev.time : sim.levelTime,
+      players: sim.players.map((p, i) => ({ name: i === 0 && p1 ? p1 : p.name, color: p.color })),
+    });
+  }
   musicStop();
   victorySongPlay(); // the user's victory song replaces the synthesized 'victory' fanfare
   effects.confetti(0, 0);
@@ -769,6 +780,11 @@ function showVictoryScreen() {
     ? [{ label: 'BACK TO LOBBY', onClick: () => backToLobby() }]
     : [{ label: 'PLAY AGAIN', sub: 'from level 1', onClick: () => startGame(playerCount, 1) },
       { label: 'MAIN MENU', alt: true, onClick: () => enterTitle() }];
+  // finishers only: online the server sends the board to the winners; offline it was fetched at the win (read-only)
+  victory.legendsBtn = !wasOnline || legends.available();
+  if (victory.legendsBtn) {
+    buttons.push({ label: 'LEGENDS BOARD', sub: legends.canSign() ? 'sign your name' : 'see who did it', alt: true, mini: true, keep: true, onClick: () => legends.open() });
+  }
   ui.showVictory(stats, buttons);
 }
 
@@ -791,22 +807,28 @@ function updateIntro(dt) {
 }
 
 // Gamepad on the overlays (victory / game over / pause): A or Start = confirm, d-pad / stick left-right = switch.
-const padNav = { confirm: false, prev: false, next: false };
+// On the legends board: B or Start closes it, d-pad up/down (or the right stick) scrolls.
+const padNav = { confirm: false, prev: false, next: false, back: false };
 function pollPadNav() {
-  let confirm = false, prev = false, next = false;
+  let confirm = false, prev = false, next = false, back = false, scroll = 0;
   for (const pad of framePads || []) {
     if (!pad || !pad.connected) continue;
     const b = (i) => !!(pad.buttons[i] && pad.buttons[i].pressed);
     confirm = confirm || b(0) || b(9);
     prev = prev || b(14) || b(12) || (pad.axes[0] || 0) < -0.6;
     next = next || b(15) || b(13) || (pad.axes[0] || 0) > 0.6;
+    back = back || b(1) || b(9);
+    scroll += (b(13) ? 1 : 0) - (b(12) ? 1 : 0) + (Math.abs(pad.axes[3] || 0) > 0.3 ? pad.axes[3] : 0);
   }
-  if (ui.isOverlayOpen()) {
+  if (legends.isOpen()) {
+    if (back && !padNav.back) legends.close();
+    else if (scroll) legends.scrollBy(scroll * 14);
+  } else if (ui.isOverlayOpen()) {
     if (prev && !padNav.prev) ui.navigate('prev');
     if (next && !padNav.next) ui.navigate('next');
     if (confirm && !padNav.confirm) ui.navigate('confirm');
   }
-  padNav.confirm = confirm; padNav.prev = prev; padNav.next = next;
+  padNav.confirm = confirm; padNav.prev = prev; padNav.next = next; padNav.back = back;
 }
 
 function levelSubtitle(level) {
@@ -1175,6 +1197,23 @@ const chat = createChat(document.getElementById('ui'), {
   onReport: NATIVE ? (id, reason) => net.send({ t: 'report', id, reason }) : null, // Report only in the store apps
   onClose: () => { if (!online.room) chat.setEnabled(false); }, // offline the box is only a command line
 });
+// Legends board (legends.js): online winners get it over ws and may sign; offline winners read it over HTTP.
+const legends = createLegends(document.getElementById('ui'), {
+  send: (m) => net.send(m),
+  isOnline: () => net.connected,
+  onOpenChange: (on) => { ui.setVictoryHidden(on); keys.clear(); },
+});
+ui.setBlocker(() => legends.isOpen());
+net.on('legends', (m) => {
+  legends.onBoard(m);
+  // arrived after the victory screen went up without the button (reconnect): put it up again with the button
+  if (victory && victory.shown && !victory.legendsBtn && ui.isVictoryOpen() && online.playing) showVictoryScreen();
+});
+net.on('legend', (m) => legends.onLegend(m));
+net.on('signed', (m) => legends.onSigned(m));
+// back in the lobby while you can still sign: a small shortcut to the board (only the winners ever see it)
+setInterval(() => legends.setFab(legends.canSign() && lobbyUI.isOpen() && lobbyUI.view() === 'room'), 1000);
+
 net.on('chat', (m) => {
   if (!chat.add(m)) return; // blocked player or chat hidden: no bubble either
   // speech bubble over the sender's kitty during a run
@@ -1277,6 +1316,7 @@ net.on('open', () => {
   const code = online.rejoin;
   online.rejoin = null;
   if (code && !online.room) net.send({ t: 'join', code, name: savedName(), color: prefColor() });
+  net.send({ t: 'legends' }); // a winner still in its signing window (same tab, even after a reload) gets the board back
 });
 net.on('close', () => {
   if (online.room) online.rejoin = online.room.code;
@@ -1314,6 +1354,7 @@ function leadTicks() { return Math.ceil(net.rtt / 2 / (CFG.TICK * 1000)) + NET.I
 
 function beginOnlineGame(m) {
   lobbyUI.hide();
+  if (m.st !== 'victory') legends.reset();
   ui.hideTitle();
   ui.hideGameOver();
   ui.hideVictory();
@@ -1676,6 +1717,7 @@ if (App) {
 // Android back: close the top-most thing; on the title screen, minimize the app.
 function onBackButton() {
   if (feedback.isOpen()) { feedback.close(); return; }
+  if (legends.isOpen()) { legends.close(); return; }
   if (chat.isOpen()) { chat.close(); return; }
   const terms = document.querySelector('.rkt-modal .rkr-alt'); // terms.js notice: "Not now"
   if (terms) { terms.click(); return; }

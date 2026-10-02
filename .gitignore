@@ -5,6 +5,7 @@ square-spiral-preview.png
 feedback.jsonl*
 reports.jsonl*
 stats.json*
+legends.json*
 
 # Capacitor web build
 www/

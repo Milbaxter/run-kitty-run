@@ -11,6 +11,7 @@ const PATCH_NOTES = [
       'The camera flies down the whole run before you start (touch anything to skip)',
       'The final run has no minimap, no progress bar and no distance markers: you only know there\'s a tree halfway',
       'Reach the end and you beat Run Kitty Run: fireworks, confetti, a fanfare and a victory screen with your run time, rescues, and who got there first',
+      'The Legends board: beat the final run and sign it with a line or two, solo, in local co-op (one line each) or online, where your whole team goes on the board (even from the lobby, up to 15 minutes after the win). Only finishers ever get to read it: open it from the victory screen while the kitties eat the giant fish',
       'Beating the final run now plays its own victory song instead of the old fanfare',
       'Every kitty that went down on the way is carried into the goal room for the party',
       'A giant fish waits behind the portal at the end of the final run. Win, walk up to it and the kitties eat it, crunch by crunch, down to the bones (the victory screen counts how much is gone)',

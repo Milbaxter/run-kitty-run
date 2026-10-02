@@ -68,7 +68,7 @@ async function victory() {
   ok(noHi.last.error && /code/.test(noHi.last.error.msg) && !noHi.last.room, `no-hi client can't join it by code: "${noHi.last.error && noHi.last.error.msg}"`);
 
   // ---- start on the final run
-  const guest = bot(NEW); await guest.ready;
+  const guest = bot({ ...NEW, tok: 'guest-tab-token' }); await guest.ready;
   guest.send({ t: 'join', code, name: 'Guest' }); await sleep(150);
   host.send({ t: 'start', level: F }); await sleep(300);
   const st = guest.last.start;
@@ -106,6 +106,29 @@ async function victory() {
   const lp = late.snaps.at(-1) && late.snaps.at(-1).p.find((p) => p[0] === lateId);
   ok(lp && lp[6] === 1 && lp[7] === 1 && Math.hypot(lp[1], lp[2]) < 5, `late joiner is in the party (alive, in goal, ${lp && Math.hypot(lp[1], lp[2]).toFixed(1)} from the portal)`);
 
+  // ---- legends board: the winners (not the late joiner) get it and may sign once each, editable, capped
+  const lg = guest.last.legends, lw = lg && lg.wins[0];
+  ok(host.last.legends && lg && lg.can && lw.id === lg.can.id && lw.mode === 'ice' && lw.entries.map((e) => e.name).join() === 'Host,Guest' && lw.entries.every((e) => e.text === ''),
+    `winners get the legends board with their team on it (${lw && lw.entries.map((e) => e.name)})`);
+  late.send({ t: 'sign', text: 'I was not there' }); await sleep(150);
+  ok(!late.last.legends && late.last.signed && late.last.signed.ok === false, 'late joiner gets no board and can\'t sign');
+  guest.send({ t: 'sign', text: '  Hello\nworld\u0007 ' + 'x'.repeat(300) }); await sleep(150);
+  const gl = host.last.legend && host.last.legend.win.entries[1].text;
+  ok(guest.last.signed.ok && gl && gl.length === 140 && gl.startsWith('Hello world x') && !late.last.legend, `guest signs (single line, capped at ${gl && gl.length}), host sees it live, the late joiner doesn't`);
+  guest.send({ t: 'sign', text: 'Edited' }); await sleep(150);
+  const lb = await (await fetch(`http://127.0.0.1:${PORT}/api/legends`)).json();
+  ok(host.last.legend.win.entries.length === 2 && lb.wins[0].entries[1].text === 'Edited' && lb.wins[0].entries[0].text === '', 'the guest edits its line (still one entry each); /api/legends has it');
+  // offline (solo / co-op) wins sign over HTTP: plausible runs only, one per IP per 10 minutes, edits with the key
+  const post = (body, ip = '10.9.9.9') => fetch(`${BASE}/api/legends`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, ...(await r.json()) }));
+  const coop = { mode: 'mixed', time: 900, runTime: 120, players: [{ name: 'Mittens', color: 0xffb347, text: 'We did it!' }, { name: 'Socks', color: 0x6ec6ff, text: '' }] };
+  const quick = await post({ ...coop, time: 60 }), runOnly = await post({ ...coop, mode: 'run' });
+  const made = await post(coop), again2 = await post(coop);
+  ok(!quick.ok && !runOnly.ok && made.ok && made.win.kind === 'coop' && made.win.entries.length === 2 && made.key && again2.status === 429,
+    `offline co-op win signed (${made.win && made.win.kind}); too-quick / run-only rejected; a 2nd win from the same IP within 10 min refused (${again2.status})`);
+  const bad = await post({ id: made.id, key: 'nope', players: [{ text: 'hacked' }] });
+  const edit = await post({ id: made.id, key: made.key, players: [{ text: 'We did it!' }, { text: 'Me too' }] });
+  ok(!bad.ok && edit.ok && edit.win.entries[1].text === 'Me too' && edit.win.entries[0].text === 'We did it!', 'offline lines editable with the key only');
+
   // ---- snapshots keep coming, all 'victory', until the room returns to the lobby
   const n0 = guest.snaps.length;
   while (!(guest.last.room && guest.last.room.phase === 'lobby') && Date.now() - tWin < 20000) await sleep(100);
@@ -125,6 +148,13 @@ async function victory() {
   host.send({ t: 'start' });
   for (let i = 0; i < 30 && !(guest.last.start !== prevStart && guest.last.snap.st === 'playing'); i++) await sleep(100); // can lag on a busy machine
   ok(guest.last.start.level === 1 && guest.last.start.st === 'playing' && guest.last.snap.st === 'playing', 'host can start a new run (level 1) afterwards');
+  // same tab reconnects (new connection, same token) after the party (the room has moved on): still in the signing window
+  guest.ws.close();
+  const again = bot({ ...NEW, tok: 'guest-tab-token' }); await again.ready;
+  again.send({ t: 'legends' }); await sleep(150);
+  again.send({ t: 'sign', text: 'From the lobby' }); await sleep(150);
+  ok(again.last.legends && again.last.legends.can && again.last.signed && again.last.signed.ok && host.last.legend.win.entries[1].text === 'From the lobby',
+    'after a reconnect (back in the lobby, new run started) the guest can still sign');
   for (const b of bots) b.ws.close();
   await sleep(100);
 }

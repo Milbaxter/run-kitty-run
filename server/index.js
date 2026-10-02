@@ -11,6 +11,7 @@ import { GAME_MODES, createSim, stepSim, addPlayer, removePlayer } from '../publ
 import { serializeEnemies } from '../public/js/shared/enemies.js';
 import { levelHash } from '../public/js/shared/maze.js';
 import { createStats } from './stats.js';
+import { createLegends } from './legends.js';
 import { pregenNext } from './levelgen.js';
 
 const PORT = +process.env.PORT || 8080;
@@ -51,6 +52,10 @@ const MAX_BUFFERED = 1 << 20;
 const REJOIN_GRACE_MS = 60e3;
 // Anonymous play stats (title screen STATS page) live next to the feedback file.
 const stats = createStats(process.env.STATS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'stats.json'));
+// Legends board (online winners sign it; see legends.js), next to the feedback file too.
+const legends = createLegends(process.env.LEGENDS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'legends.json'));
+const SIGN_RATE = 0.2, SIGN_BURST = 3;     // legends: sign / edit your line
+const LEGENDS_RATE = 0.5, LEGENDS_BURST = 3; // legends: ask for the board again (after a reconnect)
 // Oldest client protocol still accepted at all (see PROTOCOL_VERSION in shared/config.js). App store builds lag the
 // web, so only raise this when old clients would really break; they get an 'outdated' notice instead of a broken game.
 // (Per-mode floors are MODE_MIN_PROTOCOL above.)
@@ -121,6 +126,7 @@ function handleHttp(req, res) {
       return;
     }
     if (url.pathname === '/api/feedback') { handleFeedback(req, res); return; }
+    if (url.pathname === '/api/legends') { handleLegends(req, res); return; }
     if (url.pathname === '/api/event' || url.pathname === '/api/stats') { stats.handle(req, res, clientIp(req), () => wss.clients.size); return; }
     res.writeHead(404, { 'Content-Type': 'application/json' }).end('{"ok":false}');
     return;
@@ -215,6 +221,73 @@ function handleFeedback(req, res) {
       });
     });
   });
+}
+
+// ---------------- legends board ----------------
+// Read-only board for offline winners (the client only asks after beating the final run: a soft gate).
+const legendsHits = new Map(); // ip -> [timestamps]
+setInterval(() => { const now = Date.now(); for (const [ip, h] of legendsHits) if (!h.some((t) => now - t < 60e3)) legendsHits.delete(ip); }, 600e3).unref();
+const offlineSigns = new Map(); // ip -> [timestamps of offline wins put on the board]
+const OFFLINE_WIN_EVERY_MS = 10 * 60e3;
+setInterval(() => { const now = Date.now(); for (const [ip, h] of offlineSigns) if (!h.some((t) => now - t < OFFLINE_WIN_EVERY_MS)) offlineSigns.delete(ip); }, 600e3).unref();
+function handleLegends(req, res) {
+  if (req.method === 'POST') { handleOfflineSign(req, res); return; }
+  if (req.method !== 'GET') { res.writeHead(405, { 'Content-Type': 'application/json' }).end('{"ok":false}'); return; }
+  const ip = clientIp(req), now = Date.now();
+  const hits = (legendsHits.get(ip) || []).filter((t) => now - t < 60e3);
+  legendsHits.set(ip, hits);
+  if (hits.length >= 20) { res.writeHead(429, { 'Content-Type': 'application/json' }).end('{"ok":false}'); return; }
+  hits.push(now);
+  res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }).end(legends.boardJson());
+}
+
+// Offline (solo / local co-op) win: POST { mode, runTime, time, players: [{ name, color, text }] } puts it on the board
+// (one per IP per 10 minutes) and returns { id, key }; POST { id, key, players: [{ text }] } edits the lines for 15 min.
+function handleOfflineSign(req, res) {
+  const reply = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
+  const ip = clientIp(req), now = Date.now();
+  const hits = (legendsHits.get(ip) || []).filter((t) => now - t < 60e3);
+  legendsHits.set(ip, hits);
+  if (hits.length >= 20) return reply(429, { ok: false, msg: 'Slow down a little!' });
+  hits.push(now);
+  let body = '';
+  req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
+  req.on('end', () => {
+    let m;
+    try { m = JSON.parse(body); } catch { return reply(400, { ok: false }); }
+    if (!m || typeof m !== 'object') return reply(400, { ok: false });
+    if (m.id) {
+      const r = legends.editOffline(m);
+      return r.err ? reply(403, { ok: false, msg: r.err }) : reply(200, { ok: true, win: r.win, left: r.left });
+    }
+    const bad = legends.checkOffline(m);
+    if (bad) return reply(400, { ok: false, msg: bad });
+    const recent = (offlineSigns.get(ip) || []).filter((t) => now - t < OFFLINE_WIN_EVERY_MS);
+    if (recent.length >= 1) return reply(429, { ok: false, msg: 'One win on the board every 10 minutes, legend. Try again in a bit!' });
+    offlineSigns.set(ip, [...recent, now]);
+    const r = legends.createOffline(m);
+    reply(200, { ok: true, id: r.win.id, key: r.key, win: r.win, left: r.left });
+  });
+}
+
+// A room just won: everyone in it at this moment is on the board and may sign it; each gets the board right away.
+function legendsOnWin(room, e) {
+  legends.recordWin(room.mode, e.time, room.members);
+  for (const m of room.members) { const b = legends.boardFor(m); if (b) send(m.ws, b); }
+}
+
+function handleSign(client, msg) {
+  if (!take(client, 'sign', SIGN_RATE, SIGN_BURST, Date.now())) return send(client.ws, { t: 'signed', ok: false, msg: 'Slow down a little!' });
+  const r = legends.sign(client, msg.text);
+  if (r.err) return send(client.ws, { t: 'signed', ok: false, msg: r.err });
+  send(client.ws, { t: 'signed', ok: true, id: r.win.id, text: r.entry.text });
+  // everyone else on that legend who is online sees the line appear (only winners of that run, never bystanders)
+  const s = JSON.stringify({ t: 'legend', win: r.win });
+  for (const c of clients.values()) {
+    if (c.ws.readyState !== 1) continue;
+    const el = legends.eligibility(c);
+    if (el && el.win === r.win) send(c.ws, s);
+  }
 }
 
 // ---------------- rooms ----------------
@@ -425,6 +498,7 @@ function stepRoom(room) {
       room.victory = e;
       room.overAt = Date.now() + VICTORY_TO_LOBBY_MS;
       stats.onlineGameWon(room.mode);
+      legendsOnWin(room, e);
     }
   }
   if (k % NET.SNAP_EVERY === 0 || events.length) sendSnapshot(room);
@@ -561,6 +635,16 @@ wss.on('connection', (ws, req) => {
       case 'report':
         handleReport(client, msg);
         break;
+      case 'sign':
+        handleSign(client, msg);
+        break;
+      case 'legends': {
+        // a winner asks for the board again (e.g. after a reconnect); nothing for anyone else
+        if (!take(client, 'legends', LEGENDS_RATE, LEGENDS_BURST, Date.now())) return;
+        const b = legends.boardFor(client);
+        if (b) send(ws, b);
+        break;
+      }
       case 'list':
         send(ws, { t: 'lobbies', list: lobbyList(client) });
         break;
@@ -694,6 +778,7 @@ setInterval(() => {
 process.on('uncaughtException', (err) => {
   console.error('uncaught:', err);
   try { stats.flush(); } catch { /* ignore */ }
+  try { legends.flush(); } catch { /* ignore */ }
   process.exit(1);
 });
 
@@ -707,6 +792,7 @@ function shutdown() {
   }
   for (const ws of wss.clients) { try { ws.close(1012, 'restarting'); } catch { /* ignore */ } }
   stats.flush();
+  legends.flush();
   server.close();
   setTimeout(() => process.exit(0), 300);
 }

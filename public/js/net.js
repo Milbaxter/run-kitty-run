@@ -11,6 +11,7 @@ const PROTOCOL_VERSION = CONF.PROTOCOL_VERSION;
 const UGC = /"(?:name|host|text)"/;
 function cleanForApp(msg) {
   if (msg.t === 'chat' && typeof msg.text === 'string') msg.text = filterChat(msg.text);
+  if (msg.t === 'legends' || msg.t === 'legend' || msg.t === 'signed') cleanLegends(msg);
   (function walk(o) {
     if (!o || typeof o !== 'object') return;
     if (Array.isArray(o)) { o.forEach(walk); return; }
@@ -19,6 +20,14 @@ function cleanForApp(msg) {
       else walk(o[k]);
     }
   })(msg);
+}
+
+// Legends board lines (ws messages, and the HTTP board in legends.js): same masking as chat, names as names.
+function cleanLegends(msg) {
+  const wins = msg.wins || (msg.win ? [msg.win] : []);
+  for (const w of wins) for (const e of (w && w.entries) || []) if (e && typeof e.text === 'string') e.text = filterChat(e.text);
+  if (msg.can && typeof msg.can.text === 'string') msg.can.text = filterChat(msg.can.text);
+  if (msg.t === 'signed' && typeof msg.text === 'string') msg.text = filterChat(msg.text);
 }
 
 // Per-tab token sent in 'hi': after a dropped connection the server recognises the kitty that comes back
@@ -139,4 +148,4 @@ function createNet() {
   return net;
 }
 
-export { createNet };
+export { createNet, cleanForApp };

@@ -289,6 +289,7 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-chip{display:flex;align-items:center;gap:4px;padding:2px 10px 2px 4px;border-radius:999px;background:rgba(0,0,0,.25);font-weight:800;font-size:13px;}
 .rkr-chip .rkr-cat{width:20px;height:20px;}
 .rkr-vbtns{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;}
+.rkr-vbtns .rkr-btn.rkr-mini{font-size:16px;padding:8px 18px 9px;border-radius:18px;}
 
 /* ---------------- keyframes ---------------- */
 @keyframes rkr-bounce{0%,58%,100%{transform:translateY(0) scale(1,1);}
@@ -1019,7 +1020,7 @@ function createUI(root) {
 
   // ================= victory (the final run is beaten) =================
   // stats: { runTime, totalTime, deaths, rescues, first: {name, color} | null, players: [{name, color, first}] }
-  // buttons: [{ label, sub?, alt?, onClick }] (first = default selection)
+  // buttons: [{ label, sub?, alt?, mini?, keep?, onClick }] (first = default selection; keep: the victory screen stays up)
   let vEl = null, vRaf = 0, vTimers = [], vBtns = [], vSel = 0, vArmedAt = 0, vFishRow = null;
   const V_LINES = [
     'Every wolf dodged. Every kitty home.',
@@ -1050,7 +1051,7 @@ function createUI(root) {
         ${first && ps.length > 1 ? `<div class="rkr-vfirst">${ICONS.crown}<span>First to the goal: <span class="rkr-vname" style="color:${hexColor(first.color)}">${esc(first.name)}</span></span></div>` : ''}
         <div class="rkr-stats">${rows.map((r) => `<div class="rkr-stat"><div class="rkr-ico" style="color:${r.color || '#fff'}">${r.icon}</div><span class="rkr-sl">${r.label}</span><span class="rkr-sv">${r.fmt(0)}</span></div>`).join('')}</div>
         ${ps.length > 1 ? `<div class="rkr-party">${ps.map((p) => `<span class="rkr-chip" style="color:${hexColor(p.color)}">${ICONS.cat}<span>${p.first ? '👑 ' : ''}${esc(p.name)}</span></span>`).join('')}</div>` : ''}
-        <div class="rkr-vbtns">${(buttons || []).map((b) => `<button class="rkr-btn${b.alt ? ' rkr-alt' : ''}"><span>${esc(b.label)}</span>${b.sub ? `<small>${esc(b.sub)}</small>` : ''}</button>`).join('')}</div>
+        <div class="rkr-vbtns">${(buttons || []).map((b) => `<button class="rkr-btn${b.alt ? ' rkr-alt' : ''}${b.mini ? ' rkr-mini' : ''}"><span>${esc(b.label)}</span>${b.sub ? `<small>${esc(b.sub)}</small>` : ''}</button>`).join('')}</div>
         <div class="rkr-keyhint">press <span class="rkr-k rkr-wide">Enter</span></div>
       </div>`;
     vBtns = [...vEl.querySelectorAll('.rkr-vbtns .rkr-btn')];
@@ -1088,7 +1089,7 @@ function createUI(root) {
   function pickVictory(i, buttons) {
     if (!state.victory) return;
     const b = (buttons || [])[i];
-    hideVictory();
+    if (!(b && b.keep)) hideVictory();
     if (b && b.onClick) b.onClick();
   }
   // the final run's giant fish is eaten live while the victory screen is up (percent, 0-100)
@@ -1101,6 +1102,10 @@ function createUI(root) {
     const el = vEl.querySelectorAll('.rkr-stat .rkr-sv')[vFishRow.idx];
     if (el) el.textContent = vFishRow.fmt(pct);
   }
+  // another panel (the legends board) sits on top: the victory card steps aside and ignores keys / the pad meanwhile
+  let blocker = null;
+  function setBlocker(fn) { blocker = fn; }
+  function setVictoryHidden(on) { if (vEl) vEl.classList.toggle('rkr-hidden', !!on); }
   function hideVictory() {
     vFishRow = null;
     state.victory = false;
@@ -1113,6 +1118,7 @@ function createUI(root) {
 
   // Gamepad (main.js polls the pad and sends edges): 'confirm' | 'prev' | 'next' for the open overlay.
   function navigate(cmd) {
+    if (blocker && blocker()) return;
     if (state.victory) {
       if (cmd === 'prev') selectVictory(vSel - 1);
       else if (cmd === 'next') selectVictory(vSel + 1);
@@ -1171,6 +1177,7 @@ function createUI(root) {
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     const k = e.key;
+    if (blocker && blocker()) return;
     if ((k === 'h' || k === 'H') && !state.title && !e.target.closest?.('input')) { setHudMin(!hudMin); return; }
     if (state.victory) {
       if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'a' || k === 'A' || k === 'w' || k === 'W') selectVictory(vSel - 1);
@@ -1201,7 +1208,7 @@ function createUI(root) {
     showTitle, hideTitle, setHUD, updateMinimap, banner, toast, setScores,
     showPause, hidePause, showGameOver, hideGameOver, setMutedIcon, isOverlayOpen, onMuteClick, onMenuClick,
     showVictory, hideVictory, updateVictoryFish, isVictoryOpen: () => state.victory, navigate, hideHUD,
-    showNotice, hideNotice,
+    showNotice, hideNotice, setBlocker, setVictoryHidden,
     isTitleOpen: () => state.title, isGameOverOpen: () => state.gameOver,
     isNoticeOpen: () => !!noticeEl,
   };

@@ -1,0 +1,4 @@
+# Identifiers shared by all lanes. Credentials come from env vars (see docs/MOBILE.md), never from this file.
+app_identifier("io.runkittyrun.app")   # iOS bundle id
+package_name("io.runkittyrun.app")     # Android applicationId
+team_id(ENV["APPLE_TEAM_ID"]) if ENV["APPLE_TEAM_ID"].to_s != ""

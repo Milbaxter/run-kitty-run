@@ -1,0 +1,189 @@
+name: iOS smoke test
+# Builds the Simulator app, runs it on an iPhone + iPad simulator, drives the WebView over the Web Inspector
+# protocol (ios_webkit_debug_proxy; Capacitor debug builds are inspectable), exercises the runkittyrun:// deep link,
+# and uploads screenshots + native/JS logs as the "ios-smoke" artifact.
+on:
+  workflow_dispatch:
+  push:
+    branches: [mobile-apps]
+    paths:
+      - 'ios/**'
+      - 'public/**'
+      - 'capacitor.config.json'
+      - '.github/workflows/ios-smoke.yml'
+
+concurrency:
+  group: ios-smoke-${{ github.ref }}
+  cancel-in-progress: false # a cold simulator boot takes ~4 min; don't throw runs away
+
+jobs:
+  smoke:
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      # A fresh simulator's first boot takes ~4 min (data migration): start it now so it overlaps npm + xcodebuild.
+      - name: Boot iPhone simulator (background)
+        run: |
+          RT=$(xcrun simctl list runtimes available -j | jq -r '[.runtimes[] | select(.platform == "iOS")] | sort_by(.version | split(".") | map(tonumber)) | last | .identifier')
+          pick() { xcrun simctl list devices available -j | jq -r --arg rt "$RT" --arg re "$1" '.devices[$rt][]? | select(.name | test($re)) | .udid' | head -1; }
+          # A Pro model: Dynamic Island + rounded corners exercise the landscape safe-area handling.
+          UDID=$(pick '^iPhone [0-9]+ Pro$'); [ -n "$UDID" ] || UDID=$(pick '^iPhone')
+          echo "runtime $RT, device $UDID"
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          nohup xcrun simctl boot "$UDID" > "$RUNNER_TEMP/boot.log" 2>&1 &
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:www
+      - run: npx cap sync ios
+      - name: Simulator build
+        run: |
+          xcodebuild -version
+          xcodebuild -quiet -project ios/App/App.xcodeproj -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ios/App/build/sim CODE_SIGNING_ALLOWED=NO build
+      # ios_webkit_debug_proxy: Web Inspector bridge to evaluate JS in the WKWebView. AXe: taps on the simulator
+      # (iOS asks "Open in Run Kitty Run?" for custom-scheme links; CI has to press Open).
+      - name: Install ios_webkit_debug_proxy + AXe
+        continue-on-error: true
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+        run: |
+          brew install ios-webkit-debug-proxy
+          brew install cameroncooke/axe/axe || echo "::warning::AXe install failed"
+      - name: Write WebView driver
+        run: |
+          cat > "$GITHUB_WORKSPACE/smoke-drive.mjs" <<'EOF'
+          // node drive.mjs '<js expression>'  -> evaluates in the app's WKWebView, prints the result + console messages.
+          import WebSocket from 'ws';
+          const expr = process.argv[2];
+          const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+          setTimeout(() => { console.log('DRIVER_TIMEOUT'); process.exit(3); }, 80000);
+          let pages = [];
+          for (let i = 0; i < 5 && !pages.length; i++) {
+            try { pages = (await (await fetch('http://127.0.0.1:9222/json', { signal: AbortSignal.timeout(3000) })).json()).filter((p) => p.webSocketDebuggerUrl); } catch {}
+            if (!pages.length) await sleep(1000);
+          }
+          if (!pages.length) { console.log('NO_INSPECTABLE_PAGE'); process.exit(2); }
+          const page = pages.find((p) => /localhost/.test(p.url)) || pages[0];
+          console.log('page:', page.url, page.title);
+          const ws = new WebSocket(page.webSocketDebuggerUrl);
+          await new Promise((r, j) => { ws.on('open', r); ws.on('error', j); });
+          let target = null, nextId = 1;
+          const waiting = new Map();
+          const onInner = (m) => {
+            if (m.id && waiting.has(m.id)) { waiting.get(m.id)(m); waiting.delete(m.id); }
+            else if (m.method === 'Console.messageAdded') {
+              const c = m.params.message;
+              console.log(`[console.${c.level}] ${c.text}${c.url ? ` (${c.url.split('/').pop()}:${c.line})` : ''}`);
+            }
+          };
+          ws.on('message', (d) => {
+            const m = JSON.parse(d);
+            if (m.method === 'Target.targetCreated') { if (!target) target = m.params.targetInfo.targetId; }
+            else if (m.method === 'Target.dispatchMessageFromTarget') onInner(JSON.parse(m.params.message));
+            else onInner(m);
+          });
+          await sleep(1500); // Target.targetCreated arrives right away on target-based (iOS 12.2+) backends
+          const send = (method, params = {}) => new Promise((resolve) => {
+            const id = nextId++;
+            waiting.set(id, resolve);
+            const msg = JSON.stringify({ id, method, params });
+            if (target) ws.send(JSON.stringify({ id: 100000 + id, method: 'Target.sendMessageToTarget', params: { targetId: target, message: msg } }));
+            else ws.send(msg);
+            setTimeout(() => { if (waiting.has(id)) { waiting.delete(id); resolve({ timeout: true }); } }, 30000); // CI simulators render WebGL in software: slow
+          });
+          await send('Runtime.enable');
+          await send('Console.enable'); // replays the console messages logged so far
+          await sleep(500);
+          const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true });
+          const res = r.result && r.result.result;
+          console.log('RESULT:', r.timeout ? 'TIMEOUT' : r.error ? JSON.stringify(r.error) : (r.result.wasThrown ? 'THROWN ' : '') + JSON.stringify(res && (res.value !== undefined ? res.value : res.description)));
+          ws.close();
+          process.exit(0);
+          EOF
+      - name: Run on simulator
+        timeout-minutes: 12
+        run: |
+          set +e
+          # to <secs> cmd...: run in its own process group and kill the whole group on timeout (xcrun/simctl spawn
+          # helpers that would otherwise keep pipes open and hang the step).
+          to() { perl -e '$t = shift; $p = fork; if (!$p) { setpgrp(0, 0); exec @ARGV; exit 127 }
+            $SIG{ALRM} = sub { kill "KILL", -$p; print STDERR "TIMEOUT ${t}s: @ARGV\n"; exit 124 }; alarm $t; waitpid($p, 0); exit($? >> 8)' "$@"; }
+          OUT="$GITHUB_WORKSPACE/smoke"; mkdir -p "$OUT"
+          APP=ios/App/build/sim/Build/Products/Debug-iphonesimulator/App.app
+          BID=io.runkittyrun.app
+          LOG_JS="$OUT/webview.txt"
+          log() { echo "$(date +%T) [${SECONDS}s] $*" | tee -a "$OUT/timeline.txt"; }
+          # CI has no GPU: the game's WebGL is software-rendered and the whole simulator crawls once it runs, so every
+          # step is time-boxed and guarded by the step's elapsed $SECONDS.
+          # The game's WebKit GPU/WebContent processes are paused while a screenshot is taken: the last frame stays
+          # on screen and simctl doesn't queue behind minutes of software rendering.
+          freeze() { pkill -"$1" -f 'com.apple.WebKit.(GPU|WebContent)' 2>/dev/null; }
+          shot() { [ $SECONDS -lt 480 ] || { log "skip shot $1 (time budget)"; return 1; }; log "shot $1"; freeze STOP; sleep 1
+            to ${2:-60} xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null 2>&1 || log "shot $1 timed out"; freeze CONT; }
+          IWDP=
+          drive() { [ -n "$IWDP" ] || return 0; log "drive: $1"; echo "--- $1" >> "$LOG_JS"; (cd "$GITHUB_WORKSPACE" && to 60 node smoke-drive.mjs "$2") >> "$LOG_JS" 2>&1; }
+          # Screenshot until the WebView has painted (a blank dark frame compresses to well under 150 KB).
+          shot_until_painted() {
+            while [ $SECONDS -lt $2 ]; do
+              shot "$1" 150; [ $(stat -f %z "$OUT/$1.png" 2>/dev/null || echo 0) -gt 150000 ] && return 0
+              sleep 10
+            done
+          }
+          STATE='JSON.stringify((() => { const k = window.__kitty || {}; const p = document.createElement("div"); p.style.cssText = "position:fixed;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)"; document.body.appendChild(p); const cs = getComputedStyle(p); const safe = [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].join(" "); p.remove(); return { href: location.href, w: innerWidth, h: innerHeight, dpr: devicePixelRatio, safe, native: !!(window.Capacitor && Capacitor.isNativePlatform()), platform: window.Capacitor && Capacitor.getPlatform(), simState: k.sim && k.sim.state, players: k.sim && k.sim.kitties && k.sim.kitties.length, online: k.online && { playing: k.online.playing, room: k.online.room && k.online.room.code }, connected: k.net && k.net.connected, frames: window.__fc, audioCtx: k.audio && k.audio.ctx && k.audio.ctx.state, overlays: [...document.querySelectorAll("#ui > *, .rkt-modal")].filter((e) => e.offsetParent || getComputedStyle(e).position === "fixed").map((e) => e.className || e.id).slice(0, 12), buttons: [...document.querySelectorAll("button")].filter((b) => b.offsetParent).map((b) => b.textContent.trim()).slice(0, 15), rotateMsg: getComputedStyle(document.getElementById("rotate")).display }; })())'
+
+          log "waiting for boot"
+          to 300 xcrun simctl bootstatus "$UDID" -b | grep -v 'Status=\|Waiting on\|Reason:\|Elapsed:\|^\s*$'
+          for i in 1 2 3; do to 120 xcrun simctl install "$UDID" "$APP" && break; log "install retry $i"; sleep 5; done
+          SECONDS=0 # budget below: ~8 min
+          START=$(date "+%Y-%m-%d %H:%M:%S")
+          # Web Inspector socket of the simulator (WKWebView is inspectable in Capacitor debug builds).
+          SOCK=$(to 30 xcrun simctl spawn "$UDID" launchctl getenv RWI_LISTEN_SOCKET 2>/dev/null)
+          [ -S "$SOCK" ] || SOCK=$(ls /private/var/tmp/com.apple.launchd.*/com.apple.webinspectord_sim.socket /private/tmp/com.apple.launchd.*/com.apple.webinspectord_sim.socket 2>/dev/null | head -1)
+          log "inspector socket: '$SOCK'"
+          if command -v ios_webkit_debug_proxy >/dev/null && [ -S "$SOCK" ]; then
+            ios_webkit_debug_proxy -s "unix:$SOCK" -F > "$OUT/iwdp.txt" 2>&1 & IWDP=$!
+          fi
+
+          # Keep the runner responsive: the simulated app + WebKit + the simulator's render server run niced, otherwise
+          # the software-rendered game can starve the runner agent itself (background QoS starves the app instead).
+          (while :; do for p in $(pgrep -f "Devices/$UDID/|SimRenderServer|WebKit.GPU|WebKit.WebContent"); do
+             sudo renice -n 10 -p $p >/dev/null 2>&1; done; sleep 3; done) &
+          NICE=$!
+          # 1) Launch -> title screen. Capacitor prints "⚡️ [log] ..." (JS console + plugin calls) to stdout; a pty
+          #    keeps it unbuffered.
+          log "launch"
+          (to 480 xcrun simctl launch --console-pty "$UDID" "$BID" >> "$OUT/app-console.txt" 2>&1 &)
+          sleep 40; shot_until_painted 01-title 300 # a screenshot can take minutes while the game renders
+          [ $SECONDS -lt 200 ] && drive "title state" "$STATE"
+
+          # 2) Deep link runkittyrun://join?room=TEST with the app killed first (the rendering game would slow
+          #    everything down). iOS asks "Open in Run Kitty Run?" on the home screen: that alert proves the scheme
+          #    is registered to the app. Simulator tooling (simctl/AXe) cannot press buttons on system alerts, so the
+          #    in-app join handling (App.getLaunchUrl / appUrlOpen -> lobby) can't be exercised here.
+          freeze CONT; pkill -9 -f "Devices/$UDID/data/Containers/Bundle/Application/.*/App.app/App"; pkill -9 -f 'com.apple.WebKit.(GPU|WebContent)'
+          sleep 3
+          log "openurl"
+          (to 120 xcrun simctl openurl "$UDID" "runkittyrun://join?room=TEST" &)
+          sleep 15; shot 02-deeplink-alert; sleep 10; shot 03-deeplink-alert-later
+          log "device log"
+          to 30 xcrun simctl spawn "$UDID" log show --start "$START" --style compact --predicate 'process == "App" AND (messageType == error OR messageType == fault)' > "$OUT/device-log-errors.txt" 2>&1
+          [ -n "$IWDP" ] && kill $IWDP
+          kill $NICE
+          # Stop the software-rendered game before the artifact upload, or the runner crawls for minutes.
+          to 30 xcrun simctl terminate "$UDID" "$BID"; (to 60 xcrun simctl shutdown "$UDID" &)
+          ls -la "$OUT"; echo "--- webview"; cut -c1-400 "$LOG_JS"; echo "--- app console"; grep -a '⚡️' "$OUT/app-console.txt" | cut -c1-300 | head -80
+          exit 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-smoke
+          path: smoke/

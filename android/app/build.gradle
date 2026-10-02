@@ -1,5 +1,15 @@
 apply plugin: 'com.android.application'
 
+// Release signing: env vars (CI) or a gitignored keystore.properties (android/ or repo root).
+// Without either, release builds come out unsigned.
+def keystoreProps = new Properties()
+[rootProject.file('keystore.properties'), rootProject.file('../keystore.properties')].each { f ->
+    if (f.exists() && keystoreProps.isEmpty()) f.withInputStream { keystoreProps.load(it) }
+}
+def signingValue = { String env, String prop -> System.getenv(env) ?: keystoreProps.getProperty(prop) }
+def rkrStoreFile = signingValue('RKR_KEYSTORE_FILE', 'storeFile')
+def rkrHasSigning = rkrStoreFile && file(rkrStoreFile).exists()
+
 android {
     namespace = "io.runkittyrun.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +17,8 @@ android {
         applicationId "io.runkittyrun.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode Integer.parseInt(System.getenv('RKR_VERSION_CODE') ?: '1')
+        versionName "1.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,9 +26,21 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (rkrHasSigning) {
+            release {
+                storeFile file(rkrStoreFile)
+                storePassword signingValue('RKR_KEYSTORE_PASSWORD', 'storePassword')
+                keyAlias signingValue('RKR_KEY_ALIAS', 'keyAlias')
+                keyPassword signingValue('RKR_KEY_PASSWORD', 'keyPassword')
+            }
+        }
+    }
     buildTypes {
         release {
+            if (rkrHasSigning) signingConfig signingConfigs.release
             minifyEnabled false
+            shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }

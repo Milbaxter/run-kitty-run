@@ -1,5 +1,6 @@
 import { CFG } from './shared/config.js';
 import { TOUCH } from './device.js';
+import { NATIVE, APP_VERSION, SERVER_ORIGIN, openExternal } from './platform.js';
 import { PATCH_NOTES } from './patchnotes.js';
 import { openStatsPage } from './analytics.js';
 
@@ -367,6 +368,13 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-scores{right:max(16px,env(safe-area-inset-right));}
 .rkr-map{right:max(16px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));}
 @media (max-width:760px){ .rkr-map{right:max(10px,env(safe-area-inset-right));bottom:max(10px,env(safe-area-inset-bottom));} }
+.rkr-overlay{padding:max(20px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(20px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));}
+.rkr-toasts{bottom:max(26px,env(safe-area-inset-bottom));max-width:calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 24px);}
+.rkr-toast{max-width:100%;overflow:hidden;text-overflow:ellipsis;}
+/* app-only footer on the title screen */
+.rkr-legal{display:flex;gap:6px;align-items:center;justify-content:center;flex-wrap:wrap;font-size:12px;font-weight:800;color:rgba(255,255,255,.55);}
+.rkr-legal a{color:rgba(255,255,255,.75);text-decoration:none;padding:4px 6px;cursor:pointer;pointer-events:auto;}
+.rkr-legal a:active{color:#ffcf5a;}
 `;
 
 function injectStyle() {
@@ -875,8 +883,10 @@ function createUI(root) {
           <div class="rkr-panel rkr-notes"><h3>What's new</h3>${notesHtml()}</div>
         </div>
         <div class="rkr-foot rkr-desk">Press <span class="rkr-k">1</span>, <span class="rkr-k">2</span> or <span class="rkr-k">3</span> &middot; <span class="rkr-k rkr-wide">Enter</span> to start</div>
+        ${NATIVE ? `<div class="rkr-legal"><a data-page="privacy">Privacy</a>&middot;<a data-page="terms">Terms</a>&middot;<a data-page="support">Support</a>&middot;<span>v${esc(APP_VERSION)}</span></div>` : ''}
       </div>`;
     o.prepend(paws);
+    o.querySelectorAll('.rkr-legal a').forEach((a) => a.addEventListener('click', () => openExternal(`${SERVER_ORIGIN}/${a.dataset.page}.html`)));
     const credits = el('div', 'rkr-credits', 'made by <a href="https://www.instagram.com/ben.bhc/" target="_blank" rel="noopener">Benjamin</a> and <a href="https://x.com/milimithrandir" target="_blank" rel="noopener">Maximilian</a>');
     o.appendChild(credits);
     // desktop: anonymous play stats page
@@ -953,6 +963,27 @@ function createUI(root) {
   function hidePause() {
     state.pause = false;
     if (pauseEl) { pauseEl.remove(); pauseEl = null; }
+  }
+
+  // ================= notice (e.g. "update the app") =================
+  let noticeEl = null;
+  function showNotice({ title, text, button, onClick, alt, onAlt }) {
+    hideNotice();
+    noticeEl = el('div', 'rkr-overlay rkr-dim');
+    noticeEl.style.zIndex = '60';
+    noticeEl.innerHTML = `<div class="rkr-glass">
+        <div class="rkr-gcat">${ICONS.cat}</div>
+        <h2>${esc(title)}</h2>
+        <div class="rkr-gsub">${esc(text)}</div>
+        <button class="rkr-btn">${esc(button)}</button>
+        ${alt ? `<button class="rkr-btn rkr-alt rkr-nalt">${esc(alt)}</button>` : ''}
+      </div>`;
+    noticeEl.querySelector('.rkr-btn').addEventListener('click', () => onClick && onClick());
+    if (alt) noticeEl.querySelector('.rkr-nalt').addEventListener('click', () => onAlt && onAlt());
+    root.appendChild(noticeEl);
+  }
+  function hideNotice() {
+    if (noticeEl) { noticeEl.remove(); noticeEl = null; }
   }
 
   // ================= game over =================
@@ -1208,6 +1239,9 @@ function createUI(root) {
     showTitle, hideTitle, setHUD, updateMinimap, banner, toast, setScores,
     showPause, hidePause, showGameOver, hideGameOver, setMutedIcon, isOverlayOpen, onMuteClick, onMenuClick,
     showVictory, hideVictory, updateVictoryFish, isVictoryOpen: () => state.victory, navigate, hideHUD,
+    showNotice, hideNotice,
+    isTitleOpen: () => state.title, isGameOverOpen: () => state.gameOver,
+    isNoticeOpen: () => !!noticeEl,
   };
 }
 

@@ -98,4 +98,11 @@ const NET = {
 const SKATE_FINAL_LEVEL = 9;
 const FINAL_MODES = ['mixed', 'ice'];
 
-export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES };
+// Online protocol version, sent by clients in their first 'hi' message (net.js). Bump it whenever the sim or netcode
+// changes incompatibly (anything that would desync an older client); the server's MODE_MIN_PROTOCOL / MIN_PROTOCOL
+// then decide who gets an "update" notice. App store builds lag the web by days, so avoid bumping casually.
+//   2 = Skate only wolves walk deterministic patterns
+//   3 = the boss final run on SKATE_FINAL_LEVEL (Run + Skate and Skate only) and Run + Skate's season order
+const PROTOCOL_VERSION = 3;
+
+export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION };

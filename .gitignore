@@ -40,3 +40,10 @@ android/keystore.properties
 *.keystore
 *.p12
 *.mobileprovision
+
+# fastlane
+fastlane/report.xml
+fastlane/README.md
+fastlane/Preview.html
+*.p8
+.bundle/

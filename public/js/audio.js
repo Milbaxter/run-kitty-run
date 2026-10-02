@@ -749,6 +749,16 @@ function createAudio() {
 
   function isMuted() { return muted; }
 
+  // App sent to the background: silence everything; back in front: wake the context up again
+  // (iOS often leaves it "interrupted" after a trip to the home screen).
+  function setBackground(bg) {
+    if (!ctx) return;
+    try {
+      if (bg) ctx.suspend();
+      else unlock();
+    } catch (e) { /* ignore */ }
+  }
+
   function setDanger(v) {
     const nv = clamp(+v || 0, 0, 1);
     if (Math.abs(nv - danger) < 0.005) return;
@@ -758,7 +768,7 @@ function createAudio() {
     if (danger > 0.6) ensureTimer();
   }
 
-  return { unlock, play, startMusic, stopMusic, setMuted, isMuted, setDanger };
+  return { unlock, play, startMusic, stopMusic, setMuted, isMuted, setDanger, setBackground };
 }
 
 export { createAudio };

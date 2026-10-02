@@ -19,7 +19,6 @@ class GameViewController: CAPBridgeViewController {
     }
 
     override var prefersStatusBarHidden: Bool { true }
-    override var prefersHomeIndicatorAutoHidden: Bool { true }
     // Swipes at the screen edges go to the game first; a second swipe triggers the system gesture.
     override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { .all }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }

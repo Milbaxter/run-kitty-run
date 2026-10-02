@@ -30,7 +30,9 @@
 <meta name="twitter:image" content="https://runkittyrun.fun/og-image.jpg">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1020; overscroll-behavior: none; }
+  html, body { touch-action: manipulation; -webkit-text-size-adjust: 100%; }
   body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  img, svg { -webkit-user-drag: none; }
   canvas#game { display: block; position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
   #ui { position: fixed; inset: 0; pointer-events: none; }
   /* phones held upright: ask to rotate */
@@ -39,11 +41,12 @@
   #rotate .ph { width: 54px; height: 90px; border: 5px solid #ffcf5a; border-radius: 12px; animation: rkr-rot 2.4s ease-in-out infinite; }
   @keyframes rkr-rot { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(90deg); } }
   @media (orientation: portrait) { html.rkr-touch #rotate { display: flex; } }
+  html.rkr-native #rotate { display: none !important; } /* the apps are locked to landscape */
 </style>
 <script type="importmap">
 { "imports": {
-  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  "three": "./vendor/three/build/three.module.js",
+  "three/addons/": "./vendor/three/examples/jsm/"
 } }
 </script>
 </head>

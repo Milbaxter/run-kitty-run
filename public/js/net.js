@@ -3,8 +3,7 @@ import * as CONF from './shared/config.js';
 import { wsUrl, PLATFORM, APP_VERSION } from './platform.js';
 
 // Sent in the 'hi' handshake; the server gates modes on it (MODE_MIN_PROTOCOL in server/index.js).
-// 3 = this build knows the Skate only final run (SKATE_FINAL_LEVEL). Taken from the shared config when it says so.
-const PROTOCOL_VERSION = Math.max(CONF.PROTOCOL_VERSION ?? 1, CONF.SKATE_FINAL_LEVEL ? 3 : 1);
+const PROTOCOL_VERSION = CONF.PROTOCOL_VERSION;
 
 function createNet() {
   const handlers = new Map();
@@ -13,6 +12,7 @@ function createNet() {
   let retryT = 0;
   let pingT = 0;
   let lastMsgAt = 0;
+  let wakeT = 0;
   const queue = [];
   const net = {
     outdated: false,
@@ -59,6 +59,7 @@ function createNet() {
     },
     disconnect() {
       wantOpen = false;
+      clearTimeout(wakeT);
       clearTimeout(retryT);
       clearInterval(pingT);
       if (ws) ws.close();
@@ -66,20 +67,25 @@ function createNet() {
       net.connected = false;
     },
     // Back from the background (app resumed / tab shown): sockets often die silently while suspended.
-    // Reconnect right away instead of waiting for the retry timer or a dead socket to time out.
+    // Reconnect right away if it is closed; if it looks open, ping it and reconnect if nothing comes back.
     wake() {
       if (!wantOpen) return;
-      if (ws && ws.readyState === 1 && performance.now() - lastMsgAt > 3000) {
-        // pings go out every second: silence this long means a zombie socket
-        const dead = ws;
-        dead.onclose = null; dead.onmessage = null;
-        try { dead.close(); } catch { /* ignore */ }
+      clearTimeout(wakeT);
+      if (!ws || ws.readyState > 1) { clearTimeout(retryT); net.connect(); return; }
+      if (ws.readyState !== 1) return;
+      const sock = ws, mark = performance.now();
+      net.send({ t: 'ping', c: mark });
+      wakeT = setTimeout(() => {
+        if (ws !== sock || lastMsgAt >= mark) return;
+        // zombie socket: drop it without waiting for the OS to notice, then reconnect
+        sock.onclose = null; sock.onmessage = null;
+        try { sock.close(); } catch { /* ignore */ }
         ws = null;
         net.connected = false;
         clearInterval(pingT);
         emit('close', {});
-      }
-      if (!ws || ws.readyState > 1) { clearTimeout(retryT); net.connect(); }
+        if (wantOpen) net.connect();
+      }, 2500);
     },
     send(msg) {
       const s = JSON.stringify(msg);

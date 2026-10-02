@@ -10,6 +10,12 @@ Environment=NODE_ENV=production HOST=127.0.0.1 PORT=8080
 # player feedback is appended to $STATE_DIRECTORY/feedback.jsonl (= /var/lib/run-kitty-run)
 StateDirectory=run-kitty-run
 Environment=FEEDBACK_FILE=/var/lib/run-kitty-run/feedback.jsonl
+# player reports (chat moderation) go next to it
+Environment=REPORTS_FILE=/var/lib/run-kitty-run/reports.jsonl
+# app deep links (served at /.well-known/*): Apple Developer team id, and the Play app-signing cert SHA-256
+# (Play Console > App integrity; comma-separate several, e.g. upload + signing keys)
+#Environment=APPLE_TEAM_ID=ABCDE12345
+#Environment=ANDROID_CERT_SHA256=AA:BB:...:FF
 ExecStart=/usr/bin/node server/index.js
 Restart=always
 RestartSec=2

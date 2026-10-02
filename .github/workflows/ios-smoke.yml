@@ -47,9 +47,16 @@ jobs:
           xcodebuild -quiet -project ios/App/App.xcodeproj -scheme App -configuration Debug \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath ios/App/build/sim CODE_SIGNING_ALLOWED=NO build
-      - name: Install ios_webkit_debug_proxy
+      # ios_webkit_debug_proxy: Web Inspector bridge to evaluate JS in the WKWebView. AXe: taps on the simulator
+      # (iOS asks "Open in Run Kitty Run?" for custom-scheme links; CI has to press Open).
+      - name: Install ios_webkit_debug_proxy + AXe
         continue-on-error: true
-        run: HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install ios-webkit-debug-proxy
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+        run: |
+          brew install ios-webkit-debug-proxy
+          brew install cameroncooke/axe/axe || echo "::warning::AXe install failed"
       - name: Write WebView driver
         run: |
           cat > "$GITHUB_WORKSPACE/smoke-drive.mjs" <<'EOF'
@@ -57,7 +64,7 @@ jobs:
           import WebSocket from 'ws';
           const expr = process.argv[2];
           const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-          setTimeout(() => { console.log('DRIVER_TIMEOUT'); process.exit(3); }, 40000);
+          setTimeout(() => { console.log('DRIVER_TIMEOUT'); process.exit(3); }, 80000);
           let pages = [];
           for (let i = 0; i < 5 && !pages.length; i++) {
             try { pages = (await (await fetch('http://127.0.0.1:9222/json', { signal: AbortSignal.timeout(3000) })).json()).filter((p) => p.webSocketDebuggerUrl); } catch {}
@@ -90,7 +97,7 @@ jobs:
             const msg = JSON.stringify({ id, method, params });
             if (target) ws.send(JSON.stringify({ id: 100000 + id, method: 'Target.sendMessageToTarget', params: { targetId: target, message: msg } }));
             else ws.send(msg);
-            setTimeout(() => { if (waiting.has(id)) { waiting.delete(id); resolve({ timeout: true }); } }, 10000);
+            setTimeout(() => { if (waiting.has(id)) { waiting.delete(id); resolve({ timeout: true }); } }, 30000); // CI simulators render WebGL in software: slow
           });
           await send('Runtime.enable');
           await send('Console.enable'); // replays the console messages logged so far
@@ -102,7 +109,7 @@ jobs:
           process.exit(0);
           EOF
       - name: Run on simulator
-        timeout-minutes: 14
+        timeout-minutes: 12
         run: |
           set +e
           # to <secs> cmd...: run in its own process group and kill the whole group on timeout (xcrun/simctl spawn
@@ -113,50 +120,51 @@ jobs:
           APP=ios/App/build/sim/Build/Products/Debug-iphonesimulator/App.app
           BID=io.runkittyrun.app
           LOG_JS="$OUT/webview.txt"
-          shot() { echo "$(date +%T) shot $1"; to 40 xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null 2>&1; }
+          # The game renders WebGL in software on CI (no GPU), so screenshots/JS evals are slow: generous timeouts.
+          shot() { echo "$(date +%T) shot $1"; to 150 xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null; }
           IWDP=
-          drive() { [ -n "$IWDP" ] || return 0; echo "--- $1" >> "$LOG_JS"; (cd "$GITHUB_WORKSPACE" && to 45 node smoke-drive.mjs "$2") >> "$LOG_JS" 2>&1; }
+          drive() { [ -n "$IWDP" ] || return 0; echo "--- $1" >> "$LOG_JS"; (cd "$GITHUB_WORKSPACE" && to 90 node smoke-drive.mjs "$2") >> "$LOG_JS" 2>&1; }
+          tap_open() { # confirm iOS's "Open in Run Kitty Run?" sheet
+            command -v axe >/dev/null || return 0
+            for i in 1 2 3 4 5 6; do sleep 4; to 40 axe tap --label Open --udid "$UDID" && { echo "tapped Open"; return 0; }; done
+            to 40 axe describe-ui --udid "$UDID" > "$OUT/ui-$1.json"
+          }
+          link() { echo "$(date +%T) openurl $1"; (to 90 xcrun simctl openurl "$UDID" "$1" &); tap_open "$2"; }
           STATE='JSON.stringify((() => { const k = window.__kitty || {}; const p = document.createElement("div"); p.style.cssText = "position:fixed;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)"; document.body.appendChild(p); const cs = getComputedStyle(p); const safe = [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].join(" "); p.remove(); return { href: location.href, w: innerWidth, h: innerHeight, dpr: devicePixelRatio, safe, native: !!(window.Capacitor && Capacitor.isNativePlatform()), platform: window.Capacitor && Capacitor.getPlatform(), simState: k.sim && k.sim.state, players: k.sim && k.sim.kitties && k.sim.kitties.length, online: k.online && { playing: k.online.playing, room: k.online.room && k.online.room.code }, connected: k.net && k.net.connected, frames: window.__fc, audioCtx: k.audio && k.audio.ctx && k.audio.ctx.state, overlays: [...document.querySelectorAll("#ui > *, .rkt-modal")].filter((e) => e.offsetParent || getComputedStyle(e).position === "fixed").map((e) => e.className || e.id).slice(0, 12), buttons: [...document.querySelectorAll("button")].filter((b) => b.offsetParent).map((b) => b.textContent.trim()).slice(0, 15), rotateMsg: getComputedStyle(document.getElementById("rotate")).display }; })())'
 
           echo "$(date +%T) waiting for boot"
           to 420 xcrun simctl bootstatus "$UDID" -b | grep -v 'Status=\|Waiting on\|Reason:\|Elapsed:\|^\s*$'
-          xcrun simctl list devices booted | tee "$OUT/devices.txt"
           for i in 1 2 3; do to 150 xcrun simctl install "$UDID" "$APP" && break; echo "install retry $i"; sleep 5; done
           START=$(date "+%Y-%m-%d %H:%M:%S")
           # Web Inspector socket of the simulator (WKWebView is inspectable in Capacitor debug builds).
           SOCK=$(to 20 xcrun simctl spawn "$UDID" launchctl getenv RWI_LISTEN_SOCKET 2>/dev/null)
-          [ -S "$SOCK" ] || SOCK=$(ls /private/tmp/com.apple.launchd.*/com.apple.webinspectord_sim.socket 2>/dev/null | head -1)
           echo "inspector socket: '$SOCK'"
           if command -v ios_webkit_debug_proxy >/dev/null && [ -S "$SOCK" ]; then
             ios_webkit_debug_proxy -s "unix:$SOCK" -F > "$OUT/iwdp.txt" 2>&1 & IWDP=$!
           fi
 
-          echo "$(date +%T) launch"; to 90 xcrun simctl launch "$UDID" "$BID"
-          sleep 25; shot 01-title
-          curl -s -m 5 http://127.0.0.1:9222/json > "$OUT/iwdp-pages.json"
+          # Capacitor prints "⚡️ [log] ..." (JS console + plugin calls) to the app's stdout.
+          echo "$(date +%T) launch"
+          to 90 xcrun simctl launch --stdout="$OUT/app-stdout.txt" --stderr="$OUT/app-stderr.txt" "$UDID" "$BID"
+          sleep 20; shot 01-title
           drive "title state" "$STATE"
           # Warm deep link: runkittyrun://join?room=… must open the online lobby (terms notice on first online visit).
-          to 30 xcrun simctl openurl "$UDID" "runkittyrun://join?room=TEST"
+          link "runkittyrun://join?room=TEST" warm
           sleep 8; shot 02-deeplink
           drive "after deep link" "$STATE"
-          drive "accept terms" '(() => { const b = [...document.querySelectorAll("button")].find((b) => /I AGREE/.test(b.textContent)); if (b) b.click(); return b ? "agreed" : "no terms button"; })()'
-          [ -n "$IWDP" ] && { sleep 5; shot 03-lobby; drive "lobby state" "$STATE"; }
-          # Cold start from a deep link.
-          to 30 xcrun simctl terminate "$UDID" "$BID"; sleep 2
-          to 30 xcrun simctl openurl "$UDID" "runkittyrun://join?room=COLD"
-          sleep 20; shot 04-coldlink
-          drive "cold deep link state" "$STATE"
-          # Solo run (same as tapping SINGLE PLAYER), counting rendered frames.
-          if [ -n "$IWDP" ]; then
+          if [ $SECONDS -lt 420 ]; then
+            drive "accept terms" '(() => { const b = [...document.querySelectorAll("button")].find((b) => /I AGREE/.test(b.textContent)); if (b) b.click(); return b ? "agreed" : "no terms button"; })()'
+            sleep 6; shot 03-lobby
+          fi
+          if [ $SECONDS -lt 480 ] && [ -n "$IWDP" ]; then
             drive "start solo" 'window.__fc = 0; (function f() { window.__fc++; requestAnimationFrame(f); })(); window.__kitty.startGame(1); "started"'
-            sleep 4; shot 05-solo; drive "solo state (frames in ~4s)" "$STATE"
+            sleep 5; shot 04-solo; drive "solo state (frames in ~5s)" "$STATE"
           fi
           echo "$(date +%T) logs"
-          to 90 xcrun simctl spawn "$UDID" log show --start "$START" --style compact --info --debug \
-            --predicate 'process == "App" OR process CONTAINS "WebContent"' > "$OUT/device-log.txt" 2>&1
-          grep -E '⚡️|\[error\]|\[warn\]|rror' "$OUT/device-log.txt" | grep -vi 'nw_\|tcp_\|boringssl' | head -300 > "$OUT/log-highlights.txt"
+          to 90 xcrun simctl spawn "$UDID" log show --start "$START" --style compact --predicate 'process == "App" OR process CONTAINS "WebContent"' > "$OUT/device-log.txt" 2>&1
+          grep -aE '^\S+ \S+ +(E|F|Error|Fault) ' "$OUT/device-log.txt" | head -300 > "$OUT/device-log-errors.txt"
           [ -n "$IWDP" ] && kill $IWDP
-          ls -la "$OUT"; cat "$LOG_JS" 2>/dev/null | cut -c1-400
+          ls -la "$OUT"; echo "--- webview"; cut -c1-400 "$LOG_JS"; echo "--- app stdout"; grep -a '⚡️' "$OUT/app-stdout.txt" | cut -c1-300 | head -80
           exit 0
       - uses: actions/upload-artifact@v4
         if: always()

@@ -252,7 +252,8 @@ function handleOfflineSign(req, res) {
   hits.push(now);
   let body = '';
   req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
-  req.on('end', () => {
+  req.on('end', () => { try { offlineSign(); } catch (err) { console.error('legends sign failed:', err); if (!res.headersSent) reply(400, { ok: false }); } });
+  function offlineSign() {
     let m;
     try { m = JSON.parse(body); } catch { return reply(400, { ok: false }); }
     if (!m || typeof m !== 'object') return reply(400, { ok: false });
@@ -267,7 +268,7 @@ function handleOfflineSign(req, res) {
     offlineSigns.set(ip, [...recent, now]);
     const r = legends.createOffline(m);
     reply(200, { ok: true, id: r.win.id, key: r.key, win: r.win, left: r.left });
-  });
+  }
 }
 
 // A room just won: everyone in it at this moment is on the board and may sign it; each gets the board right away.

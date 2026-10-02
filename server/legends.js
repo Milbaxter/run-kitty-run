@@ -145,8 +145,8 @@ function createLegends(file) {
   function editOffline(m) {
     const k = offlineKeys.get(String(m && m.id || ''));
     const win = k && wins.find((w) => w.id === m.id);
-    const key = String(m && m.key || '');
-    if (!win || k.until < Date.now() || key.length !== k.key.length || !crypto.timingSafeEqual(Buffer.from(key), Buffer.from(k.key))) {
+    const key = Buffer.from(String(m && m.key || '')), want = k ? Buffer.from(k.key) : null;   // compare bytes: a non-ASCII key of the same length would throw
+    if (!win || k.until < Date.now() || key.length !== want.length || !crypto.timingSafeEqual(key, want)) {
       return { err: 'The signing window for your win has closed.' };
     }
     const ps = Array.isArray(m.players) ? m.players : [];

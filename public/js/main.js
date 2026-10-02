@@ -8,7 +8,7 @@ import { hashSeed } from './shared/rng.js';
 import { collideCircle, onIce, inTree } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
 import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
-import { WOLF_TYPES, createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel } from './models.js';
+import { createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel } from './models.js';
 import { buildWorld, setupLighting } from './world.js';
 import { createEffects } from './effects.js';
 import { createIceTrail } from './trail.js';
@@ -673,8 +673,8 @@ function syncVisuals(dt, alpha) {
     m.group.rotation.y = -e.heading;
     m.update(dt, { moving: e.moving, tell: e.tell, speed01: Math.min(1, (e.speedNow || 0) / 4), time: t });
     if (e.pattern) {
-      // push-off: shavings + a ring the moment a held wolf sets off
-      if (m.wasMoving === false && e.moving) effects.iceKick(x, z, e.heading, WOLF_TYPES[e.type] ? WOLF_TYPES[e.type].accent : 0xffffff);
+      // push-off: shavings the moment a held wolf sets off
+      if (m.wasMoving === false && e.moving) effects.iceKick(x, z, e.heading);
       m.wasMoving = e.moving;
     }
   }

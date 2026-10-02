@@ -11,7 +11,7 @@ const PATCH_NOTES = [
       'Watch from a safe square, spot the rhythm, then skate through the gap',
       'Fixed: a key or joystick still held when a level starts no longer shoots your kitty off the start square onto the ice (let go once, then skate)',
       'Run + Skate is unchanged',
-      'Wolves no longer have a glowing ring around them',
+      'Wolves no longer have a glowing ring around them, and no ring flashes when they start moving',
     ],
   },
   {

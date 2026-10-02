@@ -507,9 +507,8 @@ function createEffects(scene) {
     }
   }
 
-  // Pattern wolf pushing off on the ice: shavings kicked out behind it + a tight type-colored ring.
-  function iceKick(x, z, heading, color) {
-    ring(x, 0.05, z, color, 0.5, 1.25, 0.32, 0.8, 0.7, 1.5);
+  // Pattern wolf pushing off on the ice: shavings kicked out behind it.
+  function iceKick(x, z, heading) {
     const bx = -Math.cos(heading), bz = -Math.sin(heading);
     for (let i = 0; i < 9; i++) {
       const a = Math.atan2(bz, bx) + rr(-0.9, 0.9), sp = rr(1.5, 3.5);

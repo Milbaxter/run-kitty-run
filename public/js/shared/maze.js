@@ -726,6 +726,9 @@ function inTree(levelData, x, z) {
 // ---------------------------------------------------------------- generation
 
 // mode: 'mixed' (default: level 2 of every 4 is the ice rink), 'run' (no ice, original theme order), 'ice' (every level is ice)
+// true = the old Run + Skate winter levels (ice + wandering wolves) instead of Skate only's pattern wolves
+const CLASSIC_RUN_SKATE_ICE = false;
+
 function generateLevel(level, seed, mode = 'mixed') {
   const L = Math.max(1, level | 0);
   const p = levelParams(L);
@@ -780,8 +783,10 @@ function generateLevel(level, seed, mode = 'mixed') {
     lvl.trees = lvl.theme === TREE_THEME && !lvl.ice ? placeTrees(createRng(hashSeed(seed, L, 'trees')), legs) : [];
   }
   // every ice level has pattern wolves (Run + Skate's winter levels = Skate only's wolves for that level number;
-  // the boss run has them in every mode)
-  lvl.enemies = lvl.ice || finale ? placePatternEnemies(rng, lvl, p) : placeEnemies(rng, lvl, p);
+  // the boss run has them in every mode). CLASSIC_RUN_SKATE_ICE brings back the old Run + Skate winter levels:
+  // ice with the wandering wolves of the running levels (placeEnemies). Git tag: classic-run-skate-ice.
+  const pattern = finale || (lvl.ice && !(CLASSIC_RUN_SKATE_ICE && mode === 'mixed'));
+  lvl.enemies = pattern ? placePatternEnemies(rng, lvl, p) : placeEnemies(rng, lvl, p);
   lvl.items = placeItems(rng, lvl, p);
   for (const t of lvl.trees) lvl.items.push({ id: lvl.items.length, type: 'boots', x: t.x, z: t.z, tree: true }); // a pair of boots up every tree
   return lvl;

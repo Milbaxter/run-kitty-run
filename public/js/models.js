@@ -501,6 +501,9 @@ function createKittyModel(color) {
   let earT = 0, nextEar = 2 + Math.random() * 4, earSide = 0;
   let shieldAmt = 0;
   let ghost = false;
+  // skating tail: yaw rate + glide speed measured from the group's own transform, a sprung swing that whips down the chain
+  let prevYaw = null, prevX = 0, prevZ = 0, yawVel = 0, glideSp = 0, swing = 0, swingV = 0;
+  const segSw = new Array(N_TAIL).fill(0);
 
   function update(dt, s) {
     s = s || {};
@@ -551,12 +554,31 @@ function createKittyModel(color) {
       ears[i].rotation.x = (0.38 + 0.15 * runAmt + tw * 0.3) * sz;
     }
 
-    // tail: lagging swish
-    tailRoot.rotation.z = 0.95 + 0.6 * runAmt;
+    // skating: turn rate (wrap-safe) and glide speed from frame to frame; teleports/respawns are clamped away
+    const yaw = group.rotation.y, gx = group.position.x, gz = group.position.z;
+    if (prevYaw !== null && dt > 0) {
+      const dy = Math.atan2(Math.sin(yaw - prevYaw), Math.cos(yaw - prevYaw));
+      yawVel = smoothTo(yawVel, Math.max(-8, Math.min(8, dy / dt)), 12, dt);
+      glideSp = smoothTo(glideSp, Math.min(10, Math.hypot(gx - prevX, gz - prevZ) / dt), 6, dt);
+    }
+    prevYaw = yaw; prevX = gx; prevZ = gz;
+    const skateAmt = onSkates ? idle : 0;                       // running anim untouched
+    const glide = skateAmt * Math.min(1, glideSp / 5);
+    // underdamped spring toward "swung out opposite the turn", substepped so it's frame-rate independent
+    const swT = Math.max(-0.55, Math.min(0.55, -yawVel * 0.1)) * skateAmt;
+    for (let n = Math.max(1, Math.ceil(dt / 0.008)), h = dt / n; n > 0; n--) {
+      swingV += ((swT - swing) * 70 - swingV * 9) * h;
+      swing += swingV * h;
+    }
+    for (let i = 0; i < N_TAIL; i++) segSw[i] = i === 0 ? swing : smoothTo(segSw[i], segSw[i - 1], 16, dt); // each segment lags the one before
+
+    // tail: lagging swish (+ on ice: streams back while gliding and swings out on turns)
+    tailRoot.rotation.z = 0.95 + 0.6 * runAmt + 0.3 * glide;
     for (let i = 0; i < tail.length; i++) {
       const lag = i * 0.55;
-      tail[i].rotation.x = Math.sin(phase * 0.5 - lag) * 0.28 * runAmt + Math.sin(time * 1.7 + seedOff - lag) * 0.2 * idle;
-      tail[i].rotation.z = i === 0 ? 0 : (-0.26 * (1 - runAmt * 0.6) + Math.sin(phase - lag) * 0.08 * runAmt);
+      tail[i].rotation.x = Math.sin(phase * 0.5 - lag) * 0.28 * runAmt + Math.sin(time * 1.7 + seedOff - lag) * 0.2 * idle * (1 - 0.5 * glide)
+        + Math.sin(time * 3.1 + seedOff - lag * 1.3) * 0.07 * glide + segSw[i] * (0.15 + 0.05 * i);
+      tail[i].rotation.z = i === 0 ? 0 : (-0.26 * (1 - runAmt * 0.6) * (1 - 0.45 * glide) + Math.sin(phase - lag) * 0.08 * runAmt + Math.sin(time * 2.3 + seedOff - lag) * 0.05 * glide);
     }
 
     // blink

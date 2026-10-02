@@ -14,6 +14,7 @@ const PATCH_NOTES = [
       'Wolves no longer have a glowing ring around them, and no ring flashes when they start moving',
       'Fixed: the aura faded out on parts of the ice rink',
       'Fixed: clicking right after reaching a checkpoint (or holding the mouse as you arrive) could leave your kitty stuck there',
+      'Your kitty\'s tail now swings out when you carve a turn on the ice, and streams behind you as you glide',
     ],
   },
   {

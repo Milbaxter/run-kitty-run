@@ -280,6 +280,7 @@ function kittyPalette(color) {
 const K_HEAD_POS = [0.22, 0.53, 0];
 const K_EYE_Y = 0.035;
 
+const BOOT_RED = 0xe2493b, BOOT_CUFF = 0xffd36b;
 const SKATE_BOOT = 0xf4f6fa, SKATE_SOLE = 0x5b6472, SKATE_BLADE = 0x8e9cae;
 
 function kittyGeos(color) {
@@ -347,7 +348,16 @@ function kittyGeos(color) {
       [P.box, mtx([0.12, -0.25, 0], [0, 0, 0.9], [0.06, 0.025, 0.016]), SKATE_BLADE],
       [P.box, mtx([0.0, -0.13, 0], null, [0.07, 0.012, 0.07]), dark],
     ]);
-    return { body, head, eyes, ear, leg, tailSeg, tailTip, skate };
+    // speed boot (one per pair picked up), in leg space: red boot with a gold cuff and little white wings,
+    // a touch bigger than the skate boot so it covers it on ice
+    const speedBoot = bake([
+      [P.ico1, mtx([0.025, -0.205, 0], null, [0.092, 0.07, 0.082]), BOOT_RED],
+      [P.cyl8, mtx([0.0, -0.15, 0], null, [0.066, 0.09, 0.066]), BOOT_RED],
+      [P.cyl8, mtx([0.0, -0.1, 0], null, [0.072, 0.028, 0.072]), BOOT_CUFF],
+      [P.box, mtx([-0.035, -0.13, 0.07], [0.5, 0, 0.5], [0.07, 0.03, 0.012]), 0xffffff],
+      [P.box, mtx([-0.035, -0.13, -0.07], [-0.5, 0, 0.5], [0.07, 0.03, 0.012]), 0xffffff],
+    ]);
+    return { body, head, eyes, ear, leg, tailSeg, tailTip, skate, speedBoot };
   });
 }
 
@@ -433,6 +443,7 @@ function createKittyModel(color) {
   // legs: 0 FL, 1 FR, 2 BL, 3 BR
   const legs = [];
   const skates = [];
+  const speedBoots = [];   // one per leg, shown for each pair of speed boots (FL, FR, BL, BR)
   const hips = [[0.12, 0.25, 0.105], [0.12, 0.25, -0.105], [-0.2, 0.25, 0.105], [-0.2, 0.25, -0.105]];
   for (const h of hips) {
     const p = new THREE.Group();
@@ -440,6 +451,9 @@ function createKittyModel(color) {
     rig.add(p);
     mk(G.leg, p, true);
     skates.push(mk(G.skate, p, true));
+    const sb = mk(G.speedBoot, p, true);
+    sb.visible = false;
+    speedBoots.push(sb);
     legs.push(p);
   }
 
@@ -501,6 +515,8 @@ function createKittyModel(color) {
     const sq = Math.cos(phase * 2) * 0.07 * runAmt;
     const onSkates = !!s.skates;
     for (const sk of skates) sk.visible = onSkates;
+    const nb = s.boots | 0;
+    for (let i = 0; i < speedBoots.length; i++) speedBoots[i].visible = i < nb;
     rig.position.y = bounce * 0.07 * runAmt + (onSkates ? 0.045 : 0);
     const by = 1 - sq + breath * 0.022 * idle;
     rig.scale.set(1 + sq * 0.5, by, 1 + sq * 0.4 - breath * 0.01 * idle);

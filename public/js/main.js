@@ -701,7 +701,7 @@ function syncVisuals(dt, alpha) {
     const gliding = onIce(sim.levelData, p.x, p.z); // skating: hold still, no steps or dust
     k.model.update(dt, {
       speed01: gliding ? 0 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2)),
-      moving: p.moving && !gliding, skates: !!sim.levelData.ice, invuln: p.invuln, shield: p.shield, time: t,
+      moving: p.moving && !gliding, skates: !!sim.levelData.ice, boots: Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST), invuln: p.invuln, shield: p.shield, time: t,
       crown: p.id === sim.lastWinner, aura: (p.finishes || 0) >= 2,
     });
     k.trail.update(dt, x, z, -k.model.group.rotation.y, gliding && speed > 0.5);

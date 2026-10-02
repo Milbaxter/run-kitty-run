@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '0.8', date: '2026-10-01', title: 'Ice skating',
     items: [
+      'You can see your speed boots: each pair you pick up puts a little red boot on one more paw',
       'Online lobbies now hold up to 32 kitties',
       'Autumn levels have a climbable tree in every lane: run under it to climb up, wolves can\'t reach you there (room for several kitties), and there\'s a pair of speed boots on top of each one',
       'The crown you wear is bigger and shinier',

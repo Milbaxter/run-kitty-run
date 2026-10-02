@@ -859,6 +859,38 @@ const CAM_DIR = new THREE.Vector3(0, 0.83, 0.56).normalize(); // ~56° pitch, lo
 let camOrbit = 0, camYaw = 0;
 const _orbDir = new THREE.Vector3(), _camDir = new THREE.Vector3();
 const smooth01 = (v) => { v = Math.max(0, Math.min(1, v)); return v * v * (3 - 2 * v); };
+// online, while your kitty is down: follow the nearest kitty still standing (nearest to your revive circle),
+// sticking with it until it falls too, so you can watch the rescue. The usual camera lerp makes the switch smooth.
+let watchId = null;
+function pickWatch(meP) {
+  const cur = watchId != null ? playerById(watchId) : null;
+  if (cur && cur.alive) return cur;
+  const c = sim.circles.find((q) => q.playerId === meP.id);
+  const ox = c ? c.x : meP.x, oz = c ? c.z : meP.z;
+  let best = null, bd = Infinity;
+  for (const p of sim.players) {
+    if (!p.alive || p.id === meP.id) continue;
+    const d = (p.x - ox) ** 2 + (p.z - oz) ** 2;
+    if (d < bd) { bd = d; best = p; }
+  }
+  watchId = best ? best.id : null;
+  return best;
+}
+let watchEl = null, watchShown = '';
+function updateWatchLabel() {
+  const p = online.playing && mode === 'play' && watchId != null && sim.state !== 'gameover' ? playerById(watchId) : null;
+  const txt = p ? 'Watching ' + p.name : '';
+  if (txt === watchShown) return;
+  watchShown = txt;
+  if (!watchEl) {
+    watchEl = document.createElement('div');
+    watchEl.style.cssText = 'position:fixed;left:50%;bottom:18%;transform:translateX(-50%);padding:4px 12px;border-radius:999px;' +
+      'background:rgba(0,0,0,0.45);color:#fff;font:600 14px system-ui,sans-serif;pointer-events:none;z-index:5;';
+    document.body.appendChild(watchEl);
+  }
+  watchEl.textContent = txt;
+  watchEl.style.display = txt ? '' : 'none';
+}
 
 function updateCamera(dt, alpha) {
   let tx = 0, tz = 0, want = 22;
@@ -870,10 +902,14 @@ function updateCamera(dt, alpha) {
   } else {
     let n = 0, minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     const consider = (x, z) => { n++; tx += x; tz += z; minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z); };
-    const meAlive = online.playing && sim.players.some((p) => p.id === online.me && p.alive);
+    const meP = online.playing ? playerById(online.me) : null;
+    const meAlive = !!(meP && meP.alive);
+    const watch = online.playing && meP && !meAlive ? pickWatch(meP) : null;
+    if (!watch) watchId = null;
     for (const p of sim.players) {
       if (!p.alive) continue;
       if (meAlive && p.id !== online.me) continue;
+      if (watch && p !== watch) continue;
       const pp = prevPos.get('p' + p.id);
       const x = pp ? pp.x + (p.x - pp.x) * alpha : p.x;
       const z = pp ? pp.z + (p.z - pp.z) * alpha : p.z;
@@ -1658,6 +1694,7 @@ function tick(dt) {
   updateTargetMarker(vdt);
   effects.update(vdt);
   updateCamera(dt, alpha);
+  updateWatchLabel();
   updateHUD();
 
   // danger audio

@@ -100,3 +100,16 @@ ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG
   finish(a);
   ok(a.finishes === 2 && s.lastWinner === 1, 'two finishes = aura');
 }
+// the crown is a pickup over the goal's center: reaching the goal's edge clears the level but doesn't grab it
+{
+  const s = createSim({ seed: 32, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] });
+  stepSim(s, {}, CFG.TICK);
+  const [a, b] = s.players;
+  for (const q of s.players) q.invuln = 99;
+  a.x = s.levelData.centerRadius - 1; a.z = 0;
+  let ev = stepSim(s, {}, CFG.TICK);
+  ok(ev.some((e) => e.type === 'levelClear') && !s.crownTaken && s.lastWinner === 0, 'goal edge clears the level, crown still up for grabs');
+  b.x = 0.3; b.z = 0;                       // a teammate darts to the middle during the celebration
+  ev = stepSim(s, {}, CFG.TICK);
+  ok(ev.some((e) => e.type === 'crown' && e.playerId === 2) && s.lastWinner === 2 && a.finishes === 1, 'whoever touches the crown wears it');
+}

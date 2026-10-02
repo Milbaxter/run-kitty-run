@@ -1163,4 +1163,41 @@ function createPortalModel() {
   return { group, update };
 }
 
-export { createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel };
+// The crown up for grabs over the goal's center: big, spinning, bobbing, with a golden glow.
+function createCrownPickupModel() {
+  const group = new THREE.Group();
+  group.name = 'crownPickup';
+  // chunky solid crown (the worn one is thin; this one has to read from far away): band, spikes, ball tips, red gems
+  const geo = cgeo('crownPickup', () => bake([
+    [P.cyl18, mtx([0, 0, 0], null, [0.13, 0.08, 0.13]), 0xffc83a],
+    [P.cyl18, mtx([0, -0.035, 0], null, [0.14, 0.02, 0.14]), 0xe0a020],
+    ...[0, 1, 2, 3, 4].flatMap((i) => {
+      const a = (i / 5) * Math.PI * 2, x = Math.cos(a) * 0.11, z = Math.sin(a) * 0.11;
+      return [
+        [P.cone5, mtx([x, 0.1, z], null, [0.05, 0.13, 0.05]), 0xffd34a],
+        [P.ico1, mtx([x, 0.17, z], null, 0.022), 0xfff2b0],
+        [P.ico0, mtx([Math.cos(a) * 0.135, 0, Math.sin(a) * 0.135], [0, -a, 0], [0.012, 0.022, 0.022]), 0xff3d6e],
+      ];
+    }),
+  ]));
+  const crown = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, emissive: 0x7a4a00, emissiveIntensity: 0.6, metalness: 0.45, roughness: 0.35, flatShading: true }));
+  crown.scale.setScalar(7);
+  crown.castShadow = true;
+  // tipped toward the (top-down) camera so it reads as a crown, not a ring
+  const tilt = new THREE.Group();
+  tilt.rotation.x = 0.75;
+  tilt.add(crown);
+  group.add(tilt);
+  const glow = new THREE.Mesh(cgeo('crownGlow', () => new THREE.PlaneGeometry(2.4, 2.4)), new THREE.MeshBasicMaterial({ map: radialTexture(), color: new THREE.Color(0xffc23a).multiplyScalar(0.9), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  group.add(glow);
+  function update(dt, t, camera) {
+    tilt.position.y = 2.4 + Math.sin(t * 2.2) * 0.15;
+    crown.rotation.y = t * 1.4;
+    glow.position.y = tilt.position.y + 0.3;
+    if (camera) glow.quaternion.copy(camera.quaternion);
+    glow.material.opacity = 0.35 + 0.15 * Math.sin(t * 3.1);
+  }
+  return { group, update };
+}
+
+export { createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel };

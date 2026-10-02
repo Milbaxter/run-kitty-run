@@ -39,6 +39,7 @@ function makeLevel(sim, level) {
   sim.circles = [];
   sim.enteredCenter = [];
   sim.checkpointsHit = [];
+  sim.crownTaken = false;     // the crown floating over the goal, up for grabs each level
   sim.levelTime = 0;
   sim.state = 'playing';
   sim.stateTimer = 0;
@@ -99,7 +100,8 @@ function createSim({ seed, players = [], startLevel = 1, mode = 'mixed' } = {}) 
     levelData: null,
     enemies: [],
     enemyTicks: 0,
-    lastWinner: 0,  // id of the kitty that finished the previous run (wears the crown)
+    lastWinner: 0,  // id of the kitty that last grabbed the crown in the goal (wears it)
+    crownTaken: false,
     players: [],
     items: [],
     circles: [],
@@ -308,6 +310,19 @@ function stepSim(sim, inputs, dt) {
     }
   }
 
+  // --- crown: floats over the middle of the goal; first kitty to touch it wears it (also during the level-clear celebration) ---
+  if (!sim.crownTaken) {
+    const cr = CFG.KITTY_RADIUS + CFG.CROWN_RADIUS;
+    for (let i = 0; i < players.length; i++) {
+      const p = players[i];
+      if (!p.alive || p.x * p.x + p.z * p.z >= cr * cr) continue;
+      sim.crownTaken = true;
+      sim.lastWinner = p.id;
+      events.push({ type: 'crown', playerId: p.id });
+      break;
+    }
+  }
+
   // --- revive (after movement) ---
   if (sim.circles.length > 0) {
     const revR = CFG.REVIVE_RADIUS + CFG.KITTY_RADIUS;
@@ -440,7 +455,6 @@ function stepSim(sim, inputs, dt) {
     } else if (aliveInCenter > 0) {
       const by = players.find((q) => q.alive && q.inCenter);
       by.finishes = (by.finishes || 0) + 1;
-      sim.lastWinner = by.id;
       sim.state = 'levelclear';
       sim.stateTimer = CFG.LEVEL_CLEAR_TIME;
       sim.stats.levelsCleared++;

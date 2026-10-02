@@ -242,7 +242,7 @@ function sendSnapshot(room) {
     // [id, x, z, vx, vz, heading, alive, inCenter, lives, speedMult, invuln, shield, deaths, rescues, inputMargin, finishes]
     p: sim.players.map((p) => [p.id, r3(p.x), r3(p.z), r3(p.vx), r3(p.vz), r3(p.heading), p.alive ? 1 : 0, p.inCenter ? 1 : 0,
       p.lives, r3(p.speedMult), r3(p.invuln), r3(p.shield), p.deaths, p.rescues, Math.round((margins.get(p.id) ?? 0) * 10) / 10, p.finishes || 0]),
-    lw: sim.lastWinner || 0,
+    lw: sim.lastWinner || 0, ct: sim.crownTaken ? 1 : 0,
     it: sim.items.filter((i) => i.taken).map((i) => i.id),
     c: sim.circles.map((c) => [c.playerId, r3(c.x), r3(c.z), r3(c.t)]),
     s: sim.stats,

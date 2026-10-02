@@ -302,6 +302,11 @@ function generateLevel(level, seed, mode = 'mixed') {
   };
   lvl.ice = mode !== 'run' && lvl.theme === ICE_THEME;
   lvl.checkpoints = lvl.ice ? pickCheckpoints(corners, legs, lvl.safeCorners.length) : [];
+  // the crown: just inside the goal room's door, on the way to the portal
+  {
+    const last = corners[corners.length - 1], inner = legs[legs.length - 1], d = CFG.RING_WIDTH / 2 + 1.6;
+    lvl.crown = { x: last.x + inner.nx * d, z: last.z + inner.nz * d };
+  }
   lvl.trees = lvl.theme === TREE_THEME && !lvl.ice ? placeTrees(createRng(hashSeed(seed, L, 'trees')), legs) : [];
   lvl.enemies = placeEnemies(rng, lvl, p);
   lvl.items = placeItems(rng, lvl, p);

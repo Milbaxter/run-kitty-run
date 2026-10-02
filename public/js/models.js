@@ -389,16 +389,28 @@ function ghostMaterial(tint) {
   });
 }
 
-// Gold crown (finished the previous run) and a soft glowing aura (finished 2+ runs).
+// Gold crown (grabbed in the goal) and a super-saiyan flame aura (finished 2+ runs).
+// Flame texture: a row of jagged tongues (tileable around a cylinder), solid at the bottom, fading up.
 let auraTexCache = null;
 function auraTexture() {
   if (auraTexCache) return auraTexCache;
-  const c = document.createElement('canvas'); c.width = 4; c.height = 64;
+  const W = 256, H = 128;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d');
-  const gr = g.createLinearGradient(0, 0, 0, 64);
-  gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.55, 'rgba(255,255,255,.35)'); gr.addColorStop(1, 'rgba(255,255,255,.9)');
-  g.fillStyle = gr; g.fillRect(0, 0, 4, 64);
+  const gr = g.createLinearGradient(0, H, 0, 0);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.45, 'rgba(255,255,255,.85)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr;
+  const N = 9; // tongues around (W must tile, so tips at fixed spacing)
+  g.beginPath(); g.moveTo(0, H);
+  for (let i = 0; i < N; i++) {
+    const x0 = (i / N) * W, x1 = ((i + 1) / N) * W, tip = 4 + ((i * 37) % 5) * 7;
+    g.lineTo(x0 + (x1 - x0) * 0.15, H * 0.62);
+    g.quadraticCurveTo(x0 + (x1 - x0) * 0.35, H * 0.3, x0 + (x1 - x0) * 0.55, tip);
+    g.quadraticCurveTo(x0 + (x1 - x0) * 0.62, H * 0.38, x1, H * 0.6);
+  }
+  g.lineTo(W, H); g.closePath(); g.fill();
   auraTexCache = new THREE.CanvasTexture(c);
+  auraTexCache.wrapS = THREE.RepeatWrapping;
   return auraTexCache;
 }
 
@@ -594,16 +606,32 @@ function createKittyModel(color) {
   crown.castShadow = true;
   crown.visible = false;
   head.add(crown);
-  // aura: a glowing column + ground ring in the kitty's colour
-  const auraCol = new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.35).multiplyScalar(1.6);
-  const auraMat = new THREE.MeshBasicMaterial({ map: auraTexture(), color: auraCol, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+  // aura: super-saiyan flames in the kitty's own colour. The outer flame shell uses normal blending so it
+  // still shows on bright snow/ice (additive light vanishes there); an additive inner core adds the glow.
+  const auraCol = new THREE.Color(color);
+  const hot = auraCol.clone().lerp(new THREE.Color(0xffffff), 0.45);
+  const flameTex = auraTexture();
+  const outerMat = new THREE.MeshBasicMaterial({ map: flameTex, color: auraCol, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide });
+  const innerMat = new THREE.MeshBasicMaterial({ map: flameTex, color: hot.clone().multiplyScalar(1.4), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
   const aura = new THREE.Group();
-  const col = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.7, 1.3, 32, 1, true), auraMat);
-  col.position.y = 0.65;
-  const ringMat = new THREE.MeshBasicMaterial({ color: auraCol, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.86, 40), ringMat);
-  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.04;
-  aura.add(col, ring);
+  // flares outward toward the top, like the classic aura
+  const outer = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.5, 1.7, 36, 1, true), outerMat);
+  outer.position.y = 0.85;
+  const inner = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.42, 1.25, 30, 1, true), innerMat);
+  inner.position.y = 0.62;
+  const ringMat = new THREE.MeshBasicMaterial({ color: auraCol, transparent: true, opacity: 0.6, depthWrite: false });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.8, 40), ringMat);
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.035;
+  // rising sparks
+  const NS = 16;
+  const sparkPos = new Float32Array(NS * 3);
+  const sparkGeo = new THREE.BufferGeometry();
+  sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
+  const sparks = new THREE.Points(sparkGeo, new THREE.PointsMaterial({ color: hot, size: 0.09, transparent: true, opacity: 0.95, depthWrite: false }));
+  sparks.frustumCulled = false;
+  const sparkSeed = [];
+  for (let i = 0; i < NS; i++) sparkSeed.push([Math.random() * TAU_, 0.35 + Math.random() * 0.45, Math.random(), 0.8 + Math.random() * 0.7]);
+  aura.add(outer, inner, ring, sparks);
   aura.visible = false;
   group.add(aura);
   const baseUpdate = update;
@@ -615,12 +643,23 @@ function createKittyModel(color) {
     if (crown.visible) crown.position.y = 0.27 + Math.sin(t * 3) * 0.008;
     aura.visible = !!s.aura;
     if (aura.visible) {
-      const k = 0.75 + 0.25 * Math.sin(t * 3.2);
-      auraMat.opacity = 0.55 * k;
-      ringMat.opacity = 0.45 * k;
-      col.rotation.y = t * 0.6;
-      const sc = 1 + 0.05 * Math.sin(t * 2.1);
-      aura.scale.set(sc, 1, sc);
+      // flicker: tongues scroll around, the shell pulses and stretches
+      flameTex.offset.x = (t * 0.35) % 1;
+      outer.rotation.y = t * 1.3; inner.rotation.y = -t * 1.9;
+      const f = Math.sin(t * 17) * 0.5 + Math.sin(t * 29 + 1.3) * 0.5;
+      outer.scale.set(1 + 0.04 * f, 1 + 0.12 * Math.abs(f), 1 + 0.04 * f);
+      inner.scale.set(1, 1 + 0.15 * Math.abs(Math.sin(t * 23)), 1);
+      outerMat.opacity = 0.6 + 0.15 * f;
+      innerMat.opacity = 0.75 + 0.2 * Math.sin(t * 13);
+      ringMat.opacity = 0.45 + 0.15 * f;
+      for (let i = 0; i < NS; i++) {
+        const [a, r, ph, sp] = sparkSeed[i];
+        const u = (t * sp * 0.8 + ph) % 1;
+        sparkPos[i * 3] = Math.cos(a + t * 0.5) * r * (1 + u * 0.4);
+        sparkPos[i * 3 + 1] = 0.1 + u * 1.9;
+        sparkPos[i * 3 + 2] = Math.sin(a + t * 0.5) * r * (1 + u * 0.4);
+      }
+      sparkGeo.attributes.position.needsUpdate = true;
     }
   }
 
@@ -1156,7 +1195,7 @@ function createPortalModel() {
   return { group, update };
 }
 
-// The crown up for grabs over the goal's center: big, spinning, bobbing, with a golden glow.
+// The crown up for grabs just inside the goal room's door: big, spinning, bobbing, with a golden glow.
 // chunky solid crown (band, spikes, ball tips, red gems): reads from the top-down camera
 function chunkyCrownGeometry() {
   return cgeo('crownChunky', () => bake([
@@ -1188,7 +1227,7 @@ function createCrownPickupModel() {
   const glow = new THREE.Mesh(cgeo('crownGlow', () => new THREE.PlaneGeometry(2.4, 2.4)), new THREE.MeshBasicMaterial({ map: radialTexture(), color: new THREE.Color(0xffc23a).multiplyScalar(0.9), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
   group.add(glow);
   function update(dt, t, camera) {
-    tilt.position.y = 2.4 + Math.sin(t * 2.2) * 0.15;
+    tilt.position.y = 1.15 + Math.sin(t * 2.2) * 0.12;
     crown.rotation.y = t * 1.4;
     glow.position.y = tilt.position.y + 0.3;
     if (camera) glow.quaternion.copy(camera.quaternion);

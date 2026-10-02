@@ -322,12 +322,13 @@ function stepSim(sim, inputs, dt) {
     }
   }
 
-  // --- crown: floats over the middle of the goal; first kitty to touch it wears it (also during the level-clear celebration) ---
+  // --- crown: floats just inside the goal room's door; first kitty to touch it wears it (also during the level-clear celebration) ---
   if (!sim.crownTaken) {
     const cr = CFG.KITTY_RADIUS + CFG.CROWN_RADIUS;
     for (let i = 0; i < players.length; i++) {
       const p = players[i];
-      if (!p.alive || p.x * p.x + p.z * p.z >= cr * cr) continue;
+      const cx = p.x - ld.crown.x, cz = p.z - ld.crown.z;
+      if (!p.alive || cx * cx + cz * cz >= cr * cr) continue;
       sim.crownTaken = true;
       sim.lastWinner = p.id;
       events.push({ type: 'crown', playerId: p.id });

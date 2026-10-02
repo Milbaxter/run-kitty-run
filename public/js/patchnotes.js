@@ -4,11 +4,12 @@ const PATCH_NOTES = [
   {
     version: '0.8', date: '2026-10-01', title: 'Ice skating',
     items: [
+      'The aura (finish 2+ runs first) is now a super-saiyan flame aura in your kitty\'s own colour, and it shows on snow and ice too',
       'You can see your speed boots: each pair you pick up puts a little red boot on one more paw',
       'Online lobbies now hold up to 32 kitties',
       'Autumn levels have a climbable tree in every lane: run under it to climb up, wolves can\'t reach you there (room for several kitties), and there\'s a pair of speed boots on top of each one',
       'The crown you wear is bigger and shinier',
-      'The crown is now a real pickup: it floats over the middle of the goal, and whoever touches it first wears it',
+      'The crown is now a real pickup: it floats just inside the goal room\'s door, in front of the portal, and whoever touches it first wears it',
       'Speed boots: carry up to 4 pairs now, +5% each (+20% with all four)',
       'Levels follow the seasons: summer, autumn, winter (the ice rink), then a brand-new spring level, and repeat',
       'On ice your kitty keeps sliding the way it faces until you click a new direction',

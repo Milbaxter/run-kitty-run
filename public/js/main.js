@@ -364,6 +364,7 @@ function buildView() {
   const portal = createPortalModel();
   scene.add(portal.group);
   const crown = createCrownPickupModel();
+  crown.group.position.set(ld.crown.x, 0, ld.crown.z);
   scene.add(crown.group);
   const wolves = new Map();
   for (const e of sim.enemies) {
@@ -505,8 +506,9 @@ function handleEvents(events) {
       }
       case 'crown': {
         const p = playerById(ev.playerId);
-        effects.pickup(0, 0, 0xffd34a);
-        effects.floatText(0, 2.4, 0, 'CROWN!', '#ffd34a');
+        const c = sim.levelData.crown;
+        effects.pickup(c.x, c.z, 0xffd34a);
+        effects.floatText(c.x, 2.2, c.z, 'CROWN!', '#ffd34a');
         audio.play('extraLife');
         if (p) ui.toast(`👑 ${p.name} grabbed the crown!`, hexCss(p.color));
         break;

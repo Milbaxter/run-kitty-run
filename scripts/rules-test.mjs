@@ -91,7 +91,7 @@ ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG
 {
   const s = createSim({ seed: 31, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] });
   stepSim(s, {}, CFG.TICK);
-  const finish = (p) => { for (const q of s.players) q.invuln = 99; p.x = 0; p.z = 0; let t = 0; while (t++ < 400 && !stepSim(s, {}, CFG.TICK).some((e) => e.type === 'levelStart')); };
+  const finish = (p) => { for (const q of s.players) q.invuln = 99; p.x = s.levelData.crown.x; p.z = s.levelData.crown.z; stepSim(s, {}, CFG.TICK); p.x = 0; p.z = 0; let t = 0; while (t++ < 400 && !stepSim(s, {}, CFG.TICK).some((e) => e.type === 'levelStart')); };
   const [a, b] = s.players;
   finish(a);
   ok(s.lastWinner === 1 && a.finishes === 1, 'first finisher wears the crown');
@@ -128,7 +128,7 @@ ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG
   a.x = s.levelData.centerRadius - 1; a.z = 0;
   let ev = stepSim(s, {}, CFG.TICK);
   ok(ev.some((e) => e.type === 'levelClear') && !s.crownTaken && s.lastWinner === 0, 'goal edge clears the level, crown still up for grabs');
-  b.x = 0.3; b.z = 0;                       // a teammate darts to the middle during the celebration
+  b.x = s.levelData.crown.x; b.z = s.levelData.crown.z; // a teammate darts to the crown during the celebration
   ev = stepSim(s, {}, CFG.TICK);
   ok(ev.some((e) => e.type === 'crown' && e.playerId === 2) && s.lastWinner === 2 && a.finishes === 1, 'whoever touches the crown wears it');
 }

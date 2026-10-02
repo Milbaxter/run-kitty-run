@@ -30,7 +30,8 @@ jobs:
         run: |
           RT=$(xcrun simctl list runtimes available -j | jq -r '[.runtimes[] | select(.platform == "iOS")] | sort_by(.version | split(".") | map(tonumber)) | last | .identifier')
           pick() { xcrun simctl list devices available -j | jq -r --arg rt "$RT" --arg re "$1" '.devices[$rt][]? | select(.name | test($re)) | .udid' | head -1; }
-          UDID=$(pick '^iPhone [0-9]+ Pro$'); [ -n "$UDID" ] || UDID=$(pick '^iPhone')
+          # CI has no GPU: WebGL is software-rendered, so the fewest pixels win (iPhone SE), else a Pro (Dynamic Island).
+          UDID=$(pick '^iPhone SE'); [ -n "$UDID" ] || UDID=$(pick '^iPhone 1[0-9]e$'); [ -n "$UDID" ] || UDID=$(pick '^iPhone [0-9]+ Pro$'); [ -n "$UDID" ] || UDID=$(pick '^iPhone')
           echo "runtime $RT, device $UDID"
           echo "UDID=$UDID" >> "$GITHUB_ENV"
           nohup xcrun simctl boot "$UDID" > "$RUNNER_TEMP/boot.log" 2>&1 &
@@ -124,12 +125,13 @@ jobs:
           shot() { echo "$(date +%T) shot $1"; to 150 xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null; }
           IWDP=
           drive() { [ -n "$IWDP" ] || return 0; echo "--- $1" >> "$LOG_JS"; (cd "$GITHUB_WORKSPACE" && to 90 node smoke-drive.mjs "$2") >> "$LOG_JS" 2>&1; }
-          # iOS asks "Open in Run Kitty Run?" for custom-scheme links: press Open (button centre on the iPhone 17 Pro
-          # sheet, in points; falls back to the accessibility label).
+          # iOS asks "Open in Run Kitty Run?" for custom-scheme links (AXe can't tap system alerts): press Return,
+          # which triggers the alert's preferred action (Open).
           tap_open() {
             command -v axe >/dev/null || return 0
             sleep 6; shot "$1-sheet"
-            to 60 axe tap -x 275 -y 474 --udid "$UDID" || to 60 axe tap --label Open --udid "$UDID"
+            to 60 axe key 40 --udid "$UDID"; sleep 3
+            to 30 axe key 40 --udid "$UDID"
           }
           # Screenshot repeatedly until the WebView has painted (a blank dark frame compresses to <150 KB).
           shot_until_painted() {
@@ -163,6 +165,8 @@ jobs:
           tap_open coldlink
           sleep 20; shot_until_painted 01-coldlink 10 480 # (the launch splash is non-blank too: give it time)
           drive "cold deep link state" "$STATE"
+          echo "$(date +%T) logs (cold link)"
+          to 90 xcrun simctl spawn "$UDID" log show --start "$START" --style compact --predicate 'process == "App"' > "$OUT/device-log-coldlink.txt" 2>&1
           # 2) Normal launch -> title screen.
           to 30 xcrun simctl terminate "$UDID" "$BID"; sleep 2
           echo "$(date +%T) launch"; launch

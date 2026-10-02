@@ -33,6 +33,7 @@ const FRAG = `
     if (d > 1.0) discard;
     float a = pow(1.0 - d * d, uSharp) * vAlpha * uOpacity;
     gl_FragColor = vec4(uColor, a);
+    #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }`;
 
@@ -65,6 +66,7 @@ function createAuraTrail(scene, color) {
   };
   const shell = layer(base, 0.75, 1, 1.4, THREE.NormalBlending, 3);
   const core = layer(hot, 0.85, 0.55, 2.2, THREE.AdditiveBlending, 3);
+  shell.visible = core.visible = false;
 
   let time = 0, head = 0, live = 0, lx = 0, lz = 0, wasActive = false;
 
@@ -80,6 +82,7 @@ function createAuraTrail(scene, color) {
   // color (optional): recolour live (6+ finishes cycle through the cat colours)
   function update(dt, x, y, z, heading, active, color) {
     time += dt;
+    if (!active && live === 0) return; // idle: nothing alive, nothing to emit (layers already hidden)
     if (color) { base.copy(color); hot.copy(color).lerp(WHITE, 0.3).multiplyScalar(1.2); }
     if (active) {
       // emit from just behind the body, at aura height, spaced by distance so speed/framerate don't leave gaps

@@ -1,8 +1,4 @@
 import * as THREE from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET } from './shared/config.js';
 import { hashSeed } from './shared/rng.js';
 import { collideCircle, onIce, inTree } from './shared/maze.js';
@@ -37,7 +33,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: QUALITY.antialias,
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatio));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = QUALITY.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -46,19 +42,34 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 400);
 camera.position.set(0, 40, 30);
 
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.55, 0.45, 0.88);
-if (QUALITY.bloom) composer.addPass(bloom); // bloom is the most expensive pass: skipped on phones
-composer.addPass(new OutputPass());
+// Bloom (desktop only): post chain loaded on demand so phones never download it; until it arrives
+// (and always on phones) the scene renders straight to the canvas with the same tone mapping.
+// The composer gets a 4x MSAA target: the canvas' own antialias does nothing once rendering goes offscreen.
+let composer = null;
+if (QUALITY.bloom) {
+  Promise.all([
+    import('three/addons/postprocessing/EffectComposer.js'),
+    import('three/addons/postprocessing/RenderPass.js'),
+    import('three/addons/postprocessing/UnrealBloomPass.js'),
+    import('three/addons/postprocessing/OutputPass.js'),
+  ]).then(([{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }]) => {
+    const dpr = renderer.getPixelRatio(), w = window.innerWidth, h = window.innerHeight;
+    const rt = new THREE.WebGLRenderTarget(w * dpr, h * dpr, { type: THREE.HalfFloatType, samples: 4 });
+    const c = new EffectComposer(renderer, rt);
+    c.addPass(new RenderPass(scene, camera));
+    c.addPass(new UnrealBloomPass(new THREE.Vector2(w, h), 0.55, 0.45, 0.88));
+    c.addPass(new OutputPass());
+    c.setSize(w, h);
+    composer = c;
+  }).catch((e) => console.warn('bloom unavailable', e));
+}
 
 window.addEventListener('resize', () => {
   const w = window.innerWidth, h = window.innerHeight;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
-  composer.setSize(w, h);
-  bloom.setSize(w, h);
+  if (composer) composer.setSize(w, h); // resizes every pass (bloom included)
 });
 
 const lighting = setupLighting(scene);
@@ -166,6 +177,8 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 window.addEventListener('blur', () => { keys.clear(); if (mode === 'play' && !online.playing && !paused && sim.state === 'playing') togglePause(); });
 window.addEventListener('pointerdown', () => { audio.unlock(); syncTrack(); });
 
+// navigator.getGamepads() snapshot, taken once per tick() and shared by readInput / padActive / pollPadNav
+let framePads = [];
 function anyKey(list) { for (const k of list) if (keys.has(k)) return true; return false; }
 
 function readInput(index, playerCount) {
@@ -178,8 +191,7 @@ function readInput(index, playerCount) {
     if (anyKey(map.down)) z += 1;
   }
   // Gamepads: pad i drives player i (if present).
-  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-  const pad = pads && pads[index];
+  const pad = framePads && framePads[index];
   if (pad && pad.connected) {
     let gx = pad.axes[0] || 0, gz = pad.axes[1] || 0;
     if (pad.buttons[14]?.pressed) gx = -1;
@@ -319,7 +331,7 @@ function mouseInput(p, kb) {
 let targetPulse = 0;
 const targetMarker = new THREE.Mesh(
   new THREE.RingGeometry(0.32, 0.44, 32),
-  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false }),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false }),
 );
 targetMarker.rotation.x = -Math.PI / 2;
 targetMarker.visible = false;
@@ -419,7 +431,7 @@ function ensureKitties() {
       const model = createKittyModel(p.color);
       // Player-colored ground marker with a heading pip (readability + co-op identity).
       const glow = new THREE.Color(p.color).multiplyScalar(1.6);
-      const mat = new THREE.MeshBasicMaterial({ color: glow, transparent: true, opacity: 0.75, depthWrite: false, toneMapped: false });
+      const mat = new THREE.MeshBasicMaterial({ color: glow, transparent: true, opacity: 0.75, depthWrite: false });
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.58, 0.7, 40), mat);
       ring.rotation.x = -Math.PI / 2;
       ring.position.y = 0.03;
@@ -715,8 +727,7 @@ function showVictoryScreen() {
 }
 
 function padActive() {
-  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-  for (const pad of pads || []) {
+  for (const pad of framePads || []) {
     if (!pad || !pad.connected) continue;
     if (Math.abs(pad.axes[0] || 0) > 0.3 || Math.abs(pad.axes[1] || 0) > 0.3) return true;
     if (pad.buttons.some((b) => b.pressed)) return true;
@@ -736,9 +747,8 @@ function updateIntro(dt) {
 // Gamepad on the overlays (victory / game over / pause): A or Start = confirm, d-pad / stick left-right = switch.
 const padNav = { confirm: false, prev: false, next: false };
 function pollPadNav() {
-  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
   let confirm = false, prev = false, next = false;
-  for (const pad of pads || []) {
+  for (const pad of framePads || []) {
     if (!pad || !pad.connected) continue;
     const b = (i) => !!(pad.buttons[i] && pad.buttons[i].pressed);
     confirm = confirm || b(0) || b(9);
@@ -836,10 +846,13 @@ function updateCamera(dt, alpha) {
 }
 
 // ---------- per-frame visual sync ----------
+// returns a shared scratch object (read it before the next call)
+const _lerp = { x: 0, z: 0 };
 function lerpPos(key, x, z, alpha) {
   const pp = prevPos.get(key);
-  if (!pp) return [x, z];
-  return [pp.x + (x - pp.x) * alpha, pp.z + (z - pp.z) * alpha];
+  if (!pp) { _lerp.x = x; _lerp.z = z; return _lerp; }
+  _lerp.x = pp.x + (x - pp.x) * alpha; _lerp.z = pp.z + (z - pp.z) * alpha;
+  return _lerp;
 }
 
 function snapshotPrev() {
@@ -926,6 +939,8 @@ function fishFinished() {
   ui.updateVictoryFish(100);
 }
 
+const _seenCircles = new Set();
+const _kitArgs = {}; // reused kitty model.update() args (the model only reads them)
 function syncVisuals(dt, alpha) {
   if (!view) return;
   if (view.levelData !== sim.levelData) buildView();
@@ -940,7 +955,7 @@ function syncVisuals(dt, alpha) {
     const near = (e.x - camTarget.x) ** 2 + (e.z - camTarget.z) ** 2 < cullR2;
     m.group.visible = near;
     if (!near) { m.lastHeading = undefined; continue; }
-    const [x, z] = lerpPos('e' + e.id, e.x, e.z, alpha);
+    const lp = lerpPos('e' + e.id, e.x, e.z, alpha), x = lp.x, z = lp.z;
     m.group.position.set(x, 0, z);
     m.group.rotation.y = -e.heading;
     m.update(dt, { moving: e.moving, tell: e.tell, speed01: Math.min(1, (e.speedNow || 0) / 4), time: t });
@@ -953,7 +968,7 @@ function syncVisuals(dt, alpha) {
   // items
   for (const m of view.items.values()) m.update(dt, t);
   // revive circles
-  const seen = new Set();
+  const seen = _seenCircles; seen.clear();
   for (const c of sim.circles) {
     seen.add(c.playerId);
     let m = view.circles.get(c.playerId);
@@ -978,7 +993,8 @@ function syncVisuals(dt, alpha) {
     if (!k) continue;
     k.model.group.visible = p.alive;
     if (!p.alive) { k.trail.update(dt, p.x, p.z, p.heading, false); k.auraTrail.update(dt, p.x, 0, p.z, p.heading, false); k.paws.update(dt); continue; }
-    let [x, z] = lerpPos('p' + p.id, p.x, p.z, alpha);
+    const lp = lerpPos('p' + p.id, p.x, p.z, alpha);
+    let x = lp.x, z = lp.z;
     if (online.playing && p.id === online.me) { x += online.errX; z += online.errZ; }
     const eat = view.fish ? feast(k, p, x, z, dt) : null;   // the final run's giant fish
     if (eat) { x = eat.x; z = eat.z; }
@@ -996,11 +1012,12 @@ function syncVisuals(dt, alpha) {
     // 6+ all of them cycle through the cat colours (the fur keeps its own); wins 2-6 also set stones in the crown
     const wins = p.finishes || 0, paws = wins >= 2;
     if (wins >= 6) cycleColor(t + p.id * 2.3, k.fx);
-    k.model.update(dt, {
-      speed01: gliding ? 0 : eat && eat.walking ? 0.45 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2)),
-      moving: (p.moving && !gliding) || !!(eat && eat.walking), munch: !!(eat && eat.munch), bites: k.bites | 0, skates: !!sim.levelData.ice, boots: Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST), invuln: p.invuln, shield: p.shield, time: t,
-      crown: !!p.crowned, crownStones: Math.max(0, Math.min(5, wins - 1)), aura: wins >= 3, auraColor: k.fx,
-    });
+    const ka = _kitArgs;
+    ka.speed01 = gliding ? 0 : eat && eat.walking ? 0.45 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2));
+    ka.moving = (p.moving && !gliding) || !!(eat && eat.walking); ka.munch = !!(eat && eat.munch); ka.bites = k.bites | 0;
+    ka.skates = !!sim.levelData.ice; ka.boots = Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST); ka.invuln = p.invuln; ka.shield = p.shield; ka.time = t;
+    ka.crown = !!p.crowned; ka.crownStones = Math.max(0, Math.min(5, wins - 1)); ka.aura = wins >= 3; ka.auraColor = k.fx;
+    k.model.update(dt, ka);
     k.trail.update(dt, x, z, -k.model.group.rotation.y, gliding && speed > 0.5, paws ? k.fx : null);
     k.auraTrail.update(dt, x, k.climb, z, -k.model.group.rotation.y, wins >= 4 && speed > 1, k.fx);
     k.paws.update(dt);
@@ -1031,6 +1048,9 @@ const feedback = createFeedback(document.getElementById('ui'), {
   },
 });
 
+const hudScores = [], hudPlayers = [];
+const hudData = { level: 0, players: hudPlayers, time: 0, rescues: 0 };
+let hudScoresOff = false;
 function updateHUD() {
   // feedback button: while your kitty is down, or on the game-over screen
   let down = false;
@@ -1040,18 +1060,30 @@ function updateHUD() {
     else down = sim.players.some((p) => !p.alive);
   }
   feedback.setVisible(down);
-  if (mode !== 'play') { ui.setScores(null); return; }
+  if (mode !== 'play') { if (!hudScoresOff) { hudScoresOff = true; ui.setScores(null); } return; }
   // score: +1 per friend saved, -1 per time caught, +20 per win (finishing a level first)
-  ui.setScores(sim.players.map((p) => ({ name: p.name, color: p.color, score: p.rescues - p.deaths + 20 * (p.finishes || 0), crown: !!p.crowned, me: online.playing ? p.id === online.me : true, you: online.playing && p.id === online.me })));
-  ui.setHUD({
-    level: sim.level,
-    players: sim.players.map((p) => ({
-      name: p.name, color: p.color, alive: p.alive, lives: p.lives,
-      speedMult: p.speedMult, shield: p.shield,
-    })),
-    time: sim.time,
-    rescues: sim.stats.rescues,
-  });
+  // The row objects persist; ui.setScores (sort + DOM key) only runs when a score row actually changes.
+  const ps = sim.players;
+  let dirty = hudScoresOff || hudScores.length !== ps.length;
+  hudScoresOff = false;
+  if (dirty) { hudScores.length = ps.length; hudPlayers.length = ps.length; }
+  for (let i = 0; i < ps.length; i++) {
+    const p = ps[i];
+    const score = p.rescues - p.deaths + 20 * (p.finishes || 0), crown = !!p.crowned;
+    const me = online.playing ? p.id === online.me : true, you = online.playing && p.id === online.me;
+    let r = hudScores[i];
+    if (!r) r = hudScores[i] = {};
+    if (r.name !== p.name || r.color !== p.color || r.score !== score || r.crown !== crown || r.me !== me || r.you !== you) {
+      r.name = p.name; r.color = p.color; r.score = score; r.crown = crown; r.me = me; r.you = you;
+      dirty = true;
+    }
+    let h = hudPlayers[i];
+    if (!h) h = hudPlayers[i] = {};
+    h.name = p.name; h.color = p.color; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield;
+  }
+  if (dirty) ui.setScores(hudScores);
+  hudData.level = sim.level; hudData.time = sim.time; hudData.rescues = sim.stats.rescues;
+  ui.setHUD(hudData);
 }
 
 
@@ -1448,6 +1480,7 @@ function frame(now) {
 }
 
 function tick(dt) {
+  framePads = navigator.getGamepads ? navigator.getGamepads() : [];
   const running = !paused;
   if (online.playing) {
     simTime += dt;
@@ -1517,7 +1550,7 @@ function tick(dt) {
   }
 
   setKeepAwake(mode === 'play' && !paused && sim.state !== 'gameover');
-  composer.render();
+  if (composer) composer.render(); else renderer.render(scene, camera);
   hideSplash(); // after the first rendered frame
 }
 

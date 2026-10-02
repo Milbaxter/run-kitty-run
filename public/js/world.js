@@ -99,7 +99,7 @@ const HELL = {
   floorEmissive: 0xff5a20, floorEmissiveIntensity: 0.55,
   ice: 0xa9bdd4, iceEmissive: 0x24476e,
   particles: 'motes', particlePalette: [0xff7a3a, 0xffa040, 0xd8401c],
-  safeStyle: null,   // the start square keeps the plain stone tile
+  safeStyle: 'hell', safeTint: 0xffffff,   // the start square: charred, cracked, bones at the edges (makeHellTileTextures)
 };
 const HELL_LIGHT = { sky: 0x0e0507, fog: 0x1c0a0c, fogNear: 30, fogFar: 88, hemiSky: 0xb898a8, hemiGround: 0x4a1a1a, hemiIntensity: 1.15, sunColor: 0xffb098, sunIntensity: 1.25 };
 const HEAVEN_LIGHT = { sky: 0xffd9a8, fog: 0xf5d2a0, fogNear: 48, fogFar: 125, hemiSky: 0xfff0d8, hemiGround: 0x8a6a4a, hemiIntensity: 1.2, sunColor: 0xffe2b8, sunIntensity: 1.9 };
@@ -380,45 +380,57 @@ function makeSeasonTileTexture(style, T) {
         drawLeaf(g, x, y, rng.range(7, 13), rng.range(0, TAU), rng.pick(cols));
       }
     } else if (style === 'winter') {
-      // frosted slate flags with snow packed in the joints and drifted round the edges, a pressed-snow paw.
-      // Clearly stone, not ice: darker, matte, blocky, with a white snowy rim.
-      g.fillStyle = '#eef3fa'; g.fillRect(0, 0, S, S);
-      const n = 4, cell = S / n;
+      // cosy winter: warm cream flags with gingerbread joints, a candy-cane border with an iced gingerbread trim,
+      // a little snow dusted into the corners, a golden glow and a cranberry paw with gold sparkles. Warm colours and a
+      // red-and-white rim: reads clearly as solid ground next to the pale blue ice and the white snow.
+      g.fillStyle = 'rgb(188,124,72)'; g.fillRect(0, 0, S, S);
+      const B = 44, n = 4, cell = (S - 2 * B) / n;
       for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-        const v = rng.int(150, 172);
-        drawSlab(g, rng, i * cell + 7, j * cell + 7, cell - 14, cell - 14, 12, [v, v + 4, v + 16], 70);
+        drawSlab(g, rng, B + i * cell + 5, B + j * cell + 5, cell - 10, cell - 10, 12, [rng.int(244, 252), rng.int(230, 240), rng.int(204, 216)], 50);
       }
-      // frost bloom on the stones
-      blotches(g, S, rng, 26, 30, 80, [255, 255, 255, 0.16], [210, 225, 245, 0.1]);
-      // snow drifts round the rim (heavier in the corners)
-      for (let i = 0; i < 140; i++) {
-        const side = rng.int(0, 3), t = rng.range(0, S), d = rng.range(0, 30);
-        const x = side === 0 ? t : side === 1 ? S - d : side === 2 ? t : d, y = side === 0 ? d : side === 1 ? t : side === 2 ? S - d : t;
-        const r = rng.range(16, 34), gr = g.createRadialGradient(x, y, 0, x, y, r);
-        gr.addColorStop(0, 'rgba(250,252,255,0.95)'); gr.addColorStop(0.6, 'rgba(246,250,255,0.75)'); gr.addColorStop(1, 'rgba(246,250,255,0)');
-        g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
+      // candy-cane border: red and white diagonal stripes
+      g.save();
+      g.beginPath(); g.rect(0, 0, S, S); g.rect(28, 28, S - 56, S - 56); g.clip('evenodd');
+      g.fillStyle = 'rgb(252,248,240)'; g.fillRect(0, 0, S, S);
+      g.fillStyle = 'rgb(214,40,52)';
+      for (let k = -S; k < 2 * S; k += 36) { g.beginPath(); g.moveTo(k, 0); g.lineTo(k + 18, 0); g.lineTo(k + 18 - S, S); g.lineTo(k - S, S); g.closePath(); g.fill(); }
+      g.restore();
+      g.strokeStyle = 'rgba(120,30,30,0.5)'; g.lineWidth = 2; g.strokeRect(28, 28, S - 56, S - 56);
+      // gingerbread trim with white icing dots
+      g.fillStyle = 'rgb(176,108,58)';
+      g.beginPath(); g.rect(28, 28, S - 56, S - 56); g.rect(B, B, S - 2 * B, S - 2 * B); g.fill('evenodd');
+      g.fillStyle = 'rgb(255,252,246)';
+      for (let t = 36; t <= S - 36; t += 16) {
+        for (const [x, y] of [[t, 36], [t, S - 36], [36, t], [S - 36, t]]) { g.beginPath(); g.arc(x, y, 3.2, 0, TAU); g.fill(); }
       }
-      for (const [x, y] of [[0, 0], [S, 0], [0, S], [S, S]]) {
-        const gr = g.createRadialGradient(x, y, 0, x, y, 80);
-        gr.addColorStop(0, 'rgba(250,252,255,1)'); gr.addColorStop(0.55, 'rgba(250,252,255,0.85)'); gr.addColorStop(1, 'rgba(250,252,255,0)');
-        g.fillStyle = gr; g.beginPath(); g.arc(x, y, 80, 0, TAU); g.fill();
+      // a dusting of snow in the inner corners
+      for (const [x, y] of [[B, B], [S - B, B], [B, S - B], [S - B, S - B]]) {
+        for (let k = 0; k < 6; k++) {
+          const px = x + (x < C ? 1 : -1) * rng.range(0, 40), py = y + (y < C ? 1 : -1) * rng.range(0, 40), r = rng.range(14, 26);
+          const gr = g.createRadialGradient(px, py, 0, px, py, r);
+          gr.addColorStop(0, 'rgba(255,253,248,0.95)'); gr.addColorStop(1, 'rgba(255,253,248,0)');
+          g.fillStyle = gr; g.beginPath(); g.arc(px, py, r, 0, TAU); g.fill();
+        }
       }
-      // little frost crystals
-      g.lineCap = 'round';
-      for (let i = 0; i < 26; i++) {
-        const x = rng.range(40, S - 40), y = rng.range(40, S - 40);
-        if (nearPaw(x, y, 10)) continue;
-        const r = rng.range(5, 10), a0 = rng.range(0, TAU);
-        g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 1.6;
-        g.beginPath();
-        for (let k = 0; k < 6; k++) { const a = a0 + k / 6 * TAU; g.moveTo(x, y); g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); }
-        g.stroke();
+      // golden glow + a red ring (like a wreath ribbon) behind the paw
+      const gr = g.createRadialGradient(C, C, 40, C, C, 128);
+      gr.addColorStop(0, 'rgba(255,214,120,0.85)'); gr.addColorStop(0.75, 'rgba(255,206,110,0.55)'); gr.addColorStop(1, 'rgba(255,206,110,0)');
+      g.fillStyle = gr; g.beginPath(); g.arc(C, C, 128, 0, TAU); g.fill();
+      g.strokeStyle = 'rgb(46,128,70)'; g.lineWidth = 9; g.beginPath(); g.arc(C, C, 104, 0, TAU); g.stroke();
+      g.strokeStyle = 'rgb(214,40,52)'; g.lineWidth = 3; g.setLineDash([10, 8]); g.beginPath(); g.arc(C, C, 104, 0, TAU); g.stroke(); g.setLineDash([]);
+      drawPaw(g, C, C + 4, 1.45, 'rgb(196,36,58)', 'rgb(246,196,84)', 5);
+      // sparkles: little four-point stars in gold and white
+      const star = (x, y, r, col) => {
+        g.fillStyle = col; g.beginPath();
+        for (let k = 0; k < 8; k++) { const a = k / 8 * TAU, rr = k % 2 ? r * 0.3 : r; g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+        g.closePath(); g.fill();
+      };
+      for (let i = 0; i < 40; i++) {
+        const x = rng.range(B + 6, S - B - 6), y = rng.range(B + 6, S - B - 6);
+        if (nearPaw(x, y, 4)) continue;
+        star(x, y, rng.range(4, 8), rng.chance(0.6) ? 'rgb(236,176,60)' : 'rgb(255,255,255)');
       }
-      // the paw: pressed into a round patch of snow
-      const gr = g.createRadialGradient(C, C, 70, C, C, 116);
-      gr.addColorStop(0, 'rgba(250,252,255,0.95)'); gr.addColorStop(1, 'rgba(250,252,255,0)');
-      g.fillStyle = gr; g.beginPath(); g.arc(C, C, 116, 0, TAU); g.fill();
-      drawPaw(g, C, C + 4, 1.45, 'rgb(96,120,168)', 'rgb(196,212,236)', 5);
+      for (const [dx, dy, r] of [[-30, 30, 7], [34, 34, 6], [0, -64, 6], [-58, -40, 5], [60, -38, 5]]) star(C + dx, C + dy + 4, r, 'rgb(255,236,170)');
     } else {
       // spring: pale cream flags with mossy joints, a pink paw, blossom petals and little flowers in the corners
       g.fillStyle = '#93c06c'; g.fillRect(0, 0, S, S);
@@ -450,6 +462,70 @@ function makeSeasonTileTexture(style, T) {
       }
     }
   }, { repeat: false }));
+}
+
+// The final run's start square: "welcome to a scary place". Cracked charred basalt with ember-lit cracks, a scorched
+// paw print with a smouldering rim, claw gouges and soot. Returns { map, emissiveMap }: the cracks glow dimly through
+// the emissive map (no glare: dim orange, intensity set on the material).
+function makeHellTileTextures(T) {
+  const rng = createRng(hashSeed('safeTile', 'hell'));
+  const S = 512, C = S / 2;
+  const cracks = [];
+  // slab seams (jittered grid) + branching cracks across the slabs
+  const n = 4, cell = S / n, jit = [];
+  for (let i = 0; i <= n; i++) { jit.push([]); for (let j = 0; j <= n; j++) jit[i].push([i * cell + (i % n ? rng.range(-14, 14) : 0), j * cell + (j % n ? rng.range(-14, 14) : 0)]); }
+  for (let k = 0; k < 22; k++) {
+    let x = rng.range(20, S - 20), y = rng.range(20, S - 20), a = rng.range(0, TAU);
+    const pts = [[x, y]], len = rng.int(4, 9);
+    for (let s = 0; s < len; s++) { a += rng.range(-0.7, 0.7); x += Math.cos(a) * rng.range(10, 24); y += Math.sin(a) * rng.range(10, 24); pts.push([x, y]); }
+    cracks.push({ pts, w: rng.range(1.2, 2.6) });
+  }
+  const claws = [];
+  for (const [cx, cy, rot] of [[110, 120, 0.5], [400, 390, -2.6], [395, 110, 2.4]]) {
+    for (let k = -1; k <= 1; k++) claws.push({ cx, cy, rot, k });
+  }
+  const clawPath = (g, { cx, cy, rot, k }) => {
+    g.save(); g.translate(cx, cy); g.rotate(rot);
+    g.beginPath(); g.moveTo(-42, k * 15 - 6); g.quadraticCurveTo(0, k * 15 + 6, 44, k * 15 - 2); g.restore();
+  };
+  const crackPath = (g, c) => { g.beginPath(); g.moveTo(c.pts[0][0], c.pts[0][1]); for (const [x, y] of c.pts) g.lineTo(x, y); };
+  const map = T.t(canvasTex(S, (g) => {
+    g.fillStyle = 'rgb(24,18,20)'; g.fillRect(0, 0, S, S);
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+      const p = [jit[i][j], jit[i + 1][j], jit[i + 1][j + 1], jit[i][j + 1]], v = rng.int(54, 72);
+      g.save(); g.beginPath(); p.forEach(([x, y], q) => (q ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.clip();
+      g.fillStyle = `rgb(${v},${(v * 0.84) | 0},${(v * 0.86) | 0})`; g.fillRect(0, 0, S, S);
+      for (let s = 0; s < 70; s++) { g.fillStyle = rng.chance(0.5) ? 'rgba(255,240,230,0.06)' : 'rgba(0,0,0,0.18)'; g.beginPath(); g.arc(rng.range(0, S), rng.range(0, S), rng.range(1, 3), 0, TAU); g.fill(); }
+      g.restore();
+    }
+    // the seams between the slabs
+    g.strokeStyle = 'rgb(16,10,10)'; g.lineWidth = 7;
+    for (let i = 0; i <= n; i++) for (let j = 0; j < n; j++) {
+      g.beginPath(); g.moveTo(...jit[i][j]); g.lineTo(...jit[i][j + 1]); g.stroke();
+      g.beginPath(); g.moveTo(...jit[j][i]); g.lineTo(...jit[j + 1][i]); g.stroke();
+    }
+    blotches(g, S, rng, 30, 30, 90, [0, 0, 0, 0.35], [70, 20, 10, 0.25]);   // soot and scorch
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    for (const c of cracks) { crackPath(g, c); g.strokeStyle = 'rgb(12,6,6)'; g.lineWidth = c.w + 2.5; g.stroke(); crackPath(g, c); g.strokeStyle = 'rgb(170,60,24)'; g.lineWidth = c.w * 0.6; g.stroke(); }
+    for (const cl of claws) { clawPath(g, cl); g.strokeStyle = 'rgb(10,6,6)'; g.lineWidth = 9; g.stroke(); clawPath(g, cl); g.strokeStyle = 'rgb(150,50,20)'; g.lineWidth = 2.5; g.stroke(); }
+    // scorched burn round the paw, then the paw itself: charcoal with an ember rim
+    const gr = g.createRadialGradient(C, C, 40, C, C, 130);
+    gr.addColorStop(0, 'rgba(8,4,4,0.85)'); gr.addColorStop(1, 'rgba(8,4,4,0)');
+    g.fillStyle = gr; g.beginPath(); g.arc(C, C, 130, 0, TAU); g.fill();
+    drawPaw(g, C, C + 4, 1.45, 'rgb(20,12,12)', 'rgb(190,70,26)', 5);
+  }, { repeat: false }));
+  const emissiveMap = T.t(canvasTex(S, (g) => {
+    g.fillStyle = '#000'; g.fillRect(0, 0, S, S);
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.shadowColor = 'rgb(255,90,20)'; g.shadowBlur = 10;
+    for (const c of cracks) { crackPath(g, c); g.strokeStyle = 'rgb(255,120,40)'; g.lineWidth = c.w * 0.8; g.stroke(); }
+    for (const cl of claws) { clawPath(g, cl); g.strokeStyle = 'rgb(230,80,24)'; g.lineWidth = 2.5; g.stroke(); }
+    g.shadowBlur = 16;
+    drawPaw(g, C, C + 4, 1.45, '#000', 'rgb(255,110,30)', 5);
+    g.shadowBlur = 0;
+    drawPaw(g, C, C + 4, 1.45, '#000', null);   // the paw itself stays dark: only its rim smoulders
+  }, { repeat: false }));
+  return { map, emissiveMap };
 }
 
 // Small props round the corners of every safe square, themed per season (instanced; one shared vertex-colour material).
@@ -504,25 +580,40 @@ function buildSafeProps(levelData, style, T) {
     }
     kinds.push([mergeGeos(leaves), 1, [1, 1.3]]);
   } else if (style === 'winter') {
+    // wrapped presents: a box with a ribbon cross and a bow (two colourways, the second a little stack of two)
+    const present = (x, z, w, hgt, box, ribbon, y0 = 0, ry = 0) => {
+      const c = Math.cos(ry), s = Math.sin(ry), X = (u, v) => x + u * c + v * s, Z = (u, v) => z - u * s + v * c;
+      return [
+        paint(place(new THREE.BoxGeometry(w, hgt, w), x, y0 + hgt / 2, z, 1, 1, 1, 0, ry, 0), box),
+        paint(place(new THREE.BoxGeometry(w * 1.02, hgt * 1.02, w * 0.18), x, y0 + hgt / 2, z, 1, 1, 1, 0, ry, 0), ribbon),
+        paint(place(new THREE.BoxGeometry(w * 0.18, hgt * 1.02, w * 1.02), x, y0 + hgt / 2, z, 1, 1, 1, 0, ry, 0), ribbon),
+        paint(place(new THREE.TorusGeometry(w * 0.16, w * 0.05, 4, 8), X(-w * 0.13, 0), y0 + hgt + w * 0.1, Z(-w * 0.13, 0), 1, 1, 1, 0, ry + Math.PI / 2, 0.5), ribbon),
+        paint(place(new THREE.TorusGeometry(w * 0.16, w * 0.05, 4, 8), X(w * 0.13, 0), y0 + hgt + w * 0.1, Z(w * 0.13, 0), 1, 1, 1, 0, ry + Math.PI / 2, -0.5), ribbon),
+      ];
+    };
+    kinds.push([mergeGeos([...present(0, 0, 0.34, 0.26, 0xd8303a, 0xf6c84c), ...present(0.3, 0.12, 0.24, 0.2, 0x2f8a4a, 0xf4f0e6, 0, 0.5)]), 2, [1.2, 1.5], 'face']);
+    kinds.push([mergeGeos([...present(0, 0, 0.36, 0.24, 0xf4efe4, 0xd8303a), ...present(0.02, 0.01, 0.24, 0.18, 0x2f8a4a, 0xf6c84c, 0.25, 0.6)]), 1, [1.2, 1.5], 'face']);
+    // a cheerful little snowman with a red scarf, a carrot nose and coal buttons (faces the camera)
     kinds.push([mergeGeos([
-      paint(place(new THREE.IcosahedronGeometry(0.5, 1), 0, 0.02, 0, 1.1, 0.34, 0.75), 0xf6f9ff),
-      paint(place(new THREE.IcosahedronGeometry(0.34, 1), 0.42, 0.0, 0.12, 1, 0.3, 0.8), 0xf2f6ff),
-    ]), 3, [1, 1.4]]);
-    const crystals = [];
-    for (let k = 0; k < 4; k++) {
-      const a = k / 4 * TAU + 0.4, d = k ? 0.13 : 0, hk = k ? rng.range(0.5, 0.75) : 1;
-      crystals.push(paint(place(new THREE.OctahedronGeometry(0.1, 0), Math.cos(a) * d, 0.18 * hk, Math.sin(a) * d, 0.8, 2.0 * hk, 0.8, Math.sin(a) * 0.4 * (k ? 1 : 0), 0, -Math.cos(a) * 0.4 * (k ? 1 : 0)), k % 2 ? 0xbfe4fa : 0x9fd2f4));
+      paint(place(new THREE.IcosahedronGeometry(0.22, 2), 0, 0.2, 0), 0xfffcf6),
+      paint(place(new THREE.IcosahedronGeometry(0.16, 2), 0, 0.5, 0), 0xfffcf6),
+      paint(place(new THREE.TorusGeometry(0.12, 0.04, 5, 12), 0, 0.4, 0, 1, 1, 1, Math.PI / 2, 0, 0), 0xd8303a),
+      paint(place(new THREE.BoxGeometry(0.06, 0.16, 0.02), 0.08, 0.32, 0.12, 1, 1, 1, 0.3, 0, 0.3), 0xd8303a),
+      paint(place(new THREE.ConeGeometry(0.03, 0.13, 5), 0, 0.52, 0.2, 1, 1, 1, Math.PI / 2, 0, 0), 0xff8a2a),
+      ...[[-0.055, 0.57], [0.055, 0.57]].map(([x, y]) => paint(place(new THREE.IcosahedronGeometry(0.022, 0), x, y, 0.14), 0x2a2a3a)),
+      ...[0.22, 0.3].map((y) => paint(place(new THREE.IcosahedronGeometry(0.025, 0), 0, y, 0.21), 0x2a2a3a)),
+      paint(place(new THREE.CylinderGeometry(0.1, 0.1, 0.03, 10), 0, 0.64, 0), 0xd8303a),
+      paint(place(new THREE.CylinderGeometry(0.07, 0.08, 0.1, 10), 0, 0.7, 0), 0xd8303a),
+      paint(place(new THREE.IcosahedronGeometry(0.035, 1), 0, 0.77, 0), 0xfffcf6),
+    ]), 1, [1.1, 1.3], 'face']);
+    // a holly sprig on a little snow pile
+    const holly = [paint(place(new THREE.IcosahedronGeometry(0.26, 1), 0, 0, 0, 1.2, 0.4, 1.1), 0xfffcf6)];
+    for (let k = 0; k < 5; k++) {
+      const a = k / 5 * TAU + 0.3;
+      holly.push(paint(place(new THREE.OctahedronGeometry(0.14, 0), Math.cos(a) * 0.14, 0.11, Math.sin(a) * 0.14, 1.3, 0.25, 0.55, 0, -a, 0.25), 0x2f8a3e));
     }
-    crystals.push(paint(place(new THREE.IcosahedronGeometry(0.22, 1), 0, 0, 0, 1.2, 0.35, 1.1), 0xf6f9ff));
-    kinds.push([mergeGeos(crystals), 2, [1, 1.3]]);
-    // a holly sprig on a little snow pile: a warm accent
-    const holly = [paint(place(new THREE.IcosahedronGeometry(0.26, 1), 0, 0, 0, 1.2, 0.4, 1.1), 0xf6f9ff)];
-    for (let k = 0; k < 4; k++) {
-      const a = k / 4 * TAU + 0.3;
-      holly.push(paint(place(new THREE.OctahedronGeometry(0.13, 0), Math.cos(a) * 0.13, 0.1, Math.sin(a) * 0.13, 1.3, 0.25, 0.55, 0, -a, 0.25), 0x2f7a3a));
-    }
-    for (const [x, z] of [[0.03, 0.02], [-0.05, 0.05], [0.02, -0.06]]) holly.push(paint(place(new THREE.IcosahedronGeometry(0.055, 1), x, 0.15, z), 0xd8282a));
-    kinds.push([mergeGeos(holly), 1, [1.1, 1.4]]);
+    for (const [x, z] of [[0.03, 0.02], [-0.05, 0.05], [0.02, -0.06]]) holly.push(paint(place(new THREE.IcosahedronGeometry(0.06, 1), x, 0.17, z), 0xe8202c));
+    kinds.push([mergeGeos(holly), 2, [1.2, 1.5]]);
   } else if (style === 'spring') {
     const tulip = (x, z, y, col) => [
       paint(place(new THREE.CylinderGeometry(0.015, 0.015, y, 4), x, y / 2, z), 0x4f9a3a),
@@ -533,14 +624,16 @@ function buildSafeProps(levelData, style, T) {
     kinds.push([mergeGeos([...tulip(0.05, -0.04, 0.32, 0xc8a0ff), ...tulip(-0.1, 0.06, 0.27, 0xffffff), ...flower(0.14, 0.12, 0.2, 0xffb7d5, 0xfff07a, 0.06), ...tuft(0x6cc24f, 5, 0.12, 0.28)]), 2, [1.3, 1.7]]);
     kinds.push([mergeGeos([...tuft(0x74c858, 6, 0.14, 0.3), ...flower(0, 0, 0.18, 0xffffff, 0xffd040, 0.06), ...flower(0.12, 0.08, 0.15, 0xffb7d5, 0xffd040, 0.055)]), 1, [1, 1.3]]);
   }
+  if (style === 'hell') return buildHellStartProps(levelData, T, mat, h);
   if (!kinds.length) return [];
   const total = kinds.reduce((a, k) => a + k[1], 0);
   const pick = () => { let r = rng.range(0, total); for (let i = 0; i < kinds.length; i++) { r -= kinds[i][1]; if (r <= 0) return i; } return kinds.length - 1; };
   const lists = kinds.map(() => []);
   const add = (x, z, along) => {
-    const i = pick(), [lo, hi] = kinds[i][2];
-    // winter drifts lie along the edge they're piled against
-    lists[i].push({ x, z, s: rng.range(lo, hi), ry: style === 'winter' && i === 0 ? along + rng.range(-0.25, 0.25) : rng.range(0, TAU) });
+    const i = pick(), [lo, hi] = kinds[i][2], mode = kinds[i][3];
+    // 'face': turned (roughly) toward the camera, which looks toward -z; 'along': lies along its edge
+    const ry = mode === 'face' ? rng.range(-0.5, 0.5) : mode === 'along' ? along + rng.range(-0.25, 0.25) : rng.range(0, TAU);
+    lists[i].push({ x, z, s: rng.range(lo, hi), ry });
   };
   const cps = levelData.checkpoints || [];
   for (const c of levelData.safeCorners) {
@@ -557,6 +650,92 @@ function buildSafeProps(levelData, style, T) {
     }
   }
   return kinds.map(([geo], i) => makeInstanced(T.g(geo), mat, lists[i], { cast: true, receive: true }));
+}
+
+// The final run's start square: the remains of kitties that didn't make it (cat skulls with ear ridges and big eye
+// sockets, a whole cat skeleton with a long curled tail, little paw bones) and broken spiked iron fencing along the
+// walls. Proportions a bit exaggerated so they read from the game camera. Low, and kept off the near (+z) wall.
+function buildHellStartProps(levelData, T, mat, h) {
+  const BONE = 0xd9cdb2, BONE2 = 0xbfae90, HOLE = 0x140808, IRON = 0x6e5048, IRON2 = 0x9a7262;   // rusted iron (must read against the charred tiles)
+  const catSkull = (x, y, z, s = 1, ry = 0) => {
+    const parts = [
+      paint(place(new THREE.IcosahedronGeometry(0.2, 2), 0, 0.17, 0, 1.05, 0.82, 1.1), BONE),                     // cranium
+      paint(place(new THREE.IcosahedronGeometry(0.11, 1), 0, 0.12, 0.18, 1.15, 0.72, 1), BONE),                    // muzzle
+      paint(place(new THREE.BoxGeometry(0.17, 0.04, 0.16), 0, 0.04, 0.12), BONE2),                                 // lower jaw
+      ...[-1, 1].map((sx) => paint(place(new THREE.IcosahedronGeometry(0.075, 1), sx * 0.088, 0.22, 0.14, 1, 1.05, 0.75, -0.6, 0, 0), HOLE)),   // big eye sockets (tilted up so they show from above)
+      ...[-1, 1].map((sx) => paint(place(new THREE.IcosahedronGeometry(0.06, 0), sx * 0.13, 0.15, 0.08, 0.5, 1, 1.3), BONE)),      // cheekbones
+      ...[-1, 1].map((sx) => paint(place(new THREE.ConeGeometry(0.085, 0.24, 4), sx * 0.12, 0.33, -0.04, 1, 1, 0.55, 0, 0, -sx * 0.45), BONE)),   // pointed ear ridges
+      ...[-1, 1].map((sx) => paint(place(new THREE.ConeGeometry(0.018, 0.09, 4), sx * 0.045, 0.06, 0.25, 1, 1, 1, Math.PI, 0, 0), 0xf2ead8)),  // fangs
+      paint(place(new THREE.IcosahedronGeometry(0.022, 0), 0, 0.14, 0.27), HOLE),                                   // nose hole
+    ];
+    for (const p of parts) place(p, 0, 0, 0, s, s, s, 0, ry, 0).translate(x, y, z);
+    return parts;
+  };
+  // a cylinder / cone from (x0, y0, z0) toward (x1, y1, z1)
+  const UP = new THREE.Vector3(0, 1, 0);
+  const rod = (geo, x0, y0, z0, x1, y1, z1, col) => {
+    const d = new THREE.Vector3(x1 - x0, y1 - y0, z1 - z0), L = d.length();
+    geo.scale(1, L, 1);
+    geo.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(UP, d.normalize()));
+    geo.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    return paint(geo, col);
+  };
+  const pawBones = (x, z, ang, s = 1) => {
+    const out = [paint(place(new THREE.IcosahedronGeometry(0.04 * s, 0), x, 0.03 * s, z, 1.3, 0.6, 1), BONE2)];
+    for (let k = 0; k < 4; k++) {
+      const a = ang + (k - 1.5) * 0.32, L = 0.13 * s;
+      const tx = x + Math.cos(a) * L, tz = z + Math.sin(a) * L;
+      out.push(rod(new THREE.CylinderGeometry(0.014 * s, 0.014 * s, 1, 4), x, 0.02 * s, z, tx, 0.02 * s, tz, BONE));
+      out.push(rod(new THREE.ConeGeometry(0.016 * s, 1, 4), tx, 0.02 * s, tz, tx + Math.cos(a) * 0.06 * s, 0.015 * s, tz + Math.sin(a) * 0.06 * s, 0xf2ead8));   // claws
+    }
+    return out;
+  };
+  // the skeleton lies along x: skull at +x, spine and ribcage, hips, a long tail curling round at -x, legs splayed
+  const skel = [...catSkull(0.62, 0, 0.04, 1.15, 0.75)];   // turned toward the camera
+  for (let k = 0; k < 9; k++) {
+    const x = 0.42 - k * 0.09;
+    skel.push(paint(place(new THREE.IcosahedronGeometry(0.045, 0), x, 0.05, 0, 0.8, 0.9, 1.3), BONE));
+    if (k >= 1 && k <= 5) skel.push(paint(place(new THREE.TorusGeometry(0.15 - Math.abs(k - 3) * 0.015, 0.016, 3, 10, Math.PI), x, 0.02, 0, 1, 1.1, 1, 0, Math.PI / 2, 0), BONE));   // ribs
+  }
+  skel.push(paint(place(new THREE.IcosahedronGeometry(0.09, 1), -0.42, 0.06, 0, 1, 0.55, 1.5), BONE2));   // pelvis
+  let tx = -0.48, tz = 0, ta = Math.PI;
+  for (let k = 0; k < 16; k++) {   // tail: shrinking vertebrae curling round
+    ta += 0.19; tx += Math.cos(ta) * 0.075; tz += Math.sin(ta) * 0.075;
+    const r = 0.034 * (1 - k / 22);
+    skel.push(paint(place(new THREE.IcosahedronGeometry(r, 0), tx, r, tz, 1.4, 1, 1, 0, -ta, 0), BONE));
+  }
+  for (const [x0, sz, a] of [[0.32, 1, 0.9], [0.32, -1, -0.9], [-0.4, 1, 2.3], [-0.4, -1, -2.3]]) {   // legs + paws
+    const L = 0.34, x1 = x0 + Math.cos(a) * L * 0.4, z1 = sz * Math.abs(Math.sin(a)) * L;
+    skel.push(rod(new THREE.CylinderGeometry(0.02, 0.022, 1, 5), x0, 0.04, 0, x1, 0.025, z1, BONE));
+    skel.push(...pawBones(x1, z1 + sz * 0.04, Math.atan2(sz, 0) + (x0 > 0 ? -0.3 : 0.3) * sz));
+  }
+  const skullPile = [...catSkull(0, 0, 0, 1), ...pawBones(0.3, 0.12, 0.4), rod(new THREE.CylinderGeometry(0.022, 0.022, 1, 5), -0.45, 0.025, -0.05, -0.15, 0.025, 0.25, BONE)];
+  // broken spiked iron fence: three posts with spear tips, two rails, the end post snapped and leaning
+  const fence = [];
+  for (const [x, lean, hgt] of [[-0.6, 0, 0.62], [0, 0, 0.66], [0.6, 0.55, 0.42]]) {
+    fence.push(paint(place(new THREE.CylinderGeometry(0.03, 0.035, hgt, 5), x + Math.sin(lean) * hgt / 2, Math.cos(lean) * hgt / 2, 0, 1, 1, 1, 0, 0, -lean), IRON));
+    if (lean === 0) fence.push(paint(place(new THREE.ConeGeometry(0.055, 0.16, 4), x, hgt + 0.07, 0), IRON2));
+  }
+  fence.push(paint(place(new THREE.BoxGeometry(1.25, 0.04, 0.035), -0.02, 0.48, 0, 1, 1, 1, 0, 0, 0.03), IRON));
+  fence.push(paint(place(new THREE.BoxGeometry(0.9, 0.04, 0.035), -0.15, 0.14, 0, 1, 1, 1, 0, 0, -0.02), IRON));
+  fence.push(paint(place(new THREE.ConeGeometry(0.055, 0.16, 4), 0.98, 0.05, 0.12, 1, 1, 1, 0, 0, Math.PI / 2 + 0.3), IRON2));   // the snapped-off tip
+  const c = levelData.safeCorners[0], e = h - 0.55;
+  // the camera looks toward -z: the far (-z) half and the sides are what it sees; the near wall hides the +z edge
+  const items = {
+    skel: [{ x: c.x - 1.6, z: c.z - e + 0.9, s: 1.7, ry: 0.15 }],
+    pile: [{ x: c.x + e - 0.7, z: c.z - e + 0.6, s: 1.6, ry: -0.3 }, { x: c.x - e + 0.7, z: c.z + e - 1.6, s: 1.45, ry: 0.5 }, { x: c.x + 2.3, z: c.z + e - 1.3, s: 1.3, ry: -0.6 }],
+    paws: [{ x: c.x + 1.3, z: c.z - 1.9, s: 1.6, ry: 1.2 }, { x: c.x - 2.6, z: c.z + 1.4, s: 1.6, ry: -0.4 }],
+    fence: [
+      { x: c.x - e - 0.1, z: c.z - 2.2, s: 1.3, ry: Math.PI / 2 }, { x: c.x - e - 0.1, z: c.z + 1.6, s: 1.3, ry: -Math.PI / 2 + 0.1 },
+      { x: c.x + 1.8, z: c.z - e - 0.1, s: 1.3, ry: 0.05 },
+    ],
+  };
+  return [
+    makeInstanced(T.g(mergeGeos(skel)), mat, items.skel, { cast: true, receive: true }),
+    makeInstanced(T.g(mergeGeos(skullPile)), mat, items.pile, { cast: true, receive: true }),
+    makeInstanced(T.g(mergeGeos(pawBones(0, 0, 0, 1.4))), mat, items.paws, { cast: true, receive: true }),
+    makeInstanced(T.g(mergeGeos(fence)), mat, items.fence, { cast: true, receive: true }),
+  ];
 }
 
 // The final run's start square (and the out-of-rotation neon theme): plain stone tile with a bright border and a paw print.
@@ -1018,8 +1197,12 @@ function buildFloors(levelData, theme, T) {
   tg.setAttribute('uv', new THREE.Float32BufferAttribute(tuv, 2));
   tg.setIndex(ti);
   const seasonal = !!theme.safeStyle;
-  const tileMap = seasonal ? makeSeasonTileTexture(theme.safeStyle, T) : makeSafeTileTexture(T);
-  const tiles = new THREE.Mesh(T.g(tg), T.m(new THREE.MeshStandardMaterial({ map: tileMap, color: seasonal ? theme.safeTint : theme.tile ?? theme.plaza, roughness: 0.9 })));
+  const tileOpts = { color: seasonal ? theme.safeTint : theme.tile ?? theme.plaza, roughness: 0.9 };
+  if (theme.safeStyle === 'hell') {
+    const { map, emissiveMap } = makeHellTileTextures(T);
+    Object.assign(tileOpts, { map, emissiveMap, emissive: 0xffffff, emissiveIntensity: 0.5 });
+  } else tileOpts.map = seasonal ? makeSeasonTileTexture(theme.safeStyle, T) : makeSafeTileTexture(T);
+  const tiles = new THREE.Mesh(T.g(tg), T.m(new THREE.MeshStandardMaterial(tileOpts)));
   tiles.receiveShadow = true;
   const out = [floor, plaza, tiles];
   if (seasonal) out.push(...buildSafeProps(levelData, theme.safeStyle, T));
@@ -1661,13 +1844,33 @@ function buildClimbTrees(levelData, theme, T) {
   return [trunks, blobs, capMesh, makeInstanced(iceGeo, iceMat, icicles)];
 }
 
-// Checkpoint squares (every level but the final run): a glowing ring on the tile and a flag in its back corner.
+// Checkpoint squares (every level but the final run): a glowing ring with cat ears on the tile (a cat's head
+// outline, ears toward the top of the screen) and a pennant with a paw print in its back corner.
 function buildCheckpoints(levelData, T) {
   const out = [];
-  const ringMat = T.m(new THREE.MeshBasicMaterial({ color: 0x8fdcff, transparent: true, opacity: 0.55, depthWrite: false }));
+  const ringMat = T.m(new THREE.MeshBasicMaterial({ color: 0x6cccff, transparent: true, opacity: 0.68, depthWrite: false }));
   const poleMat = T.m(new THREE.MeshStandardMaterial({ color: 0xdfe6f0, roughness: 0.6, metalness: 0.3 }));
-  const flagMat = T.m(new THREE.MeshStandardMaterial({ color: 0x3fb8ff, emissive: 0x2a8fe0, emissiveIntensity: 0.5, roughness: 0.7, side: THREE.DoubleSide }));
-  const ringGeo = T.g(new THREE.RingGeometry(2.6, 3.0, 48));
+  // pennant texture: blue with a white paw print. ShapeGeometry UVs are the shape's own coordinates
+  // (x 0..1.1, y -0.7..0), so repeat/offset map them onto the canvas.
+  const flagTex = textTexture(T, 256, 256, (g, S) => {
+    g.fillStyle = '#3fb8ff'; g.fillRect(0, 0, S, S);
+    g.save(); g.translate(S * 0.34, S * 0.5); g.scale(0.7 / 1.1, 1);
+    drawPaw(g, 0, 0, 1.25, '#ffffff', null);
+    g.restore();
+  });
+  flagTex.repeat.set(1 / 1.1, 1 / 0.7); flagTex.offset.set(0, 1);
+  const flagMat = T.m(new THREE.MeshStandardMaterial({ map: flagTex, emissiveMap: flagTex, emissive: 0x2a8fe0, emissiveIntensity: 0.5, roughness: 0.7, side: THREE.DoubleSide }));
+  const ringParts = [new THREE.RingGeometry(2.6, 3.0, 48)];
+  for (const sgn of [-1, 1]) {
+    // base chord just outside the ring (no double-blended overlap), tip leaning slightly outward
+    const a = Math.PI / 2 + sgn * 0.6, w = 0.3, rb = 2.99 / Math.cos(w), ear = new THREE.Shape();
+    ear.moveTo(Math.cos(a - w) * rb, Math.sin(a - w) * rb);
+    ear.lineTo(Math.cos(a + sgn * 0.08) * 4.15, Math.sin(a + sgn * 0.08) * 4.15);
+    ear.lineTo(Math.cos(a + w) * rb, Math.sin(a + w) * rb);
+    ear.closePath();
+    ringParts.push(new THREE.ShapeGeometry(ear));
+  }
+  const ringGeo = T.g(mergeGeos(ringParts));
   const poleGeo = T.g(new THREE.CylinderGeometry(0.06, 0.08, 2.6, 8));
   const flagShape = new THREE.Shape();
   flagShape.moveTo(0, 0); flagShape.lineTo(1.1, -0.32); flagShape.lineTo(0, -0.7); flagShape.closePath();
@@ -1685,7 +1888,9 @@ function buildCheckpoints(levelData, T) {
     pole.castShadow = true;
     const flag = new THREE.Mesh(flagGeo, flagMat);
     flag.position.set(x, 2.55, z);
-    flag.rotation.y = -cp.heading;
+    // the pennant faces the camera (which looks toward -z) so its paw print shows, flying in over the square
+    flag.rotation.y = x < cp.x ? 0 : Math.PI;
+    flag.scale.setScalar(1.2);
     out.push(pole, flag);
   }
   return out;

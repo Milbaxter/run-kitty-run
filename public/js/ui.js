@@ -50,8 +50,6 @@ const ICONS = {
   menu: `<svg viewBox="0 0 40 40"><path d="M9 12 H31 M9 20 H31 M9 28 H31" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/></svg>`,
   crown: `<svg viewBox="0 0 40 40"><path d="M5 30 L3 11 L13 19 L20 6 L27 19 L37 11 L35 30 Z" fill="#ffd34a" stroke="${INK}" stroke-width="2.6" stroke-linejoin="round"/><path d="M6 30 H34 V35 H6 Z" fill="#ffb21f" stroke="${INK}" stroke-width="2.4" stroke-linejoin="round"/><circle cx="20" cy="23" r="2.6" fill="#ff5c93"/><circle cx="12" cy="25" r="1.8" fill="#4cc9ff"/><circle cx="28" cy="25" r="1.8" fill="#3ee08f"/><path d="M8 14 L9.5 26" stroke="#fff" stroke-width="2" opacity=".6" stroke-linecap="round"/></svg>`,
   flag: `<svg viewBox="0 0 40 40"><path d="M10 4 V37" stroke="${INK}" stroke-width="3.4" stroke-linecap="round"/><path d="M11 6 Q19 2 25 7 Q30 11 35 8 L35 22 Q29 25 24 21 Q18 17 11 21 Z" fill="#3ee08f" stroke="${INK}" stroke-width="2.4" stroke-linejoin="round"/></svg>`,
-  finish: `<svg viewBox="0 0 40 40"><defs><pattern id="rkr-chk" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#fff"/><rect width="4" height="4" fill="${INK}"/><rect x="4" y="4" width="4" height="4" fill="${INK}"/></pattern></defs><path d="M10 4 V37" stroke="${INK}" stroke-width="3.4" stroke-linecap="round"/><path d="M11 6 Q19 2 25 7 Q30 11 35 8 L35 22 Q29 25 24 21 Q18 17 11 21 Z" fill="url(#rkr-chk)" stroke="${INK}" stroke-width="2.4" stroke-linejoin="round"/></svg>`,
-  tree: `<svg viewBox="0 0 40 40"><path d="M17 26 H23 L24 37 H16 Z" fill="#8a5a2b" stroke="${INK}" stroke-width="2.2" stroke-linejoin="round"/><path d="M20 3 C11 3 6 9 7.5 15 C3 18 4.5 26 11 27 C14 30 26 30 29 27 C35.5 26 37 18 32.5 15 C34 9 29 3 20 3 Z" fill="#e8f6ff" stroke="${INK}" stroke-width="2.4" stroke-linejoin="round"/><path d="M12 12 Q15 8 19 8.5" stroke="#9fd4ff" stroke-width="2.4" fill="none" stroke-linecap="round"/><circle cx="25" cy="18" r="2" fill="#9fd4ff"/><circle cx="14" cy="21" r="1.6" fill="#9fd4ff"/></svg>`,
   speaker: `<svg viewBox="0 0 40 40"><path d="M6 15 L13 15 L22 7 L22 33 L13 25 L6 25 Z" fill="currentColor" stroke-linejoin="round"/><g class="rkr-waves" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M27 14 Q31 20 27 26"/><path d="M31 10 Q38 20 31 30"/></g><g class="rkr-slash" stroke="#ff5c7a" stroke-width="3.4" stroke-linecap="round"><path d="M27 14 L37 26 M37 14 L27 26"/></g></svg>`,
 };
 
@@ -270,22 +268,8 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-stat .rkr-sv{font-size:22px;font-weight:900;color:#fff;font-variant-numeric:tabular-nums;}
 .rkr-keyhint{font-size:13px;font-weight:700;color:rgba(255,255,255,.65);display:flex;gap:6px;align-items:center;}
 
-/* ---------------- the final run: progress bar (replaces the minimap) ---------------- */
-.rkr-prog{position:absolute;left:50%;top:12px;transform:translateX(-50%);width:min(40vw,560px);min-width:190px;height:52px;display:none;pointer-events:none;}
-.rkr-hud.rkr-finale .rkr-prog{display:block;}
+/* ---------------- the final run: no minimap, no progress bar (you don't know how far it is) ---------------- */
 .rkr-hud.rkr-finale .rkr-map,.rkr-hud.rkr-finale .rkr-tc,.rkr-hud.rkr-finale .rkr-hint{display:none;}
-.rkr-ptrack{position:absolute;left:24px;right:24px;top:14px;height:12px;border-radius:9px;
-  background:linear-gradient(180deg,rgba(220,244,255,.55),rgba(120,180,255,.4));border:2px solid rgba(255,255,255,.85);
-  box-shadow:0 0 0 3px rgba(40,20,80,.55),0 6px 16px rgba(0,0,0,.35);}
-.rkr-pfill{position:absolute;left:0;top:0;bottom:0;width:0;border-radius:9px;background:linear-gradient(90deg,#7fd8ff,#ffe27a);box-shadow:0 0 10px rgba(255,226,122,.7);}
-.rkr-pico{position:absolute;width:26px;height:26px;transform:translate(-50%,-62%);top:50%;filter:drop-shadow(0 2px 0 rgba(0,0,0,.35));}
-.rkr-pico.rkr-pend,.rkr-pico.rkr-pstart{width:28px;height:28px;}
-.rkr-pdot{position:absolute;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1.5px rgba(40,20,80,.8),0 0 8px rgba(255,255,255,.5);z-index:2;}
-.rkr-pdot.rkr-me{width:19px;height:19px;margin:-9.5px 0 0 -9.5px;border-width:3px;z-index:3;box-shadow:0 0 0 2px rgba(40,20,80,.9),0 0 12px #fff;}
-.rkr-pdot.rkr-dn{opacity:.35;filter:grayscale(.7);z-index:1;border-style:dashed;}
-.rkr-pdist{position:absolute;left:0;right:0;top:33px;text-align:center;font-weight:900;font-size:15px;letter-spacing:.04em;color:#fff6d8;
-  text-shadow:0 2px 0 rgba(40,16,70,.9),0 0 10px rgba(40,16,70,.8);font-variant-numeric:tabular-nums;}
-.rkr-pdist.rkr-done{color:#ffe27a;}
 
 /* banner styles */
 .rkr-banner.rkr-b-finale .rkr-bt{color:#eaf8ff;letter-spacing:.06em;-webkit-text-stroke:3px #10234f;
@@ -460,14 +444,7 @@ function createUI(root) {
   mapEl.appendChild(mapCanvas);
 
   const scoresEl = el('div', 'rkr-scores');
-  // the final run: a start -> tree -> finish progress bar instead of the minimap
-  const progEl = el('div', 'rkr-prog',
-    `<div class="rkr-ptrack"><div class="rkr-pfill"></div>
-       <div class="rkr-pico rkr-pstart" style="left:0">${ICONS.flag}</div>
-       <div class="rkr-pico rkr-ptree">${ICONS.tree}</div>
-       <div class="rkr-pico rkr-pend" style="left:100%">${ICONS.finish}</div></div>
-     <div class="rkr-pdist"></div>`);
-  hud.append(tl, tc, tr, mapEl, scoresEl, progEl);
+  hud.append(tl, tc, tr, mapEl, scoresEl);
   // HUD on/off (remembered); phones start with it off
   let hudMin = TOUCH;
   try { const v = localStorage.getItem('rkr-hud'); if (v) hudMin = v === 'min'; } catch { /* ignore */ }
@@ -679,61 +656,18 @@ function createUI(root) {
   const ENEMY_COL = { wanderer: '#ff7a33' };   // pattern wolves: the default red
   const ITEM_COL = { boots: '#33e0ff', life: '#ff6fa8', shield: '#5aaaff' };
 
-  // ================= final run progress bar =================
-  const PR = { on: false, track: progEl.querySelector('.rkr-ptrack'), fill: progEl.querySelector('.rkr-pfill'),
-    tree: progEl.querySelector('.rkr-ptree'), dist: progEl.querySelector('.rkr-pdist'), dots: new Map(), ld: null, txt: null, fillW: null };
+  // the final run hides the minimap (and timer / hint): no telling how far is left
+  let finaleOn = false;
   function setFinaleMode(on) {
-    if (on === PR.on) return;
-    PR.on = on;
+    if (on === finaleOn) return;
+    finaleOn = on;
     hud.classList.toggle('rkr-finale', on);
-    if (!on) { for (const d of PR.dots.values()) d.el.remove(); PR.dots.clear(); PR.ld = null; PR.txt = null; }
-  }
-  // me: id of your own kitty online (highlighted, and the distance is yours); null = local play (the leader's distance)
-  function updateProgress(ld, sim, me) {
-    const x0 = ld.corners && ld.corners.length ? ld.corners[0].x : -(ld.runLength || 1);
-    const x1 = -(ld.centerRadius || CFG.CENTER_RADIUS);          // the goal room's disc: that's the finish
-    const span = Math.max(1, x1 - x0);
-    const frac = (x) => Math.max(0, Math.min(1, (x - x0) / span));
-    if (PR.ld !== ld) {
-      PR.ld = ld;
-      const t = ld.trees && ld.trees[0];
-      PR.tree.style.display = t ? '' : 'none';
-      if (t) PR.tree.style.left = (frac(t.x) * 100).toFixed(2) + '%';
-    }
-    const players = (sim && sim.players) || [];
-    const seen = new Set();
-    let ref = null, lead = -1;
-    for (const p of players) {
-      seen.add(p.id);
-      let d = PR.dots.get(p.id);
-      if (!d) { d = { el: el('div', 'rkr-pdot'), color: null, cls: null, left: null }; PR.track.appendChild(d.el); PR.dots.set(p.id, d); }
-      if (d.color !== p.color) { d.color = p.color; d.el.style.background = hexColor(p.color); }
-      const cls = 'rkr-pdot' + (me != null && p.id === me ? ' rkr-me' : '') + (p.alive === false ? ' rkr-dn' : '');
-      if (cls !== d.cls) { d.cls = cls; d.el.className = cls; }
-      const f = p.inCenter ? 1 : frac(p.x);
-      const left = (f * 100).toFixed(2) + '%';
-      if (left !== d.left) { d.left = left; d.el.style.left = left; }
-      if (p.alive !== false && f > lead) lead = f;
-      if (me != null ? p.id === me : (p.alive !== false && (!ref || f > (ref.inCenter ? 1 : frac(ref.x))))) ref = p;
-    }
-    for (const [id, d] of PR.dots) if (!seen.has(id)) { d.el.remove(); PR.dots.delete(id); }
-    if (!ref) ref = players.reduce((b, p) => (!b || p.x > b.x ? p : b), null);
-    const fw = (Math.max(0, lead) * 100).toFixed(1) + '%';
-    if (fw !== PR.fillW) { PR.fillW = fw; PR.fill.style.width = fw; }
-    let txt;
-    if (sim && (sim.state === 'victory' || players.some((p) => p.inCenter))) txt = 'FINISHED!';
-    else if (!ref) txt = '';
-    else {
-      const m = Math.max(0, Math.round(x1 - ref.x));
-      txt = (me != null && ref.alive === false ? 'down · ' : '') + m + ' m to go';
-    }
-    if (txt !== PR.txt) { PR.txt = txt; PR.dist.textContent = txt; PR.dist.classList.toggle('rkr-done', txt === 'FINISHED!'); }
   }
 
   function updateMinimap(ld, sim, me) {
     if (!ld) return;
     setFinaleMode(!!ld.finale);
-    if (ld.finale) { updateProgress(ld, sim, me == null ? null : me); return; }
+    if (ld.finale) return;
     const resized = ensureMapSize();
     if (resized || M.staticFor !== ld) { buildStatic(ld); M.staticFor = ld; }
     const g = M.ctx, dpr = M.dpr, sc = M.scale, cx = M.cx, cy = M.cy;

@@ -9,7 +9,7 @@ const PATCH_NOTES = [
       'One long straight sheet of ice packed with wolves: no safe squares, no checkpoints, and you can never stop, only carve circles while you wait for a gap. Its wolves move like Skate only\'s: tight rows that never pause, broken up by wolves running faster or slower than the rest, rows from both walls, charger lanes at different speeds',
       'Halfway there is a single tree: climb under its branches to catch your breath, wolves can\'t reach you up there',
       'The camera flies down the whole run before you start (touch anything to skip)',
-      'A progress bar replaces the minimap on the final run: start flag, the tree, the finish, every kitty as a dot in its colour and how many metres are left',
+      'The final run has no minimap, no progress bar and no distance markers: you only know there\'s a tree halfway',
       'Reach the end and you beat Run Kitty Run: fireworks, confetti, a fanfare and a victory screen with your run time, rescues, and who got there first',
       'Beating the final run now plays its own victory song instead of the old fanfare',
       'Every kitty that went down on the way is carried into the goal room for the party',

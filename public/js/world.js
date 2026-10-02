@@ -1243,8 +1243,8 @@ function buildCheckpoints(levelData, T) {
 // ---------------------------------------------------------------- the final run (Skate only, last level)
 //
 // Set dressing for levelData.finale: a start gate ("FINAL RUN") and a checkered finish arch ("FINISH") standing on
-// the corridor walls, start / finish lines on the floor, distance-to-go numbers painted on the ice every 100 units,
-// glowing ice-crystal clusters outside both walls at a steady rhythm (bigger ones at the markers), aurora light
+// the corridor walls, start / finish lines on the floor (no distance markers: you don't know how far is left),
+// glowing ice-crystal clusters outside both walls at a steady rhythm, aurora light
 // shimmering on the ice, and a snow patch with a warm pulsing ring under the halfway tree (the one place to rest).
 // The camera looks down toward -z at ~56°, so signs sit above the FAR wall and are tilted to face it, and nothing
 // tall stands on the near wall (it would hide the kitties).
@@ -1304,47 +1304,7 @@ function buildFinale(levelData, theme, T, rng) {
   startLine.renderOrder = 1;
   meshes.push(startLine);
 
-  // ---- distance to go, painted on the ice every 100 units (one atlas, one merged mesh)
-  const marks = [];
-  for (let d = 100; d <= levelData.runLength - 40 && marks.length < 8; d += 100) marks.push(d);
-  const atlas = textTexture(T, 1024, 512, (g) => {
-    g.clearRect(0, 0, 1024, 512);
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.font = 'bold 112px "Arial Black", Arial, sans-serif';
-    marks.forEach((d, k) => {
-      const cx = (k % 2) * 512 + 256, cy = Math.floor(k / 2) * 128 + 66;
-      g.lineWidth = 14; g.lineJoin = 'round'; g.strokeStyle = 'rgba(255,255,255,0.95)'; g.strokeText(String(d), cx, cy);
-      g.fillStyle = '#3d8fe0'; g.fillText(String(d), cx, cy);
-    });
-  });
-  if (marks.length) {
-    const parts = marks.map((d, k) => {
-      const geo = new THREE.PlaneGeometry(8.4, 2.1), uv = geo.attributes.uv;
-      const u0 = (k % 2) * 0.5, v0 = 1 - (Math.floor(k / 2) + 1) * 0.25;
-      for (let i = 0; i < uv.count; i++) uv.setXY(i, u0 + uv.getX(i) * 0.5, v0 + uv.getY(i) * 0.25);
-      geo.rotateX(-Math.PI / 2); geo.translate(-d, 0.013, 0);   // the goal is at x = 0: x = -d is d to go
-      return geo;
-    });
-    const mg = new THREE.BufferGeometry();
-    const n = parts.reduce((a, g) => a + g.attributes.position.count, 0);
-    const P = new Float32Array(n * 3), N = new Float32Array(n * 3), U = new Float32Array(n * 2), I = [];
-    let o = 0;
-    for (const g of parts) {
-      P.set(g.attributes.position.array, o * 3); N.set(g.attributes.normal.array, o * 3); U.set(g.attributes.uv.array, o * 2);
-      for (const ix of g.index.array) I.push(ix + o);
-      o += g.attributes.position.count;
-      g.dispose();
-    }
-    mg.setAttribute('position', new THREE.BufferAttribute(P, 3));
-    mg.setAttribute('normal', new THREE.BufferAttribute(N, 3));
-    mg.setAttribute('uv', new THREE.BufferAttribute(U, 2));
-    mg.setIndex(I);
-    const markMesh = new THREE.Mesh(T.g(mg), T.m(new THREE.MeshBasicMaterial({ map: atlas, transparent: true, opacity: 0.85, depthWrite: false })));
-    markMesh.renderOrder = 1;
-    meshes.push(markMesh);
-  }
-
-  // ---- ice-crystal clusters outside both walls (staggered), bigger ones flanking each distance marker
+  // ---- ice-crystal clusters outside both walls (staggered); evenly spaced, so they don't tell how far is left
   const crysGeo = T.g(place(new THREE.OctahedronGeometry(0.5, 0), 0, 0.5, 0, 0.55, 1.9, 0.55));
   const crysMat = T.m(emissiveByColor(new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 0.1, emissive: 0xffffff, emissiveIntensity: 0.55, flatShading: true })));
   const crysCols = [0x9fe4ff, 0xd8f4ff, 0x7fc4ff, 0xc8b8ff];
@@ -1359,11 +1319,9 @@ function buildFinale(levelData, theme, T, rng) {
   };
   const off = h + CFG.WALL_THICKNESS / 2 + 1.5;
   for (let x = xStart + 10; x < xFinish - 6; x += 24) {
-    if (marks.some((d) => Math.abs(-d - x) < 8)) continue;
     cluster(x, -off - rng.range(0, 0.6), false);
     cluster(x + 12, off + rng.range(0, 0.6), false);
   }
-  for (const d of marks) { cluster(-d, -off - 0.4, true); cluster(-d, off + 0.4, true); }
   meshes.push(...makeInstancedChunks(crysGeo, crysMat, crys, { cast: true }, 96));
   const glowGeo = T.g(new THREE.PlaneGeometry(1, 1)); glowGeo.rotateX(-Math.PI / 2);
   const glowTex = makeGlowTexture(T);

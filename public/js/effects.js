@@ -115,9 +115,9 @@ varying vec2 vUv;
 varying float vFres;
 void main() {
   float h = vUv.y;
-  float fall = pow(1.0 - h, 1.4);
+  float fall = pow(max(1.0 - h, 0.0), 1.4); // max: pow of a negative is NaN, which bloom smears into black boxes
   float stripes = 0.72 + 0.28 * sin(h * 28.0 - uTime * 11.0);
-  float core = pow(vFres, 1.6);
+  float core = pow(max(vFres, 0.0), 1.6);
   float a = fall * stripes * (0.15 + 0.85 * core) * uOpacity;
   gl_FragColor = vec4(uColor * (0.8 + core * 0.5), a);
   #include <tonemapping_fragment>

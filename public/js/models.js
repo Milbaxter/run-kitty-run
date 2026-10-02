@@ -203,7 +203,7 @@ uniform vec3 uColor; uniform float uTime; uniform float uOpacity;
 varying vec3 vN; varying vec3 vV; varying vec3 vP;
 void main(){
   float f = 1.0 - abs(dot(normalize(vN), normalize(vV)));
-  float rim = pow(f, 2.4);
+  float rim = pow(max(f, 0.0), 2.4);
   float band = 0.5 + 0.5 * sin(vP.y * 13.0 - uTime * 3.2 + sin(vP.x * 5.0 + uTime) * 1.6);
   float hex = smoothstep(0.82, 1.0, abs(sin(vP.x * 11.0 + uTime * 0.7) * sin(vP.y * 11.0) * sin(vP.z * 11.0 - uTime * 0.5)));
   vec3 col = uColor * (0.10 + rim * 2.4 + band * rim * 0.9 + hex * 0.35);
@@ -225,7 +225,7 @@ const BEAM_FS = `
 uniform vec3 uColor; uniform float uIntensity; uniform float uTime;
 varying vec2 vUv;
 void main(){
-  float fade = pow(1.0 - vUv.y, 1.6) * smoothstep(0.0, 0.06, vUv.y + 0.02);
+  float fade = pow(max(1.0 - vUv.y, 0.0), 1.6) * smoothstep(0.0, 0.06, vUv.y + 0.02); // max: pow of a negative is NaN (MSAA can push vUv.y past 1), and bloom smears NaN into black boxes
   float streak = 0.65 + 0.35 * sin(vUv.y * 18.0 - uTime * 5.0 + vUv.x * 6.2832 * 3.0);
   gl_FragColor = vec4(uColor * fade * streak * uIntensity, 1.0);
   #include <tonemapping_fragment>

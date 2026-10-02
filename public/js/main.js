@@ -13,6 +13,7 @@ import { buildWorld, setupLighting } from './world.js';
 import { createEffects } from './effects.js';
 import { createIceTrail } from './trail.js';
 import { createAuraTrail } from './auratrail.js';
+import { createPawPrints } from './pawprints.js';
 import { createAudio } from './audio.js';
 import { createUI } from './ui.js';
 import { createNet } from './net.js';
@@ -412,16 +413,16 @@ function ensureKitties() {
       pip.position.y = 0.03;
       model.group.add(ring, pip);
       scene.add(model.group);
-      kitties.set(p.id, { model, dustT: 0, stepN: 0, trail: createIceTrail(scene), auraTrail: createAuraTrail(scene, p.color) });
+      kitties.set(p.id, { model, dustT: 0, stepN: 0, fx: new THREE.Color(p.color), trail: createIceTrail(scene), auraTrail: createAuraTrail(scene, p.color), paws: createPawPrints(scene, p.color) });
     }
   }
   for (const [id, k] of kitties) {
-    if (!sim.players.find((p) => p.id === id)) { scene.remove(k.model.group); k.trail.dispose(); k.auraTrail.dispose(); kitties.delete(id); }
+    if (!sim.players.find((p) => p.id === id)) { scene.remove(k.model.group); k.trail.dispose(); k.auraTrail.dispose(); k.paws.dispose(); kitties.delete(id); }
   }
 }
 
 function removeKitties() {
-  for (const k of kitties.values()) { scene.remove(k.model.group); k.trail.dispose(); k.auraTrail.dispose(); }
+  for (const k of kitties.values()) { scene.remove(k.model.group); k.trail.dispose(); k.auraTrail.dispose(); k.paws.dispose(); }
   kitties.clear();
 }
 
@@ -483,6 +484,7 @@ function handleEvents(events) {
         mouse.target = null; mouse.iceDir = null;
         buildView();
         ensureKitties();
+        for (const k of kitties.values()) k.paws.clear(); // prints belong to the old map
         for (const p of sim.players) effects.teleport(p.x, p.z, p.color);
         ui.banner(`LEVEL ${ev.level}`, levelSubtitle(ev.level), 2200);
         if (audio.isMuted() && !soundHintShown) {
@@ -660,6 +662,13 @@ function snapshotPrev() {
   }
 }
 
+// 6+ finishes: smoothly blend through all the cat colours, ~1 s each
+const _cycB = new THREE.Color();
+function cycleColor(t, out) {
+  const n = PLAYER_COLORS.length, i = Math.floor(t) % n, f = t - Math.floor(t);
+  return out.set(PLAYER_COLORS[i]).lerp(_cycB.set(PLAYER_COLORS[(i + 1) % n]), f * f * (3 - 2 * f));
+}
+
 function syncVisuals(dt, alpha) {
   if (!view) return;
   if (view.levelData !== sim.levelData) buildView();
@@ -710,7 +719,7 @@ function syncVisuals(dt, alpha) {
     const k = kitties.get(p.id);
     if (!k) continue;
     k.model.group.visible = p.alive;
-    if (!p.alive) { k.trail.update(dt, p.x, p.z, p.heading, false); k.auraTrail.update(dt, p.x, 0, p.z, p.heading, false); continue; }
+    if (!p.alive) { k.trail.update(dt, p.x, p.z, p.heading, false); k.auraTrail.update(dt, p.x, 0, p.z, p.heading, false); k.paws.update(dt); continue; }
     let [x, z] = lerpPos('p' + p.id, p.x, p.z, alpha);
     if (online.playing && p.id === online.me) { x += online.errX; z += online.errZ; }
     // autumn levels: up a tree = standing on its canopy
@@ -723,18 +732,25 @@ function syncVisuals(dt, alpha) {
     k.model.group.rotation.y = -(cur + d * (1 - Math.exp(-dt * 18)));
     const speed = Math.hypot(p.vx, p.vz);
     const gliding = onIce(sim.levelData, p.x, p.z); // skating: hold still, no steps or dust
+    // run rewards (finishes = runs won): 2+ paw prints + coloured skate marks, 3+ flame aura, 4+ aura trail,
+    // 6+ all of them cycle through the cat colours (the fur keeps its own); wins 2-6 also set stones in the crown
+    const wins = p.finishes || 0, paws = wins >= 2;
+    if (wins >= 6) cycleColor(t + p.id * 2.3, k.fx);
     k.model.update(dt, {
       speed01: gliding ? 0 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2)),
       moving: p.moving && !gliding, skates: !!sim.levelData.ice, boots: Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST), invuln: p.invuln, shield: p.shield, time: t,
-      crown: p.id === sim.lastWinner, aura: (p.finishes || 0) >= 2,
+      crown: p.id === sim.lastWinner, crownStones: Math.max(0, Math.min(5, wins - 1)), aura: wins >= 3, auraColor: k.fx,
     });
-    k.trail.update(dt, x, z, -k.model.group.rotation.y, gliding && speed > 0.5);
-    k.auraTrail.update(dt, x, k.climb, z, -k.model.group.rotation.y, (p.finishes || 0) >= 3 && speed > 1);
+    k.trail.update(dt, x, z, -k.model.group.rotation.y, gliding && speed > 0.5, paws ? k.fx : null);
+    k.auraTrail.update(dt, x, k.climb, z, -k.model.group.rotation.y, wins >= 4 && speed > 1, k.fx);
+    k.paws.update(dt);
     if (p.moving && !gliding && sim.state !== 'gameover') {
       k.dustT -= dt;
       if (k.dustT <= 0) {
         k.dustT = 0.13;
-        effects.dust(x - Math.cos(p.heading) * 0.3, z - Math.sin(p.heading) * 0.3);
+        const bx = x - Math.cos(p.heading) * 0.3, bz = z - Math.sin(p.heading) * 0.3;
+        if (paws) k.paws.add(bx, inTree(sim.levelData, bx, bz) ? 2.2 : 0, bz, p.heading, k.fx); // on the ground or up on a canopy
+        else effects.dust(bx, bz);
         k.stepN++;
         if (k.stepN % 2 === 0) audio.play('step', { volume: 0.35, pitch: 0.9 + Math.random() * 0.2, pan: panFor(x) });
       }

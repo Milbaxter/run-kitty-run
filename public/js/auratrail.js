@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-// Aura wake: a kitty with 3+ finished runs sheds short-lived flame wisps in its own colour while it moves.
+// Aura wake: a kitty with 4+ finished runs sheds short-lived flame wisps in its own colour while it moves.
 // Wisps float at body height (not on the ground), drift up a little, shrink and fade over LIFE seconds.
 // Two point layers share one pooled geometry: a normal-blended colour shell (reads on bright snow/ice)
 // and an additive hot core for the glow. No per-frame allocations.
@@ -37,6 +37,7 @@ const FRAG = `
   }`;
 
 const bufSize = new THREE.Vector2();
+const WHITE = new THREE.Color(0xffffff);
 
 function createAuraTrail(scene, color) {
   const pos = new Float32Array(MAX * 3);
@@ -49,7 +50,7 @@ function createAuraTrail(scene, color) {
   geo.setAttribute('aAlpha', new THREE.BufferAttribute(alpha, 1).setUsage(THREE.DynamicDrawUsage));
 
   const base = new THREE.Color(color);
-  const hot = base.clone().lerp(new THREE.Color(0xffffff), 0.3).multiplyScalar(1.2);
+  const hot = base.clone().lerp(WHITE, 0.3).multiplyScalar(1.2);
   const layer = (col, opacity, sizeMul, sharp, blending, order) => {
     const mat = new THREE.ShaderMaterial({
       uniforms: { uColor: { value: col }, uOpacity: { value: opacity }, uSizeMul: { value: sizeMul }, uSharp: { value: sharp }, uHalfH: { value: 400 } },
@@ -75,9 +76,11 @@ function createAuraTrail(scene, color) {
     pos[i * 3 + 2] = z + (Math.random() - 0.5) * 0.12;
   }
 
-  // x, z: kitty position; y: ground height under it; heading: facing angle; active: emit this frame
-  function update(dt, x, y, z, heading, active) {
+  // x, z: kitty position; y: ground height under it; heading: facing angle; active: emit this frame;
+  // color (optional): recolour live (6+ finishes cycle through the cat colours)
+  function update(dt, x, y, z, heading, active, color) {
     time += dt;
+    if (color) { base.copy(color); hot.copy(color).lerp(WHITE, 0.3).multiplyScalar(1.2); }
     if (active) {
       // emit from just behind the body, at aura height, spaced by distance so speed/framerate don't leave gaps
       const bx = x - Math.cos(heading) * 0.22, bz = z - Math.sin(heading) * 0.22;

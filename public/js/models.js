@@ -389,9 +389,19 @@ function ghostMaterial(tint) {
   });
 }
 
-// Gold crown (grabbed in the goal) and a super-saiyan flame aura (finished 2+ runs).
+// Gold crown (grabbed in the goal) and a super-saiyan flame aura (finished 3+ runs).
 // Flame texture: a row of jagged tongues (tileable around a cylinder), solid at the bottom, fading up.
 let auraTexCache = null;
+const AURA_WHITE = new THREE.Color(0xffffff);
+// crown stones (wins 2-6), in fill order: blue, yellow, red, purple, green
+const STONE_COLORS = [0x3d7bff, 0xffd23d, 0xff3b4e, 0xa24dff, 0x30d97a];
+const STONE_GEO = new THREE.OctahedronGeometry(1, 0);
+function stoneMat(n) {
+  return cmat('stone' + n, () => new THREE.MeshStandardMaterial({ color: STONE_COLORS[n], emissive: STONE_COLORS[n], emissiveIntensity: 0.85, metalness: 0.2, roughness: 0.25, flatShading: true }));
+}
+function pearlMat() {
+  return cmat('crownPearl', () => new THREE.MeshStandardMaterial({ color: 0xfff2b0, emissive: 0x7a4a00, emissiveIntensity: 0.6, metalness: 0.45, roughness: 0.35, flatShading: true }));
+}
 function auraTexture() {
   if (auraTexCache) return auraTexCache;
   const W = 256, H = 128;
@@ -629,13 +639,22 @@ function createKittyModel(color) {
   for (const m of meshes) m.userData.shadow = m.castShadow;
 
   // crown sits on the head (follows its bob/tilt)
-  const crown = new THREE.Mesh(chunkyCrownGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, emissive: 0x7a4a00, emissiveIntensity: 0.6, metalness: 0.45, roughness: 0.35, flatShading: true }));
+  const crown = new THREE.Mesh(chunkyCrownGeometry(false), new THREE.MeshStandardMaterial({ vertexColors: true, emissive: 0x7a4a00, emissiveIntensity: 0.6, metalness: 0.45, roughness: 0.35, flatShading: true }));
   crown.position.set(-0.02, 0.25, 0);
   crown.rotation.z = -0.12;
   crown.scale.setScalar(1.76);
   crown.castShadow = true;
   crown.visible = false;
   head.add(crown);
+  // crown stones: a win from 2 to 6 sets one gem on a point (front first, then pairs toward the back), in place of its pearl
+  const tips = [0, 1, 4, 2, 3].map((i, n) => {
+    const a = (i / 5) * TAU_, pearl = new THREE.Mesh(P.ico1, pearlMat());
+    pearl.position.set(Math.cos(a) * 0.11, 0.17, Math.sin(a) * 0.11); pearl.scale.setScalar(0.022);
+    const stone = new THREE.Mesh(STONE_GEO, stoneMat(n));
+    stone.position.set(pearl.position.x, 0.2, pearl.position.z); stone.visible = false;
+    crown.add(pearl, stone);
+    return { pearl, stone, born: -1 };
+  });
   // aura: super-saiyan flames in the kitty's own colour. The outer flame shell uses normal blending so it
   // still shows on bright snow/ice (additive light vanishes there); an additive inner core adds the glow.
   const auraCol = new THREE.Color(color);
@@ -671,9 +690,27 @@ function createKittyModel(color) {
     s = s || {};
     const t = s.time || 0;
     crown.visible = !!s.crown && rig.visible;
-    if (crown.visible) crown.position.y = 0.25 + Math.sin(t * 3) * 0.008;
+    if (crown.visible) {
+      crown.position.y = 0.25 + Math.sin(t * 3) * 0.008;
+      tips.forEach((p, n) => {
+        const on = n < (s.crownStones || 0);
+        if (on && p.born < 0) p.born = t;
+        if (!on) p.born = -1;
+        p.pearl.visible = !on; p.stone.visible = on;
+        if (!on) return;
+        // pop in with a little overshoot, then a gentle spin
+        const v = Math.min(1, (t - p.born) / 0.4) - 1, k = 1 + 2.70158 * v * v * v + 1.70158 * v * v; // ease-out-back
+        p.stone.scale.set(0.016 * k, 0.024 * k, 0.016 * k);
+        p.stone.rotation.y = t * 1.6 + n;
+      });
+    }
     aura.visible = !!s.aura;
     if (aura.visible) {
+      if (s.auraColor) { // live recolour (6+ finishes cycle through the cat colours)
+        outerMat.color.copy(s.auraColor); ringMat.color.copy(s.auraColor);
+        sparks.material.color.copy(s.auraColor).lerp(AURA_WHITE, 0.45);
+        innerMat.color.copy(sparks.material.color).multiplyScalar(1.4);
+      }
       // flicker: tongues scroll around, the shell pulses and stretches
       flameTex.offset.x = (t * 0.35) % 1;
       outer.rotation.y = t * 1.3; inner.rotation.y = -t * 1.9;
@@ -1230,15 +1267,16 @@ function createPortalModel() {
 
 // The crown up for grabs just inside the goal room's door: big, spinning, bobbing, with a golden glow.
 // chunky solid crown (band, spikes, ball tips, red gems): reads from the top-down camera
-function chunkyCrownGeometry() {
-  return cgeo('crownChunky', () => bake([
+// (pearls = false: the worn crown, whose pearls are separate meshes so crown stones can replace them)
+function chunkyCrownGeometry(pearls = true) {
+  return cgeo(pearls ? 'crownChunky' : 'crownChunkyBare', () => bake([
     [P.cyl18, mtx([0, 0, 0], null, [0.13, 0.08, 0.13]), 0xffc83a],
     [P.cyl18, mtx([0, -0.035, 0], null, [0.14, 0.02, 0.14]), 0xe0a020],
     ...[0, 1, 2, 3, 4].flatMap((i) => {
       const a = (i / 5) * Math.PI * 2, x = Math.cos(a) * 0.11, z = Math.sin(a) * 0.11;
       return [
         [P.cone5, mtx([x, 0.1, z], null, [0.05, 0.13, 0.05]), 0xffd34a],
-        [P.ico1, mtx([x, 0.17, z], null, 0.022), 0xfff2b0],
+        ...(pearls ? [[P.ico1, mtx([x, 0.17, z], null, 0.022), 0xfff2b0]] : []),
         [P.ico0, mtx([Math.cos(a) * 0.135, 0, Math.sin(a) * 0.135], [0, -a, 0], [0.012, 0.022, 0.022]), 0xff3d6e],
       ];
     }),

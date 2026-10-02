@@ -169,7 +169,7 @@ function joinRoom(client, room, name) {
   client.name = cleanName(name, PLAYER_NAMES[slot]);
   client.color = PLAYER_COLORS[slot];
   client.inputs = new Map();
-  client.lastInput = { x: 0, z: 0 };
+  client.lastInput = null; // nothing received yet
   client.margin = NET.INPUT_LEAD;
   room.members.push(client);
   if (!room.hostId) room.hostId = client.id;
@@ -214,7 +214,7 @@ function startGame(room) {
     seed, startLevel: 1, mode: room.mode,
     players: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
   });
-  for (const m of room.members) { m.inputs.clear(); m.lastInput = { x: 0, z: 0 }; }
+  for (const m of room.members) { m.inputs.clear(); m.lastInput = null; }
   sendRoom(room);
   broadcast(room, startMsg(room, false));
 }
@@ -244,9 +244,9 @@ function sendSnapshot(room) {
   const margins = new Map(room.members.map((m) => [m.id, m.margin]));
   broadcast(room, {
     t: 'snap', k: room.tick, lvl: sim.level, st: sim.state, lt: sim.enemyTicks, tm: r3(sim.time),
-    // [id, x, z, vx, vz, heading, alive, inCenter, lives, speedMult, invuln, shield, deaths, rescues, inputMargin, finishes]
+    // [id, x, z, vx, vz, heading, alive, inCenter, lives, speedMult, invuln, shield, deaths, rescues, inputMargin, finishes, waitRelease]
     p: sim.players.map((p) => [p.id, r3(p.x), r3(p.z), r3(p.vx), r3(p.vz), r3(p.heading), p.alive ? 1 : 0, p.inCenter ? 1 : 0,
-      p.lives, r3(p.speedMult), r3(p.invuln), r3(p.shield), p.deaths, p.rescues, Math.round((margins.get(p.id) ?? 0) * 10) / 10, p.finishes || 0]),
+      p.lives, r3(p.speedMult), r3(p.invuln), r3(p.shield), p.deaths, p.rescues, Math.round((margins.get(p.id) ?? 0) * 10) / 10, p.finishes || 0, p.waitRelease ? 1 : 0]),
     lw: sim.lastWinner || 0, ct: sim.crownTaken ? 1 : 0,
     it: sim.items.filter((i) => i.taken).map((i) => i.id),
     c: sim.circles.map((c) => [c.playerId, r3(c.x), r3(c.z), r3(c.t)]),

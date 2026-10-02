@@ -81,6 +81,13 @@ function placeAtSpawn(sim, p, index) {
   p.invuln = CFG.SPAWN_INVULN;
   p.shield = 0;
   p.inCenter = false;
+  holdUntilRelease(sim, p);
+}
+
+// Ice levels: after a spawn or a checkpoint gather the kitty ignores input until it is let go once, so a key or
+// joystick still held from before (or a stale click target) can't shoot it off the safe square onto the ice.
+function holdUntilRelease(sim, p) {
+  p.waitRelease = !!(sim.levelData && sim.levelData.ice);
 }
 
 function makePlayer(def) {
@@ -135,7 +142,7 @@ function createSim({ seed, players = [], startLevel = 1, mode = 'mixed' } = {}) 
 
 function readInput(inputs, id) {
   const inp = inputs ? inputs[id] : null;
-  if (!inp) return { x: 0, z: 0 };
+  if (!inp) return { x: 0, z: 0, none: true }; // no input received yet (doesn't count as letting go)
   let x = Number.isFinite(inp.x) ? inp.x : 0;
   let z = Number.isFinite(inp.z) ? inp.z : 0;
   const m2 = x * x + z * z;
@@ -149,6 +156,10 @@ function readInput(inputs, id) {
 
 function movePlayer(sim, p, inp, dt) {
   const ld = sim.levelData;
+  if (p.waitRelease) {
+    if (!inp.none && inp.x * inp.x + inp.z * inp.z < 0.01) p.waitRelease = false;
+    else inp = { x: 0, z: 0 };
+  }
   const maxSpeed = CFG.KITTY_SPEED * p.speedMult;
   const tx = inp.x * maxSpeed;
   const tz = inp.z * maxSpeed;
@@ -401,6 +412,7 @@ function stepSim(sim, inputs, dt) {
       p.heading = cp.heading;
       p.vx = 0; p.vz = 0; p.moving = false;
       p.invuln = 0;
+      holdUntilRelease(sim, p);
       slot++;
     }
     sim.circles = sim.circles.filter((circ) => { const q = findPlayer(sim, circ.playerId); return q && !q.alive; });

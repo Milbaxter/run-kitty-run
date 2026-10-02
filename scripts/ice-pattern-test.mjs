@@ -27,6 +27,13 @@ import { CFG } from '../public/js/shared/config.js';
 import { createEnemies, serializeEnemies, applyEnemyState, updateEnemies } from '../public/js/shared/enemies.js';
 import { createRng, hashSeed } from '../public/js/shared/rng.js';
 
+// The bot plays like a human who has let go of the controls after each spawn / checkpoint gather
+// (on ice the sim ignores input until it sees a release, see holdUntilRelease in sim.js).
+function step(s, inputs) {
+  for (const p of s.players) p.waitRelease = false;
+  return stepSim(s, inputs, TICK);
+}
+
 // ------------------------------------------------------------------ args
 const argv = process.argv.slice(2);
 const arg = (name, def) => { const i = argv.indexOf('--' + name); return i >= 0 && i + 1 < argv.length && !argv[i + 1].startsWith('--') ? argv[i + 1] : def; };
@@ -195,7 +202,7 @@ function planSegment(sim, pi, seg, banned) {
     for (; w < 300; w++) {
       const inp = wc(p());
       if (inp.x === 0 && inp.z === 0) break;
-      stepSim(c, { [ID]: inp }, TICK); WX.push(p().x); WZ.push(p().z); grow(p().x, p().z);
+      step(c, { [ID]: inp }); WX.push(p().x); WZ.push(p().z); grow(p().x, p().z);
     }
     const hold = { x: p().x, z: p().z };
     grow(hold.x, hold.z);
@@ -203,7 +210,7 @@ function planSegment(sim, pi, seg, banned) {
     const KX = [], KZ = [];
     let ok = false;
     for (let t = 0; t < MAX_T; t++) {
-      const ev = stepSim(c, { [ID]: sc(p()) }, TICK);
+      const ev = step(c, { [ID]: sc(p()) });
       KX.push(p().x); KZ.push(p().z); grow(p().x, p().z);
       if (seg.last ? ev.some((e) => e.type === 'levelClear') : arrived(seg, p())) { ok = true; break; }
     }
@@ -383,7 +390,7 @@ function runLevel(seed, level) {
       for (let j = 0; j < plan.j0 + MAX_T && !died && !reached; j++) {
         const p = sim.players[0];
         const inp = j < plan.j0 ? wc(p) : sc(p);
-        const ev = stepSim(sim, { [ID]: inp }, TICK);
+        const ev = step(sim, { [ID]: inp });
         const d = ev.find((e) => e.type === 'death');
         if (d) died = d;
         if (seg.last ? ev.some((e) => e.type === 'levelClear') : j >= plan.j0 && arrived(seg, sim.players[0])) reached = true;

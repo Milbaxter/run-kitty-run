@@ -473,7 +473,7 @@ function handleEvents(events) {
   for (const ev of events) {
     switch (ev.type) {
       case 'levelStart': {
-        mouse.target = null;
+        mouse.target = null; mouse.iceDir = null;
         buildView();
         ensureKitties();
         for (const p of sim.players) effects.teleport(p.x, p.z, p.color);
@@ -1042,7 +1042,7 @@ function applySnapshot(m) {
   const seen = new Set();
   let rosterChanged = false;
   for (const a of m.p) {
-    const [id, x, z, vx, vz, heading, alive, inC, lives, speedMult, invuln, shield, deaths, rescues, margin, finishes = 0] = a;
+    const [id, x, z, vx, vz, heading, alive, inC, lives, speedMult, invuln, shield, deaths, rescues, margin, finishes = 0, waitRelease] = a;
     seen.add(id);
     let p = sim.players.find((q) => q.id === id);
     const fresh = !p;
@@ -1059,8 +1059,9 @@ function applySnapshot(m) {
     p.moving = Math.hypot(vx, vz) > 0.5;
     if (id === online.me) {
       p.x = x; p.z = z;
+      if (waitRelease !== undefined) p.waitRelease = !!waitRelease;
       // replay inputs the server hasn't processed yet
-      for (let t = m.k + 1; t <= online.tick; t++) predictPlayer(sim, p, online.inputs.get(t) || { x: 0, z: 0 }, CFG.TICK);
+      for (let t = m.k + 1; t <= online.tick; t++) predictPlayer(sim, p, online.inputs.get(t) || null, CFG.TICK);
       online.errX = oldX - p.x;
       online.errZ = oldZ - p.z;
       if (fresh || !wasAlive || Math.hypot(online.errX, online.errZ) > 4) online.errX = online.errZ = 0;

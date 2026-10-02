@@ -376,7 +376,7 @@ function buildView() {
   scene.add(crown.group);
   const wolves = new Map();
   for (const e of sim.enemies) {
-    const m = createWolfModel(e.type, { pattern: !!e.pattern, skate: !!ld.ice });
+    const m = createWolfModel(e.type);
     m.group.scale.setScalar(CFG.WOLF_RADIUS / 0.55); // models are built for the original 0.55 radius
     m.group.position.set(e.x, 0, e.z);
     m.group.rotation.y = -e.heading;

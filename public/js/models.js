@@ -706,13 +706,12 @@ const WOLF_TYPES = {
   wanderer: { base: 0x8c5a38, light: 0xdcb48a, dark: 0x45291a, accent: 0xff8a2a },
   orbiter: { base: 0x3e5088, light: 0x9fb2e0, dark: 0x1d2548, accent: 0x52d6ff },
   sweeper: { base: 0xa83c33, light: 0xeaa58e, dark: 0x51201b, accent: 0xff3a3a },
-  // Skate-only pattern wolves: wintry coats, a scarf in the type color and skate blades. `track` = route color on ice.
-  charger: { base: 0x343a4c, light: 0xaab4cc, dark: 0x181b26, accent: 0xff2a55, scarf: 0xd0163f, track: 0xe0244c, gear: true },
-  crosser: { base: 0xc9d6e8, light: 0xf6f9ff, dark: 0x5f7499, accent: 0x18d6ff, scarf: 0x1886c8, track: 0x0f8fd0, gear: true },
-  diagonal: { base: 0x54477e, light: 0xc4b6ec, dark: 0x251c44, accent: 0xb85cff, scarf: 0x7e34d8, track: 0x8f3ff0, gear: true },
-  looper: { base: 0x5a5148, light: 0xd8cbb8, dark: 0x2a241f, accent: 0xffb21a, scarf: 0xe8860a, track: 0xe08a00, gear: true },
+  // Skate-only pattern wolves: wintry coats and a scarf in the type color. `track` = route color on ice.
+  charger: { base: 0x343a4c, light: 0xaab4cc, dark: 0x181b26, accent: 0xff2a55, scarf: 0xd0163f, track: 0xe0244c },
+  crosser: { base: 0xc9d6e8, light: 0xf6f9ff, dark: 0x5f7499, accent: 0x18d6ff, scarf: 0x1886c8, track: 0x0f8fd0 },
+  diagonal: { base: 0x54477e, light: 0xc4b6ec, dark: 0x251c44, accent: 0xb85cff, scarf: 0x7e34d8, track: 0x8f3ff0 },
+  looper: { base: 0x5a5148, light: 0xd8cbb8, dark: 0x2a241f, accent: 0xffb21a, scarf: 0xe8860a, track: 0xe08a00 },
 };
-const BLADE = 0xc8d4e4, BOOT = 0x2a2f3a;
 
 function wolfGeos(type) {
   return cgeo('wolf:' + type, () => {
@@ -733,7 +732,7 @@ function wolfGeos(type) {
     const spikes = [[0.36, 0.86, 0.09], [0.22, 0.88, 0.1], [0.08, 0.81, 0.08], [-0.08, 0.77, 0.07], [-0.24, 0.75, 0.06]];
     for (const [x, y, s] of spikes) body.push([P.cone4, mtx([x, y, 0], [0, Math.PI / 4, 0.75], [s * 0.8, s * 2.1, s * 0.8]), dark]);
     for (const sz of [1, -1]) body.push([P.cone4, mtx([0.32, 0.8, 0.12 * sz], [0.5 * sz, 0, 0.6], [0.06, 0.16, 0.06]), base]);
-    if (T.gear) {
+    if (T.scarf) {
       // scarf: a ring round the neck + two tails streaming back over the shoulder
       const sc = new THREE.Color(T.scarf), sd = sc.clone().multiplyScalar(0.62);
       body.push([P.torus, mtx([0.36, 0.68, 0], [0, Math.PI / 2, 0.55], [0.2, 0.2, 0.28]), sc]);
@@ -771,22 +770,11 @@ function wolfGeos(type) {
       [P.cone4, mtx([0.22, 0.035, 0.03], null, [0.012, 0.04, 0.012]), 0xffffff],
       [P.cone4, mtx([0.22, 0.035, -0.03], null, [0.012, 0.04, 0.012]), 0xffffff],
     ]);
-    const legParts = [
+    const leg = bake([
       [P.ico1, mtx([0, -0.03, 0], null, [0.09, 0.1, 0.08]), base],
       [P.cyl6, mtx([0, -0.22, 0], null, [0.058, 0.42, 0.058]), base],
       [P.ico1, mtx([0.025, -0.455, 0], null, [0.08, 0.05, 0.07]), dark],
-    ];
-    if (T.gear) {
-      // skate: little boot, two posts and an upturned blade (the rig is lifted by SKATE_LIFT)
-      legParts.push(
-        [P.box, mtx([0.02, -0.47, 0], null, [0.17, 0.07, 0.1]), BOOT],
-        [P.box, mtx([0.07, -0.525, 0], null, [0.025, 0.05, 0.02]), BLADE],
-        [P.box, mtx([-0.04, -0.525, 0], null, [0.025, 0.05, 0.02]), BLADE],
-        [P.box, mtx([0.015, -0.553, 0], null, [0.26, 0.018, 0.018]), BLADE],
-        [P.box, mtx([0.155, -0.543, 0], [0, 0, 0.6], [0.05, 0.018, 0.018]), BLADE],
-      );
-    }
-    const leg = bake(legParts);
+    ]);
     const tail = [
       bake([[P.ico1, mtx([0, 0.08, 0], null, [0.09, 0.12, 0.09]), base]]),
       bake([[P.ico1, mtx([0, 0.09, 0], null, [0.125, 0.16, 0.12]), base], [P.ico0, mtx([0.03, 0.06, 0], [0, 0, 0.4], [0.1, 0.12, 0.13]), dark]]),
@@ -796,15 +784,9 @@ function wolfGeos(type) {
   });
 }
 
-const SKATE_LIFT = 0.06;
-
-// opts: { skate: on an ice level (glide instead of trot) }
-function createWolfModel(type, opts) {
+function createWolfModel(type) {
   if (!WOLF_TYPES[type]) type = 'patroller';
-  opts = opts || {};
   const T = WOLF_TYPES[type];
-  const skate = !!(opts.skate && T.gear);
-  const lift = T.gear ? SKATE_LIFT : 0;
   const G = wolfGeos(type);
   const mat = VC_MAT();
   const group = new THREE.Group();
@@ -858,29 +840,18 @@ function createWolfModel(type, opts) {
     const sn = Math.sin(phase);
     const idle = (1 - Math.min(1, runAmt)) * (1 - tell);
 
+    // trot + crouch (legs splay to lower the body)
+    const amp = 0.7 * runAmt;
     const crouch = 0.6 * tell;
+    legs[0].rotation.z = sn * amp + crouch;
+    legs[3].rotation.z = sn * amp - crouch;
+    legs[1].rotation.z = -sn * amp + crouch;
+    legs[2].rotation.z = -sn * amp - crouch;
     const drop = 0.5 * (1 - Math.cos(crouch));
     let jitter = 0;
     if (tell > 0.55) jitter = Math.sin(time * 75 + seedOff) * 0.014 * (tell - 0.55) / 0.45;
-    if (skate) {
-      // speed-skater glide: front legs tucked, hind legs push out to the side in turn, body rocks and leans in
-      const amp = 0.55 * runAmt, push = Math.sin(phase * 0.5);
-      legs[0].rotation.set(0, 0, 0.25 * runAmt + crouch);
-      legs[1].rotation.set(0, 0, 0.25 * runAmt + crouch);
-      legs[2].rotation.set(-Math.max(0, push) * amp, 0, -0.35 * runAmt - crouch);
-      legs[3].rotation.set(Math.max(0, -push) * amp, 0, -0.35 * runAmt - crouch);
-      rig.position.set(jitter, lift - drop - 0.05 * runAmt + Math.sin(time * 2 + seedOff) * 0.006 * idle, 0);
-      rig.rotation.set(push * 0.09 * runAmt, 0, -0.14 * runAmt - 0.06 * tell);
-    } else {
-      // trot + crouch (legs splay to lower the body)
-      const amp = 0.7 * runAmt;
-      legs[0].rotation.z = sn * amp + crouch;
-      legs[3].rotation.z = sn * amp - crouch;
-      legs[1].rotation.z = -sn * amp + crouch;
-      legs[2].rotation.z = -sn * amp - crouch;
-      rig.position.set(jitter, lift - drop + Math.abs(Math.cos(phase)) * 0.045 * runAmt - 0.02 * runAmt + Math.sin(time * 2 + seedOff) * 0.006 * idle, 0);
-      rig.rotation.z = Math.sin(phase * 2) * 0.025 * runAmt - 0.05 * runAmt - 0.06 * tell;
-    }
+    rig.position.set(jitter, -drop + Math.abs(Math.cos(phase)) * 0.045 * runAmt - 0.02 * runAmt + Math.sin(time * 2 + seedOff) * 0.006 * idle, 0);
+    rig.rotation.z = Math.sin(phase * 2) * 0.025 * runAmt - 0.05 * runAmt - 0.06 * tell;
 
     head.position.y = 0.8 - 0.06 * tell + Math.sin(phase * 2 + 1) * 0.02 * runAmt;
     head.position.x = 0.5 + 0.04 * tell;

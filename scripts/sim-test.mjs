@@ -127,7 +127,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(tb.length === s.levelData.trees.length && tb.every((it, i) => it.type === 'boots' && it.x === s.levelData.trees[i].x), `a pair of boots on top of every tree (${tb.length})`);
     void t;
   }
-  // the crown is a pickup over the goal's center: reaching the goal's edge clears the level but doesn't grab it
+  // the first kitty into the finish circle always gets a crown, even at the goal's edge (it takes the floating one)
   {
     const s = createSim({ seed: 32, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] });
     stepSim(s, {}, CFG.TICK);
@@ -135,10 +135,21 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     for (const q of s.players) q.invuln = 99;
     a.x = s.levelData.centerRadius - 1; a.z = 0;
     let ev = stepSim(s, {}, CFG.TICK);
-    ok(ev.some((e) => e.type === 'levelClear') && !s.crownTaken && s.lastWinner === 0, 'goal edge clears the level, crown still up for grabs');
-    b.x = s.levelData.crown.x; b.z = s.levelData.crown.z; // a teammate darts to the crown during the celebration
+    ok(ev.some((e) => e.type === 'levelClear') && ev.some((e) => e.type === 'crown' && e.playerId === 1) && a.crowned && s.lastWinner === 1 && a.finishes === 1, 'goal edge clears the level and crowns the winner');
+    b.x = s.levelData.crown.x; b.z = s.levelData.crown.z; // a teammate darts to the middle during the celebration
     ev = stepSim(s, {}, CFG.TICK);
-    ok(ev.some((e) => e.type === 'crown' && e.playerId === 2) && s.lastWinner === 2 && a.finishes === 1, 'whoever touches the crown wears it');
+    ok(!ev.some((e) => e.type === 'crown') && !b.crowned, 'the crown is gone once the winner has it');
+  }
+  // a teammate grabbed the floating crown first: the winner still gets one of their own
+  {
+    const s = createSim({ seed: 33, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] });
+    stepSim(s, {}, CFG.TICK);
+    const [a, b] = s.players;
+    for (const q of s.players) q.invuln = 99;
+    s.crownTaken = true; s.lastWinner = 2; b.crowned = true;
+    a.x = s.levelData.centerRadius - 1; a.z = 0;
+    stepSim(s, {}, CFG.TICK);
+    ok(a.crowned && b.crowned && a.finishes === 1, 'first into the finish circle is crowned even if the crown was taken');
   }
 }
 

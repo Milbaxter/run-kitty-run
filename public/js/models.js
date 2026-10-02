@@ -501,7 +501,7 @@ function createKittyModel(color) {
     const sb = mk(G.speedBoot, p, true);
     sb.visible = false;
     speedBoots.push(sb);
-    const rb = new THREE.Mesh(rainbowBootGeometry(), rainbowMat);   // 8+ wins: a rainbow shell over the red boot
+    const rb = new THREE.Mesh(rainbowBootGeometry(), rainbowMat);   // 7+ wins: a rainbow shell over the red boot
     rb.visible = false;
     sb.add(rb);
     rainbowBoots.push(rb);
@@ -572,7 +572,7 @@ function createKittyModel(color) {
     for (const sk of skates) sk.visible = onSkates;
     const nb = s.boots | 0;
     for (let i = 0; i < speedBoots.length; i++) speedBoots[i].visible = i < nb;
-    // 8+ wins: rainbow boots, a full rainbow every ~2.2 s on their own clock (not in step with the aura's colour cycle)
+    // 7+ wins: rainbow boots, a full rainbow every ~2.2 s on their own clock (not in step with the aura's colour cycle)
     const rainbow = !!s.rainbowBoots && !ghost && nb > 0;
     for (const rb of rainbowBoots) rb.visible = rainbow;
     if (rainbow) { rainbowMat.color.setHSL((time * 0.45 + rainbowOff) % 1, 1, 0.58); rainbowMat.emissive.copy(rainbowMat.color); }
@@ -1308,7 +1308,7 @@ function createPortalModel() {
 }
 
 // The crown up for grabs over the goal room's middle (above the portal): big, spinning, bobbing, with a golden glow.
-// Rainbow boots (8+ wins): the speed boot's red foot and shaft (kittyGeos speedBoot), a touch bigger so they cover
+// Rainbow boots (7+ wins): the speed boot's red foot and shaft (kittyGeos speedBoot), a touch bigger so they cover
 // the red; the gold cuff and white wings show through unchanged. White: the material colour does the rainbow.
 function rainbowBootGeometry() {
   return cgeo('rainbowBoot', () => bake([

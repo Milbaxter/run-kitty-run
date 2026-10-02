@@ -496,6 +496,9 @@ function stepSim(sim, inputs, dt) {
     } else if (aliveInCenter > 0) {
       const by = players.find((q) => q.alive && q.inCenter);
       by.finishes = (by.finishes || 0) + 1;
+      // the first kitty into the finish circle always gets a crown (it takes the floating one if it's still there)
+      if (!sim.crownTaken) { sim.crownTaken = true; sim.lastWinner = by.id; events.push({ type: 'crown', playerId: by.id }); }
+      by.crowned = true;
       sim.stats.levelsCleared++;
       events.push({ type: 'levelClear', level: sim.level, by: by.id });
       if (ld.finale) win(sim, by, events);

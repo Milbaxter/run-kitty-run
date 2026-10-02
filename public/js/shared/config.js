@@ -39,7 +39,7 @@ const CFG = {
 
   // Items
   ITEM_RADIUS: 0.6,
-  CROWN_RADIUS: 1.0,         // pickup radius of the crown inside the goal room's door
+  CROWN_RADIUS: 1.0,         // pickup radius of the crown over the goal room's middle
   TREE_RADIUS: 1.7,          // autumn levels: a kitty this close to a climbable tree's trunk is up in it (safe)         // pickup radius of the crown over the goal's center
 
   // Flow

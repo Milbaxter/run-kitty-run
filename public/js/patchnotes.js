@@ -25,6 +25,7 @@ const PATCH_NOTES = [
       'The aura now comes at 3 wins (was 2), and the flame trail at 4 (was 3)',
       'Your crown collects a gem for every win from 2 to 6: blue, yellow, red, purple and green',
       'Win 6 runs and your aura, flame trail, paw prints and skate marks cycle through every kitty colour',
+      'The crown floats over the middle of the goal room again',
     ],
   },
   {

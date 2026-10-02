@@ -334,7 +334,7 @@ function stepSim(sim, inputs, dt) {
     }
   }
 
-  // --- crown: floats just inside the goal room's door; first kitty to touch it wears it (also during the level-clear celebration) ---
+  // --- crown: floats over the middle of the goal room; first kitty to touch it wears it (also during the level-clear celebration) ---
   if (!sim.crownTaken) {
     const cr = CFG.KITTY_RADIUS + CFG.CROWN_RADIUS;
     for (let i = 0; i < players.length; i++) {

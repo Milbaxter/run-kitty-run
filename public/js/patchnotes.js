@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '0.8', date: '2026-10-01', title: 'Ice skating',
     items: [
+      'Speed boots: carry up to 4 pairs now, +4% each (+16% with all four)',
       'Level 2 is now the Snowy Peaks ice rink (autumn moves to level 3)',
       'On ice your kitty keeps sliding the way it faces until you click a new direction',
       'Turning around carves a small curve instead of flipping on the spot',

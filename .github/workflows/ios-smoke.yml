@@ -124,13 +124,13 @@ jobs:
           log() { echo "$(date +%T) [${SECONDS}s] $*" | tee -a "$OUT/timeline.txt"; }
           # CI has no GPU: the game's WebGL is software-rendered and the whole simulator crawls once it runs, so every
           # step is time-boxed and guarded by the step's elapsed $SECONDS.
-          shot() { [ $SECONDS -lt 480 ] || { log "skip shot $1 (time budget)"; return 1; }; log "shot $1"; to 60 xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null 2>&1 || log "shot $1 timed out"; }
+          shot() { [ $SECONDS -lt 480 ] || { log "skip shot $1 (time budget)"; return 1; }; log "shot $1"; to ${2:-60} xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null 2>&1 || log "shot $1 timed out"; }
           IWDP=
           drive() { [ -n "$IWDP" ] || return 0; log "drive: $1"; echo "--- $1" >> "$LOG_JS"; (cd "$GITHUB_WORKSPACE" && to 60 node smoke-drive.mjs "$2") >> "$LOG_JS" 2>&1; }
           # Screenshot until the WebView has painted (a blank dark frame compresses to well under 150 KB).
           shot_until_painted() {
             while [ $SECONDS -lt $2 ]; do
-              shot "$1"; [ $(stat -f %z "$OUT/$1.png" 2>/dev/null || echo 0) -gt 150000 ] && return 0
+              shot "$1" 150; [ $(stat -f %z "$OUT/$1.png" 2>/dev/null || echo 0) -gt 150000 ] && return 0
               sleep 10
             done
           }
@@ -158,7 +158,7 @@ jobs:
           #    keeps it unbuffered.
           log "launch"
           (to 480 xcrun simctl launch --console-pty "$UDID" "$BID" >> "$OUT/app-console.txt" 2>&1 &)
-          sleep 15; shot_until_painted 01-title 240
+          sleep 40; shot_until_painted 01-title 300 # a screenshot can take minutes while the game renders
           [ $SECONDS -lt 200 ] && drive "title state" "$STATE"
 
           # 2) Cold start from the deep link runkittyrun://join?room=TEST (app killed first so the simulator is idle).

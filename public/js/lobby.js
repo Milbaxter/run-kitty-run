@@ -162,7 +162,7 @@ function createLobbyUI(root, cb) {
     row1.append(create);
     const row2 = el('div', 'rkl-row');
     row2.append(code, join);
-    mount([h, sub, nameLab, name, modeLab, modes, tip, row1, row2, listLab, listEl, errEl, back]);
+    mount([h, sub, listLab, listEl, nameLab, name, modeLab, modes, tip, row1, row2, errEl, back]); // open lobbies first, then create / join by code
     listEl._getName = getName;
     cb.onRefresh();
     clearInterval(refreshT);

@@ -150,10 +150,14 @@ function buildPath(corners, legs) {
 // next opening. Halfway along, one gap is wider and holds a climbable tree: under its canopy is snow, not ice
 // (onIce), and wolves can't reach you (inTree), the only real breather of the run.
 // Each room has 2-3 charger lanes (more toward the goal) and is packed as a horde of wolves that each go their own
-// way (finaleDesign, FINALE_PACK): no rows or formations, every wolf on its own timing and lap (solveRoom, driftRoom).
-// Fairness: the rooms are solved like spiral legs (a straight run from the gap's middle); scripts/finale-test.mjs
-// checks that a kitty circling in each gap and leaving the circle into the solution lane gets through.
-//
+// way (finaleDesign, FINALE_PACK): no rows or formations. Every wolf of a kind runs at the same speed (FINALE_SPEED),
+// but each crosser / diagonal stands at the walls for its own fixed time (FINALE_HOLD) and starts at its own random
+// phase, so the wolves have different laps and the room's pattern keeps shifting. The laps are all FINALE_PERIOD / n
+// (whole n; the holds are fitted to that), so a room does repeat, every FINALE_PERIOD s, and fairRoom checks it
+// over one whole period: a straight skate down some free lane from the gap's middle, at every boot speed, finds a
+// launch window of FINALE_FAIR.win at least every FINALE_FAIR.wait seconds; wolves that would break that are
+// retimed or left out. mazeSelfTest replays it with the real wolves (finaleGaps).
+
 // Legs follow the spiral's conventions: leg i runs from corner i (s = len, where the kitty enters) to corner
 // i + 1 (s = 0); u points back toward the start (run direction is -u). leg.padHi / leg.padLo = wolf-free
 // half-gap at the entry / exit end (usableRanges).
@@ -163,24 +167,21 @@ const FINALE_TREE_GAP = 13;      // ...around the halfway tree
 const FINALE_ROOM = [34, 52];    // room lengths
 const FINALE_HEAT = 0.8;         // pattern difficulty at the start of the run...
 const FINALE_RAMP = 0.7;         // ...rising by this much toward the goal
-// The horde: the final run packs its rooms far tighter than the spiral (~2x the wolves). Fairness is untouched:
-// every wolf still goes through the launch-window solver with the spiral's targets, and every crosser runs wall to
-// wall. It must not look like a machine: wolves are placed one by one at random distances (finaleDesign), each is
-// timed on its own (solveRoom) and most get their own lap (driftRoom: T / (1 + k/6)), so the room only repeats
-// every 6 beats and two neighbours in step (a wall, for a while) is chance, not design.
+// The horde: the final run packs its rooms far tighter than the spiral (~2x the wolves). It must not look like a
+// machine: wolves are placed one by one at random distances (finaleDesign) and each has its own hold and phase.
 const FINALE_PACK = {
-  slack: 0.3,            // spare timing per wolf pass (s) in the solver (PAT_SLACK elsewhere)
   diagonal: 0.08,        // share of diagonal swings...
   looper: 0.06,          // ...and of lone loopers; the rest are crossers
   gap: [1.35, 3.4],      // from one wolf to the next (th): shoulder to shoulder (no kitty fits between) to far apart...
   gapPow: 3,             // ...mostly close
   chargers: 1.5,         // pushes the charger lanes toward 3 per room
-  pick: 3,               // a wolf's timing: one of the solver's best few (random), not always the best
-  driftN: 6,             // drifting laps T / (1 + k/6): the room repeats every 6 beats (<= FINALE_DRIFT_PERIOD)
-  driftK: [3, -3, 2, -2, 1, -1],     // laps 2/3, 2, 3/4, 3/2, 6/7, 6/5 of the beat
-  driftShifts: 3,        // retimings tried per lap and wolf
 };
-const FINALE_DRIFT_PERIOD = 60;   // the final run's rooms repeat within this (s)
+// one speed per kind of wolf for the whole run (units/s): same colour, same pace
+const FINALE_SPEED = { crosser: 3.4, diagonal: 3.6, looper: 4.0, charger: 5.2 };
+const FINALE_HOLD = [0, 1.5];     // a crosser's / diagonal's own wait at each wall (s); loopers never stop
+const FINALE_PERIOD = 180;        // every wolf's lap divides this (s): a room repeats, so its check is exact
+// fairness (fairRoom): every boot speed, any free lane, all period round
+const FINALE_FAIR = { win: 0.4, wait: 6, tries: 6 };   // a good launch (s clear) at least every `wait` s
 
 let spiralPathLen = 0;
 function spiralLength() {
@@ -312,7 +313,7 @@ function placeEnemies(rng, lvl, p) {
 //   crosser    crosses the lane wall to wall, in rows (crosswalk: single / wave / comb / ripple / anti offsets)
 //   diagonal   crosses wall to wall at an angle (swing, scissors = two crossing half a beat apart, fan)
 //   looper     the final run only: a lone looper round a box or diamond spanning the lane (segCarousel, n = 1)
-// (The final run has no rows or formations: finaleDesign / solveRoom / driftRoom time every wolf on its own.)
+// (The final run has no rows or formations: finaleDesign / fairRoom give every wolf its own hold and phase.)
 // A leg = a set of charger lanes + crosser / diagonal segments top (entry, high th) to bottom. Every crosser
 // and diagonal in a leg runs there and back once per beat T (its speed is fitted to the beat), so the room
 // repeats every T seconds. Each segment's timing offset is chosen by a launch-window solver (solveLeg): a kitty
@@ -453,6 +454,17 @@ function patPoseIdx(w, t) {
   let tc = (t + w.off) % w.cycle;
   if (tc < 0) tc += w.cycle;
   return Math.min(w.M - 1, Math.floor(tc * PAT_HZ));
+}
+
+// Inverse of the EASE_T speed profile (enemies.js profileS): time into a run of length L (time T, cruise v) at distance s.
+function profileInv(s, T, L, v) {
+  if (T <= 0 || L <= 0) return 0;
+  const a = v / EASE_T, e = 0.5 * v * EASE_T;
+  if (L >= v * EASE_T) {
+    if (s <= e) return Math.sqrt(2 * s / a);
+    if (s <= L - e) return EASE_T + (s - e) / v;
+  } else if (s <= L / 2) return Math.sqrt(2 * s / a);
+  return T - Math.sqrt(Math.max(0, 2 * (L - s) / a));
 }
 
 // Safe arrival times at a segment's top edge: ok[b] = 1 if a kitty reaching the top edge at b * PAT_BIN (b < N, a
@@ -666,7 +678,7 @@ function placePatternEnemies(rng, lvl, p) {
   };
   const makeChargers = (li, D, lanes) => {
     const leg = legs[li], { lo, hi } = ranges[li];
-    const v = Math.min(PAT_VMAX, (3.9 + 1.4 * D) * rng.range(0.95, 1.05));
+    const v = lvl.finale ? FINALE_SPEED.charger : Math.min(PAT_VMAX, (3.9 + 1.4 * D) * rng.range(0.95, 1.05));
     const off = rng.next();
     return lanes.map((r, i) => {
       const w = { type: 'charger', route: [{ r, th: lo }, { r, th: hi }], loop: false, speed: v };
@@ -729,12 +741,33 @@ function placePatternEnemies(rng, lvl, p) {
 
   // The final run's rooms: no rows, no formations. Wolf after wolf down the room, each on its own: mostly
   // crossers, now and then a diagonal swing or a lone looper (round a box or a diamond spanning the lane), a random
-  // distance apart (FINALE_PACK.gap: sometimes shoulder to shoulder, sometimes far apart). Each is fitted to the
-  // room's beat T here; solveRoom gives each its own timing and driftRoom most of them their own lap, so whether two
-  // neighbours run side by side is chance, and it doesn't last.
+  // distance apart (FINALE_PACK.gap: sometimes shoulder to shoulder, sometimes far apart). Every wolf runs at its
+  // kind's speed (FINALE_SPEED); fairRoom gives each its hold and phase (or leaves it out).
+  // A crosser's / diagonal's possible holds: its lap (two runs and two holds) is FINALE_PERIOD / n, holds in FINALE_HOLD
+  const finaleHolds = (w) => {
+    const run = buildPlan(w, NO_FRAME, w.speed).cycle / 2, out = [];
+    for (let n = Math.ceil(FINALE_PERIOD / (2 * (run + FINALE_HOLD[1])) - 1e-9); FINALE_PERIOD / n / 2 - run >= FINALE_HOLD[0]; n++) out.push(FINALE_PERIOD / n / 2 - run);
+    return out;
+  };
+  // A lone looper never stops: its loop is resized (along the lane) so its lap is FINALE_PERIOD / n (a random fitting
+  // n). False if no n fits the loop's size range.
+  const finaleLoop = (sd) => {
+    const w = sd.wolves[0], v = FINALE_SPEED.looper, box = sd.name === 'carousel-box';
+    const [dLo, dHi] = box ? [2.4, 3.4] : [5, 6.5];
+    const dOf = (lap) => {
+      const run = (lap - 4 * EASE_T) * v / 4;      // each of the four runs, on average
+      return box ? 2 * run - 2 * vOut : run > vOut ? 2 * Math.sqrt(run * run - vOut * vOut) : -1;
+    };
+    const ns = [];
+    for (let n = 1; n <= 60; n++) { const d = dOf(FINALE_PERIOD / n); if (d >= dLo && d <= dHi) ns.push(n); }
+    if (!ns.length) return false;
+    const d = dOf(FINALE_PERIOD / rng.pick(ns)), k = d / sd.depth;
+    w.route = w.route.map((q) => ({ r: q.r, th: q.th * k }));
+    sd.depth = d;
+    return true;
+  };
   const finaleDesign = (li, D) => {
     const leg = legs[li], { lo, hi } = ranges[li], FT = FINALE_PACK, c = { D, rng, vOut };
-    const T = Math.round(Math.max(5, 7.5 - 2 * D) * 4) / 4;
     const segs = [];
     let cursor = hi - rng.range(0, 1.2);
     while (cursor >= lo) {
@@ -743,20 +776,20 @@ function placePatternEnemies(rng, lvl, p) {
       let fam = u < FT.diagonal ? 'diagonal' : 'carousel';
       const place = () => {
         const base = cursor - sd.depth;
-        for (const w of sd.wolves) { w.route = w.route.map((q) => ({ r: q.r, th: q.th + base })); finish(w, leg); }
-        return cursor - sd.depth >= lo && sd.wolves.every((w) => patFit(w, T)) ? base : null;
+        for (const w of sd.wolves) { w.route = w.route.map((q) => ({ r: q.r, th: q.th + base })); finish(w, leg); w.speed = FINALE_SPEED[w.type]; }
+        return cursor - sd.depth >= lo ? base : null;
       };
+      if (sd && fam === 'carousel' && !finaleLoop(sd)) sd = null;
       let base = sd ? place() : null;
       if (base == null) { sd = segCrosswalk(c, { k: 1 }); fam = 'crosswalk'; base = place(); }    // else a crosser
       if (base == null) break;
       const w = sd.wolves[0];
-      patTable(w);
-      w.off = rng.next() * w.cycle;
+      if (w.type !== 'looper') w.holds = finaleHolds(w);
       wolfBox(w);
       segs.push({ ...sd, family: fam, top: cursor + PAT_SAFE, bottom: base - PAT_SAFE, base });
       cursor = base - (FT.gap[0] + (FT.gap[1] - FT.gap[0]) * rng.next() ** FT.gapPow);
     }
-    return { segs, T, D };
+    return { segs, D };
   };
 
   // Greedy segment offsets: each segment's timing is shifted so that some straight lane (not a charger's) keeps
@@ -770,7 +803,7 @@ function placePatternEnemies(rng, lvl, p) {
     const open = PAT_LANES.map((r) => chargers.every((w) => Math.abs(w.route[0].r - r) >= PAT_SAFE + 0.3));
     let Fs = PAT_SPEEDS.map(() => PAT_LANES.map((_, k) => { const a = new Uint8Array(N).fill(open[k] ? 1 : 0); a.closed = !open[k]; return a; }));
     for (const seg0 of segs) for (let seg = seg0, done = false; seg && !done; seg = seg.alt) {
-      const Es = segSafety(seg, N, lvl.finale ? FINALE_PACK.slack : PAT_SLACK);
+      const Es = segSafety(seg, N, PAT_SLACK);
       const leads = PAT_SPEEDS.map((vk) => Math.round((leg.len - seg.top) / vk / PAT_BIN));
       const base = Math.floor(rng.next() * N);
       const cands = [];
@@ -885,201 +918,126 @@ function placePatternEnemies(rng, lvl, p) {
     }
   };
 
-  // The final run: like solveLeg, but wolf by wolf (finaleDesign: every segment is one wolf), and a wolf's timing
-  // is a random one of the FINALE_PACK.pick best offsets that keep the targets (else, like solveLeg, the best one
-  // above the floors), or it is left out. Candidates are scored at normal speed first; the boots are checked only
-  // for the ones tried.
-  const solveRoom = (li, design, chargers, wTarget, fTarget) => {
-    const { segs, T } = design;
-    const leg = legs[li], N = Math.round(T / PAT_BIN), BIN = PAT_BIN;
+  // The final run's fairness. Every crosser / diagonal stands at the walls for its own hold, so every wolf has its
+  // own lap, but each lap is FINALE_PERIOD / n for a whole n (its hold is fitted to that: finaleLaps), so the room
+  // as a whole repeats every FINALE_PERIOD s and checking one period checks it for good. Launch times (the kitty
+  // leaving the gap's middle at full speed straight down a free lane, every PAT_SPEEDS) every PAT_BIN of the period;
+  // a wolf blocks a launch if, while it is within PAT_SAFE of the lane (sideways), the kitty is within PAT_SAFE
+  // (along) of where it is then (a box round the wolf: conservative). Per speed and lane the generator counts the
+  // wolves in the way of each launch; a launch is good if its lane stays clear for FINALE_FAIR.win from it. Wolf by
+  // wolf down the room, each tries FINALE_FAIR.tries random laps (holds) and phases and keeps the first with which,
+  // at every speed, a good launch (any lane) comes at least every FINALE_FAIR.wait s all period round; else it is
+  // left out.
+  const fairRoom = (li, design, chargers) => {
+    const leg = legs[li], len = leg.len, BIN = PAT_BIN, FF = FINALE_FAIR, SAFE = PAT_SAFE;
     const open = PAT_LANES.map((r) => chargers.every((w) => Math.abs(w.route[0].r - r) >= PAT_SAFE + 0.3));
-    let Fs = PAT_SPEEDS.map(() => PAT_LANES.map((_, k) => { const a = new Uint8Array(N).fill(open[k] ? 1 : 0); a.closed = !open[k]; return a; }));
-    const buf = new Uint8Array(N);
-    const score = (F, E, sh) => {      // laneScore of F & E shifted by sh, without building the sets
-      let best = { li: 0, run: 0, frac: 0 };
-      for (let k = 0; k < F.length; k++) {
-        const f = F[k], e = E[k];
-        let n = 0;
-        if (!f.closed) {
-          let q = ((sh % N) + N) % N;
-          for (let b = 0; b < N; b++) { n += buf[b] = f[b] & e[q]; if (++q === N) q = 0; }
+    const lanes = PAT_LANES.map((_, k) => k).filter((k) => open[k]);
+    const NB = Math.round(FINALE_PERIOD / BIN);
+    const cnt = PAT_SPEEDS.map(() => lanes.map(() => new Uint16Array(NB)));
+    const vMin = Math.min(...PAT_SPEEDS), vMax = Math.max(...PAT_SPEEDS);
+    // launch-bin intervals [b0, b1] (b1 may pass NB: circular) wolf w blocks, per speed and lane
+    const marks = (w) => {
+      const plan = buildPlan(w, NO_FRAME, w.speed), cyc = plan.cycle, off = w.phase * cyc;
+      // per segment and lane: when (in the segment) the wolf is within SAFE of the lane, and its th range then
+      const hits = plan.segs.map((sg) => lanes.map((k) => {
+        const r = PAT_LANES[k], dr = sg.r1 - sg.r0;
+        let q0 = 0, q1 = 1;
+        if (Math.abs(dr) < 1e-9) { if (Math.abs(sg.r0 - r) >= SAFE) return null; }
+        else {
+          q0 = (r - SAFE - sg.r0) / dr; q1 = (r + SAFE - sg.r0) / dr;
+          if (q0 > q1) [q0, q1] = [q1, q0];
+          q0 = Math.max(0, q0); q1 = Math.min(1, q1);
+          if (q0 >= q1) return null;
         }
-        const run = n ? maxRun(buf) : 0, frac = n / N;
-        if (run + 8 * frac > best.run + 8 * best.frac || (run === best.run && Math.abs(PAT_LANES[k]) < Math.abs(PAT_LANES[best.li]))) best = { li: k, run, frac };
+        const ta = sg.L > 0 ? profileInv(q0 * sg.L, sg.T, sg.L, plan.speed) : 0, tb = sg.L > 0 ? profileInv(q1 * sg.L, sg.T, sg.L, plan.speed) : sg.T;
+        const tha = sg.th0 + (sg.th1 - sg.th0) * q0, thb = sg.th0 + (sg.th1 - sg.th0) * q1;
+        return { ta, tb, thLo: Math.min(tha, thb), thHi: Math.max(tha, thb) };
+      }));
+      const out = PAT_SPEEDS.map(() => lanes.map(() => []));
+      // wolf times that matter for launches in [0, period): from the earliest meeting to the latest
+      const t0 = (len - w.thMax - SAFE) / vMax, t1 = FINALE_PERIOD + (len - w.thMin + SAFE) / vMin;
+      for (let m = Math.floor((t0 + off) / cyc); m * cyc - off <= t1; m++) {
+        for (let i = 0; i < plan.segs.length; i++) {
+          const sg = plan.segs[i], s0 = m * cyc - off + sg.tStart;
+          if (s0 > t1 || s0 + sg.T < t0) continue;
+          hits[i].forEach((h, x) => {
+            if (!h) return;
+            PAT_SPEEDS.forEach((vk, j) => {
+              const lo = s0 + h.ta - (len - h.thLo + SAFE) / vk, hi = s0 + h.tb - (len - h.thHi - SAFE) / vk;
+              let b0 = Math.floor(lo / BIN), b1 = Math.ceil(hi / BIN);
+              if (b1 < 0 || b0 >= NB) return;          // the same launches come round again in the period
+              b1 = Math.min(b1, b0 + NB - 1);
+              out[j][x].push(b0, b1);
+            });
+          });
+        }
       }
-      return best;
+      return out;
     };
-    // a unit (one wolf, or a whole segment) with launch-time sets E[speed][lane]: its shift (bins), or null
-    const place = (E, leads) => {
-      const base = Math.floor(rng.next() * N), cands = [];
-      for (let q = 0; q < 16; q++) {
-        const sh = (base + Math.round(q * N / 16)) % N, sc = score(Fs[0], E[0], leads[0] + sh);
-        cands.push({ sh, run: sc.run * BIN, frac: sc.frac });
+    const apply = (mk, j, sgn) => {
+      const L = mk[j];
+      for (let x = 0; x < L.length; x++) {
+        const C = cnt[j][x], iv = L[x];
+        for (let q = 0; q < iv.length; q += 2) {
+          let b = iv[q] < 0 ? iv[q] + NB : iv[q];
+          for (let e = iv[q + 1] - iv[q]; e >= 0; e--) { C[b] += sgn; if (++b === NB) b = 0; }
+        }
       }
-      const boost = (cd) => {
-        if (cd.frac2 != null) return;
-        cd.run2 = Infinity; cd.frac2 = Infinity;
-        for (let j = 1; j < PAT_SPEEDS.length; j++) { const sc = score(Fs[j], E[j], leads[j] + cd.sh); cd.run2 = Math.min(cd.run2, sc.run * BIN); cd.frac2 = Math.min(cd.frac2, sc.frac); }
-      };
-      const val = (cd) => cd.run + 4 * cd.frac;
-      cands.sort((x, y) => val(y) - val(x));
-      const good = cands.filter((cd) => cd.run >= wTarget && cd.frac >= fTarget);
-      const first = Math.floor(rng.next() * Math.min(FINALE_PACK.pick, good.length));
-      for (const cd of good.length ? [good[first]].concat(good.filter((_, i) => i !== first)) : []) {
-        boost(cd);
-        if (cd.run2 >= 0.2 && cd.frac2 >= 0.45 * fTarget) return cd.sh;
+    };
+    const win = Math.ceil(FF.win / BIN - 1e-9), wait = Math.floor(FF.wait / BIN + 1e-9);
+    const good = new Uint8Array(NB);
+    // at speed j: the good launches (any lane), and the longest wait for one, all period round
+    const waits = (j) => {
+      good.fill(0);
+      for (const C of cnt[j]) {
+        let run = 0;
+        for (let b = NB - 1; b >= 0; b--) run = C[b] ? 0 : run + 1;      // the run carried round from the start
+        if (run === NB) return 0;
+        for (let b = NB - 1; b >= 0; b--) { if (C[b]) run = 0; else if (++run >= win) good[b] = 1; }
       }
-      for (const cd of cands) {
-        if (cd.run < Math.max(PAT_HARD, 0.6 * wTarget) || cd.frac < Math.max(PAT_FRAC_MIN, 0.7 * fTarget)) continue;
-        boost(cd);
-        if (cd.run2 >= 0.2 && cd.frac2 >= 0.3 * fTarget) return cd.sh;
+      let first = -1, last = -1, worst = 0;
+      for (let b = 0; b < NB; b++) if (good[b]) { if (first < 0) first = b; else if (b - last - 1 > worst) worst = b - last - 1; last = b; }
+      return first < 0 ? NB : Math.max(worst, first + NB - last - 1);
+    };
+    // adds wolf marks mk speed by speed (normal speed first: it fails most), taking them back if it breaks one
+    const tryAdd = (mk) => {
+      for (let j = 0; j < PAT_SPEEDS.length; j++) {
+        apply(mk, j, 1);
+        if (waits(j) > wait) { for (let i = 0; i <= j; i++) apply(mk, i, -1); return false; }
       }
-      return null;
-    };
-    const take = (E, leads, sh) => { Fs = Fs.map((F, j) => F.map((f, k) => andShifted(f, E[j][k], leads[j] + sh, N))); };
-    const kept = [];
-    for (const seg of segs) {
-      segSafety(seg, N, FINALE_PACK.slack, open);
-      const w = seg.wolves[0], leads = PAT_SPEEDS.map((vk) => Math.round((leg.len - seg.top) / vk / BIN));
-      const sh = place(w.E, leads);
-      if (sh == null) continue;          // it would (nearly) close the room: left out
-      take(w.E, leads, sh);
-      w.off += sh * BIN; w.leads = leads; w.shift = sh;
-      kept.push(seg);
-    }
-    const F = Fs[0];
-    const sc = laneScore(F), f = F[sc.li];
-    let bestS = 0, bestL = 0;
-    for (let t = 0; t < N; t++) {
-      if (!f[t] || f[(t + N - 1) % N]) continue;
-      let L = 0; while (L < N && f[(t + L) % N]) L++;
-      if (L > bestL) { bestL = L; bestS = t; }
-    }
-    if (!bestL && f[0]) { bestL = N; bestS = 0; }
-    if (chargers.length) kept.unshift({ name: 'chargers', top: ranges[li].hi + PAT_SAFE, bottom: ranges[li].lo - PAT_SAFE, wolves: chargers, chargers: true });
-    if (!kept.length) return null;
-    return {
-      leg: li, beat: T, segs: kept, li: sc.li, lane: PAT_LANES[sc.li], open, launch: ((bestS + Math.floor(bestL / 2)) % N) * BIN,
-      window: sc.run * BIN, frac: sc.frac, N, F: f, wTarget, fTarget,
-    };
-  };
-
-  // The final run's drift: not one group but as many wolves as stay fair, each with its own lap T / mu,
-  // mu = 1 + k/6 (FINALE_PACK.driftK: laps of 2/3, 2, 3/4, 3/2, 6/7 or 6/5 beats). Every such lap divides 6 beats,
-  // so the room repeats every 6 T <= FINALE_DRIFT_PERIOD s and driftLeg's replay proves it: wolves are tried one by
-  // one (random order; per wolf the laps least used in the room first, each with the few retimings that cost the
-  // solution lane the fewest launch bins) and a wolf keeps a lap (and retiming) only if, replayed bin by bin over the
-  // whole period together with every wolf drifting so far, the solution lane still gets its target launch window in
-  // every beat and its target share of the time, and every boot speed a gap in its best lane (driftLeg's rules,
-  // with one lane per boot speed: stricter). The replay keeps per launch bin the number of wolves in the way, so a
-  // wolf is added (or taken back) in one pass over the period. A drifting wolf's own sets are eroded by its drift
-  // during one crossing, a bin for rounding and its ease ramps (they don't scale with its speed): conservative.
-  const driftRoom = (pl) => {
-    const T = pl.beat, N = pl.N, n = FINALE_PACK.driftN, M = n * N, leg = legs[pl.leg];
-    const units = [];
-    for (const sg of pl.segs) if (!sg.chargers) for (const w of sg.wolves) units.push([w]);
-    if (!units.length) return;
-    const own = (w) => w.F || (w.F = w.R.map((L, j) => L.map((a) => shifted(a, w.leads[j] + w.shift, N))));
-    // checked: the solution lane at normal speed, and per boot speed the lane open longest with every wolf in step
-    // (one lane per speed is enough: a gap there is a gap)
-    const lanes = PAT_LANES.map((_, k) => k).filter((k) => pl.open[k]);
-    const inStepN = (j, k) => {
-      const cc = new Uint16Array(N);
-      for (const g of units) for (const w of g) { const f = own(w)[j][k]; for (let b = 0; b < N; b++) cc[b] += 1 - f[b]; }
-      return cc;
-    };
-    const checks = [[0, pl.li, inStepN(0, pl.li)]];
-    for (let j = 1; j < PAT_SPEEDS.length; j++) {
-      let best = null;
-      for (const k of lanes) {
-        const cc = inStepN(j, k);
-        let z = 0;
-        for (let b = 0; b < N; b++) z += cc[b] ? 0 : 1;
-        if (!best || z > best.z) best = { k, cc, z };
-      }
-      checks.push([j, best.k, best.cc]);
-    }
-    // wolves in the way of a launch at bin m of the period, per check, all in step to begin with
-    const cnt = checks.map(([, , cc]) => { const C = new Uint16Array(M); for (let m = 0; m < M; m++) C[m] = cc[m % N]; return C; });
-    const zeros = (C) => { let z = 0; for (let m = 0; m < M; m++) z += C[m] ? 0 : 1; return z; };
-    const bufs = checks.map(() => new Uint8Array(M));
-    const beats = (cs, win) => everyBeat(cs.map((c) => { const C = cnt[c], S = bufs[c]; for (let m = 0; m < M; m++) S[m] = C[m] ? 0 : 1; return S; }), win, N);
-    // where a drifting wolf (lap T / mu) is at launch bin m, per speed: a bin of its in-step beat
-    const idxOf = (w, mu, j) => {
-      const lead = (leg.len - 0.5 * (w.thMin + w.thMax)) / PAT_SPEEDS[j] / PAT_BIN, idx = new Int32Array(M);
-      for (let m = 0; m < M; m++) idx[m] = (((m + Math.round((mu - 1) * (m + lead))) % N) + N) % N;
-      return idx;
-    };
-    // its launch sets at check c, eroded by its drift during one crossing, a bin for rounding and its ease ramps
-    const eroded = (w, mu, c) => {
-      const [j, k] = checks[c], e = new Uint8Array(N).fill(1);
-      erodeAnd(e, own(w)[j][k], Math.ceil(Math.abs(mu - 1) * ((w.thMax - w.thMin + 2 * PAT_SAFE) / PAT_SPEEDS[j] / 2 + 2 * EASE_T) / PAT_BIN) + 1);
-      return e;
-    };
-    // move unit u at check c from in step to drifting with u.mu, retimed by u.dl bins (sgn -1: back)
-    const apply = (u, c, sgn) => u.g.forEach((w, i) => {
-      const C = cnt[c], [j, k] = checks[c], f = own(w)[j][k], e = u.es[i][c] || (u.es[i][c] = eroded(w, u.mu, c));
-      const idx = u.idx[i][j] || (u.idx[i][j] = idxOf(w, u.mu, j)), dl = u.dl;
-      for (let m = 0; m < M; m++) {
-        let q = idx[m] + dl; if (q >= N) q -= N;
-        const d = f[m % N] - e[q];
-        if (d) C[m] += sgn * d;
-      }
-    });
-    const win0 = Math.ceil(pl.wTarget / PAT_BIN - 1e-9), winB = Math.round(0.2 / PAT_BIN);
-    const fair0 = () => {
-      const C = cnt[0], S = bufs[0];
-      let z = 0;
-      for (let m = 0; m < M; m++) z += S[m] = C[m] ? 0 : 1;
-      return z >= pl.fTarget * M && everyBeat([S], win0, N);
-    };
-    const fairB = () => {
-      for (let c = 1; c < checks.length; c++) if (zeros(cnt[c]) < 0.45 * pl.fTarget * M || !beats([c], winB)) return false;
       return true;
     };
-    const free = new Uint8Array(M), used = {}, drifting = [];
-    for (const g of rng.shuffle(units)) {
-      // launch bins (normal speed, solution lane) that would be open without this wolf
-      const C0 = cnt[0];
-      let Z = 0;
-      for (let m = 0; m < M; m++) { let x = C0[m]; for (const w of g) x -= 1 - own(w)[0][pl.li][m % N]; Z += free[m] = x ? 0 : 1; }
-      // per lap (the laps used least in this room so far first, else the easy slow ones would take over): the
-      // retimings dl that lose the fewest of those bins and still leave the lane its share (per wolf: how many of
-      // them see it at each bin of its beat)
-      const tries = [];
-      for (const k of rng.shuffle(FINALE_PACK.driftK.slice()).sort((a, b) => (used[a] || 0) - (used[b] || 0))) {
-        const mu = 1 + k / n;
-        const vs = g.map((w) => patternSpeed(w, w.cycle / mu));
-        if (vs.some((v) => !(v > 0 && v <= PAT_VMAX))) continue;
-        const u = { g, mu, k, vs, dl: 0, es: g.map(() => []), idx: g.map(() => []) };
-        const hs = g.map((w, i) => {
-          const h = new Int32Array(N), idx = u.idx[i][0] = idxOf(w, mu, 0);
-          for (let m = 0; m < M; m++) if (free[m]) h[idx[m]]++;
-          u.es[i][0] = eroded(w, mu, 0);
-          return h;
-        });
-        const base = Math.floor(rng.next() * N), dls = [];
-        for (let q = 0; q < 16; q++) {
-          const dl = (base + Math.round(q * N / 16)) % N;
-          let lost = 0;
-          hs.forEach((h, i) => { const e = u.es[i][0]; for (let x = 0, q2 = dl; x < N; x++) { if (h[x] && !e[q2]) lost += h[x]; if (++q2 === N) q2 = 0; } });
-          if (Z - lost >= pl.fTarget * M) dls.push({ dl, lost });
+    const kept = [];
+    if (lanes.length) for (const seg of design.segs) {
+      const w = seg.wolves[0];
+      for (let t = 0; t < FF.tries; t++) {
+        if (w.type !== 'looper') {      // the fitting hold nearest a uniform one
+          const u = FINALE_HOLD[0] + (FINALE_HOLD[1] - FINALE_HOLD[0]) * rng.next();
+          w.hold = w.holds.reduce((a, h) => (Math.abs(h - u) < Math.abs(a - u) ? h : a));
         }
-        dls.sort((x, y) => x.lost - y.lost);
-        for (const { dl } of dls.slice(0, FINALE_PACK.driftShifts)) tries.push({ u, dl });
-      }
-      for (const { u, dl } of tries) {
-        u.dl = dl;
-        apply(u, 0, 1);
-        if (!fair0()) { apply(u, 0, -1); continue; }
-        for (let c = 1; c < checks.length; c++) apply(u, c, 1);
-        if (!fairB()) { for (let c = 0; c < checks.length; c++) apply(u, c, -1); continue; }
-        drifting.push(u); used[u.k] = (used[u.k] || 0) + 1;
-        break;
+        w.phase = Math.round(rng.next() * 1e9) / 1e9;
+        if (tryAdd(marks(w))) { kept.push(seg); break; }
       }
     }
-    for (const u of drifting) u.g.forEach((w, i) => { w.speed = u.vs[i]; w.off += u.dl * PAT_BIN; });   // lap T / mu; w.cycle (the beat) stays its phase reference
-    if (drifting.length) pl.period = n * T;
+    // the lane open longest at normal speed: the plan's lane (tooling); window = its longest clear run (s)
+    let best = null;
+    lanes.forEach((k, x) => {
+      const C = cnt[0][x];
+      let z = 0, run = 0, top = 0, first = -1;
+      for (let q = 0; q < 2 * NB; q++) {
+        if (C[q % NB]) { run = 0; continue; }
+        run++; top = Math.max(top, run);
+        if (q < NB) z++;
+        if (first < 0 && run >= win) first = ((q - win + 1) % NB) * BIN;
+      }
+      if (!best || z > best.z) best = { k, z, top: Math.min(top, NB), first };
+    });
+    if (chargers.length) kept.unshift({ name: 'chargers', top: ranges[li].hi + PAT_SAFE, bottom: ranges[li].lo - PAT_SAFE, wolves: chargers, chargers: true });
+    if (!kept.length || !best) return null;
+    return {
+      leg: li, beat: null, segs: kept, li: best.k, lane: PAT_LANES[best.k], open, launch: best.first, window: best.top * BIN, frac: best.z / NB,
+      maxWait: Math.max(...PAT_SPEEDS.map((_, j) => waits(j))) * BIN,
+    };
   };
 
   const heat = p.patternHeat || 0;
@@ -1125,14 +1083,14 @@ function placePatternEnemies(rng, lvl, p) {
       continue;
     }
     const chargers = makeChargers(li, D, chargerLanes(li, D));
-    const pl = lvl.finale ? solveRoom(li, finaleDesign(li, D), chargers, wTarget, fTarget)
+    const pl = lvl.finale ? fairRoom(li, finaleDesign(li, D), chargers)
       : solveLeg(li, legDesign(li, D, 0), chargers, wTarget, fTarget);
     if (pl) plans.push(pl);
   }
 
   // ---- drift: not in level 1's lessons, nor in the final door (the room before it may drift, door included)
   for (const pl of plans) {
-    if (lvl.finale) { driftRoom(pl); continue; }     // the final run: (nearly) every wolf on its own lap
+    if (lvl.finale) continue;     // the final run: every wolf on its own lap already (fairRoom)
     if (pl.finale || (level === 1 && pl.leg < PAT_LESSONS.length) || !rng.chance(PAT_DRIFT_CHANCE)) continue;
     driftLeg(pl);
     const door = plans.find((q) => q.finale && q.leg === pl.leg + 1);
@@ -1147,11 +1105,12 @@ function placePatternEnemies(rng, lvl, p) {
         id, type: w.type, leg: pl.leg, frame: w.frame,
         rIn: w.rMin, rOut: w.rMax, a0: w.thMin, a1: w.thMax,
         speed: w.speed,
-        phase: Math.round((((w.off % w.cycle) + w.cycle) % w.cycle) / w.cycle * 1e9) / 1e9,
+        phase: w.phase ?? Math.round((((w.off % w.cycle) + w.cycle) % w.cycle) / w.cycle * 1e9) / 1e9,
         seed: hashSeed(seed, level, 'wolf', id),
         route: w.route, loop: !!w.loop,
         pattern: seg.name,
       });
+      if (w.hold != null) enemies[id].hold = w.hold;
     }
   }
   // One solution per leg (for tests / tooling): skate lane `lane` (leg-local r), leaving the entry corner's
@@ -1159,6 +1118,15 @@ function placePatternEnemies(rng, lvl, p) {
   // PAT_SLACK to spare. A drifting room is like that at level start; it slides and is back every `period` s.
   // The finale entry describes the door of the final stretch, entered from the previous leg (its `finalLane`).
   const r3 = (x) => Math.round(x * 1000) / 1000;
+  // The final run's rooms have no beat: launch = the first good launch time (level time), maxWait = the longest wait
+  // for a good launch (any lane, worst boot speed) over the sampled spans.
+  if (lvl.finale) {
+    lvl.patternPlan = plans.map((pl) => ({
+      leg: pl.leg, lane: pl.lane, launch: pl.launch == null || pl.launch < 0 ? null : r3(pl.launch), window: r3(pl.window), frac: r3(pl.frac),
+      maxWait: r3(pl.maxWait), finale: false, segs: pl.segs.map((sg) => ({ name: sg.name, top: r3(sg.top), bottom: r3(sg.bottom) })),
+    }));
+    return enemies;
+  }
   lvl.patternPlan = plans.map((pl) => ({
     leg: pl.leg, beat: pl.beat, period: r3(pl.period || pl.beat), lane: pl.lane, launch: pl.launch == null ? null : r3(pl.launch),
     window: r3(pl.window), frac: r3(pl.frac), finalLane: pl.finalLane, finale: !!pl.finale,
@@ -1452,6 +1420,55 @@ function patternGaps(ld, pl, step = 0.1) {
   return { window: best * step, maxWait: maxWait * step };
 }
 
+// The final run (no beat; a room repeats every FINALE_PERIOD s): from the middle of the gap before the room,
+// straight down every lane that is not a charger's, at the given skating speeds, against the real wolves (created
+// and stepped tick by tick by enemies.js; a jump between spans). Launches every `step` s over each span; a launch is
+// good if its lane stays clear (PAT_HIT) for FINALE_FAIR.win. Per span: the longest clear run (s) in any lane, and
+// the longest wait for a good launch in any lane at the worst speed (from the span's start, to its end).
+function finaleGaps(ld, pl, spans = [[0, FINALE_PERIOD]], step = 0.05, speeds = PAT_SPEEDS) {
+  const leg = ld.legs[pl.leg], specs = ld.enemies.filter((e) => e.leg === pl.leg);
+  const lanes = PAT_LANES.filter((r) => specs.every((e) => e.type !== 'charger' || Math.abs(e.route[0].r - r) >= PAT_SAFE + 0.3));
+  const trajs = speeds.map((vk) => lanes.map((r) => skatePath(planPoints(leg, r), vk)));
+  const longest = Math.max(...trajs.flat().map((t) => t.xs.length));
+  const per = Math.round(step / CFG.TICK), win = Math.round(FINALE_FAIR.win / step), h2 = PAT_HIT * PAT_HIT;
+  const boxes = specs.map((e) => { const w = { frame: e.frame, route: e.route }; wolfBox(w); return w; });
+  const wolves = createEnemies({ enemies: specs });
+  let now = 0;
+  return spans.map(([a, b]) => {
+    const n = Math.round((b - a) / step), H = n * per + longest + 1;
+    updateEnemies(wolves, ld, a - now);
+    const X = wolves.map(() => new Float32Array(H)), Z = wolves.map(() => new Float32Array(H));
+    for (let j = 0; j < H; j++) {
+      if (j) updateEnemies(wolves, ld, CFG.TICK);
+      for (let i = 0; i < wolves.length; i++) { X[i][j] = wolves[i].x; Z[i][j] = wolves[i].z; }
+    }
+    now = a + (H - 1) * CFG.TICK;
+    let window = 0, maxWait = 0;
+    trajs.forEach((byLane) => {
+      const good = new Uint8Array(n);
+      for (const traj of byLane) {
+        const ok = new Uint8Array(n).fill(1);
+        boxes.forEach((w, i) => {
+          const idx = [];
+          for (let k = 0; k < traj.xs.length; k++) if (traj.xs[k] > w.x0 - PAT_HIT && traj.xs[k] < w.x1 + PAT_HIT && traj.zs[k] > w.z0 - PAT_HIT && traj.zs[k] < w.z1 + PAT_HIT) idx.push(k);
+          for (let q = 0; q < n; q++) {
+            if (!ok[q]) continue;
+            for (const k of idx) {
+              const j = q * per + k + 1, dx = traj.xs[k] - X[i][j], dz = traj.zs[k] - Z[i][j];
+              if (dx * dx + dz * dz < h2) { ok[q] = 0; break; }
+            }
+          }
+        });
+        for (let q = n - 1, run = 0; q >= 0; q--) { run = ok[q] ? run + 1 : 0; window = Math.max(window, run * step); if (run >= win) good[q] = 1; }
+      }
+      let last = -1, wt = 0;
+      for (let q = 0; q < n; q++) if (good[q]) { wt = Math.max(wt, q - last - 1); last = q; }
+      maxWait = Math.max(maxWait, (Math.max(wt, n - 1 - last)) * step);
+    });
+    return { window, maxWait };
+  });
+}
+
 function checkPatternWolves(ld, P, stats) {
   const ranges = usableRanges(ld.legs);
   const vOut = CFG.RING_WIDTH / 2 - WOLF_MARGIN, eps = 1e-6;
@@ -1490,13 +1507,21 @@ function checkPatternWolves(ld, P, stats) {
       if (Math.abs(Math.abs(A.r) - vOut) > eps || Math.abs(Math.abs(B.r) - vOut) > eps || Math.sign(A.r) === Math.sign(B.r)) P(`${tag}: does not run wall to wall`);
       if (e.type === 'crosser' && Math.abs(A.th - B.th) > eps) P(`${tag}: crosser not straight across`);
     }
-    if (e.type !== 'charger' && (e.type === 'looper' ? e.loop : !e.loop && e.route.length === 2)) {
+    if (ld.finale) {
+      // the final run: one speed per kind of wolf; crossers / diagonals stand at each wall for their own hold
+      if (e.speed !== FINALE_SPEED[e.type]) P(`${tag}: speed ${e.speed} is not the final run's ${e.type} speed ${FINALE_SPEED[e.type]}`);
+      const holds = e.type === 'crosser' || e.type === 'diagonal';
+      if (holds ? !(e.hold >= FINALE_HOLD[0] && e.hold <= FINALE_HOLD[1]) : e.hold != null) P(`${tag}: hold ${e.hold}`);
+      const lap = buildPlan(e, e.frame, e.speed).cycle, n = Math.round(FINALE_PERIOD / lap);
+      if (e.type !== 'charger' && Math.abs(n * lap - FINALE_PERIOD) > 1e-6) P(`${tag}: lap ${lap} does not divide the room's period ${FINALE_PERIOD}`);
+    } else if (e.hold != null) P(`${tag}: holds belong to the final run`);
+    if (!ld.finale && e.type !== 'charger' && (e.type === 'looper' ? e.loop : !e.loop && e.route.length === 2)) {
       // its lap divides the leg beat T, or it drifts: back in step with the beat within PAT_DRIFT_PERIOD, and the leg's
       // period (n beats) is a whole number of its laps
       const cyc = buildPlan(e, e.frame, e.speed).cycle, T = beat.get(e.leg), base = T / Math.max(1, Math.round(T / cyc));
       if (!T) P(`${tag}: leg has no beat`);
       else if (Math.abs(cyc - base) > 1e-4) {
-        const back = base * cyc / Math.abs(base - cyc), per = period.get(e.leg), cap = ld.finale ? FINALE_DRIFT_PERIOD : PAT_DRIFT_PERIOD;
+        const back = base * cyc / Math.abs(base - cyc), per = period.get(e.leg), cap = PAT_DRIFT_PERIOD;
         if (back > cap + 1e-6) P(`${tag}: lap ${cyc.toFixed(3)} drifts back into step with the beat ${T} only every ${back.toFixed(1)}s`);
         if (!(per > T && per <= cap + 1e-6) || Math.abs(cyc * Math.round(per / cyc) - per) > 1e-3) P(`${tag}: lap ${cyc.toFixed(3)} does not divide the leg's period ${per}`);
         if (!drift.has(e.leg)) drift.set(e.leg, new Set());
@@ -1523,6 +1548,18 @@ function checkPatternWolves(ld, P, stats) {
   for (const pl of ld.patternPlan || []) {
     if (pl.period > pl.beat && !pl.finale) stats.iceDriftRooms++;
     if (ld.patternPlan.some((q) => q.leg === pl.leg + 1 && q.finale)) continue;   // checked with its final door
+    if (ld.finale) {
+      // one whole period (the room repeats), at normal speed and with all the boots; and a stretch an hour in
+      const sp = [PAT_VK, PAT_SPEEDS[PAT_SPEEDS.length - 1]];
+      const [g, late] = finaleGaps(ld, pl, [[0, FINALE_PERIOD], [3600, 3660]], 0.1, sp);
+      stats.finaleRooms++;
+      stats.finaleMaxWait = Math.max(stats.finaleMaxWait, g.maxWait, late.maxWait);
+      stats.iceMinWindow = Math.min(stats.iceMinWindow, g.window, late.window);
+      for (const [x, when] of [[g, ''], [late, ', an hour in']]) {
+        if (x.maxWait > FINALE_FAIR.wait + 0.2 || x.window < FINALE_FAIR.win) P(`leg ${pl.leg} (final run${when}): best window ${x.window.toFixed(2)}s, longest wait ${x.maxWait.toFixed(2)}s`);
+      }
+      continue;
+    }
     const g = patternGaps(ld, pl);
     stats.iceMinWindow = Math.min(stats.iceMinWindow, g.window);
     stats.iceMaxWait = Math.max(stats.iceMaxWait, g.maxWait);
@@ -1535,7 +1572,7 @@ function checkPatternWolves(ld, P, stats) {
 function mazeSelfTest(levels = 12, modes = ['mixed', 'ice']) {
   const problems = [];
   const seeds = [1, 42, 1337, 9001, 'kitty', 777777];
-  const stats = { levels: 0, avgPathLen: 0, enemies: 0, items: 0, iceWolves: 0, iceRooms: 0, iceDriftRooms: 0, iceMinWindow: Infinity, iceMaxWait: 0 };
+  const stats = { levels: 0, avgPathLen: 0, enemies: 0, items: 0, iceWolves: 0, iceRooms: 0, iceDriftRooms: 0, iceMinWindow: Infinity, iceMaxWait: 0, finaleRooms: 0, finaleMaxWait: 0 };
   for (const mode of modes) for (const s of seeds) {
     for (let l = 1; l <= levels; l++) {
       const P = (s, l, msg) => { if (problems.length < 200) problems.push(`${mode} seed ${s} L${l}: ${msg}`); };
@@ -1602,4 +1639,4 @@ function mazeSelfTest(levels = 12, modes = ['mixed', 'ice']) {
   return { ok: problems.length === 0, problems, stats };
 }
 
-export { generateLevel, collideCircle, locate, inCenter, onIce, inTree, mazeSelfTest };
+export { generateLevel, collideCircle, locate, inCenter, onIce, inTree, mazeSelfTest, finaleGaps };

@@ -682,15 +682,15 @@ function syncVisuals(dt, alpha) {
     if (!m) continue;
     const near = (e.x - camTarget.x) ** 2 + (e.z - camTarget.z) ** 2 < cullR2;
     m.group.visible = near;
-    if (!near) { m.wasMoving = undefined; continue; }
+    if (!near) { m.lastHeading = undefined; continue; }
     const [x, z] = lerpPos('e' + e.id, e.x, e.z, alpha);
     m.group.position.set(x, 0, z);
     m.group.rotation.y = -e.heading;
     m.update(dt, { moving: e.moving, tell: e.tell, speed01: Math.min(1, (e.speedNow || 0) / 4), time: t });
     if (e.pattern) {
-      // push-off: shavings the moment a held wolf sets off
-      if (m.wasMoving === false && e.moving) effects.iceKick(x, z, e.heading);
-      m.wasMoving = e.moving;
+      // push-off: shavings the moment a wolf turns round at the end of a run (its heading changes once per run)
+      if (m.lastHeading !== undefined && e.heading !== m.lastHeading) effects.iceKick(x, z, e.heading);
+      m.lastHeading = e.heading;
     }
   }
   // items

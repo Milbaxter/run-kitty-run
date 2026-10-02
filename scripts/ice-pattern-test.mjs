@@ -349,7 +349,7 @@ function injectFake(sim) {
       else { route = [{ r: -3, th: c - 2.5 }, { r: 3, th: c - 2.5 }, { r: 3, th: c + 2.5 }, { r: -3, th: c + 2.5 }]; loop = true; }
       const id = specs.length;
       specs.push({
-        id, type: 'wanderer', pattern: kind, leg: li, frame, route, loop, hold: 0.7, speed: spd, phase: rng.next(),
+        id, type: 'wanderer', pattern: kind, leg: li, frame, route, loop, speed: spd, phase: rng.next(),
         rIn: Math.min(...route.map((q) => q.r)), rOut: Math.max(...route.map((q) => q.r)),
         a0: Math.min(...route.map((q) => q.th)), a1: Math.max(...route.map((q) => q.th)),
         seed: hashSeed(sim.seed, L, 'fakewolf', id),

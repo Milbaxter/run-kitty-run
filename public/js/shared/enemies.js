@@ -1,5 +1,5 @@
 import { CFG } from './config.js';
-import { createRng, hashSeed, TAU } from './rng.js';
+import { createRng, TAU } from './rng.js';
 
 // Wolves: deterministic enemy behaviors. Pure (no THREE, no DOM).
 //
@@ -313,31 +313,26 @@ function stepEnemy(e, dt) {
 
 
 // ---------------------------------------------------------------------------
-// Pattern wolves (Skate only mode): no randomness at all. A pattern wolf walks a fixed route of
-// waypoints in its leg frame at a constant cruise speed, holding a fixed time at each waypoint, so its
-// position is a pure function of time and players can learn the rhythm.
+// Pattern wolves (Skate only mode): no randomness at all. A pattern wolf runs a fixed route of waypoints
+// in its leg frame at a constant cruise speed and never stands still: it slows into each waypoint and sets
+// straight off for the next one (the EASE_T ramps), so its position is a pure function of time and players
+// can learn the rhythm.
 //
 // Spec (from maze.js placement; any spec with a `route` is a pattern wolf, whatever its `type`):
-//   route: [{ r, th, hold }]  waypoints in leg-local coords; hold = seconds standing at that waypoint
-//                             before leaving it (default spec.hold, else 0.5)
+//   route: [{ r, th }]  waypoints in leg-local coords
 //   loop:  true  -> A > B > C > A ...   false/absent -> ping-pong A > B > C > B > A ...
 //   speed: cruise speed (units/s);  phase: 0..1 offset into the cycle (same phase = same timing)
-//   jitter: optional per-cycle hold variation (see cyclePlan)
 //   rIn/rOut/a0/a1: bounding box of the route (kept for bounds checks / selftest)
 // Public extras on the enemy: e.route (the spec route), e.cycleT (cycle length, s), e.cycleU (0..1 now).
-// No tell: a pattern wolf keeps facing the way it came while it holds and sets off without warning
-// (e.tell stays 0; TELL_T > 0 would turn it toward its next move over the end of each hold).
+// No tell: a pattern wolf turns round at the end of a run without warning (e.tell stays 0).
 
-const TELL_T = 0;
+const UNIT_FRAME = { ox: 0, oz: 0, ux: 1, uz: 0, nx: 0, nz: 1 };
 
 function isPattern(spec) { return !!(spec && Array.isArray(spec.route) && spec.route.length >= 2); }
 
-// Builds the timed segment list: [{ hold, r0, th0, r1, th1, L, T, dir, tStart }] and the cycle length.
+// Builds the timed segment list: [{ r0, th0, r1, th1, L, T, dir, tStart }] and the cycle length.
 function buildPlan(spec, f, speed) {
-  const pts = spec.route.map((w) => ({
-    r: Number(w.r) || 0, th: Number(w.th) || 0,
-    hold: Math.max(0, Number.isFinite(w.hold) ? w.hold : Number.isFinite(spec.hold) ? spec.hold : 0.5),
-  }));
+  const pts = spec.route.map((w) => ({ r: Number(w.r) || 0, th: Number(w.th) || 0 }));
   const order = [];
   for (let i = 0; i < pts.length; i++) order.push(i);
   if (spec.loop) order.push(0);
@@ -349,8 +344,8 @@ function buildPlan(spec, f, speed) {
     const L = pathLen(a.r, a.th, b.r, b.th);
     const T = profileT(L, speed);
     const dir = L > 1e-5 ? Math.atan2(f.uz * (b.th - a.th) + f.nz * (b.r - a.r), f.ux * (b.th - a.th) + f.nx * (b.r - a.r)) : null;
-    segs.push({ hold: a.hold, r0: a.r, th0: a.th, r1: b.r, th1: b.th, L, T, dir, tStart: t });
-    t += a.hold + T;
+    segs.push({ r0: a.r, th0: a.th, r1: b.r, th1: b.th, L, T, dir, tStart: t });
+    t += T;
   }
   // segments with no movement inherit the previous direction
   let last = null;
@@ -359,105 +354,55 @@ function buildPlan(spec, f, speed) {
   return { segs, cycle: Math.max(1e-3, t), speed };
 }
 
+// Cruise speed at which a route takes exactly `cycle` seconds per lap, for routes whose every run is long enough
+// to reach cruise speed (maze.js fits each room wolf to its leg's beat this way and checks the resulting cycle).
+function patternSpeed(spec, cycle) {
+  const runs = buildPlan(spec, UNIT_FRAME, 1).segs.filter((s) => s.L > 1e-5);
+  return runs.reduce((a, s) => a + s.L, 0) / (cycle - runs.length * EASE_T);
+}
+
 // Pure: pose of a pattern wolf at cycle time tc (0 <= tc < cycle).
 function patternPose(plan, tc) {
   const segs = plan.segs;
   let i = segs.length - 1;
-  for (let k = 0; k < segs.length; k++) { if (tc < segs[k].tStart + segs[k].hold + segs[k].T) { i = k; break; } }
+  for (let k = 0; k < segs.length; k++) { if (tc < segs[k].tStart + segs[k].T) { i = k; break; } }
   const s = segs[i];
-  const prev = segs[(i - 1 + segs.length) % segs.length];
   const u = tc - s.tStart;
-  if (u < s.hold) {
-    // holding at the waypoint: face the way we came (turn toward the next move during the tell, if any)
-    const tellT = Math.min(TELL_T, s.hold);
-    const k = tellT > 0 ? clamp((u - (s.hold - tellT)) / tellT, 0, 1) : 0;
-    const e = k * k * (3 - 2 * k);
-    return { r: s.r0, th: s.th0, heading: wrapPi(prev.dir + wrapPi(s.dir - prev.dir) * e), moving: false, speed: 0, tell: k };
-  }
-  const tm = u - s.hold;
-  const d = profileS(tm, s.T, s.L, plan.speed);
+  const d = profileS(u, s.T, s.L, plan.speed);
   const q = s.L > 0 ? clamp(d / s.L, 0, 1) : 1;
-  return {
-    r: s.r0 + (s.r1 - s.r0) * q, th: s.th0 + (s.th1 - s.th0) * q,
-    heading: s.dir, moving: true, speed: profileV(tm, s.T, s.L, plan.speed), tell: 0,
-  };
-}
-
-// spec.jitter (0..MAX_JITTER, default 0): every cycle each hold is stretched or shortened by up to jitter * hold,
-// from a hash of (seed, cycle, segment), then rebalanced so the cycle length stays the same. Wolves stop being
-// metronomes but stay deterministic (same on every client) and keep their beat with their neighbours.
-// Jittered wolves also skip a hold now and then (NO_STOP_CHANCE per hold per cycle): they turn straight round
-// without stopping, and the skipped time goes on their other holds, so the cycle length still stays the same.
-const MAX_JITTER = 0.45;
-const NO_STOP_CHANCE = 0.15;
-
-// deterministic 0..1 from (seed, tag, cycle, segment)
-function hash01(seed, tag, k, i) {
-  let h = hashSeed(seed, tag, k, i);
-  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b); h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35); h = (h ^ (h >>> 16)) >>> 0; // fmix: FNV alone is clumpy
-  return h / 4294967296;
-}
-
-function cyclePlan(e, k) {
-  const plan = e._plan, j = e._jitter;
-  if (!(j > 0)) return plan;
-  if (e._cyc && e._cyc.k === k) return e._cyc.plan;
-  const segs = plan.segs;
-  const seed = e.spec.seed >>> 0;
-  let sumD = 0, sumH = 0;
-  const d = segs.map((s, i) => {
-    const u = hash01(seed, 'hold', k, i) * 2 - 1;
-    sumD += j * s.hold * u; sumH += s.hold;
-    return j * s.hold * u;
-  });
-  let holds = segs.map((s, i) => Math.max(0, s.hold + d[i] - (sumH > 0 ? s.hold * sumD / sumH : 0)));
-  const skip = segs.map((s, i) => hash01(seed, 'skip', k, i) < NO_STOP_CHANCE);
-  let freed = 0, kept = 0;
-  holds.forEach((h, i) => { if (skip[i]) freed += h; else kept += h; });
-  if (freed > 0 && kept > 0) holds = holds.map((h, i) => (skip[i] ? 0 : h * (1 + freed / kept)));
-  let t = 0;
-  const out = segs.map((s, i) => {
-    const hold = holds[i];
-    const o = Object.assign({}, s, { hold, tStart: t });
-    t += hold + s.T;
-    return o;
-  });
-  const cp = { segs: out, cycle: plan.cycle, speed: plan.speed };
-  e._cyc = { k, plan: cp };
-  return cp;
+  return { r: s.r0 + (s.r1 - s.r0) * q, th: s.th0 + (s.th1 - s.th0) * q, heading: s.dir, speed: profileV(u, s.T, s.L, plan.speed) };
 }
 
 function poseEnemy(e) {
-  const st = e._st, plan = e._plan;
-  const tc = clamp(st.time, 0, plan.cycle - 1e-9);
-  const p = patternPose(cyclePlan(e, st.k), tc);
-  e.heading = p.heading; e.moving = p.moving; e.speedNow = p.speed; e.tell = p.tell;
+  const plan = e._plan;
+  const tc = clamp(e._st.time, 0, plan.cycle - 1e-9);
+  const p = patternPose(plan, tc);
+  e.heading = p.heading; e.moving = true; e.speedNow = p.speed; e.tell = 0;
   e.cycleU = tc / plan.cycle;
   place(e, p.r, p.th);
 }
 
 function createPatternEnemy(spec) {
-  const f = spec.frame || { ox: 0, oz: 0, ux: 1, uz: 0, nx: 0, nz: 1 };
+  const f = spec.frame || UNIT_FRAME;
   const speed = Math.max(0.1, Number.isFinite(spec.speed) ? spec.speed : 2.4);
   const plan = buildPlan(spec, f, speed);
   const phase = Number.isFinite(spec.phase) ? spec.phase : 0;
-  // st is what serializeEnemies ships: keep it tiny (cycle count + time in the cycle is the whole state)
-  const st = { rng: createRng((spec.seed >>> 0) || 1), f, k: 0, time: (((phase % 1) + 1) % 1) * plan.cycle };
+  // st is what serializeEnemies ships: keep it tiny (the time in the cycle is the whole state)
+  const st = { rng: createRng((spec.seed >>> 0) || 1), f, time: (((phase % 1) + 1) % 1) * plan.cycle };
   const e = {
     id: spec.id, type: spec.type, spec, pattern: true,
     x: 0, z: 0, heading: 0, radius: CFG.WOLF_RADIUS,
-    moving: false, tell: 0, speedNow: 0,
+    moving: true, tell: 0, speedNow: 0,
     route: spec.route, loop: !!spec.loop, cycleT: plan.cycle, cycleU: 0,
-    _st: st, _plan: plan, _jitter: clamp(Number(spec.jitter) || 0, 0, MAX_JITTER), _cyc: null,
+    _st: st, _plan: plan,
   };
   poseEnemy(e);
   return e;
 }
 
 function stepPatternEnemy(e, dt) {
-  const st = e._st, cycle = e._plan.cycle;
-  st.time += dt;
-  if (st.time >= cycle) { const n = Math.floor(st.time / cycle); st.k += n; st.time -= n * cycle; }
+  const st = e._st;
+  st.time = (st.time + dt) % e._plan.cycle;
   poseEnemy(e);
 }
 
@@ -516,4 +461,4 @@ function applyEnemyState(enemies, data) {
   }
 }
 
-export { createEnemies, updateEnemies, nearestEnemyDist, serializeEnemies, applyEnemyState, isPattern, patternPose, buildPlan, cyclePlan, MAX_JITTER };
+export { createEnemies, updateEnemies, nearestEnemyDist, serializeEnemies, applyEnemyState, isPattern, patternPose, buildPlan, patternSpeed };

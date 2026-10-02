@@ -8,7 +8,7 @@ import { hashSeed } from './shared/rng.js';
 import { collideCircle, onIce, inTree } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
 import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
-import { createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel } from './models.js';
+import { createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel } from './models.js';
 import { buildWorld, setupLighting } from './world.js';
 import { createEffects } from './effects.js';
 import { createIceTrail } from './trail.js';
@@ -369,6 +369,7 @@ function clearView() {
   scene.remove(view.world.group);
   scene.remove(view.portal.group);
   scene.remove(view.crown.group);
+  if (view.fish) scene.remove(view.fish.group);
   for (const w of view.wolves.values()) scene.remove(w.group);
   for (const it of view.items.values()) scene.remove(it.group);
   for (const c of view.circles.values()) scene.remove(c.group);
@@ -403,7 +404,10 @@ function buildView() {
     scene.add(m.group);
     items.set(it.id, m);
   }
-  view = { levelData: ld, world, portal, crown, wolves, items, circles: new Map() };
+  // the final run: a giant fish waits in the goal room for the kitties (eaten client-side, see feast())
+  let fish = null;
+  if (ld.finale) { fish = createGiantFishModel(); scene.add(fish.group); }
+  view = { levelData: ld, world, portal, crown, fish, wolves, items, circles: new Map() };
   prevPos.clear();
 }
 
@@ -664,6 +668,10 @@ function updateVictory(dt) {
   }
   if (v.t < 7) effects.confettiRain(0, 0, 10, Math.max(1, Math.round(3 * QUALITY.particles)));
   if (!v.musicBack && v.t > 4.8) { v.musicBack = true; musicFadeIn(sim.level); }
+  if (view && view.fish) {
+    if (!v.feastCue && v.t > 2.4) { v.feastCue = true; if (!view.fish.done()) { const h = view.fish.headPos(); effects.floatText(h.x * 0.75, 2.4, h.z * 0.75, 'FISH FEAST!', '#ffb27a'); } }
+    if (v.shown) ui.updateVictoryFish(Math.floor(view.fish.eaten() * 100));
+  }
   if (!v.shown && v.t > 5.5) { v.shown = true; v.shownAt = v.t; showVictoryScreen(); }
   // online: the server sent everyone back to the lobby; give the victory screen a few seconds, then follow
   if (v.lobbyAt != null && online.playing && v.shown && v.t - Math.max(v.lobbyAt, v.shownAt) > 5) {
@@ -680,6 +688,7 @@ function showVictoryScreen() {
     runTime: ev && Number.isFinite(ev.time) ? ev.time : (wasOnline ? undefined : sim.levelTime),
     totalTime: Math.max(0, sim.time - victory.t), // time at the win (online, sim.time only arrives with the snapshots)
     deaths: sim.stats.deaths, rescues: sim.stats.rescues,
+    fish: view && view.fish ? Math.floor(view.fish.eaten() * 100) : undefined,
     first: by ? { name: by.name, color: by.color } : null,
     players: sim.players.map((p) => ({ name: p.name, color: p.color, first: !!by && p.id === by.id })),
   };
@@ -838,6 +847,70 @@ function cycleColor(t, out) {
   return out.set(PLAYER_COLORS[i]).lerp(_cycB.set(PLAYER_COLORS[(i + 1) % n]), f * f * (3 - 2 * f));
 }
 
+// ---------- the final run's giant fish: kitties next to it eat it ----------
+// Pure presentation: the sim knows nothing about the fish, so every client counts its own bites from where the kitties
+// stand (kitties that reached the goal are held inside the goal disc, whose rim runs along the fish's belly). A kitty
+// standing still within FEAST_REACH of an uneaten chunk faces it and munches; after the win, kitties left standing
+// around near the fish wander over to it by themselves (a small visual offset that melts away as soon as they move).
+const FEAST_REACH = 1.3;     // gap between a kitty's centre and the fish's surface (kitties in the goal stay within ~4.7 of the origin)
+const FEAST_WANDER = 4.5;    // after the win: idle kitties this close walk over by themselves (offset at most FEAST_STRAY)
+const FEAST_STRAY = 7;
+function feast(k, p, x, z, dt) {
+  const fish = view.fish;
+  if (k.ox === undefined) { k.ox = 0; k.oz = 0; k.idleT = 0; k.biteT = 0.3; k.bites = 0; }
+  const st = sim.state;
+  if (st !== 'playing' && st !== 'victory') { k.ox = 0; k.oz = 0; return null; }
+  const still = !p.moving;
+  k.idleT = still ? k.idleT + dt : 0;
+  const vx = x + k.ox, vz = z + k.oz;   // where the kitty is shown
+  const near = fish.nearest(vx, vz);
+  if ((!near || near.d > FEAST_WANDER + 0.5) && Math.abs(k.ox) + Math.abs(k.oz) < 1e-3) { k.ox = 0; k.oz = 0; return null; }
+  // standing still: stay where you are shown; moving: the offset melts away
+  let wx = still ? k.ox : 0, wz = still ? k.oz : 0;
+  if (victory && near && still && k.idleT > 2 && near.d > FEAST_REACH * 0.8 && near.d < FEAST_WANDER) {
+    const gx = near.px - vx, gz = near.pz - vz, L = Math.hypot(gx, gz), m = Math.max(0, near.d - FEAST_REACH * 0.5);
+    if (L > 1e-6) { wx += gx / L * m; wz += gz / L * m; }
+    // stay on the dais side of the fish (never stroll out over the bones), and not too far from the real kitty
+    const tx = x + wx, tz = z + wz, tr = Math.hypot(tx, tz), RMAX = sim.levelData.centerRadius;
+    if (tr > RMAX) { wx = tx * RMAX / tr - x; wz = tz * RMAX / tr - z; }
+    const wl = Math.hypot(wx, wz);
+    if (wl > FEAST_STRAY) { wx *= FEAST_STRAY / wl; wz *= FEAST_STRAY / wl; }
+  }
+  // walk there at a stroll; snap back quickly once the player moves
+  const px = k.ox, pz = k.oz, gx = wx - k.ox, gz = wz - k.oz, gl = Math.hypot(gx, gz), step = Math.min(gl, dt * (still ? 2.4 : 10));
+  if (gl > 1e-6) { k.ox += gx / gl * step; k.oz += gz / gl * step; }
+  const vel = dt > 0 ? Math.hypot(k.ox - px, k.oz - pz) / dt : 0;
+  const ex = x + k.ox, ez = z + k.oz;
+  const walking = still && vel > 0.35;
+  let face = walking ? Math.atan2(k.oz - pz, k.ox - px) : null, munch = false;
+  const n2 = near && (k.ox !== px || k.oz !== pz) ? fish.nearest(ex, ez) : near;
+  if (n2 && still && !walking && n2.d < FEAST_REACH) {
+    munch = true;
+    face = Math.atan2(n2.pz - ez, n2.px - ex);
+    k.biteT -= dt;
+    if (k.biteT <= 0) {
+      k.biteT = 0.5 + Math.random() * 0.25;
+      const b = fish.bite(n2.i);
+      if (b) {
+        k.bites++;
+        const fx = Math.cos(face), fz = Math.sin(face), mx = ex + fx * 0.5, mz = ez + fz * 0.5;
+        effects.munch(mx, 0.55, mz, -fx, -fz, k.bites % 3 === 1, QUALITY.particles);
+        audio.play('chomp', { volume: 0.45, pan: panFor(mx), pitch: 0.95 + Math.random() * 0.15 });
+        if (b.done) fishFinished();
+      }
+    }
+  } else k.biteT = 0.25;
+  return { x: ex, z: ez, face, munch, walking };
+}
+
+function fishFinished() {
+  const h = view.fish.headPos();
+  effects.burst(h.x, 0.8, h.z, { color: 0xffd36a, count: Math.round(40 * QUALITY.particles), speed: 5, size: 0.3, life: 1.1, spread: 0.5 });
+  effects.floatText(h.x, 2.2, h.z, 'ALL GONE!', '#ffd34a');
+  audio.play('fishDone', { volume: 0.8, pan: panFor(h.x) });
+  ui.updateVictoryFish(100);
+}
+
 function syncVisuals(dt, alpha) {
   if (!view) return;
   if (view.levelData !== sim.levelData) buildView();
@@ -881,6 +954,7 @@ function syncVisuals(dt, alpha) {
   for (const [id, m] of view.circles) if (!seen.has(id)) { scene.remove(m.group); view.circles.delete(id); }
   // portal
   view.portal.update(dt, t, { active: sim.state === 'levelclear' || sim.state === 'victory' });
+  if (view.fish) view.fish.update(dt, t);
   view.crown.group.visible = !sim.crownTaken;
   if (!sim.crownTaken) view.crown.update(dt, t, camera);
   // kitties
@@ -891,12 +965,14 @@ function syncVisuals(dt, alpha) {
     if (!p.alive) { k.trail.update(dt, p.x, p.z, p.heading, false); k.auraTrail.update(dt, p.x, 0, p.z, p.heading, false); k.paws.update(dt); continue; }
     let [x, z] = lerpPos('p' + p.id, p.x, p.z, alpha);
     if (online.playing && p.id === online.me) { x += online.errX; z += online.errZ; }
+    const eat = view.fish ? feast(k, p, x, z, dt) : null;   // the final run's giant fish
+    if (eat) { x = eat.x; z = eat.z; }
     // autumn levels: up a tree = standing on its canopy
     k.climb = (k.climb || 0) + ((inTree(sim.levelData, x, z) ? 2.2 : 0) - (k.climb || 0)) * (1 - Math.exp(-dt * 12));
     k.model.group.position.set(x, k.climb, z);
     // smooth turn
     const cur = -k.model.group.rotation.y;
-    let d = p.heading - cur;
+    let d = (eat && eat.face != null ? eat.face : p.heading) - cur;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     k.model.group.rotation.y = -(cur + d * (1 - Math.exp(-dt * 18)));
     const speed = Math.hypot(p.vx, p.vz);
@@ -906,8 +982,8 @@ function syncVisuals(dt, alpha) {
     const wins = p.finishes || 0, paws = wins >= 2;
     if (wins >= 6) cycleColor(t + p.id * 2.3, k.fx);
     k.model.update(dt, {
-      speed01: gliding ? 0 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2)),
-      moving: p.moving && !gliding, skates: !!sim.levelData.ice, boots: Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST), invuln: p.invuln, shield: p.shield, time: t,
+      speed01: gliding ? 0 : eat && eat.walking ? 0.45 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2)),
+      moving: (p.moving && !gliding) || !!(eat && eat.walking), munch: !!(eat && eat.munch), bites: k.bites | 0, skates: !!sim.levelData.ice, boots: Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST), invuln: p.invuln, shield: p.shield, time: t,
       crown: !!p.crowned, crownStones: Math.max(0, Math.min(5, wins - 1)), aura: wins >= 3, auraColor: k.fx,
     });
     k.trail.update(dt, x, z, -k.model.group.rotation.y, gliding && speed > 0.5, paws ? k.fx : null);
@@ -1384,7 +1460,7 @@ requestAnimationFrame(frame);
 
 // Debug handle
 window.__kitty = {
-  get sim() { return sim; }, scene, camera, renderer, effects, audio, ui, startGame, keys, online, net, track,
+  get sim() { return sim; }, get view() { return view; }, scene, camera, renderer, effects, audio, ui, startGame, keys, online, net, track,
   advance(seconds) { const n = Math.round(seconds * 60); for (let i = 0; i < n; i++) tick(1 / 60); },
 };
 

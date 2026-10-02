@@ -20,6 +20,7 @@ function createAudio() {
   let timer = null;
   let hbNext = 0;              // heartbeat next time
   let lastStep = 0;
+  let lastChomp = 0;
   let active = 0;              // active sfx voices
 
   const LOOKAHEAD = 0.12;
@@ -402,6 +403,34 @@ function createAudio() {
       for (let i = 0; i < 9; i++) noise(g, o, { t: t + 0.25 + Math.random() * 0.8, a: 0.001, d: 0.025, peak: 0.05, ft: 'highpass', f: 4000 });
     },
 
+    // A kitty biting into the giant fish: a wet crunch (two quick noise snaps), a soft jaw thump and a tiny "nom".
+    chomp(g, o, t, p) {
+      const r = rnd(0.9, 1.12) * p;
+      noise(g, o, { t, a: 0.002, d: 0.045, peak: 0.07, ft: 'bandpass', f: 2600 * r, Q: 1.4 });
+      noise(g, o, { t: t + 0.035, a: 0.002, d: 0.06, peak: 0.055, ft: 'bandpass', f: 1700 * r, to: 900 * r, Q: 1.2 });
+      for (let i = 0; i < 3; i++) noise(g, o, { t: t + 0.01 + Math.random() * 0.07, a: 0.001, d: 0.012, peak: 0.03, ft: 'highpass', f: 3800 });
+      tone(g, o, { type: 'sine', f: 150 * r, to: 85 * r, t, a: 0.003, d: 0.08, peak: 0.12 });
+      const nom = tone(g, o, { type: 'triangle', f: 520 * r, to: 380 * r, slide: 0.09, t: t + 0.07, a: 0.01, d: 0.09, peak: 0.022 });
+      lfo(g, nom.frequency, 30, 25, t + 0.07, t + 0.18);
+    },
+    // The giant fish is all gone: a happy little "mrrp!" trill and a sparkle arpeggio.
+    fishDone(g, o, t, p) {
+      const os = ctx.createOscillator(); os.type = 'sawtooth';
+      os.frequency.setValueAtTime(420 * p, t);
+      os.frequency.exponentialRampToValueAtTime(820 * p, t + 0.16);
+      os.frequency.exponentialRampToValueAtTime(640 * p, t + 0.32);
+      lfo(g, os.frequency, 24, 40 * p, t, t + 0.36);
+      const eg = g.add(ctx.createGain());
+      env(eg.gain, t, 0.02, 0.18, 0.14, 0.12);
+      os.connect(eg);
+      const f1 = filt(g, o, 'bandpass', 1100 * p, 3);
+      const f2g = g.add(ctx.createGain()); f2g.gain.value = 0.4; f2g.connect(o);
+      const f2 = filt(g, f2g, 'bandpass', 2600 * p, 5);
+      eg.connect(f1); eg.connect(f2);
+      g.src(os, t, t + 0.4);
+      [76, 79, 83, 88].forEach((m, i) => fm(g, o, { f: mtof(m) * p, ratio: 3.01, index: 1.2, t: t + 0.32 + i * 0.08, a: 0.002, d: 0.4, peak: 0.035 }));
+    },
+
     tell(g, o, t, p) {
       const lp = filt(g, o, 'lowpass', 380);
       const am = g.add(ctx.createGain()); am.gain.value = 0.6; am.connect(lp);
@@ -425,7 +454,11 @@ function createAudio() {
       if (now - lastStep < 0.03) return;
       lastStep = now;
     }
-    if (active > 64 || (active > 32 && (name === 'step' || name === 'tell'))) return;
+    if (name === 'chomp') {   // several kitties munching at once: never a machine gun
+      if (now - lastChomp < 0.11) return;
+      lastChomp = now;
+    }
+    if (active > 64 || (active > 32 && (name === 'step' || name === 'tell' || name === 'chomp'))) return;
     const g = group();
     try {
       const vg = g.add(ctx.createGain());

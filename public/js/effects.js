@@ -13,7 +13,7 @@ const PX = 0, PY = 1, PZ = 2, VX = 3, VY = 4, VZ = 5, AGE = 6, LIFE = 7, S0 = 8,
   GRAV = 10, DRAG = 11, CR = 12, CG = 13, CB = 14, A0 = 15, ROT = 16, SPIN = 17, PH = 18, FREQ = 19,
   SHAPE = 20, OX = 21, OZ = 22, OMEGA = 23;
 const S = 24;
-const SHAPE_ROUND = 0, SHAPE_TWINKLE = 1, SHAPE_RECT = 2;
+const SHAPE_ROUND = 0, SHAPE_TWINKLE = 1, SHAPE_RECT = 2, SHAPE_HEART = 3;
 
 const TAU = Math.PI * 2;
 const rand = Math.random;
@@ -48,7 +48,13 @@ void main() {
   vec2 p = gl_PointCoord - 0.5;
   float a;
   vec3 c;
-  if (vSquash > 0.0) {
+  if (vSquash < 0.0) {
+    // heart (SHAPE_HEART): (x^2 + y^2 - 1)^3 - x^2 y^3 <= 0, point-sprite y runs down
+    vec2 q = vec2(p.x, 0.08 - p.y) * 2.7;
+    float h = pow(q.x * q.x + q.y * q.y - 1.0, 3.0) - q.x * q.x * q.y * q.y * q.y;
+    a = 1.0 - smoothstep(-0.04, 0.02, h);
+    c = vColor;
+  } else if (vSquash > 0.0) {
     vec2 q = vec2(vRot.x * p.x - vRot.y * p.y, vRot.y * p.x + vRot.x * p.y);
     float hy = 0.22 * vSquash + 0.025;
     float ex = 1.0 - smoothstep(0.40, 0.46, abs(q.x));
@@ -225,6 +231,8 @@ function createEffects(scene) {
         rot = d[o + ROT] + d[o + SPIN] * dt; d[o + ROT] = rot;
         const ph = d[o + PH] + d[o + FREQ] * dt; d[o + PH] = ph;
         squash = 0.1 + 0.9 * Math.abs(Math.sin(ph));
+      } else if (shape === SHAPE_HEART) {
+        squash = -1;
       }
       const i3 = i * 3, i4 = i * 4;
       pos[i3] = px; pos[i3 + 1] = py; pos[i3 + 2] = pz;
@@ -547,6 +555,33 @@ function createEffects(scene) {
     ring(x, 0.06, z, 0xffe680, 0.5, 4.5, 0.7, 0.85, 1, 2.0);
   }
 
+  // A kitty takes a bite of the giant fish (the final run): pink-orange flesh crumbs and silver scales spray up out of
+  // the bite at (x, y, z) toward the kitty (dirX, dirZ = unit vector fish -> kitty); heart = also float up a heart.
+  function munch(x, y, z, dirX, dirZ, heart, scale = 1) {
+    const n = Math.max(3, Math.round(9 * scale));
+    for (let i = 0; i < n; i++) {
+      const a = Math.atan2(dirZ, dirX) + rr(-1.1, 1.1), sp = rr(1.2, 3.2);
+      const scaleBit = rand() < 0.3;
+      const p = emit(soft, x + rr(-0.15, 0.15), y, z + rr(-0.15, 0.15), Math.cos(a) * sp, rr(1.8, 4), Math.sin(a) * sp,
+        rr(0.45, 0.75), scaleBit ? rr(0.1, 0.14) : rr(0.13, 0.22), 0.06,
+        scaleBit ? 0.86 : 1, scaleBit ? 0.92 : rr(0.5, 0.62), scaleBit ? 1 : rr(0.36, 0.45), 1);
+      if (p < 0) break;
+      soft.data[p + GRAV] = -11; soft.data[p + DRAG] = 1.2;
+      if (scaleBit) { soft.data[p + SHAPE] = SHAPE_RECT; soft.data[p + SPIN] = rr(-12, 12); soft.data[p + FREQ] = rr(10, 18); }
+    }
+    for (let i = 0; i < 2; i++) {
+      const p = emit(glow, x + rr(-0.2, 0.2), y + 0.1, z + rr(-0.2, 0.2), rr(-0.6, 0.6), rr(1, 2), rr(-0.6, 0.6),
+        rr(0.3, 0.5), 0.22, 0.04, 1.6, 1.5, 1.3, 0.8);
+      if (p < 0) break;
+      glow.data[p + SHAPE] = SHAPE_TWINKLE; glow.data[p + FREQ] = 35;
+    }
+    if (heart) {
+      const p = emit(soft, x - dirX * 0.1, y + 0.35, z - dirZ * 0.1, rr(-0.25, 0.25), rr(1.1, 1.5), rr(-0.25, 0.25),
+        rr(1.0, 1.3), 0.42, 0.55, 1, 0.36, 0.55, 1);
+      if (p >= 0) { soft.data[p + DRAG] = 1.5; soft.data[p + SHAPE] = SHAPE_HEART; }
+    }
+  }
+
   // ---------------------------------------------------------------- fireworks (the final run's victory party)
   // A rocket climbs from (x0, z0) to (x, y, z) leaving a sparkly trail, then bursts. opts:
   //   color, color2 (second burst colour), kind ('peony' | 'ring' | 'willow'), fuse (s), scale (particle count, 0..1),
@@ -726,7 +761,7 @@ function createEffects(scene) {
   }
 
   return {
-    burst, deathPoof, reviveBeam, pickup, teleport, shieldPop, dust, iceKick, confetti, firework, confettiRain,
+    burst, deathPoof, reviveBeam, pickup, teleport, shieldPop, dust, iceKick, confetti, firework, confettiRain, munch,
     shake, getShakeOffset, floatText, update,
   };
 }

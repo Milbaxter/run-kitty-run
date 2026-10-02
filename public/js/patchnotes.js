@@ -11,6 +11,7 @@ const PATCH_NOTES = [
       'A progress bar replaces the minimap on the final run: start flag, the tree, the finish, every kitty as a dot in its colour and how many metres are left',
       'Reach the end and you beat Run Kitty Run: fireworks, confetti, a fanfare and a victory screen with your run time, rescues, and who got there first',
       'Every kitty that went down on the way is carried into the goal room for the party',
+      'A giant fish waits behind the portal at the end of the final run. Win, walk up to it and the kitties eat it, crunch by crunch, down to the bones (the victory screen counts how much is gone)',
       'Menus and the game-over / victory screens work with a gamepad too (A to confirm, d-pad to switch)',
     ],
   },

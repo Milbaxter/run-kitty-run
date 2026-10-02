@@ -34,6 +34,7 @@ function esc(s) {
 // ---------- inline SVG icons ----------
 const INK = '#2b1840';
 const ICONS = {
+  fish: `<svg viewBox="0 0 40 40"><path d="M4 20 Q13 8 25 11 Q31 12.5 36 20 Q31 27.5 25 29 Q13 32 4 20 Z" fill="#ff9a7a" stroke="#7a2f3c" stroke-width="2.4" stroke-linejoin="round"/><path d="M5 20 L1 13 L1 27 Z" fill="#6d8fb3" stroke="#2f4c6b" stroke-width="2" stroke-linejoin="round"/><circle cx="29" cy="18" r="2" fill="#16121c"/><path d="M15 14 Q13 20 15 26 M20 13 Q18 20 20 27" stroke="#fff" stroke-width="1.6" fill="none" opacity=".7"/></svg>`,
   cat: `<svg viewBox="0 0 40 40" class="rkr-cat"><path d="M5 4 L15 12 Q20 10.5 25 12 L35 4 L33.5 20 Q34 34.5 20 35.5 Q6 34.5 6.5 20 Z" fill="currentColor" stroke="${INK}" stroke-width="2.6" stroke-linejoin="round"/><path d="M8.5 9 L13 12.6 L9.6 15.5 Z M31.5 9 L27 12.6 L30.4 15.5 Z" fill="#ff9ec4"/><g class="rkr-eyes"><ellipse cx="14.3" cy="21.5" rx="2.3" ry="3.1" fill="${INK}"/><ellipse cx="25.7" cy="21.5" rx="2.3" ry="3.1" fill="${INK}"/><circle cx="15" cy="20.4" r=".9" fill="#fff"/><circle cx="26.4" cy="20.4" r=".9" fill="#fff"/></g><g class="rkr-xeyes" stroke="${INK}" stroke-width="2" stroke-linecap="round"><path d="M12 19 L16.6 23.6 M16.6 19 L12 23.6 M23.4 19 L28 23.6 M28 19 L23.4 23.6"/></g><path d="M18.2 26.4 L21.8 26.4 L20 28.6 Z" fill="#ff6f9f" stroke="${INK}" stroke-width="1" stroke-linejoin="round"/><path d="M20 28.6 Q18.5 31 16.5 30 M20 28.6 Q21.5 31 23.5 30" fill="none" stroke="${INK}" stroke-width="1.3" stroke-linecap="round"/><path d="M3 25 L11 26 M3.5 29 L11 28 M37 25 L29 26 M36.5 29 L29 28" stroke="${INK}" stroke-width="1.1" stroke-linecap="round" opacity=".55"/></svg>`,
   boots: `<svg viewBox="0 0 40 40"><path d="M3 15 Q9 9 15 14 Q10 13 8 17 Q12 15 15 18 Q10 18 9 21 Z" fill="#e8fbff" stroke="#2a8fb0" stroke-width="1.6" stroke-linejoin="round"/><path d="M15 6 L27 6 L27 22 Q36 23 37 30 L37 34 L13 34 L13 26 Q15 20 15 6 Z" fill="#33d6ff" stroke="#0b5d79" stroke-width="2.4" stroke-linejoin="round"/><path d="M13 30 L37 30" stroke="#0b5d79" stroke-width="2"/><path d="M15 10 L27 10" stroke="#fff" stroke-width="2" opacity=".7"/></svg>`,
   heart: `<svg viewBox="0 0 40 36"><path d="M20 33 C8 24 3 18 3 11.5 C3 6 7 3 11.5 3 C15 3 18 5 20 8.5 C22 5 25 3 28.5 3 C33 3 37 6 37 11.5 C37 18 32 24 20 33 Z" fill="#ff5c93" stroke="#8c1640" stroke-width="2.6" stroke-linejoin="round"/><path d="M9 10 Q10 7 13 6.5" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" opacity=".8"/></svg>`,
@@ -1027,7 +1028,7 @@ function createUI(root) {
   // ================= victory (the final run is beaten) =================
   // stats: { runTime, totalTime, deaths, rescues, first: {name, color} | null, players: [{name, color, first}] }
   // buttons: [{ label, sub?, alt?, onClick }] (first = default selection)
-  let vEl = null, vRaf = 0, vTimers = [], vBtns = [], vSel = 0, vArmedAt = 0;
+  let vEl = null, vRaf = 0, vTimers = [], vBtns = [], vSel = 0, vArmedAt = 0, vFishRow = null;
   const V_LINES = [
     'Every wolf dodged. Every kitty home.',
     'The ice is yours. Legends skate here.',
@@ -1043,7 +1044,10 @@ function createUI(root) {
       { icon: ICONS.clock, label: 'Total time', v: stats.totalTime, fmt: fmtTime, color: '#cdbfff' },
       { icon: ICONS.revive, label: 'Kitties rescued', v: stats.rescues | 0, fmt: String },
       { icon: ICONS.wolf, label: 'Times caught', v: stats.deaths | 0, fmt: String },
+      { icon: ICONS.fish, label: 'Giant fish eaten', v: stats.fish, fmt: (v) => v + '%', fish: true },
     ].filter((r) => r.v != null && isFinite(r.v));
+    vFishRow = rows.find((r) => r.fish) || null;
+    if (vFishRow) vFishRow.idx = rows.indexOf(vFishRow);
     const ps = stats.players || [];
     const first = stats.first;
     const line = (stats.deaths | 0) === 0 ? 'Not a single kitty caught. Flawless!' : V_LINES[((stats.deaths | 0) + ps.length) % V_LINES.length];
@@ -1095,7 +1099,18 @@ function createUI(root) {
     hideVictory();
     if (b && b.onClick) b.onClick();
   }
+  // the final run's giant fish is eaten live while the victory screen is up (percent, 0-100)
+  function updateVictoryFish(pct) {
+    if (!vFishRow || !vEl) return;
+    pct = Math.max(0, Math.min(100, Math.round(pct)));
+    if (pct === vFishRow.v) return;
+    vFishRow.v = pct;
+    if (vRaf) return;   // the count-up animation is still running: it picks the new value up
+    const el = vEl.querySelectorAll('.rkr-stat .rkr-sv')[vFishRow.idx];
+    if (el) el.textContent = vFishRow.fmt(pct);
+  }
   function hideVictory() {
+    vFishRow = null;
     state.victory = false;
     if (vRaf) clearInterval(vRaf);
     vRaf = 0;
@@ -1192,7 +1207,7 @@ function createUI(root) {
   return {
     showTitle, hideTitle, setHUD, updateMinimap, banner, toast, setScores,
     showPause, hidePause, showGameOver, hideGameOver, setMutedIcon, isOverlayOpen, onMuteClick, onMenuClick,
-    showVictory, hideVictory, isVictoryOpen: () => state.victory, navigate, hideHUD,
+    showVictory, hideVictory, updateVictoryFish, isVictoryOpen: () => state.victory, navigate, hideHUD,
   };
 }
 

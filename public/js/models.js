@@ -685,10 +685,29 @@ function createKittyModel(color) {
   aura.visible = false;
   group.add(aura);
   const baseUpdate = update;
+  // munching (the final run's giant fish): head down into the food, bobbing, happy squinty eyes; every bite
+  // (s.bites counts up) is a quick chomp
+  let munchAmt = 0, munchPh = 0, chompT = 0, lastBites = 0;
   function updateAll(dt, s) {
     baseUpdate(dt, s);
     s = s || {};
     const t = s.time || 0;
+    const mdt = Math.min(dt || 0, 0.1);
+    munchAmt = smoothTo(munchAmt, s.munch ? 1 : 0, 9, mdt);
+    if ((s.bites | 0) !== lastBites) { if ((s.bites | 0) > lastBites) chompT = 0.2; lastBites = s.bites | 0; }
+    chompT = Math.max(0, chompT - mdt);
+    if (munchAmt > 0.01) {
+      munchPh += mdt * 13;
+      const ch = chompT > 0 ? Math.sin((chompT / 0.2) * Math.PI) : 0;
+      head.rotation.z -= munchAmt * (0.42 + 0.14 * Math.sin(munchPh) + 0.22 * ch);
+      head.rotation.x *= 1 - munchAmt;
+      head.rotation.y = head.rotation.y * (1 - munchAmt) + Math.sin(munchPh * 0.5) * 0.12 * munchAmt;
+      head.position.y -= munchAmt * (0.07 + 0.03 * Math.abs(Math.sin(munchPh)));
+      head.position.x = K_HEAD_POS[0] + munchAmt * 0.05;
+      head.scale.set(1, 1 - 0.1 * ch, 1 + 0.06 * ch);
+      rig.rotation.z -= munchAmt * 0.12;
+      if (!ghost && blinkT <= 0) eyes.scale.y = 1 - 0.7 * munchAmt;   // ^ ^
+    } else if (head.position.x !== K_HEAD_POS[0]) { head.position.x = K_HEAD_POS[0]; head.scale.set(1, 1, 1); }
     crown.visible = !!s.crown && rig.visible;
     if (crown.visible) {
       crown.position.y = 0.25 + Math.sin(t * 3) * 0.008;
@@ -1307,4 +1326,352 @@ function createCrownPickupModel() {
   return { group, update };
 }
 
-export { WOLF_TYPES, createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel };
+// ---------------------------------------------------------------------------
+// The giant fish: the final run's prize, waiting in the goal room
+// ---------------------------------------------------------------------------
+// A huge salmon on a crescent platter of crushed ice, curled around the back (-z) of the portal so it never hides
+// the goal or the door (tail at the back-left, head at the right). It lies on its side, profile up for the top-down
+// camera, and its spine follows an arc of radius FISH.R round the origin, so the edge of the goal disc (where the
+// kitties are held after the win) runs right along its belly. Purely cosmetic and client-side: the game calls
+// nearest(x, z) to find the closest uneaten chunk and bite(i) when a kitty takes a bite. Each chunk shrinks toward its
+// head-side face (the cut shows salmon-orange flesh) and the bones underneath appear; when every chunk is gone only
+// the skeleton is left, and it sparkles.
+const FISH = {
+  R: 6.2,                                             // arc radius of the spine (the goal disc's rim is at ~4.7)
+  A0: 222 * Math.PI / 180, A1: 338 * Math.PI / 180,  // tail end / snout angle (x = cos a, z = sin a)
+  HEAD_U: 0.8, BODY: 10, BODY_BITES: 4, HEAD_BITES: 5,
+  BASE: 0.12,                                         // the platter's top
+  SIDES: 10,
+};
+const FISH_D = [[0, 0.34], [0.08, 0.4], [0.25, 0.82], [0.45, 1.2], [0.62, 1.3], [0.78, 1.22], [0.88, 1.04], [0.95, 0.7], [1, 0.22]];
+const FISH_SKIN = [[1, 0x203c5c], [0.8, 0x35597f], [0.4, 0x7f9fbf], [0.05, 0xff8f78], [-0.4, 0xffa58c], [-0.8, 0xffd9c6], [-1, 0xfff0e6]];
+const FISH_BONE = 0xf7e6c4, FISH_FIN = 0x2c4a6e;
+
+function fishDepth(u) {   // half the dorsal-to-belly depth (horizontal: the fish lies on its side)
+  u = Math.max(0, Math.min(1, u));
+  for (let i = 1; i < FISH_D.length; i++) {
+    const [u1, d1] = FISH_D[i];
+    if (u <= u1) {
+      const [u0, d0] = FISH_D[i - 1], f = (u - u0) / (u1 - u0);
+      return d0 + (d1 - d0) * f * f * (3 - 2 * f);
+    }
+  }
+  return FISH_D[FISH_D.length - 1][1];
+}
+const fishThick = (d) => 0.18 + 0.5 * d / 1.3;   // half the height
+const fishAngle = (u) => FISH.A0 + (FISH.A1 - FISH.A0) * u;
+const fishCY = (u) => FISH.BASE + fishThick(fishDepth(u));   // spine height
+
+// local frame at u: x = toward the head (tangent), y = up, z = toward the belly (the portal); origin on the floor
+function fishFrame(u) {
+  const a = fishAngle(u), nx = Math.cos(a), nz = Math.sin(a);
+  const m = new THREE.Matrix4().makeBasis(new THREE.Vector3(-nz, 0, nx), new THREE.Vector3(0, 1, 0), new THREE.Vector3(-nx, 0, -nz));
+  return m.setPosition(nx * FISH.R, 0, nz * FISH.R);
+}
+const fishAt = (u, p, r, s) => fishFrame(u).multiply(mtx(p, r, s));
+
+function fishSkinColor(s, out) {
+  for (let i = 1; i < FISH_SKIN.length; i++) {
+    if (s >= FISH_SKIN[i][0]) {
+      const [s0, c0] = FISH_SKIN[i - 1], [s1, c1] = FISH_SKIN[i];
+      return out.set(c0).lerp(_c.set(c1), (s0 - s) / (s0 - s1));
+    }
+  }
+  return out.set(FISH_SKIN[FISH_SKIN.length - 1][1]);
+}
+
+// Lofted body piece through the stations us (world space, non-indexed): rings of SIDES vertices, both ends capped
+// with flesh (only seen once a neighbour is eaten or the piece itself is bitten).
+function fishLoft(us, pos, col, snout, tail) {
+  const N = FISH.SIDES, flesh = new THREE.Color(0xff8a5c), fleshMid = new THREE.Color(0xffc09a), tip = new THREE.Color(0x3a5878);
+  const rings = us.map((u) => {
+    const a = fishAngle(u), d = fishDepth(u), t = fishThick(d), cy = FISH.BASE + t;
+    const nx = Math.cos(a), nz = Math.sin(a), cx = nx * FISH.R, cz = nz * FISH.R;
+    const ring = [];
+    for (let j = 0; j < N; j++) {
+      const th = (j / N) * TAU_, s = Math.cos(th), v = Math.sin(th);
+      const c = fishSkinColor(s, new THREE.Color());
+      // salmon spots on the back
+      if (s > 0.5 && Math.sin(u * 211 + j * 7.3) > 0.55) c.multiplyScalar(0.62);
+      ring.push({ p: [cx + nx * s * d, cy + v * t, cz + nz * s * d], c });
+    }
+    return { ring, mid: { p: [cx, cy, cz], c: fleshMid } };
+  });
+  const put = (q, c) => { pos.push(q.p[0], q.p[1], q.p[2]); const k = c || q.c; col.push(k.r, k.g, k.b); };
+  for (let r = 0; r + 1 < rings.length; r++) {
+    const A = rings[r].ring, B = rings[r + 1].ring;
+    for (let j = 0; j < N; j++) {
+      const j1 = (j + 1) % N;
+      put(A[j]); put(A[j1]); put(B[j1]);
+      put(A[j]); put(B[j1]); put(B[j]);
+    }
+  }
+  const capS = rings[0], capE = rings[rings.length - 1];
+  for (let j = 0; j < N; j++) {
+    const j1 = (j + 1) % N;
+    put(capS.mid, tail ? tip : null); put(capS.ring[j1], tail ? tip : flesh); put(capS.ring[j], tail ? tip : flesh);
+    put(capE.mid, snout ? tip : null); put(capE.ring[j], snout ? tip : flesh); put(capE.ring[j1], snout ? tip : flesh);
+  }
+}
+
+function fishMerge(parts, toLocal) {   // parts: [{pos, col}] (plain arrays) or baked geometries
+  const pos = [], col = [];
+  for (const p of parts) {
+    if (p.isBufferGeometry) {
+      pos.push(...p.attributes.position.array); col.push(...p.attributes.color.array);
+      p.dispose();
+    } else { pos.push(...p.pos); col.push(...p.col); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  if (toLocal) g.applyMatrix4(toLocal);
+  g.computeVertexNormals();
+  g.computeBoundingSphere();
+  return g;
+}
+
+// chunk i: its u range, the frame its mesh sits in (at the head-side end, on the platter) and the flesh / bone geometry
+function fishChunk(i) {
+  const head = i === FISH.BODY;
+  const u0 = head ? FISH.HEAD_U : (i / FISH.BODY) * FISH.HEAD_U, u1 = head ? 1 : ((i + 1) / FISH.BODY) * FISH.HEAD_U;
+  const frame = fishFrame(u1);
+  frame.multiply(new THREE.Matrix4().makeTranslation(0, FISH.BASE, 0));
+  const inv = frame.clone().invert();
+  return cgeo('fishChunk' + i, () => {
+    const loft = { pos: [], col: [] };
+    fishLoft(head ? [0.8, 0.84, 0.88, 0.92, 0.95, 0.975, 1] : [u0, (u0 + u1) / 2, u1], loft.pos, loft.col, head, i === 0);
+    const extra = [];
+    if (i === 0) {   // forked tail fin, lying flat
+      for (const yaw of [-0.5, 0.5]) extra.push([P.cone4, fishAt(0, [-0.62 * Math.cos(yaw), FISH.BASE + 0.26, 0.62 * Math.sin(yaw)], [0, yaw, Math.PI / 2], [0.07, 1.45, 0.42]), FISH_FIN]);
+    }
+    if (i === Math.floor(0.5 * FISH.BODY / FISH.HEAD_U)) {   // dorsal fin, sticking out of the back (away from the portal)
+      const u = (u0 + u1) / 2, d = fishDepth(u);
+      extra.push([P.cone4, fishAt(u, [-0.15, fishCY(u), -(d + 0.2)], [-Math.PI / 2, 0, 0.75], [0.6, 0.75, 0.06]), FISH_FIN]);
+    }
+    if (i === 2) {   // anal fin, small, on the belly side
+      const u = (u0 + u1) / 2, d = fishDepth(u);
+      extra.push([P.cone4, fishAt(u, [-0.1, fishCY(u), d + 0.15], [Math.PI / 2, 0, 0.6], [0.3, 0.45, 0.05]), FISH_FIN]);
+    }
+    if (head) {
+      const ue = 0.905, de = fishDepth(ue), te = fishThick(de), top = FISH.BASE + te * 1.93;
+      extra.push(
+        [P.ico1, fishAt(ue, [0, top, -0.18 * de], null, [0.22, 0.08, 0.22]), 0xffffff],
+        [P.ico1, fishAt(ue, [0.03, top + 0.035, -0.18 * de], null, [0.14, 0.07, 0.14]), 0x16121c],
+        [P.ico1, fishAt(ue, [0.07, top + 0.09, -0.18 * de - 0.05], null, [0.045, 0.03, 0.045]), 0xffffff],
+        // gill line, mouth, pectoral fin lying on top
+        [P.box, fishAt(FISH.HEAD_U + 0.005, [0, FISH.BASE + fishThick(fishDepth(0.8)) * 1.95, 0], [0.12, 0, 0], [0.07, 0.05, 1.5]), 0xc98a96],
+        [P.box, fishAt(0.975, [0.05, FISH.BASE + fishThick(fishDepth(0.975)) * 1.7, 0.16], [0, 0.35, 0], [0.34, 0.05, 0.05]), 0x7a2f3c],
+        [P.cone4, fishAt(0.79, [-0.35, FISH.BASE + fishThick(fishDepth(0.79)) * 2.02, 0.25], [0, 0.35, Math.PI / 2], [0.05, 0.8, 0.26]), 0xe8a0a8],
+      );
+    }
+    const flesh = fishMerge(extra.length ? [loft, bake(extra)] : [loft], inv);
+    // bones (shown once the chunk is bitten into): vertebrae along the spine, ribs swept back, skull, tail rays
+    const bones = [];
+    const by = FISH.BASE + 0.24;
+    const step = 0.026;
+    for (let u = u0 + step / 2; u < Math.min(u1, 0.82); u += step) {
+      bones.push([P.box, fishAt(u, [0, by, 0], null, [0.2, 0.15, 0.2]), FISH_BONE]);
+      if (u > 0.1 && u < 0.78 && Math.round(u / step) % 2 === 0) {
+        const L = 0.8 * fishDepth(u);
+        for (const sd of [-1, 1]) {
+          const th = -0.38 * sd;
+          bones.push([P.box, fishAt(u, [(L / 2) * Math.sin(th) * sd, by, sd * (0.08 + (L / 2) * Math.cos(th))], [0, th, 0], [0.06, 0.06, L]), FISH_BONE]);
+        }
+      }
+    }
+    if (i === 0) {
+      for (const yaw of [-0.55, -0.25, 0.25, 0.55]) bones.push([P.box, fishAt(0, [-0.55 * Math.cos(yaw), by, 0.55 * Math.sin(yaw)], [0, yaw, 0], [1.1, 0.05, 0.05]), FISH_BONE]);
+      bones.push([P.box, fishAt(0, [-0.05, by, 0], null, [0.25, 0.12, 0.35]), FISH_BONE]);
+    }
+    if (head) {
+      bones.push(
+        [P.ico1, fishAt(0.88, [0, by + 0.12, 0], null, [0.8, 0.32, 0.62]), FISH_BONE],
+        [P.cone4, fishAt(0.88, [0.95, by + 0.06, 0.05], [0, 0, -Math.PI / 2], [0.14, 0.7, 0.3]), FISH_BONE],
+        [P.ico1, fishAt(0.9, [0.1, by + 0.38, -0.12], null, [0.17, 0.06, 0.17]), 0x3a3040],
+      );
+    }
+    return { flesh, bones: fishMerge([bake(bones)], inv), frame, u0, u1, nb: head ? FISH.HEAD_BITES : FISH.BODY_BITES };
+  });
+}
+
+function fishPlatterGeo() {
+  return cgeo('fishPlatter', () => {
+    const a0 = 204 * Math.PI / 180, a1 = 352 * Math.PI / 180, r0 = 4.95, r1 = 7.55, n = 40;
+    const rm = (r0 + r1) / 2, rr = (r1 - r0) / 2, sh = new THREE.Shape();
+    // rounded end at angle a, from the outer edge round to the inner one (dir = +1 head end, -1 tail end)
+    const end = (a, dir) => {
+      const nx = Math.cos(a), nz = Math.sin(a), tx = -nz * dir, tz = nx * dir;
+      for (let k = 1; k < 8; k++) {
+        const f = Math.PI * k / 8, c = Math.cos(f) * rr, s = Math.sin(f) * rr;
+        sh.lineTo(nx * (rm + c) + tx * s, nz * (rm + c) + tz * s);
+      }
+    };
+    for (let k = 0; k <= n; k++) { const a = a0 + (a1 - a0) * k / n; sh[k ? 'lineTo' : 'moveTo'](Math.cos(a) * r1, Math.sin(a) * r1); }
+    end(a1, 1);
+    for (let k = n; k >= 0; k--) { const a = a0 + (a1 - a0) * k / n; sh.lineTo(Math.cos(a) * r0, Math.sin(a) * r0); }
+    // tail end: from the inner edge round to the outer one
+    { const nx = Math.cos(a0), nz = Math.sin(a0), tx = nz, tz = -nx;
+      for (let k = 1; k < 8; k++) { const f = Math.PI - Math.PI * k / 8, c = Math.cos(f) * rr, s = Math.sin(f) * rr; sh.lineTo(nx * (rm + c) + tx * s, nz * (rm + c) + tz * s); } }
+    const g = new THREE.ExtrudeGeometry(sh, { depth: FISH.BASE, bevelEnabled: false, curveSegments: 1 });
+    g.rotateX(Math.PI / 2);   // shape y -> world z, extrusion -> down
+    g.translate(0, FISH.BASE, 0);
+    return g;
+  });
+}
+
+function createGiantFishModel() {
+  const group = new THREE.Group();
+  group.name = 'giantFish';
+  const skin = cmat('fishSkin', () => new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.28, metalness: 0.08, emissive: 0x2a140c, emissiveIntensity: 1 }));
+  const boneMat = cmat('fishBone', () => new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.55, emissive: 0x000000 }));
+
+  // platter of crushed ice, ice cubes, lemon slices and parsley
+  const platter = new THREE.Mesh(fishPlatterGeo(), cmat('fishPlatter', () => new THREE.MeshStandardMaterial({ color: 0x9cc6e6, roughness: 0.35, metalness: 0.05, emissive: 0x2d5878, emissiveIntensity: 0.25, flatShading: true })));
+  platter.receiveShadow = true;
+  group.add(platter);
+  const deco = [];
+  const seeded = (k) => { const x = Math.sin(k * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+  for (let k = 0; k < 30; k++) {
+    const inner = k % 2 === 0, a = (210 + 136 * seeded(k)) * Math.PI / 180, r = inner ? 5.1 + 0.3 * seeded(k + 50) : 7.05 + 0.3 * seeded(k + 50), s = 0.2 + 0.16 * seeded(k + 99);
+    deco.push([P.box, mtx([Math.cos(a) * r, FISH.BASE + s * 0.4, Math.sin(a) * r], [seeded(k + 7) * 0.6, seeded(k + 3) * 3, seeded(k + 11) * 0.6], s), seeded(k + 21) < 0.5 ? 0xd8f1ff : 0xf4fbff]);
+  }
+  for (const [ad, r] of [[214, 7.05], [300, 7.2], [346, 6.3], [262, 5.1]]) {
+    const a = ad * Math.PI / 180, x = Math.cos(a) * r, z = Math.sin(a) * r;
+    deco.push([P.cyl8, mtx([x, FISH.BASE + 0.07, z], [0.25, a, 0.15], [0.36, 0.08, 0.36]), 0xffd83a]);
+    deco.push([P.cyl8, mtx([x, FISH.BASE + 0.08, z], [0.25, a, 0.15], [0.29, 0.085, 0.29]), 0xfff3b0]);
+    deco.push([P.ico0, mtx([x + 0.42, FISH.BASE + 0.12, z + 0.25], null, [0.2, 0.12, 0.2]), 0x3fae4a]);
+    deco.push([P.ico0, mtx([x + 0.3, FISH.BASE + 0.14, z + 0.45], null, [0.16, 0.12, 0.16]), 0x58c45c]);
+  }
+  const decoMesh = new THREE.Mesh(cgeo('fishDeco', () => bake(deco)), VC_MAT());
+  decoMesh.castShadow = true; decoMesh.receiveShadow = true;
+  group.add(decoMesh);
+
+  // warm glow under it: the prize at the end of the run
+  const glowMat = new THREE.MeshBasicMaterial({ map: radialTexture(), color: new THREE.Color(0xffa060).multiplyScalar(0.35), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  const glowGeo = cgeo('fishGlow', () => { const g = new THREE.PlaneGeometry(1, 1); g.rotateX(-Math.PI / 2); return g; });
+  for (const u of [0.15, 0.5, 0.85]) {
+    const a = fishAngle(u), gm = new THREE.Mesh(glowGeo, glowMat);
+    gm.position.set(Math.cos(a) * FISH.R, FISH.BASE + 0.02, Math.sin(a) * FISH.R);
+    gm.rotation.y = -a; gm.scale.set(6.5, 1, 6.5);
+    gm.renderOrder = 2;
+    group.add(gm);
+  }
+
+  const chunks = [];
+  for (let i = 0; i <= FISH.BODY; i++) {
+    const c = fishChunk(i);
+    const flesh = new THREE.Mesh(c.flesh, skin);
+    flesh.castShadow = true; flesh.receiveShadow = true;
+    flesh.matrixAutoUpdate = true;
+    c.frame.decompose(flesh.position, flesh.quaternion, flesh.scale);
+    const bones = new THREE.Mesh(c.bones, boneMat);
+    c.frame.decompose(bones.position, bones.quaternion, bones.scale);
+    bones.castShadow = true; bones.visible = false;
+    group.add(flesh, bones);
+    chunks.push({ flesh, bones, u0: c.u0, u1: c.u1, nb: c.nb, bites: 0, k: 1, kd: 1, pop: 0 });
+  }
+  const totalBites = chunks.reduce((s, c) => s + c.nb, 0);
+  let bitesTaken = 0, doneAt = -1;
+
+  // sparkles twinkling on whatever is left (golden on the bones once it's all gone)
+  const NSP = 14;
+  const spPos = new Float32Array(NSP * 3), spCol = new Float32Array(NSP * 3);
+  const spGeo = new THREE.BufferGeometry();
+  spGeo.setAttribute('position', new THREE.BufferAttribute(spPos, 3));
+  spGeo.setAttribute('color', new THREE.BufferAttribute(spCol, 3));
+  const sparkles = new THREE.Points(spGeo, new THREE.PointsMaterial({ map: radialTexture(), size: 0.75, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  sparkles.frustumCulled = false;
+  sparkles.renderOrder = 6;
+  group.add(sparkles);
+  const sp = [];
+  for (let k = 0; k < NSP; k++) sp.push({ t: -Math.random() * 2, life: 1 });
+  const placeSparkle = (k) => {
+    const left = chunks.filter((c) => c.k > 0);
+    let u, top;
+    if (left.length) {
+      const c = left[(Math.random() * left.length) | 0];
+      u = c.u1 - (c.u1 - c.u0) * c.k * Math.random();
+      top = FISH.BASE + fishThick(fishDepth(u)) * 1.9;
+    } else { u = 0.02 + Math.random() * 0.96; top = FISH.BASE + 0.45; }
+    const a = fishAngle(u), off = (Math.random() * 2 - 1) * fishDepth(u) * 0.7, r = FISH.R + off;
+    spPos[k * 3] = Math.cos(a) * r; spPos[k * 3 + 1] = top + 0.05; spPos[k * 3 + 2] = Math.sin(a) * r;
+  };
+  for (let k = 0; k < NSP; k++) placeSparkle(k);
+  const gold = new THREE.Color(0xffd36a), white = new THREE.Color(0xfff4e0);
+
+  function wrapAngle(x, z) {
+    let a = Math.atan2(z, x);
+    if (a < 0) a += TAU_;
+    if (a < (FISH.A0 + FISH.A1) / 2 - Math.PI) a += TAU_;
+    return a;
+  }
+  // the closest uneaten chunk to (x, z): { i, d (gap to its surface, < 0 inside), px, pz (surface point) } or null
+  function nearest(x, z) {
+    const pa = wrapAngle(x, z);
+    let best = null;
+    for (let i = 0; i < chunks.length; i++) {
+      const c = chunks[i];
+      if (c.k <= 0) continue;
+      const uS = c.u1 - (c.u1 - c.u0) * c.k;
+      const a = Math.max(fishAngle(uS), Math.min(fishAngle(c.u1), pa));
+      const u = (a - FISH.A0) / (FISH.A1 - FISH.A0);
+      const cx = Math.cos(a) * FISH.R, cz = Math.sin(a) * FISH.R;
+      const dx = x - cx, dz = z - cz, L = Math.hypot(dx, dz) || 1e-6;
+      const de = fishDepth(u) * (0.55 + 0.45 * c.k);
+      const d = L - de;
+      if (!best || d < best.d) best = { i, d, px: cx + dx / L * de, pz: cz + dz / L * de };
+    }
+    return best;
+  }
+  // a kitty takes a bite of chunk i: returns where the bite came from (for crumbs), and whether that finished the fish
+  function bite(i) {
+    const c = chunks[i];
+    if (!c || c.k <= 0) return null;
+    c.bites++; bitesTaken++;
+    c.k = Math.max(0, 1 - c.bites / c.nb);
+    c.pop = 1;
+    c.bones.visible = true;
+    const u = c.u1 - (c.u1 - c.u0) * c.k, a = fishAngle(u);
+    return { x: Math.cos(a) * FISH.R, y: fishCY(u) + 0.2, z: Math.sin(a) * FISH.R, done: bitesTaken >= totalBites };
+  }
+
+  let clock = 0;
+  function update(dt, time) {
+    dt = Math.min(dt || 0, 0.1);
+    clock += dt;
+    const t = time === undefined ? clock : time;
+    for (const c of chunks) {
+      if (c.kd === c.k && c.pop === 0) continue;
+      c.kd = Math.abs(c.kd - c.k) < 0.002 ? c.k : smoothTo(c.kd, c.k, 14, dt);
+      c.pop = Math.max(0, c.pop - dt * 5);
+      const w = Math.sin(c.pop * Math.PI) * 0.12, yz = (0.55 + 0.45 * c.kd) * (1 + w);
+      c.flesh.scale.set(Math.max(0.001, c.kd * (1 - w)), yz, yz);
+      c.flesh.visible = c.kd > 0.02;
+    }
+    if (doneAt < 0 && bitesTaken >= totalBites) doneAt = t;
+    const done = doneAt >= 0;
+    for (let k = 0; k < NSP; k++) {
+      const s = sp[k];
+      s.t += dt * (done ? 1.4 : 0.9);
+      if (s.t >= s.life) { s.t = 0; s.life = 0.6 + Math.random() * 0.8; placeSparkle(k); }
+      const f = s.t <= 0 ? 0 : Math.sin((s.t / s.life) * Math.PI);
+      const col = done ? gold : white;
+      const b = f * f * (done ? 1.6 : 1.1);
+      spCol[k * 3] = col.r * b; spCol[k * 3 + 1] = col.g * b; spCol[k * 3 + 2] = col.b * b;
+    }
+    spGeo.attributes.position.needsUpdate = true;
+    spGeo.attributes.color.needsUpdate = true;
+    glowMat.opacity = 0.75 + 0.25 * Math.sin(t * 2.1);
+    if (done) glowMat.color.setHex(0xffd36a).multiplyScalar(0.4 + 0.15 * Math.sin(t * 5));
+  }
+  update(0, 0);
+  return {
+    group, update, nearest, bite,
+    eaten: () => bitesTaken / totalBites,
+    done: () => bitesTaken >= totalBites,
+    headPos: () => { const a = fishAngle(0.9); return { x: Math.cos(a) * FISH.R, z: Math.sin(a) * FISH.R }; },
+  };
+}
+
+export { WOLF_TYPES, createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel };

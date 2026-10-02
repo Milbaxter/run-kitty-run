@@ -367,6 +367,8 @@ function createEffects(scene) {
   let trauma = 0;
   const shakeOffset = { x: 0, y: 0, z: 0 };
   const SHAKE_MAX = 0.8;
+  // prefers-reduced-motion: keep a hint of impact, but only a quarter of the trauma
+  const reducedMotion = (typeof matchMedia === 'function') ? matchMedia('(prefers-reduced-motion: reduce)') : null;
 
   // ---------------------------------------------------------------- helpers
   function rgbOf(color, mul) {
@@ -679,7 +681,8 @@ function createEffects(scene) {
   }
 
   function shake(amount) {
-    trauma = Math.min(1, trauma + (amount || 0));
+    const k = reducedMotion && reducedMotion.matches ? 0.25 : 1;
+    trauma = Math.min(1, trauma + (amount || 0) * k);
   }
 
   function getShakeOffset() {

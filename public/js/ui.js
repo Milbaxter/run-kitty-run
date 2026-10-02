@@ -77,6 +77,11 @@ const CSS = `
 .rkr-cards{display:flex;flex-direction:column;gap:8px;}
 .rkr-cards.rkr-many{gap:4px;}
 /* HUD toggle (hides everything but the corner buttons) + touch-only menu button */
+/* corner controls are <button>s: drop the UA button look so they render like the old divs */
+.rkr-hudbtn,.rkr-menubtn,.rkr-mute{-webkit-appearance:none;appearance:none;margin:0;font:inherit;line-height:normal;text-align:start;vertical-align:baseline;
+  -webkit-tap-highlight-color:transparent;}
+.rkr-hudbtn:focus:not(:focus-visible),.rkr-menubtn:focus:not(:focus-visible),.rkr-mute:focus:not(:focus-visible){outline:none;}
+.rkr-hudbtn:focus-visible,.rkr-menubtn:focus-visible,.rkr-mute:focus-visible{outline:3px solid #fff;outline-offset:3px;}
 .rkr-hudbtn,.rkr-menubtn{width:42px;height:42px;padding:8px;border-radius:14px;background:rgba(20,10,40,.55);border:2px solid rgba(255,255,255,.18);
   color:#fff;cursor:pointer;pointer-events:auto;}
 .rkr-hudbtn .rkr-eslash{display:none;}
@@ -198,7 +203,8 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-btn.rkr-alt{background:linear-gradient(180deg,#e3f7ff,#7fd8ff 55%,#5b9dff);}
 .rkr-btn:hover,.rkr-btn.rkr-sel{transform:translateY(-3px) scale(1.04);filter:brightness(1.08);box-shadow:0 10px 0 #3a1650,0 18px 30px rgba(0,0,0,.45),0 0 0 5px rgba(255,255,255,.35);}
 .rkr-btn:active{transform:translateY(4px) scale(.98);box-shadow:0 3px 0 #3a1650,0 6px 14px rgba(0,0,0,.4);}
-.rkr-btn:focus{outline:none;}
+.rkr-btn:focus:not(:focus-visible){outline:none;}
+.rkr-btn:focus-visible{outline:3px solid #fff;outline-offset:3px;}
 .rkr-btn .rkr-kk{display:inline-block;margin-right:8px;padding:0 7px;border-radius:7px;font-size:.7em;background:rgba(58,22,80,.15);border:2px solid rgba(58,22,80,.35);}
 .rkr-info{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;width:100%;}
 .rkr-panel{background:linear-gradient(160deg,rgba(255,255,255,.14),rgba(255,255,255,.05));border:2px solid rgba(255,255,255,.2);border-radius:22px;
@@ -431,11 +437,21 @@ function createUI(root) {
 
   const tr = el('div', 'rkr-tr');
   const hintEl = el('div', 'rkr-hint', '<span class="rkr-k">P</span>pause <span class="rkr-k">H</span>hud <span class="rkr-k">M</span><span class="rkr-snd">mute</span>');
-  const muteEl = el('div', 'rkr-mute', ICONS.speaker);
-  const hudBtn = el('div', 'rkr-hudbtn', ICONS.eye);
+  const muteEl = el('button', 'rkr-mute', ICONS.speaker);
+  const hudBtn = el('button', 'rkr-hudbtn', ICONS.eye);
   hudBtn.title = 'Show / hide the HUD (H)';
-  const menuBtn = el('div', 'rkr-menubtn', ICONS.menu);
+  hudBtn.setAttribute('aria-label', 'Hide HUD');
+  const menuBtn = el('button', 'rkr-menubtn', ICONS.menu);
   menuBtn.title = 'Menu';
+  menuBtn.setAttribute('aria-label', 'Menu');
+  muteEl.setAttribute('aria-label', 'Mute sound');
+  for (const b of [muteEl, hudBtn, menuBtn]) {
+    b.type = 'button';
+    // mouse/touch clicks must not leave focus here, or the next Enter/Space would press it again
+    b.addEventListener('mousedown', (e) => e.preventDefault());
+    // keyboard-focused: Enter/Space press the button, not the game/overlay key handlers on window
+    b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); });
+  }
   tr.append(hintEl, hudBtn, muteEl, menuBtn);
 
   const mapEl = el('div', 'rkr-map');
@@ -457,9 +473,11 @@ function createUI(root) {
   function setHudMin(v) {
     hudMin = v;
     hud.classList.toggle('rkr-min', v);
+    hudBtn.setAttribute('aria-pressed', String(!!v));
     try { localStorage.setItem('rkr-hud', v ? 'min' : 'full'); } catch { /* ignore */ }
   }
   hud.classList.toggle('rkr-min', hudMin);
+  hudBtn.setAttribute('aria-pressed', String(!!hudMin));
   hudBtn.addEventListener('click', () => setHudMin(!hudMin));
   let menuHandler = null;
   menuBtn.addEventListener('click', () => { if (menuHandler) menuHandler(); });
@@ -1197,6 +1215,7 @@ function createUI(root) {
   // ================= misc =================
   function setMutedIcon(m) {
     muteEl.classList.toggle('rkr-muted', !!m);
+    muteEl.setAttribute('aria-pressed', String(!!m));
     muteEl.title = m ? 'Sound is off: click or press M to turn it on' : 'Sound on: click or press M to mute';
     hintEl.querySelector('.rkr-snd').textContent = m ? 'sound on' : 'mute';
   }

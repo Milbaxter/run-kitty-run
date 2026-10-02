@@ -507,6 +507,19 @@ function createEffects(scene) {
     }
   }
 
+  // Pattern wolf pushing off on the ice: shavings kicked out behind it + a tight type-colored ring.
+  function iceKick(x, z, heading, color) {
+    ring(x, 0.05, z, color, 0.5, 1.25, 0.32, 0.8, 0.7, 1.5);
+    const bx = -Math.cos(heading), bz = -Math.sin(heading);
+    for (let i = 0; i < 9; i++) {
+      const a = Math.atan2(bz, bx) + rr(-0.9, 0.9), sp = rr(1.5, 3.5);
+      const p = emit(soft, x + bx * 0.4, 0.06, z + bz * 0.4, Math.cos(a) * sp, rr(0.6, 1.6), Math.sin(a) * sp,
+        rr(0.3, 0.5), rr(0.08, 0.13), 0.03, 0.93, 0.97, 1, 0.85);
+      if (p < 0) return;
+      soft.data[p + GRAV] = -7; soft.data[p + DRAG] = 3;
+    }
+  }
+
   function confetti(x, z) {
     for (let i = 0; i < 260; i++) {
       const a = rand() * TAU, tilt = rand() * 0.65, sp = rr(8, 15);
@@ -617,7 +630,7 @@ function createEffects(scene) {
   }
 
   return {
-    burst, deathPoof, reviveBeam, pickup, teleport, shieldPop, dust, confetti,
+    burst, deathPoof, reviveBeam, pickup, teleport, shieldPop, dust, iceKick, confetti,
     shake, getShakeOffset, floatText, update,
   };
 }

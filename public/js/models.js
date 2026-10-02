@@ -50,6 +50,7 @@ const P = {
   cyl18: new THREE.CylinderGeometry(1, 1, 1, 18),
   box: new THREE.BoxGeometry(1, 1, 1),
   oct: new THREE.OctahedronGeometry(1, 0),
+  torus: new THREE.TorusGeometry(1, 0.32, 4, 10),
 };
 
 // parts: [geometry, matrix, color | (x,y,z,outColor)=>void]
@@ -675,7 +676,13 @@ const WOLF_TYPES = {
   wanderer: { base: 0x8c5a38, light: 0xdcb48a, dark: 0x45291a, accent: 0xff8a2a },
   orbiter: { base: 0x3e5088, light: 0x9fb2e0, dark: 0x1d2548, accent: 0x52d6ff },
   sweeper: { base: 0xa83c33, light: 0xeaa58e, dark: 0x51201b, accent: 0xff3a3a },
+  // Skate-only pattern wolves: wintry coats, a scarf in the type color and skate blades. `track` = route color on ice.
+  charger: { base: 0x343a4c, light: 0xaab4cc, dark: 0x181b26, accent: 0xff2a55, scarf: 0xd0163f, track: 0xe0244c, gear: true },
+  crosser: { base: 0xc9d6e8, light: 0xf6f9ff, dark: 0x5f7499, accent: 0x18d6ff, scarf: 0x1886c8, track: 0x0f8fd0, gear: true },
+  diagonal: { base: 0x54477e, light: 0xc4b6ec, dark: 0x251c44, accent: 0xb85cff, scarf: 0x7e34d8, track: 0x8f3ff0, gear: true },
+  looper: { base: 0x5a5148, light: 0xd8cbb8, dark: 0x2a241f, accent: 0xffb21a, scarf: 0xe8860a, track: 0xe08a00, gear: true },
 };
+const BLADE = 0xc8d4e4, BOOT = 0x2a2f3a;
 
 function wolfGeos(type) {
   return cgeo('wolf:' + type, () => {
@@ -696,6 +703,14 @@ function wolfGeos(type) {
     const spikes = [[0.36, 0.86, 0.09], [0.22, 0.88, 0.1], [0.08, 0.81, 0.08], [-0.08, 0.77, 0.07], [-0.24, 0.75, 0.06]];
     for (const [x, y, s] of spikes) body.push([P.cone4, mtx([x, y, 0], [0, Math.PI / 4, 0.75], [s * 0.8, s * 2.1, s * 0.8]), dark]);
     for (const sz of [1, -1]) body.push([P.cone4, mtx([0.32, 0.8, 0.12 * sz], [0.5 * sz, 0, 0.6], [0.06, 0.16, 0.06]), base]);
+    if (T.gear) {
+      // scarf: a ring round the neck + two tails streaming back over the shoulder
+      const sc = new THREE.Color(T.scarf), sd = sc.clone().multiplyScalar(0.62);
+      body.push([P.torus, mtx([0.36, 0.68, 0], [0, Math.PI / 2, 0.55], [0.2, 0.2, 0.28]), sc]);
+      body.push([P.box, mtx([0.12, 0.8, 0.09], [0.15, 0.1, 0.35], [0.3, 0.045, 0.1]), sc]);
+      body.push([P.box, mtx([-0.08, 0.84, 0.13], [0.25, 0.2, 0.1], [0.22, 0.04, 0.09]), sd]);
+      body.push([P.box, mtx([-0.17, 0.85, 0.15], [0.25, 0.2, 0.1], [0.05, 0.05, 0.1]), 0xffffff]);
+    }
 
     const head = bake([
       [P.ico1, mtx([0, 0, 0], null, [0.2, 0.17, 0.18]), base],
@@ -726,11 +741,22 @@ function wolfGeos(type) {
       [P.cone4, mtx([0.22, 0.035, 0.03], null, [0.012, 0.04, 0.012]), 0xffffff],
       [P.cone4, mtx([0.22, 0.035, -0.03], null, [0.012, 0.04, 0.012]), 0xffffff],
     ]);
-    const leg = bake([
+    const legParts = [
       [P.ico1, mtx([0, -0.03, 0], null, [0.09, 0.1, 0.08]), base],
       [P.cyl6, mtx([0, -0.22, 0], null, [0.058, 0.42, 0.058]), base],
       [P.ico1, mtx([0.025, -0.455, 0], null, [0.08, 0.05, 0.07]), dark],
-    ]);
+    ];
+    if (T.gear) {
+      // skate: little boot, two posts and an upturned blade (the rig is lifted by SKATE_LIFT)
+      legParts.push(
+        [P.box, mtx([0.02, -0.47, 0], null, [0.17, 0.07, 0.1]), BOOT],
+        [P.box, mtx([0.07, -0.525, 0], null, [0.025, 0.05, 0.02]), BLADE],
+        [P.box, mtx([-0.04, -0.525, 0], null, [0.025, 0.05, 0.02]), BLADE],
+        [P.box, mtx([0.015, -0.553, 0], null, [0.26, 0.018, 0.018]), BLADE],
+        [P.box, mtx([0.155, -0.543, 0], [0, 0, 0.6], [0.05, 0.018, 0.018]), BLADE],
+      );
+    }
+    const leg = bake(legParts);
     const tail = [
       bake([[P.ico1, mtx([0, 0.08, 0], null, [0.09, 0.12, 0.09]), base]]),
       bake([[P.ico1, mtx([0, 0.09, 0], null, [0.125, 0.16, 0.12]), base], [P.ico0, mtx([0.03, 0.06, 0], [0, 0, 0.4], [0.1, 0.12, 0.13]), dark]]),
@@ -740,9 +766,48 @@ function wolfGeos(type) {
   });
 }
 
-function createWolfModel(type) {
+// Danger lane (pattern wolves): a flat strip ahead of the wolf (+X) that shoots out to its next waypoint during the
+// tell. Chevrons march along it; drawn only while the tell is up.
+const LANE_VERT = /* glsl */`
+varying vec2 vUv;
+#include <fog_pars_vertex>
+void main() {
+  vUv = uv;
+  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+  #include <fog_vertex>
+}`;
+const LANE_FRAG = /* glsl */`
+uniform vec3 uColor;
+uniform float uOpacity;
+uniform float uLen;
+uniform float uTime;
+varying vec2 vUv;
+#include <fog_pars_fragment>
+void main() {
+  float along = vUv.x * uLen;
+  float across = abs(vUv.y - 0.5) * 2.0;
+  float q = along + across * 0.28;
+  float chev = smoothstep(0.0, 0.08, fract(q / 0.62 - uTime * 2.2)) * (1.0 - smoothstep(0.26, 0.36, fract(q / 0.62 - uTime * 2.2)));
+  float edge = 1.0 - smoothstep(0.7, 1.0, across);
+  float start = smoothstep(0.0, 0.5, along);
+  float tip = 1.0 - smoothstep(uLen - 0.25, uLen, along);
+  float a = (0.22 + 0.78 * chev) * edge * start * tip * uOpacity;
+  gl_FragColor = vec4(uColor * (0.75 + 0.5 * chev), a);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+  #include <fog_fragment>
+}`;
+
+const SKATE_LIFT = 0.06;
+
+// opts: { pattern: Skate-only pattern wolf (lane + countdown ring), skate: on an ice level (glide instead of trot) }
+function createWolfModel(type, opts) {
   if (!WOLF_TYPES[type]) type = 'patroller';
+  opts = opts || {};
   const T = WOLF_TYPES[type];
+  const skate = !!(opts.skate && T.gear);
+  const lift = T.gear ? SKATE_LIFT : 0;
   const G = wolfGeos(type);
   const mat = VC_MAT();
   const group = new THREE.Group();
@@ -786,8 +851,25 @@ function createWolfModel(type) {
   ring.renderOrder = 1;
   group.add(ring);
 
+  let lane = null, laneMat = null;
+  if (opts.pattern) {
+    laneMat = new THREE.ShaderMaterial({
+      uniforms: Object.assign(THREE.UniformsUtils.clone(THREE.UniformsLib.fog), {
+        uColor: { value: glowColor(T.accent, 1.1) }, uOpacity: { value: 0 }, uLen: { value: 1 }, uTime: { value: 0 },
+      }),
+      vertexShader: LANE_VERT, fragmentShader: LANE_FRAG,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: true,
+    });
+    lane = new THREE.Mesh(cgeo('wolfLane', () => { const g = new THREE.PlaneGeometry(1, 1); g.rotateX(-Math.PI / 2); g.translate(0.5, 0, 0); return g; }), laneMat);
+    lane.position.set(0.6, 0.03, 0);
+    lane.scale.set(0.01, 1, 0.62);
+    lane.renderOrder = 1;
+    lane.visible = false;
+    group.add(lane);
+  }
+
   const seedOff = Math.random() * 100;
-  let phase = Math.random() * 6, runAmt = 0, tellS = 0, clock = 0;
+  let phase = Math.random() * 6, runAmt = 0, tellS = 0, clock = 0, laneA = 0, laneGrow = 0, laneLen = 1;
 
   function update(dt, s) {
     s = s || {};
@@ -803,18 +885,29 @@ function createWolfModel(type) {
     const sn = Math.sin(phase);
     const idle = (1 - Math.min(1, runAmt)) * (1 - tell);
 
-    // trot + crouch (legs splay to lower the body)
-    const amp = 0.7 * runAmt;
     const crouch = 0.6 * tell;
-    legs[0].rotation.z = sn * amp + crouch;
-    legs[3].rotation.z = sn * amp - crouch;
-    legs[1].rotation.z = -sn * amp + crouch;
-    legs[2].rotation.z = -sn * amp - crouch;
     const drop = 0.5 * (1 - Math.cos(crouch));
     let jitter = 0;
     if (tell > 0.55) jitter = Math.sin(time * 75 + seedOff) * 0.014 * (tell - 0.55) / 0.45;
-    rig.position.set(jitter, -drop + Math.abs(Math.cos(phase)) * 0.045 * runAmt - 0.02 * runAmt + Math.sin(time * 2 + seedOff) * 0.006 * idle, 0);
-    rig.rotation.z = Math.sin(phase * 2) * 0.025 * runAmt - 0.05 * runAmt - 0.06 * tell;
+    if (skate) {
+      // speed-skater glide: front legs tucked, hind legs push out to the side in turn, body rocks and leans in
+      const amp = 0.55 * runAmt, push = Math.sin(phase * 0.5);
+      legs[0].rotation.set(0, 0, 0.25 * runAmt + crouch);
+      legs[1].rotation.set(0, 0, 0.25 * runAmt + crouch);
+      legs[2].rotation.set(-Math.max(0, push) * amp, 0, -0.35 * runAmt - crouch);
+      legs[3].rotation.set(Math.max(0, -push) * amp, 0, -0.35 * runAmt - crouch);
+      rig.position.set(jitter, lift - drop - 0.05 * runAmt + Math.sin(time * 2 + seedOff) * 0.006 * idle, 0);
+      rig.rotation.set(push * 0.09 * runAmt, 0, -0.14 * runAmt - 0.06 * tell);
+    } else {
+      // trot + crouch (legs splay to lower the body)
+      const amp = 0.7 * runAmt;
+      legs[0].rotation.z = sn * amp + crouch;
+      legs[3].rotation.z = sn * amp - crouch;
+      legs[1].rotation.z = -sn * amp + crouch;
+      legs[2].rotation.z = -sn * amp - crouch;
+      rig.position.set(jitter, lift - drop + Math.abs(Math.cos(phase)) * 0.045 * runAmt - 0.02 * runAmt + Math.sin(time * 2 + seedOff) * 0.006 * idle, 0);
+      rig.rotation.z = Math.sin(phase * 2) * 0.025 * runAmt - 0.05 * runAmt - 0.06 * tell;
+    }
 
     head.position.y = 0.8 - 0.06 * tell + Math.sin(phase * 2 + 1) * 0.02 * runAmt;
     head.position.x = 0.5 + 0.04 * tell;
@@ -835,9 +928,34 @@ function createWolfModel(type) {
     const es = 1 + 0.25 * tell;
     eyes.scale.set(es, es, es);
 
-    ringMat.opacity = 0.32 + 0.55 * tell;
-    const rs = 1 + 0.12 * tell + 0.03 * Math.sin(time * 3 + seedOff);
+    if (!opts.pattern) {
+      ringMat.opacity = 0.32 + 0.55 * tell;
+      const rs = 1 + 0.12 * tell + 0.03 * Math.sin(time * 3 + seedOff);
+      ring.scale.set(rs, 1, rs);
+      return;
+    }
+    // pattern wolves: the ring snaps tight like a countdown, then the lane shoots out to the next stop
+    const rawTell = Math.max(0, Math.min(1, s.tell || 0));
+    ringMat.opacity = 0.38 + 0.6 * tell + (tell > 0.05 ? 0.2 * Math.sin(time * 26) * tell : 0);
+    const rs = 1.12 - 0.3 * tell + 0.03 * Math.sin(time * 3 + seedOff) * (1 - tell);
     ring.scale.set(rs, 1, rs);
+    if (s.nextLen > 0) laneLen = s.nextLen / (group.scale.x || 1);
+    const on = rawTell > 0.01;
+    laneA = smoothTo(laneA, on ? 1 : 0, on ? 30 : 5, dt);
+    laneGrow = on ? Math.max(laneGrow, 1 - (1 - rawTell) * (1 - rawTell)) : (moving ? laneGrow : 0);
+    if (laneA < 0.01) laneGrow = 0;
+    lane.visible = laneA > 0.01;
+    if (lane.visible) {
+      const L = Math.max(0.05, (laneLen - 0.6) * Math.max(0.05, laneGrow));
+      lane.scale.x = L;
+      // aim at the stop, not the nose (the wolf is still turning during the tell)
+      const a = s.nextDir !== undefined ? -(s.nextDir - (s.heading || 0)) : 0;
+      lane.rotation.y = a;
+      lane.position.set(0.6 * Math.cos(a), 0.03, -0.6 * Math.sin(a));
+      laneMat.uniforms.uLen.value = L;
+      laneMat.uniforms.uOpacity.value = laneA * (0.65 + 0.35 * tell);
+      laneMat.uniforms.uTime.value = time;
+    }
   }
 
   update(0, {});
@@ -1236,4 +1354,4 @@ function createCrownPickupModel() {
   return { group, update };
 }
 
-export { createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel };
+export { WOLF_TYPES, createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel };

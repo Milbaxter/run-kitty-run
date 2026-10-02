@@ -311,18 +311,124 @@ function stepEnemy(e, dt) {
   place(e, r, th);
 }
 
+
+// ---------------------------------------------------------------------------
+// Pattern wolves (Skate only mode): no randomness at all. A pattern wolf walks a fixed route of
+// waypoints in its leg frame at a constant cruise speed, holding a fixed time at each waypoint, so its
+// position is a pure function of time and players can learn the rhythm.
+//
+// Spec (from maze.js placement; any spec with a `route` is a pattern wolf, whatever its `type`):
+//   route: [{ r, th, hold }]  waypoints in leg-local coords; hold = seconds standing at that waypoint
+//                             before leaving it (default spec.hold, else 0.5)
+//   loop:  true  -> A > B > C > A ...   false/absent -> ping-pong A > B > C > B > A ...
+//   speed: cruise speed (units/s);  phase: 0..1 offset into the cycle (same phase = same timing)
+//   rIn/rOut/a0/a1: bounding box of the route (kept for bounds checks / selftest)
+// Public extras on the enemy: e.route (the spec route), e.cycleT (cycle length, s), e.cycleU (0..1 now).
+// e.tell ramps 0 -> 1 over the last TELL_T seconds of a hold: the wolf turns toward its next move then.
+
+const TELL_T = 0.4;
+
+function isPattern(spec) { return !!(spec && Array.isArray(spec.route) && spec.route.length >= 2); }
+
+// Builds the timed segment list: [{ hold, r0, th0, r1, th1, L, T, dir, tStart }] and the cycle length.
+function buildPlan(spec, f, speed) {
+  const pts = spec.route.map((w) => ({
+    r: Number(w.r) || 0, th: Number(w.th) || 0,
+    hold: Math.max(0, Number.isFinite(w.hold) ? w.hold : Number.isFinite(spec.hold) ? spec.hold : 0.5),
+  }));
+  const order = [];
+  for (let i = 0; i < pts.length; i++) order.push(i);
+  if (spec.loop) order.push(0);
+  else for (let i = pts.length - 2; i >= 0; i--) order.push(i);   // ping-pong back to the start
+  const segs = [];
+  let t = 0;
+  for (let k = 0; k + 1 < order.length; k++) {
+    const a = pts[order[k]], b = pts[order[k + 1]];
+    const L = pathLen(a.r, a.th, b.r, b.th);
+    const T = profileT(L, speed);
+    const dir = L > 1e-5 ? Math.atan2(f.uz * (b.th - a.th) + f.nz * (b.r - a.r), f.ux * (b.th - a.th) + f.nx * (b.r - a.r)) : null;
+    segs.push({ hold: a.hold, r0: a.r, th0: a.th, r1: b.r, th1: b.th, L, T, dir, tStart: t });
+    t += a.hold + T;
+  }
+  // segments with no movement inherit the previous direction
+  let last = null;
+  for (let pass = 0; pass < 2; pass++) for (const s of segs) { if (s.dir == null) s.dir = last; else last = s.dir; }
+  for (const s of segs) if (s.dir == null) s.dir = 0;
+  return { segs, cycle: Math.max(1e-3, t), speed };
+}
+
+// Pure: pose of a pattern wolf at cycle time tc (0 <= tc < cycle).
+function patternPose(plan, tc) {
+  const segs = plan.segs;
+  let i = segs.length - 1;
+  for (let k = 0; k < segs.length; k++) { if (tc < segs[k].tStart + segs[k].hold + segs[k].T) { i = k; break; } }
+  const s = segs[i];
+  const prev = segs[(i - 1 + segs.length) % segs.length];
+  const u = tc - s.tStart;
+  if (u < s.hold) {
+    // holding at the waypoint: face the way we came, turn toward the next move during the tell
+    const tellT = Math.min(TELL_T, s.hold);
+    const k = tellT > 0 ? clamp((u - (s.hold - tellT)) / tellT, 0, 1) : 1;
+    const e = k * k * (3 - 2 * k);
+    return { r: s.r0, th: s.th0, heading: wrapPi(prev.dir + wrapPi(s.dir - prev.dir) * e), moving: false, speed: 0, tell: k };
+  }
+  const tm = u - s.hold;
+  const d = profileS(tm, s.T, s.L, plan.speed);
+  const q = s.L > 0 ? clamp(d / s.L, 0, 1) : 1;
+  return {
+    r: s.r0 + (s.r1 - s.r0) * q, th: s.th0 + (s.th1 - s.th0) * q,
+    heading: s.dir, moving: true, speed: profileV(tm, s.T, s.L, plan.speed), tell: 0,
+  };
+}
+
+function poseEnemy(e) {
+  const st = e._st, plan = e._plan;
+  const tc = ((st.time % plan.cycle) + plan.cycle) % plan.cycle;
+  const p = patternPose(plan, tc);
+  e.heading = p.heading; e.moving = p.moving; e.speedNow = p.speed; e.tell = p.tell;
+  e.cycleU = tc / plan.cycle;
+  place(e, p.r, p.th);
+}
+
+function createPatternEnemy(spec) {
+  const f = spec.frame || { ox: 0, oz: 0, ux: 1, uz: 0, nx: 0, nz: 1 };
+  const speed = Math.max(0.1, Number.isFinite(spec.speed) ? spec.speed : 2.4);
+  const plan = buildPlan(spec, f, speed);
+  const phase = Number.isFinite(spec.phase) ? spec.phase : 0;
+  // st is what serializeEnemies ships: keep it tiny (time is the whole state)
+  const st = { rng: createRng((spec.seed >>> 0) || 1), f, time: phase * plan.cycle };
+  const e = {
+    id: spec.id, type: spec.type, spec, pattern: true,
+    x: 0, z: 0, heading: 0, radius: CFG.WOLF_RADIUS,
+    moving: false, tell: 0, speedNow: 0,
+    route: spec.route, loop: !!spec.loop, cycleT: plan.cycle, cycleU: 0,
+    _st: st, _plan: plan,
+  };
+  poseEnemy(e);
+  return e;
+}
+
+function stepPatternEnemy(e, dt) {
+  const st = e._st;
+  st.time = (st.time + dt) % e._plan.cycle;
+  poseEnemy(e);
+}
+
 // ---------------------------------------------------------------------------
 
 function createEnemies(levelData) {
   const specs = (levelData && levelData.enemies) || [];
   const out = [];
-  for (const spec of specs) out.push(createEnemy(spec));
+  for (const spec of specs) out.push(isPattern(spec) ? createPatternEnemy(spec) : createEnemy(spec));
   return out;
 }
 
 function updateEnemies(enemies, levelData, dt) {
   if (!(dt > 0)) return;
-  for (let i = 0; i < enemies.length; i++) stepEnemy(enemies[i], dt);
+  for (let i = 0; i < enemies.length; i++) {
+    const e = enemies[i];
+    if (e.pattern) stepPatternEnemy(e, dt); else stepEnemy(e, dt);
+  }
 }
 
 // Distance from (x, z) to the nearest enemy's body edge (>= 0). Infinity if none.
@@ -359,7 +465,8 @@ function applyEnemyState(enemies, data) {
     Object.assign(e._st, st);
     e._st.rng.setState(rngState);
     for (const k of PUBLIC_FIELDS) e[k] = d[k];
+    if (e.pattern) poseEnemy(e);
   }
 }
 
-export { createEnemies, updateEnemies, nearestEnemyDist, serializeEnemies, applyEnemyState };
+export { createEnemies, updateEnemies, nearestEnemyDist, serializeEnemies, applyEnemyState, isPattern, patternPose, buildPlan };

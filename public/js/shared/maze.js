@@ -1,5 +1,6 @@
 import { CFG, levelParams } from './config.js';
 import { createRng, hashSeed } from './rng.js';
+import { buildPlan, patternPose } from './enemies.js';
 
 // Square-spiral level generation + collision. Pure (no THREE, no DOM).
 //
@@ -195,6 +196,523 @@ function placeEnemies(rng, lvl, p) {
   return enemies;
 }
 
+// ---------------------------------------------------------------- pattern wolves (Skate only mode)
+//
+// In Skate only (mode 'ice') wolves don't wander: each walks a fixed route at a fixed rhythm (see the
+// pattern section of enemies.js), so a leg is a "room" the kitty studies from the safe corner square and
+// then skates through in one go (it can't stop on ice).
+//
+// A leg is composed of segments from a small pattern library, top (entry, high th) to bottom:
+//   crosswalk  rows of 'crosser's sweeping across the lane (wave / comb / ripple / anti offsets)
+//   gates      pairs of 'crosser's from both walls that meet in the middle: doors (open/close) or sliders
+//   gauntlet   'charger's running along fixed lanes straight at the kitty: they own their lane, go beside;
+//              past the lessons the alley ends in a crosser or gate ("funnel": your lane choice is your timing)
+//   pendulum   'diagonal's: swings, zig-zags and scissors across the lane
+//   carousel   'looper's circling a box / diamond, or two counter-rotating gears
+// Every wolf in a leg shares the leg's beat T (its cycle is T, T/2 or T/3), so the whole room repeats
+// exactly every T seconds. Each segment's timing offset is chosen by a launch-window solver (solveLeg): a
+// kitty skating straight down one of PAT_LANES at full speed, leaving the corner at the right moment, gets
+// through the whole leg with spare clearance, and that lane stays open for a solid share of the beat (more
+// in the first legs). Segments that would (nearly) close the room are dropped: never an impossible wall.
+// Level 1 teaches one idea per leg (PAT_LESSONS); difficulty D = levelParams().patternHeat + 0.45 * depth
+// drives wolf speed, holds, spacing, variants and the launch-window targets.
+
+const PAT_HIT = CFG.KITTY_RADIUS * CFG.KITTY_HIT_SCALE + CFG.WOLF_RADIUS * CFG.WOLF_HIT_SCALE;
+const PAT_SAFE = PAT_HIT + 0.3;               // solver clearance (spare room for imperfect skating)
+const PAT_LANES = [-3.6, -1.8, 0, 1.8, 3.6];   // solver lanes: center, middles, near the walls (hugging a wall on ice is no fun)
+const PAT_BIN = 1 / 40;                       // solver time resolution (s); beats are multiples of 0.25 s
+const PAT_HZ = 120;                           // pose table rate
+const PAT_VK = CFG.KITTY_SPEED;               // skating speed the rooms are designed for
+const PAT_VMAX = CFG.KITTY_SPEED * 0.9;
+const PAT_HARD = 0.3;                         // never accept a leg whose launch window is shorter (s)
+const PAT_FRAC_MIN = 0.12;                    // ...or whose best lane is open for less of the beat
+const PAT_TYPES = ['charger', 'crosser', 'diagonal', 'looper'];
+const PAT_GATE = 0.7;
+const NO_FRAME = { ox: 0, oz: 0, ux: 1, uz: 0, nx: 0, nz: 1 };                         // gate wolves meet at +-this (closed: no kitty fits between)
+
+function usableRanges(legs) {
+  const W = CFG.RING_WIDTH, last = legs.length - 1;
+  return legs.map((leg, li) => {
+    let lo = W / 2 + CORNER_REST + CFG.WOLF_RADIUS;
+    let hi = leg.len - W / 2 - CORNER_REST - CFG.WOLF_RADIUS;
+    if (li === last) { lo = -W / 2 + WOLF_MARGIN; hi = leg.len + W / 2 - WOLF_MARGIN; }
+    if (li === 0) hi = leg.len - W / 2 - CFG.START_SAFE_ARC - CFG.WOLF_RADIUS;
+    return { lo, hi: Math.max(lo, hi) };
+  });
+}
+
+// --- pattern library. Each returns { name, depth, wolves } with th in [0, depth] (depth = the end the kitty
+// meets first); wolf: { type, route: [{r, th}], loop, w (hold weight per waypoint), offT (fraction of its own
+// cycle), offS (s), vMul }. c = { D, rng, vOut }.
+
+function segCrosswalk(c, o = {}) {
+  const { rng, vOut } = c;
+  const k = o.k || Math.max(1, Math.min(4, 1 + Math.floor(c.D * 2.2 + rng.next() * 0.9)));
+  const sp = k > 1 ? rng.range(3.4, 4.4) : 0;
+  const variant = o.variant || (k === 1 ? 'single' : c.D < 0.3 ? 'wave' : rng.pick(['wave', 'comb', 'ripple', 'anti']));
+  const side = rng.chance(0.5) ? 1 : -1;
+  const wolves = [];
+  for (let i = 0; i < k; i++) {
+    const s = variant === 'comb' && i % 2 ? -side : side;
+    const th = (k - 1 - i) * sp;
+    const w = { type: 'crosser', route: [{ r: -s * vOut, th }, { r: s * vOut, th }], offT: 0, offS: 0 };
+    if (variant === 'wave') w.offS = -i * sp / PAT_VK;          // a kitty in one lane meets every crosser in the same state
+    else if (variant === 'anti') w.offS = i * sp / PAT_VK;      // ...or each one a little further along
+    else if (variant === 'ripple') w.offT = i * 0.2;            // a ripple you can see travelling down the row
+    wolves.push(w);
+  }
+  return { name: 'crosswalk-' + variant, depth: (k - 1) * sp, wolves };
+}
+
+function segGates(c, o = {}) {
+  const { rng, vOut } = c;
+  const k = o.k || Math.max(1, Math.min(3, 1 + Math.floor(c.D * 1.6 + rng.next() * 0.6)));
+  const variant = o.variant || (c.D < 0.45 ? 'doors' : rng.pick(['doors', 'slider', 'slider']));
+  const link = k > 1 && rng.chance(0.5) ? 'alt' : 'wave';
+  const sp = rng.range(4.6, 5.6);
+  const wolves = [];
+  for (let i = 0; i < k; i++) {
+    const th = (k - 1 - i) * sp;
+    const offS = link === 'wave' ? -i * sp / PAT_VK : 0, offT = link === 'alt' ? (i % 2) * 0.5 : 0;
+    wolves.push({ type: 'crosser', route: [{ r: -vOut, th }, { r: -PAT_GATE, th }], offT, offS });
+    wolves.push({ type: 'crosser', route: [{ r: vOut, th }, { r: PAT_GATE, th }], offT: offT + (variant === 'slider' ? 0.5 : 0), offS });
+  }
+  return { name: 'gates-' + variant, depth: (k - 1) * sp, wolves };
+}
+
+function segGauntlet(c, o = {}) {
+  const { rng, vOut } = c;
+  const opts = c.D < 0.3 ? ['pillar', 'twin'] : c.D < 0.7 ? ['pillar', 'twin', 'fence'] : ['twin', 'fence', 'trident'];
+  const variant = o.variant || rng.pick(opts);
+  const lanes = { pillar: [0], twin: [-2.3, 2.3], fence: [-vOut, vOut], trident: [-3.4, 0, 3.4] }[variant];
+  const S = rng.range(9, 13) + 4 * Math.min(1, c.D);
+  // funnel: past the lesson, the alley ends in a crosser (or a gate) you meet in whatever lane you chose
+  const exit = o.pure || c.D < 0.15 ? null : c.D < 0.6 || rng.chance(0.5) ? 'crosser' : 'gate';
+  const b = exit ? 3.2 : 0;
+  const wolves = lanes.map((r, i) => ({ type: 'charger', route: [{ r, th: b }, { r, th: b + S }], offT: i % 2 ? 0.5 : 0, offS: 0 }));
+  if (exit === 'crosser') {
+    const s = rng.chance(0.5) ? 1 : -1;
+    wolves.push({ type: 'crosser', route: [{ r: -s * vOut, th: 0 }, { r: s * vOut, th: 0 }], offT: 0, offS: 0 });
+  } else if (exit === 'gate') {
+    const slide = rng.chance(0.5) ? 0.5 : 0;
+    wolves.push({ type: 'crosser', route: [{ r: -vOut, th: 0 }, { r: -PAT_GATE, th: 0 }], offT: 0, offS: 0 });
+    wolves.push({ type: 'crosser', route: [{ r: vOut, th: 0 }, { r: PAT_GATE, th: 0 }], offT: slide, offS: 0 });
+  }
+  return { name: 'gauntlet-' + variant + (exit ? '-' + exit : ''), depth: b + S, wolves };
+}
+
+function segPendulum(c, o = {}) {
+  const { rng, vOut } = c;
+  const opts = c.D < 0.4 ? ['swing'] : c.D < 0.8 ? ['swing', 'zigzag', 'scissors'] : ['zigzag', 'scissors', 'zigzag4'];
+  const variant = o.variant || rng.pick(opts);
+  const s = rng.chance(0.5) ? 1 : -1, A = -s * vOut, B = s * vOut;
+  let wolves, depth;
+  if (variant === 'swing') {
+    depth = rng.range(4.5, 6.5);
+    wolves = [{ type: 'diagonal', route: [{ r: A, th: 0 }, { r: B, th: depth }], offT: 0, offS: 0 }];
+  } else if (variant === 'scissors') {
+    depth = rng.range(5, 7);
+    wolves = [
+      { type: 'diagonal', route: [{ r: A, th: 0 }, { r: B, th: depth }], offT: 0, offS: 0 },
+      { type: 'diagonal', route: [{ r: B, th: 0 }, { r: A, th: depth }], offT: 0.5, offS: 0 },
+    ];
+  } else {
+    const n = variant === 'zigzag4' ? 4 : 3, d = rng.range(3.4, 4.4);
+    depth = d * (n - 1);
+    const route = [];
+    for (let i = 0; i < n; i++) route.push({ r: i % 2 ? B : A, th: i * d });
+    wolves = [{ type: 'diagonal', route, offT: 0, offS: 0 }];
+  }
+  return { name: 'pendulum-' + variant, depth, wolves };
+}
+
+function segCarousel(c, o = {}) {
+  const { rng, vOut } = c;
+  const opts = c.D < 0.6 ? ['box', 'diamond'] : ['box', 'diamond', 'gears'];
+  const variant = o.variant || rng.pick(opts);
+  const dir = rng.chance(0.5);
+  const orient = (route) => (dir ? route : route.slice().reverse());
+  let wolves, depth;
+  if (variant === 'gears') {
+    depth = rng.range(4.5, 5.5);
+    const box = (a, b, rev) => { const q = [{ r: a, th: 0 }, { r: b, th: 0 }, { r: b, th: depth }, { r: a, th: depth }]; return rev ? q.reverse() : q; };
+    wolves = [
+      { type: 'looper', route: box(-vOut, -1.1, dir), loop: true, w: [0.3, 0.3, 0.3, 0.3], offT: 0, offS: 0, vMul: 1.15 },
+      { type: 'looper', route: box(vOut, 1.1, dir), loop: true, w: [0.3, 0.3, 0.3, 0.3], offT: 0.5, offS: 0, vMul: 1.15 },
+    ];
+  } else if (variant === 'diamond') {
+    depth = rng.range(7, 9);
+    const route = orient([{ r: 0, th: 0 }, { r: vOut, th: depth / 2 }, { r: 0, th: depth }, { r: -vOut, th: depth / 2 }]);
+    wolves = [0, 0.5].map((offT) => ({ type: 'looper', route, loop: true, w: [0.3, 0.3, 0.3, 0.3], offT, offS: 0, vMul: 1.25 }));
+  } else {
+    depth = rng.range(6, 8);
+    const n = c.D < 0.6 ? 2 : c.D < 1 ? 3 : 4;
+    const route = orient([{ r: -vOut, th: 0 }, { r: vOut, th: 0 }, { r: vOut, th: depth }, { r: -vOut, th: depth }]);
+    wolves = [];
+    for (let i = 0; i < n; i++) wolves.push({ type: 'looper', route, loop: true, w: [0.3, 0.3, 0.3, 0.3], offT: i / n, offS: 0, vMul: 1.3 });
+  }
+  return { name: 'carousel-' + variant, depth, wolves };
+}
+
+const PAT_FAMILIES = { crosswalk: segCrosswalk, gates: segGates, gauntlet: segGauntlet, pendulum: segPendulum, carousel: segCarousel };
+const PAT_UNLOCK = { crosswalk: 0, gates: 0, gauntlet: 0.15, pendulum: 0.25, carousel: 0.35 };
+
+// Level 1 teaches one idea per leg, in this order; later legs (and later levels) mix freely.
+const PAT_LESSONS = [
+  [['crosswalk', { k: 1 }]],
+  [['crosswalk', { k: 2, variant: 'wave' }]],
+  [['gates', { k: 1, variant: 'doors' }]],
+  [['gauntlet', { variant: 'twin', pure: true }], ['crosswalk', { k: 1 }], ['gauntlet', { variant: 'pillar', pure: true }]],
+  [['pendulum', { variant: 'swing' }]],
+  [['carousel', { variant: 'box' }]],
+  [['gates', { k: 1, variant: 'slider' }]],
+  [['pendulum', { variant: 'scissors' }], ['crosswalk', { k: 2, variant: 'comb' }]],
+];
+
+// --- timing helpers
+
+// Sets per-waypoint holds so the wolf's cycle is exactly Tw; builds its pose table.
+function patTime(w, Tw) {
+  const n = w.route.length, segs = w.loop ? n : 2 * (n - 1);
+  const zero = buildPlan({ route: w.route.map((q) => ({ r: q.r, th: q.th, hold: 0 })), loop: w.loop }, NO_FRAME, w.speed);
+  let sumW = 0;
+  for (let s = 0; s < segs; s++) sumW += w.w ? w.w[w.loop ? s : s < n - 1 ? s : 2 * (n - 1) - s] : 1;
+  const unit = (Tw - zero.cycle) / sumW;
+  w.route = w.route.map((q, i) => ({ r: q.r, th: q.th, hold: Math.round(unit * (w.w ? w.w[i] : 1) * 1e6) / 1e6 }));
+  const plan = buildPlan({ route: w.route, loop: w.loop }, NO_FRAME, w.speed);
+  w.cycle = plan.cycle;
+  const m = Math.ceil(plan.cycle * PAT_HZ) + 1;
+  w.tr = new Float64Array(m); w.tth = new Float64Array(m);
+  for (let i = 0; i < m; i++) { const p = patternPose(plan, Math.min(i / PAT_HZ, plan.cycle - 1e-9)); w.tr[i] = p.r; w.tth[i] = p.th; }
+}
+
+// natural cycle: moving time + base holds
+function patNatural(w, h) {
+  const zero = buildPlan({ route: w.route.map((q) => ({ r: q.r, th: q.th, hold: 0 })), loop: w.loop }, NO_FRAME, w.speed);
+  const n = w.route.length, segs = w.loop ? n : 2 * (n - 1);
+  let sumW = 0;
+  for (let s = 0; s < segs; s++) sumW += w.w ? w.w[w.loop ? s : s < n - 1 ? s : 2 * (n - 1) - s] : 1;
+  return { move: zero.cycle, nat: zero.cycle + h * sumW };
+}
+
+function patPoseIdx(w, t) {
+  let tc = (t + w.off) % w.cycle;
+  if (tc < 0) tc += w.cycle;
+  return Math.min(w.tr.length - 1, Math.floor(tc * PAT_HZ));
+}
+
+// Safe arrival times at a segment's top edge, per lane, for a kitty skating straight down the leg at vk.
+function patSafety(seg, N, vk) {
+  const S2 = PAT_SAFE * PAT_SAFE;
+  const out = [];
+  for (const r of PAT_LANES) {
+    const ok = new Uint8Array(N).fill(1);
+    for (const w of seg.wolves) {
+      if (r < w.rMin - PAT_SAFE || r > w.rMax + PAT_SAFE) continue;
+      const t0 = Math.max(0, (seg.top - (w.thMax + PAT_SAFE)) / vk), t1 = (seg.top - (w.thMin - PAT_SAFE)) / vk;
+      const ts = [];
+      for (let t = t0; t < t1; t += 1 / 60) ts.push(t);
+      ts.push(t1);
+      for (let b = 0; b < N; b++) {
+        if (!ok[b]) continue;
+        const tb = b * PAT_BIN;
+        for (let k = 0; k < ts.length; k++) {
+          const i = patPoseIdx(w, tb + ts[k]);
+          const dr = w.tr[i] - r, dth = w.tth[i] - (seg.top - vk * ts[k]);
+          if (dr * dr + dth * dth < S2) { ok[b] = 0; break; }
+        }
+      }
+    }
+    out.push(ok);
+  }
+  return out;
+}
+
+function shifted(a, s, N) { // out[b] = a[(b + s) mod N]
+  const o = new Uint8Array(N);
+  s = ((s % N) + N) % N;
+  for (let b = 0; b < N; b++) o[b] = a[(b + s) % N];
+  return o;
+}
+
+function maxRun(a) { // longest circular run of ones
+  const N = a.length;
+  let best = 0, cur = 0;
+  for (let k = 0; k < 2 * N; k++) { if (a[k % N]) { cur++; if (cur > best) best = cur; } else cur = 0; }
+  return Math.min(best, N);
+}
+
+// Per lane: launch times (kitty leaving the entry corner's center, mod the beat) that clear every segment so far.
+function laneScore(F) {
+  let best = { li: 0, run: 0, frac: 0 };
+  F.forEach((f, li) => {
+    let n = 0;
+    for (let t = 0; t < f.length; t++) n += f[t];
+    const run = maxRun(f), frac = n / f.length;
+    if (run + 8 * frac > best.run + 8 * best.frac || (run === best.run && Math.abs(PAT_LANES[li]) < Math.abs(PAT_LANES[best.li]))) best = { li, run, frac };
+  });
+  return best;
+}
+
+// --- kitty skating model (shared with the self test): pure pursuit along a world polyline at full speed with
+// the ice turn rate; returns positions every 1/60 s from the moment it leaves pts[0].
+function skatePath(pts, vk = PAT_VK) {
+  const dt = 1 / 60, xs = [], zs = [];
+  let x = pts[0].x, z = pts[0].z, k = 1;
+  let h = Math.atan2(pts[1].z - z, pts[1].x - x);
+  for (let n = 0; n < 60 * 60; n++) {
+    while (k < pts.length - 1) {
+      const A = pts[k - 1], B = pts[k];
+      const ex = B.x - A.x, ez = B.z - A.z, L2 = ex * ex + ez * ez;
+      const u = L2 > 0 ? ((x - A.x) * ex + (z - A.z) * ez) / L2 : 1;
+      if (u > 1 || Math.hypot(B.x - x, B.z - z) < 1.6) k++; else break;
+    }
+    const T = pts[k];
+    if (k === pts.length - 1 && Math.hypot(T.x - x, T.z - z) < 0.6) break;
+    let d = Math.atan2(T.z - z, T.x - x) - h;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    const mt = CFG.ICE_TURN_RATE * dt;
+    h += d > mt ? mt : d < -mt ? -mt : d;
+    x += Math.cos(h) * vk * dt; z += Math.sin(h) * vk * dt;
+    xs.push(x); zs.push(z);
+  }
+  return { xs, zs };
+}
+
+// Plan of a leg -> world polyline: start on the entry corner square in the first lane, lanes per segment.
+function planPoints(leg, lane, end = 0) {
+  const P = (r, th) => ({ x: leg.ox + leg.ux * th + leg.nx * r, z: leg.oz + leg.uz * th + leg.nz * r });
+  return [P(lane, leg.len), P(lane, end)];
+}
+
+// For each launch bin (kitty at pts[0] at b * PAT_BIN), 1 if the path clears every wolf by `clear`.
+function pathSafety(traj, wolves, N, clear) {
+  const C2 = clear * clear, ok = new Uint8Array(N).fill(1);
+  for (const w of wolves) {
+    const idx = [];
+    for (let k = 0; k < traj.xs.length; k++) {
+      const x = traj.xs[k], z = traj.zs[k];
+      if (x > w.x0 - clear && x < w.x1 + clear && z > w.z0 - clear && z < w.z1 + clear) idx.push(k);
+    }
+    if (!idx.length) continue;
+    const f = w.frame;
+    for (let b = 0; b < N; b++) {
+      if (!ok[b]) continue;
+      for (const k of idx) {
+        const i = patPoseIdx(w, b * PAT_BIN + k / 60);
+        const wx = f.ox + f.ux * w.tth[i] + f.nx * w.tr[i], wz = f.oz + f.uz * w.tth[i] + f.nz * w.tr[i];
+        const dx = traj.xs[k] - wx, dz = traj.zs[k] - wz;
+        if (dx * dx + dz * dz < C2) { ok[b] = 0; break; }
+      }
+    }
+  }
+  return ok;
+}
+
+function wolfBox(w) {
+  const f = w.frame;
+  w.x0 = w.z0 = Infinity; w.x1 = w.z1 = -Infinity;
+  for (const q of w.route) {
+    const x = f.ox + f.ux * q.th + f.nx * q.r, z = f.oz + f.uz * q.th + f.nz * q.r;
+    w.x0 = Math.min(w.x0, x); w.x1 = Math.max(w.x1, x); w.z0 = Math.min(w.z0, z); w.z1 = Math.max(w.z1, z);
+  }
+}
+
+function placePatternEnemies(rng, lvl, p) {
+  const { legs, seed, level } = lvl;
+  const W = CFG.RING_WIDTH;
+  const vOut = W / 2 - WOLF_MARGIN;
+  const ranges = usableRanges(legs);
+  const last = legs.length - 1;
+  const enemies = [];
+  const plans = [];
+  let prevFamily = null;
+
+  const legDesign = (li, D, T0) => {
+    // ---- compose
+    const leg = legs[li];
+    const { lo, hi } = ranges[li];
+    const v = Math.min(PAT_VMAX, (3.6 + 1.6 * D) * rng.range(0.96, 1.04));
+    const h = Math.max(0.3, 0.85 - 0.35 * D);
+    const spacer = () => Math.max(3.6, 11 - 6 * D) + rng.range(-1, 1.5);
+    const c = { D, rng, vOut };
+    const lessons = level === 1 ? PAT_LESSONS[li] : null;
+    let primary, secondary = null;
+    if (!lessons) {
+      const fams = Object.keys(PAT_FAMILIES).filter((f) => PAT_UNLOCK[f] <= D + 0.05 && f !== prevFamily);
+      primary = li === 0 ? rng.pick(['crosswalk', 'gates']) : rng.pick(fams);
+      if (rng.chance(Math.min(0.85, D))) secondary = rng.pick(fams.filter((f) => f !== primary));
+      prevFamily = primary;
+    }
+    // the leg's beat: every wolf's cycle is T / k (k = 1..3), so the whole room repeats every T seconds
+    const T = T0 || Math.round(Math.max(4.5, 8 - 2.5 * D) * 4) / 4;
+    const fit = (w) => {   // pick k and (if needed) a faster speed so the wolf keeps the beat; false = can't
+      for (let it = 0; it < 12; it++) {
+        if (patNatural(w, h * 0.6).nat <= T + 1e-9) break;
+        if (w.speed >= PAT_VMAX) return false;
+        w.speed = Math.min(PAT_VMAX, w.speed * 1.1);
+      }
+      const { nat, move } = patNatural(w, h);
+      let k = Math.max(1, Math.min(3, Math.floor(T / nat + 1e-9)));
+      while (k > 1 && T / k - move < 0.25 * w.route.length) k--;
+      if (T / k - move < 0.05) return false;
+      w.k = k;
+      return true;
+    };
+    const segs = [];
+    let cursor = hi - (li === last ? 0 : rng.range(0, 1.5));
+    if (li === last) cursor = Math.min(hi, leg.len - W / 2 - 2.4);   // final stretch: just the door before the goal
+    for (let n = 0; n < 12; n++) {
+      let made = null;
+      for (let tries = 0; tries < 5 && !made; tries++) {
+        let fam, opt = {};
+        if (lessons) [fam, opt] = lessons[n % lessons.length];
+        else if (li === last) { fam = 'gates'; opt = { k: 1 }; }
+        else fam = secondary && n % 2 ? secondary : primary;
+        if (tries > 2) { fam = 'crosswalk'; opt = { k: 1 }; }
+        const sd = PAT_FAMILIES[fam](c, opt);
+        if (cursor - sd.depth < lo + 0.01) continue;
+        const base = cursor - sd.depth;
+        for (const w of sd.wolves) {
+          w.route = w.route.map((q) => ({ r: q.r, th: q.th + base }));
+          w.speed = Math.min(PAT_VMAX, v * (w.vMul || 1));
+          w.rMin = Math.min(...w.route.map((q) => q.r)); w.rMax = Math.max(...w.route.map((q) => q.r));
+          w.thMin = Math.min(...w.route.map((q) => q.th)); w.thMax = Math.max(...w.route.map((q) => q.th));
+          w.frame = { ox: leg.ox, oz: leg.oz, ux: leg.ux, uz: leg.uz, nx: leg.nx, nz: leg.nz };
+        }
+        if (!sd.wolves.every(fit)) continue;
+        made = { ...sd, family: fam, top: cursor + PAT_SAFE, bottom: base - PAT_SAFE, base };
+      }
+      if (!made) break;
+      segs.push(made);
+      if (li === last) break;
+      cursor = made.base - spacer() - 2 * PAT_SAFE;
+      if (cursor < lo) break;
+    }
+    for (const s of segs) for (const w of s.wolves) {
+      patTime(w, T / w.k);
+      w.off = w.offT * w.cycle + w.offS;
+      wolfBox(w);
+    }
+    return { segs, T, D, v };
+  };
+
+  // Greedy segment offsets: each segment's timing is shifted so that some straight lane keeps a launch window
+  // of >= wTarget seconds and >= fTarget of the beat; a segment that can't is dropped.
+  const solveLeg = (li, design, wTarget, fTarget) => {
+    const { segs, T } = design;
+    const leg = legs[li];
+    const N = Math.round(T / PAT_BIN);
+    const kept = [];
+    let F = PAT_LANES.map(() => new Uint8Array(N).fill(1));
+    for (const seg of segs) {
+      const E = patSafety(seg, N, PAT_VK);
+      const lead = Math.round((leg.len - seg.top) / PAT_VK / PAT_BIN);
+      const base = Math.floor(rng.next() * N);
+      const cands = [];
+      for (let q = 0; q < 16; q++) {
+        const s = (base + Math.round(q * N / 16)) % N;
+        const Fc = F.map((f, k) => { const e = shifted(E[k], lead + s, N); const o = new Uint8Array(N); for (let t = 0; t < N; t++) o[t] = f[t] & e[t]; return o; });
+        const sc = laneScore(Fc);
+        cands.push({ s, Fc, run: sc.run * PAT_BIN, frac: sc.frac });
+      }
+      const val = (cd) => cd.run + 4 * cd.frac;
+      const good = cands.filter((cd) => cd.run >= wTarget && cd.frac >= fTarget);
+      let pick;
+      good.sort((a, b) => val(b) - val(a));
+      if (good.length) pick = design.D < 0.35 ? good[0] : good[Math.floor(rng.next() * Math.min(4, good.length))];
+      else pick = cands.reduce((a, b) => (val(b) > val(a) ? b : a));
+      // would (nearly) close the room: drop this segment
+      if (pick.run < Math.max(PAT_HARD, 0.6 * wTarget) || pick.frac < Math.max(PAT_FRAC_MIN, 0.7 * fTarget)) continue;
+      for (const w of seg.wolves) w.off += pick.s * PAT_BIN;
+      kept.push(seg); F = pick.Fc;
+    }
+    if (!kept.length) return null;
+    const sc = laneScore(F), f = F[sc.li];
+    // launch time: middle of the lane's longest window
+    let bestS = 0, bestL = 0;
+    for (let t = 0; t < N; t++) {
+      if (!f[t] || f[(t + N - 1) % N]) continue;
+      let L = 0; while (L < N && f[(t + L) % N]) L++;
+      if (L > bestL) { bestL = L; bestS = t; }
+    }
+    if (!bestL && f[0]) { bestL = N; bestS = 0; }
+    return { leg: li, beat: T, segs: kept, lane: PAT_LANES[sc.li], launch: ((bestS + Math.floor(bestL / 2)) % N) * PAT_BIN, window: sc.run * PAT_BIN, frac: sc.frac, N, F: f };
+  };
+
+  const heat = p.patternHeat || 0;
+  for (let li = 0; li < legs.length; li++) {
+    const D = Math.min(1.5, heat + 0.45 * li / Math.max(1, last));
+    const wTarget = Math.max(0.45, 1.0 - 0.4 * D);
+    const fTarget = li < 4 ? 0.36 : Math.max(0.2, 0.42 - 0.15 * D);
+    if (li === last && plans.length && plans[plans.length - 1].leg === li - 1) {
+      // final stretch: the door before the goal. Its first corner is ice, so it is timed together with the
+      // previous leg (launch from the last safe square) using the skating model.
+      const prevPlan = plans[plans.length - 1];
+      const design = legDesign(li, D, prevPlan.beat);
+      const N = prevPlan.N, pleg = legs[li - 1], leg = legs[li];
+      const P = (r, th) => ({ x: leg.ox + leg.ux * th + leg.nx * r, z: leg.oz + leg.uz * th + leg.nz * r });
+      const doorW = design.segs.flatMap((sg) => sg.wolves);
+      const tries = [];
+      for (const r of [-1.8, 0, 1.8]) {
+        const pts = planPoints(pleg, prevPlan.lane, CFG.RING_WIDTH / 2).concat([P(r, leg.len - 2), P(r, 1), P(W, 0), { x: 0, z: 0 }]);
+        tries.push({ r, traj: skatePath(pts) });
+      }
+      const baseS = Math.floor(rng.next() * N);
+      let best = null;
+      for (let q = 0; q < 16; q++) {
+        const sh = (baseS + Math.round(q * N / 16)) % N;
+        for (const w of doorW) w.off += sh * PAT_BIN;
+        for (const tr of tries) {
+          const ok = pathSafety(tr.traj, doorW, N, PAT_SAFE);
+          let n = 0;
+          for (let b = 0; b < N; b++) { ok[b] &= prevPlan.F[b]; n += ok[b]; }
+          const cd = { sh, run: maxRun(ok) * PAT_BIN, frac: n / N, tr };
+          const v = (x) => Math.min(x.run, wTarget) + 4 * Math.min(x.frac, fTarget) + 0.01 * x.frac;
+          if (!best || v(cd) > v(best)) best = cd;
+        }
+        for (const w of doorW) w.off -= sh * PAT_BIN;
+      }
+      if (best && best.run >= PAT_HARD && best.frac >= PAT_FRAC_MIN) {
+        for (const w of doorW) w.off += best.sh * PAT_BIN;
+        prevPlan.finalLane = best.tr.r; prevPlan.window = best.run; prevPlan.frac = best.frac;
+        plans.push({ leg: li, beat: prevPlan.beat, segs: design.segs, lane: best.tr.r, launch: null, window: best.run, frac: best.frac, N, finale: true });
+      }
+      continue;
+    }
+    const pl = solveLeg(li, legDesign(li, D, 0), wTarget, fTarget);
+    if (pl) plans.push(pl);
+  }
+
+  // ---- specs
+  for (const pl of plans) {
+    for (const seg of pl.segs) for (const w of seg.wolves) {
+      const id = enemies.length;
+      enemies.push({
+        id, type: w.type, leg: pl.leg, frame: w.frame,
+        rIn: w.rMin, rOut: w.rMax, a0: w.thMin, a1: w.thMax,
+        speed: w.speed,
+        phase: Math.round((((w.off % w.cycle) + w.cycle) % w.cycle) / w.cycle * 1e9) / 1e9,
+        hold: 0.5,
+        seed: hashSeed(seed, level, 'wolf', id),
+        route: w.route, loop: !!w.loop,
+        pattern: seg.name,
+      });
+    }
+  }
+  // One solution per leg (for tests / tooling): skate lane `lane` (leg-local r), leaving the entry corner's
+  // center when levelTime mod `beat` == `launch`; `window`/`frac` = launch slack (s) / open share of the beat.
+  // The finale entry describes the door of the final stretch, entered from the previous leg (its `finalLane`).
+  const r3 = (x) => Math.round(x * 1000) / 1000;
+  lvl.patternPlan = plans.map((pl) => ({
+    leg: pl.leg, beat: pl.beat, lane: pl.lane, launch: pl.launch == null ? null : r3(pl.launch),
+    window: r3(pl.window), frac: r3(pl.frac), finalLane: pl.finalLane, finale: !!pl.finale,
+    segs: pl.segs.map((sg) => ({ name: sg.name, top: r3(sg.top), bottom: r3(sg.bottom) })),
+  }));
+  return enemies;
+}
+
+
 function placeItems(rng, lvl, p) {
   const { legs, spawnPoints } = lvl;
   const W = CFG.RING_WIDTH;
@@ -308,7 +826,7 @@ function generateLevel(level, seed, mode = 'mixed') {
     lvl.crown = { x: last.x + inner.nx * d, z: last.z + inner.nz * d };
   }
   lvl.trees = lvl.theme === TREE_THEME && !lvl.ice ? placeTrees(createRng(hashSeed(seed, L, 'trees')), legs) : [];
-  lvl.enemies = placeEnemies(rng, lvl, p);
+  lvl.enemies = mode === 'ice' ? placePatternEnemies(rng, lvl, p) : placeEnemies(rng, lvl, p);
   lvl.items = placeItems(rng, lvl, p);
   for (const t of lvl.trees) lvl.items.push({ id: lvl.items.length, type: 'boots', x: t.x, z: t.z, tree: true }); // a pair of boots up every tree
   return lvl;
@@ -421,17 +939,97 @@ function inCenter(levelData, x, z) {
 
 // ---------------------------------------------------------------- self test
 
-function mazeSelfTest(levels = 12) {
+// Skate only: launch window (s) of a leg's recorded solution, checked independently of the generator's pose
+// tables: the skating model follows the plan's lane (and, for the final stretch, turns in through the door);
+// wolves are posed with enemies.js patternPose from their specs. Returns the longest clear run of launch times.
+function patternWindow(ld, pl, step = 1 / 20) {
+  const legs = ld.legs;
+  const fin = pl.finale ? ld.patternPlan.find((q) => q.leg === pl.leg - 1) : null;
+  const legI = fin ? fin.leg : pl.leg, leg = legs[legI];
+  let pts;
+  if (fin) {
+    const L2 = legs[pl.leg], W = ld.corridorWidth;
+    const P = (r, th) => ({ x: L2.ox + L2.ux * th + L2.nx * r, z: L2.oz + L2.uz * th + L2.nz * r });
+    pts = planPoints(leg, fin.lane, W / 2).concat([P(pl.lane, L2.len - 2), P(pl.lane, 1), P(W, 0), { x: 0, z: 0 }]);
+  } else pts = planPoints(leg, pl.lane);
+  const traj = skatePath(pts);
+  const wolves = ld.enemies.filter((e) => e.leg === pl.leg || (fin && e.leg === fin.leg)).map((e) => {
+    const w = { e, plan: buildPlan(e, e.frame, e.speed), frame: e.frame, route: e.route };
+    wolfBox(w);
+    return w;
+  });
+  const n = Math.round(pl.beat / step), hit = PAT_HIT, h2 = hit * hit;
+  const ok = new Uint8Array(n).fill(1);
+  for (const w of wolves) {
+    const idx = [];
+    for (let k = 0; k < traj.xs.length; k++) if (traj.xs[k] > w.x0 - hit && traj.xs[k] < w.x1 + hit && traj.zs[k] > w.z0 - hit && traj.zs[k] < w.z1 + hit) idx.push(k);
+    const f = w.frame, cyc = w.plan.cycle;
+    for (let b = 0; b < n; b++) {
+      if (!ok[b]) continue;
+      for (const k of idx) {
+        const q = patternPose(w.plan, (w.e.phase * cyc + b * step + k / 60) % cyc);
+        const dx = traj.xs[k] - (f.ox + f.ux * q.th + f.nx * q.r), dz = traj.zs[k] - (f.oz + f.uz * q.th + f.nz * q.r);
+        if (dx * dx + dz * dz < h2) { ok[b] = 0; break; }
+      }
+    }
+  }
+  return maxRun(ok) * step;
+}
+
+function checkPatternWolves(ld, P, stats) {
+  const ranges = usableRanges(ld.legs);
+  const vOut = CFG.RING_WIDTH / 2 - WOLF_MARGIN, eps = 1e-6;
+  if (ld.enemies.length < 40) P(`few pattern wolves ${ld.enemies.length}`);
+  if (!ld.patternPlan || ld.patternPlan.length < ld.legs.length - 3) P(`rooms missing: ${ld.patternPlan ? ld.patternPlan.length : 0} planned legs`);
+  const beat = new Map((ld.patternPlan || []).map((pl) => [pl.leg, pl.beat]));
+  for (const e of ld.enemies) {
+    const tag = `wolf ${e.id} (${e.type}/${e.pattern}, leg ${e.leg})`;
+    if (!PAT_TYPES.includes(e.type)) P(`${tag}: type not allowed in Skate only`);
+    if (!Array.isArray(e.route) || e.route.length < 2) { P(`${tag}: no route`); continue; }
+    if (!(e.speed > 0 && e.speed < CFG.KITTY_SPEED * 0.92)) P(`${tag}: speed ${e.speed}`);
+    if (!(e.phase >= 0 && e.phase < 1)) P(`${tag}: phase ${e.phase}`);
+    if (!(e.rIn <= e.rOut && e.a0 <= e.a1)) P(`${tag}: bad bounds`);
+    const rg = ranges[e.leg];
+    for (const q of e.route) {
+      if (!(Math.abs(q.r) <= vOut + eps && q.th >= rg.lo - eps && q.th <= rg.hi + eps)) P(`${tag}: waypoint out of bounds (${q.r.toFixed(2)}, ${q.th.toFixed(2)})`);
+      if (!(q.r >= e.rIn - eps && q.r <= e.rOut + eps && q.th >= e.a0 - eps && q.th <= e.a1 + eps)) P(`${tag}: waypoint outside its spec bounds`);
+    }
+    const cyc = buildPlan(e, e.frame, e.speed).cycle, T = beat.get(e.leg);
+    if (!T || Math.abs(cyc * Math.round(T / cyc) - T) > 1e-4) P(`${tag}: cycle ${cyc.toFixed(3)} does not divide the leg beat ${T}`);
+    const f = e.frame, pts = e.loop ? e.route.concat([e.route[0]]) : e.route;
+    let clip = 0, unsafe = 0;
+    for (let k = 1; k < pts.length; k++) {
+      const A = pts[k - 1], B = pts[k], n = Math.max(1, Math.ceil(Math.hypot(B.r - A.r, B.th - A.th) / 0.25));
+      for (let t = 0; t <= n; t++) {
+        const r = A.r + (B.r - A.r) * t / n, th = A.th + (B.th - A.th) * t / n;
+        const x = f.ox + f.ux * th + f.nx * r, z = f.oz + f.uz * th + f.nz * r;
+        if (collideCircle(ld, x, z, CFG.WOLF_RADIUS).hit) clip++;
+        for (const sp of ld.spawnPoints) if (Math.hypot(sp.x - x, sp.z - z) < CFG.START_SAFE_ARC) unsafe++;
+      }
+    }
+    if (clip) P(`${tag}: route clips walls (${clip})`);
+    if (unsafe) P(`${tag}: route enters the start safe area`);
+  }
+  for (const pl of ld.patternPlan || []) {
+    const w = patternWindow(ld, pl);
+    stats.iceMinWindow = Math.min(stats.iceMinWindow, w);
+    if (w < 0.25) P(`leg ${pl.leg}${pl.finale ? ' (final door)' : ''}: launch window ${w.toFixed(2)}s in lane ${pl.lane}`);
+  }
+  stats.iceWolves += ld.enemies.length;
+}
+
+function mazeSelfTest(levels = 12, modes = ['mixed', 'ice']) {
   const problems = [];
   const seeds = [1, 42, 1337, 9001, 'kitty', 777777];
-  const P = (s, l, msg) => { if (problems.length < 200) problems.push(`seed ${s} L${l}: ${msg}`); };
-  const stats = { levels: 0, avgPathLen: 0, enemies: 0, items: 0 };
-  for (const s of seeds) {
+  const stats = { levels: 0, avgPathLen: 0, enemies: 0, items: 0, iceWolves: 0, iceMinWindow: Infinity };
+  for (const mode of modes) for (const s of seeds) {
     for (let l = 1; l <= levels; l++) {
-      const ld = generateLevel(l, s);
+      const P = (s, l, msg) => { if (problems.length < 200) problems.push(`${mode} seed ${s} L${l}: ${msg}`); };
+      const ld = generateLevel(l, s, mode);
       const p = levelParams(l);
+      const pattern = mode === 'ice';
       stats.levels++;
-      if (JSON.stringify(ld) !== JSON.stringify(generateLevel(l, s))) P(s, l, 'not deterministic');
+      if (JSON.stringify(ld) !== JSON.stringify(generateLevel(l, s, mode))) P(s, l, 'not deterministic');
       // path: starts at start, ends in center, never inside walls
       const path = ld.path;
       if (!inCenter(ld, path[path.length - 1].x, path[path.length - 1].z)) P(s, l, 'path does not end in center');
@@ -455,21 +1053,24 @@ function mazeSelfTest(levels = 12) {
         if (locate(ld, sp.x, sp.z).leg !== 0) P(s, l, 'spawn not in the first leg');
       }
       // enemies: territories inside their leg, clear of walls and the start pocket
-      if (ld.enemies.length < p.enemyCount * 0.85) P(s, l, `few enemies ${ld.enemies.length}/${p.enemyCount}`);
-      for (const e of ld.enemies) {
-        if (!(e.rIn < e.rOut && e.a0 < e.a1)) P(s, l, 'enemy bad bounds ' + e.id);
-        if (!p.enemyTypes.includes(e.type)) P(s, l, 'enemy type ' + e.type);
-        if (!(e.speed > 0 && e.speed < CFG.KITTY_SPEED)) P(s, l, 'enemy speed ' + e.speed);
-        let clip = 0, unsafe = 0;
-        const f = e.frame;
-        for (let u = 0; u <= 8; u++) for (let v = 0; v <= 4; v++) {
-          const a = e.a0 + (e.a1 - e.a0) * u / 8, r = e.rIn + (e.rOut - e.rIn) * v / 4;
-          const x = f.ox + f.ux * a + f.nx * r, z = f.oz + f.uz * a + f.nz * r;
-          if (collideCircle(ld, x, z, CFG.WOLF_RADIUS).hit) clip++;
-          for (const sp of ld.spawnPoints) if (Math.hypot(sp.x - x, sp.z - z) < CFG.START_SAFE_ARC) unsafe++;
+      if (pattern) checkPatternWolves(ld, (msg) => P(s, l, msg), stats);
+      else {
+        if (ld.enemies.length < p.enemyCount * 0.85) P(s, l, `few enemies ${ld.enemies.length}/${p.enemyCount}`);
+        for (const e of ld.enemies) {
+          if (!(e.rIn < e.rOut && e.a0 < e.a1)) P(s, l, 'enemy bad bounds ' + e.id);
+          if (!p.enemyTypes.includes(e.type)) P(s, l, 'enemy type ' + e.type);
+          if (!(e.speed > 0 && e.speed < CFG.KITTY_SPEED)) P(s, l, 'enemy speed ' + e.speed);
+          let clip = 0, unsafe = 0;
+          const f = e.frame;
+          for (let u = 0; u <= 8; u++) for (let v = 0; v <= 4; v++) {
+            const a = e.a0 + (e.a1 - e.a0) * u / 8, r = e.rIn + (e.rOut - e.rIn) * v / 4;
+            const x = f.ox + f.ux * a + f.nx * r, z = f.oz + f.uz * a + f.nz * r;
+            if (collideCircle(ld, x, z, CFG.WOLF_RADIUS).hit) clip++;
+            for (const sp of ld.spawnPoints) if (Math.hypot(sp.x - x, sp.z - z) < CFG.START_SAFE_ARC) unsafe++;
+          }
+          if (clip) P(s, l, `enemy ${e.id} (${e.type}) bounds clip walls (${clip})`);
+          if (unsafe) P(s, l, `enemy ${e.id} covers start safe area`);
         }
-        if (clip) P(s, l, `enemy ${e.id} (${e.type}) bounds clip walls (${clip})`);
-        if (unsafe) P(s, l, `enemy ${e.id} covers start safe area`);
       }
       // items
       if (ld.items.length < p.itemCount) P(s, l, `few items ${ld.items.length}/${p.itemCount}`);

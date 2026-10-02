@@ -64,6 +64,10 @@ function levelParams(level) {
     enemyPauseScale: Math.max(0.4, 1 - 0.07 * (L - 1)),             // wolves rest less each level
     enemyTypes: types,
     itemCount: 8 + Math.floor(L / 2),
+    // Skate only mode: pattern wolves (maze.js placePatternEnemies). Level part of the room difficulty
+    // (0 = gentle lessons; each leg adds up to +0.45 toward the middle): faster wolves, shorter holds,
+    // busier rooms, tighter launch windows.
+    patternHeat: Math.min(1.05, 0.17 * (L - 1)),
   };
 }
 

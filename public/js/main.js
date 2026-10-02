@@ -8,7 +8,7 @@ import { hashSeed } from './shared/rng.js';
 import { collideCircle, onIce, inTree } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
 import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
-import { createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel } from './models.js';
+import { WOLF_TYPES, createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel } from './models.js';
 import { buildWorld, setupLighting } from './world.js';
 import { createEffects } from './effects.js';
 import { createIceTrail } from './trail.js';
@@ -24,6 +24,7 @@ import { TOUCH, QUALITY, goFullscreenLandscape } from './device.js';
 
 const params = new URLSearchParams(location.search);
 const DEBUG_LEVEL = Math.max(1, parseInt(params.get('level') || '1', 10) || 1);
+const DEBUG_MODE = ['mixed', 'run', 'ice'].includes(params.get('mode')) ? params.get('mode') : undefined; // offline testing: ?mode=ice
 const DEBUG_GOD = params.has('god');
 
 // ---------- renderer / scene ----------
@@ -337,7 +338,7 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
 function startSim(players, startLevel) {
-  sim = createSim({ seed: newSeed(), players, startLevel });
+  sim = createSim({ seed: newSeed(), players, startLevel, mode: DEBUG_MODE });
   accumulator = 0;
   gameOverShown = false;
   prevPos.clear();
@@ -368,7 +369,7 @@ function buildView() {
   scene.add(crown.group);
   const wolves = new Map();
   for (const e of sim.enemies) {
-    const m = createWolfModel(e.type);
+    const m = createWolfModel(e.type, { pattern: !!e.pattern, skate: !!ld.ice });
     m.group.scale.setScalar(CFG.WOLF_RADIUS / 0.55); // models are built for the original 0.55 radius
     m.group.position.set(e.x, 0, e.z);
     m.group.rotation.y = -e.heading;
@@ -643,6 +644,19 @@ function snapshotPrev() {
   }
 }
 
+// Pattern wolf: distance left to the end of its current (or next, while holding) move, and that move's heading
+// (in patternDir). Reads the plan built by shared/enemies.js; 0 if it isn't there.
+let patternDir = 0;
+function patternRemain(e) {
+  const plan = e._plan, f = e.spec && e.spec.frame;
+  if (!plan || !f) return 0;
+  const tc = e.cycleU * plan.cycle;
+  let s = plan.segs[plan.segs.length - 1];
+  for (const sg of plan.segs) if (tc < sg.tStart + sg.hold + sg.T) { s = sg; break; }
+  patternDir = s.dir;
+  return Math.hypot(f.ox + f.ux * s.th1 + f.nx * s.r1 - e.x, f.oz + f.uz * s.th1 + f.nz * s.r1 - e.z);
+}
+
 function syncVisuals(dt, alpha) {
   if (!view) return;
   if (view.levelData !== sim.levelData) buildView();
@@ -656,11 +670,16 @@ function syncVisuals(dt, alpha) {
     if (!m) continue;
     const near = (e.x - camTarget.x) ** 2 + (e.z - camTarget.z) ** 2 < cullR2;
     m.group.visible = near;
-    if (!near) continue;
+    if (!near) { m.tellPrev = 0; continue; }
     const [x, z] = lerpPos('e' + e.id, e.x, e.z, alpha);
     m.group.position.set(x, 0, z);
     m.group.rotation.y = -e.heading;
-    m.update(dt, { moving: e.moving, tell: e.tell, speed01: Math.min(1, (e.speedNow || 0) / 4), time: t });
+    m.update(dt, { moving: e.moving, tell: e.tell, speed01: Math.min(1, (e.speedNow || 0) / 4), time: t, nextLen: e.pattern ? patternRemain(e) : 0, nextDir: patternDir, heading: e.heading });
+    if (e.pattern) {
+      // push-off: shavings + a ring the moment the tell turns into a move
+      if (m.tellPrev > 0.3 && e.moving) effects.iceKick(x, z, e.heading, WOLF_TYPES[e.type] ? WOLF_TYPES[e.type].accent : 0xffffff);
+      m.tellPrev = e.moving ? 0 : Math.max(m.tellPrev || 0, e.tell);
+    }
   }
   // items
   for (const m of view.items.values()) m.update(dt, t);

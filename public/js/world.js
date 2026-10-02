@@ -82,6 +82,23 @@ const THEMES = [
   },
 ];
 
+// The final run (level 9) is a frozen hell: the winter theme with these overrides (see buildWorld). Charred ground
+// with ember specks, dark basalt walls with pale caps (the corridor edge must read), dim red lanterns, steel-blue ice
+// so the wolves pop, rising embers. The goal room at the end (room*) is the warm, golden reward; the lighting blends
+// from HELL_LIGHT to HEAVEN_LIGHT as the camera reaches it (setupLighting).
+const HELL = {
+  hell: true,
+  ground: 0x3a2c2e, groundAlt: 0x3a2c2e, outerGround: 0x3b2a2b, plaza: 0xf2d29a, tile: 0x7a6a6c,
+  roomGround: 0xf6dcb0, roomWall: 0xb07a52, roomWallTop: 0xffe6c0, roomLamp: 0xffc870,
+  wall: 0x5c4a50, wallTop: 0xa08a8e, accent: 0xff6a3a, lamp: 0xff5a28,
+  pillar: 0x3e3234, trunk: 0x2a1e1c, rock: 0x4c3e40, glowK: 0.34,
+  floorEmissive: 0xff5a20, floorEmissiveIntensity: 0.55,
+  ice: 0xa9bdd4, iceEmissive: 0x24476e,
+  particles: 'motes', particlePalette: [0xff7a3a, 0xffa040, 0xd8401c],
+};
+const HELL_LIGHT = { sky: 0x0e0507, fog: 0x1c0a0c, fogNear: 30, fogFar: 88, hemiSky: 0xb898a8, hemiGround: 0x4a1a1a, hemiIntensity: 1.15, sunColor: 0xffb098, sunIntensity: 1.25 };
+const HEAVEN_LIGHT = { sky: 0xffd9a8, fog: 0xf5d2a0, fogNear: 48, fogFar: 125, hemiSky: 0xfff0d8, hemiGround: 0x8a6a4a, hemiIntensity: 1.2, sunColor: 0xffe2b8, sunIntensity: 1.9 };
+
 // ---------------------------------------------------------------- small helpers
 
 function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
@@ -560,11 +577,16 @@ function buildWalls(levelData, theme, T) {
 
   const wallC = new THREE.Color(theme.wall), topC = new THREE.Color(theme.wallTop), accC = new THREE.Color(theme.accent);
   const aoStrength = style === 'stone' ? 0.35 : style === 'neon' ? 0.3 : 0.5;
+  // the final run: the goal room's walls are warm (the reward at the end of hell)
+  const rr = levelData.roomHalf + t;
+  const inRoom = (x, z) => Math.abs(x) <= rr && Math.abs(z) <= rr;
+  const roomC = theme.roomWall != null ? new THREE.Color(theme.roomWall) : null;
+  const roomTopC = roomC ? new THREE.Color(theme.roomWallTop) : null;
   const bodyColor = (x, y, z, out) => {
     const n = vnoise(x * 0.7 + y * 0.6, z * 0.7 - y * 0.8), n2 = vnoise(x * 2.7 + 13.1, z * 2.7 + y * 2.1);
     const f = 0.8 + 0.28 * n + 0.12 * n2;
     const ao = 1 - aoStrength + aoStrength * Math.min(1, y / (H * 0.85));
-    out.copy(wallC).multiplyScalar(f * ao);
+    out.copy(roomC && inRoom(x, z) ? roomC : wallC).multiplyScalar(f * ao);
   };
   const capColor = style === 'neon'
     ? (x, y, z, out) => {
@@ -574,7 +596,7 @@ function buildWalls(levelData, theme, T) {
     }
     : (x, y, z, out) => {
       const n = vnoise(x * 1.3 + 5.1, z * 1.3 - 2.7);
-      out.copy(topC).multiplyScalar((style === 'stone' ? 0.94 : 0.82) + 0.16 * n);
+      out.copy(roomTopC && inRoom(x, z) ? roomTopC : topC).multiplyScalar((style === 'stone' ? 0.94 : 0.82) + 0.16 * n);
     };
 
   const bb = { p: [], n: [], uv: [], c: [] }, cb = { p: [], n: [], uv: [], c: [] };
@@ -639,7 +661,7 @@ function buildFloors(levelData, theme, T) {
     addStrip(l.ox, l.oz, l.ux, l.uz, l.nx, l.nz, s0, l.len + h, across, edge, l.loop % 2 ? theme.groundAlt : theme.ground);
   });
   // goal room
-  addStrip(0, 0, 1, 0, 0, 1, -rh, rh, [-rh, -rh + 0.25, -rh + 0.9, rh - 0.9, rh - 0.25, rh], edge, theme.ground);
+  addStrip(0, 0, 1, 0, 0, 1, -rh, rh, [-rh, -rh + 0.25, -rh + 0.9, rh - 0.9, rh - 0.25, rh], edge, theme.roomGround ?? theme.ground);
   // the outside: a big ground plane slightly below the corridors
   const big = levelData.outerRadius + 150;
   addStrip(0, 0, 1, 0, 0, 1, -big, big, [-big, big], [1, 1], theme.outerGround, -0.03);
@@ -655,6 +677,7 @@ function buildFloors(levelData, theme, T) {
   const { map, emissiveMap } = makeFloorTextures(theme.floorStyle, T);
   const opts = { map, vertexColors: true, roughness: 0.95, metalness: 0 };
   if (theme.floorStyle === 'snow') Object.assign(opts, { emissiveMap, emissive: 0xffffff, emissiveIntensity: 0.45, roughness: 0.8 });
+  if (theme.floorEmissive != null) Object.assign(opts, { emissive: theme.floorEmissive, emissiveIntensity: theme.floorEmissiveIntensity });   // the final run: ember specks in the ash
   if (theme.floorStyle === 'neon') Object.assign(opts, { emissiveMap, emissive: theme.accent, emissiveIntensity: 0.16, roughness: 0.6, metalness: 0.15 });
   const floor = new THREE.Mesh(g, T.m(new THREE.MeshStandardMaterial(opts)));
   floor.receiveShadow = true;
@@ -682,15 +705,15 @@ function buildFloors(levelData, theme, T) {
   tg.setAttribute('normal', new THREE.Float32BufferAttribute(tn, 3));
   tg.setAttribute('uv', new THREE.Float32BufferAttribute(tuv, 2));
   tg.setIndex(ti);
-  const tiles = new THREE.Mesh(T.g(tg), T.m(new THREE.MeshStandardMaterial({ map: makeSafeTileTexture(T), color: theme.plaza, roughness: 0.85 })));
+  const tiles = new THREE.Mesh(T.g(tg), T.m(new THREE.MeshStandardMaterial({ map: makeSafeTileTexture(T), color: theme.tile ?? theme.plaza, roughness: 0.85 })));
   tiles.receiveShadow = true;
   const out = [floor, plaza, tiles];
-  if (levelData.ice) out.push(buildIce(levelData, T));
+  if (levelData.ice) out.push(buildIce(levelData, T, theme));
   return out;
 }
 
 // Glossy ice sheet over every corridor (under the safe tiles; the goal room stays snow).
-function buildIce(levelData, T) {
+function buildIce(levelData, T, theme) {
   const rng = createRng(777);
   const S = 512;
   const map = T.t(canvasTex(S, (g) => {
@@ -735,8 +758,8 @@ function buildIce(levelData, T) {
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx);
   const mat = new THREE.MeshStandardMaterial({
-    map, color: 0xd6efff, transparent: true, opacity: 0.82, roughness: 1, metalness: 0, // matte: no sun glare
-    emissive: 0x5aa8f0, emissiveIntensity: 0.12, depthWrite: false,
+    map, color: theme.ice ?? 0xd6efff, transparent: true, opacity: 0.82, roughness: 1, metalness: 0, // matte: no sun glare
+    emissive: theme.iceEmissive ?? 0x5aa8f0, emissiveIntensity: 0.12, depthWrite: false,
   });
   const ice = new THREE.Mesh(T.g(g), T.m(mat));
   ice.receiveShadow = true;
@@ -753,7 +776,7 @@ function buildLanterns(levelData, theme, T, rng) {
   const spots = levelData.wallCorners.map((p) => ({ x: p.x, z: p.z }));
   if (levelData.finale) {
     // the final run: a steady rhythm of lanterns down both corridor walls (staggered), plus the goal room and start cap
-    // (from just past the start gate to just before the finish arch, which stand on the walls: see buildFinale)
+    // (from just past the start square to just before the goal room's door)
     const rh = levelData.roomHalf, step = 12, x0 = levelData.corners[0].x + levelData.corridorWidth / 2 + 5;
     for (const [w, off] of [[levelData.walls[0], 0], [levelData.walls[1], step / 2]]) {
       for (let x = x0 + off; x < -rh - 4; x += step) spots.push({ x, z: w.az });
@@ -781,10 +804,11 @@ function buildLanterns(levelData, theme, T, rng) {
   const glowGeo = T.g(new THREE.PlaneGeometry(1, 1)); glowGeo.rotateX(-Math.PI / 2);
 
   const pillarItems = [], orbItems = [], glowItems = [];
-  const pc = new THREE.Color(theme.pillar);
+  const pc = new THREE.Color(theme.pillar), rpc = new THREE.Color(theme.roomWall ?? theme.pillar), prr = levelData.roomHalf + 1;
   for (const sp of spots) {
     const { x, z } = sp;
-    pillarItems.push({ x, z, ry: 0, color: pc.clone().multiplyScalar(rng.range(0.9, 1.08)) });
+    const c = Math.abs(x) <= prr && Math.abs(z) <= prr ? rpc : pc;
+    pillarItems.push({ x, z, ry: 0, color: c.clone().multiplyScalar(rng.range(0.9, 1.08)) });
     orbItems.push({ x, z, y: PH + 0.36, color: new THREE.Color(1, 1, 1) });
     glowItems.push({ x, z, y: 0.03, s: 4.2, color: new THREE.Color(1, 1, 1) });
   }
@@ -800,13 +824,16 @@ function buildLanterns(levelData, theme, T, rng) {
 
   const phases = spots.map(() => rng.range(0, 10));
   const lampC = new THREE.Color(theme.lamp);
+  // the final run: red lanterns down the run, warm gold ones in the goal room
+  const roomLampC = theme.roomLamp != null ? new THREE.Color(theme.roomLamp) : lampC, rr = levelData.roomHalf + 1;
+  const lamps = spots.map((s) => (Math.abs(s.x) <= rr && Math.abs(s.z) <= rr ? roomLampC : lampC));
   const tmp = new THREE.Color();
   const update = (time) => {
     for (let i = 0; i < spots.length; i++) {
-      const ph = phases[i];
+      const ph = phases[i], lc = lamps[i];
       const f = 0.86 + 0.08 * Math.sin(time * 6.3 + ph * 7) + 0.06 * Math.sin(time * 17.1 + ph * 13);
-      orbs.setColorAt(i, tmp.copy(lampC).multiplyScalar(f));
-      tmp.copy(lampC).multiplyScalar(theme.glowK * f);
+      orbs.setColorAt(i, tmp.copy(lc).multiplyScalar(f));
+      tmp.copy(lc).multiplyScalar(theme.glowK * f);
       glows.setColorAt(i, tmp);
     }
     if (orbs.instanceColor) orbs.instanceColor.needsUpdate = true;
@@ -871,6 +898,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
   const corridorArea = levelData.legs.reduce((a, l) => a + l.len * W, 0) + 4 * rh * rh;
   const outerArea = (x1 - x0 + 52) * (z1 - z0 + 52) - (x1 - x0 + 5) * (z1 - z0 + 5);
   const jitterColor = (hex, b = 0.12) => new THREE.Color(hex).multiplyScalar(rng.range(1 - b, 1 + b));
+  if (theme.hell) return buildHellDecor(levelData, theme, T, rng, { inst, sampleOuter, sampleCorridor, outerArea, corridorArea, jitterColor });
 
   // ---- trees
   const pine = ti === 2;
@@ -1082,6 +1110,115 @@ function buildDecor(levelData, theme, ti, T, rng) {
   return meshes;
 }
 
+// The final run's surroundings: a frozen hell. Bare dead trees, jagged basalt spikes, scattered bones and skulls,
+// dim ember glows in the ash. Everything instanced (in x chunks, so the off-screen stretches get culled). Tall things
+// on the near side (+z, toward the camera) stand well back from the wall so they never hide the kitties.
+function buildHellDecor(levelData, theme, T, rng, { inst, sampleOuter, sampleCorridor, outerArea, corridorArea, jitterColor }) {
+  const meshes = [];
+  const zWall = levelData.corridorWidth / 2 + CFG.WALL_THICKNESS / 2;
+  const nearOk = (p, clear) => p.z < 0 || p.z - zWall > clear;   // far side: anything; near side: `clear` units back
+  const outer = (lo, hi, clear) => {
+    for (let k = 0; k < 6; k++) { const p = sampleOuter(lo, hi); if (nearOk(p, clear)) return p; }
+    return null;
+  };
+
+  // ---- dead trees: a crooked trunk and a few bare, forking branches (3 shapes)
+  const limb = (geos, x0, y0, z0, th, ph, L, r0, r1) => {
+    const dx = Math.sin(th) * Math.cos(ph), dy = Math.cos(th), dz = -Math.sin(th) * Math.sin(ph);
+    geos.push(place(new THREE.CylinderGeometry(r1, r0, L, 5, 1), x0 + dx * L / 2, y0 + dy * L / 2, z0 + dz * L / 2, 1, 1, 1, 0, ph, -th));
+    return [x0 + dx * L, y0 + dy * L, z0 + dz * L];
+  };
+  const treeGeos = [0, 1, 2].map((v) => {
+    const r = createRng(hashSeed('deadtree', v)), geos = [];
+    const lean = r.range(-0.12, 0.12);
+    const top = limb(geos, 0, -0.1, 0, lean, r.range(0, TAU), 2.7 + v * 0.3, 0.2, 0.09);
+    const nb = 3 + (v % 2);
+    for (let k = 0; k < nb; k++) {
+      const f = 0.45 + 0.5 * (k / nb), ph = (k / nb) * TAU + r.range(-0.4, 0.4);
+      const th = r.range(0.55, 1.05), L = r.range(0.8, 1.3) * (1.1 - f * 0.4);
+      const b = limb(geos, top[0] * f, top[1] * f, top[2] * f, th, ph, L, 0.075, 0.035);
+      limb(geos, b[0], b[1], b[2], th * 0.5, ph + r.range(-0.8, 0.8), L * 0.55, 0.035, 0.012);
+      limb(geos, b[0], b[1], b[2], th + 0.5, ph + r.range(-0.6, 0.6), L * 0.4, 0.03, 0.01);
+    }
+    limb(geos, top[0], top[1], top[2], 0.35, r.range(0, TAU), 0.6, 0.06, 0.012);
+    return T.g(mergeGeos(geos));
+  });
+  const barkMat = T.m(new THREE.MeshStandardMaterial({ roughness: 1, flatShading: true }));
+  const treeItems = [[], [], []];
+  for (let i = 0, n = Math.round(outerArea * 0.011); i < n; i++) {
+    const p = outer(2.6, 26, 6); if (!p) continue;
+    treeItems[i % 3].push({ x: p.x, z: p.z, s: rng.range(0.85, 1.5), ry: rng.range(0, TAU), color: jitterColor(theme.trunk, 0.25) });
+  }
+  treeItems.forEach((items, v) => meshes.push(...inst(treeGeos[v], barkMat, items, { cast: true })));
+
+  // ---- jagged basalt spikes, in clumps
+  const spikeGeo = T.g(mergeGeos([
+    place(new THREE.ConeGeometry(0.42, 2.2, 4), 0, 1.0, 0, 1, 1, 1, 0.08, 0.3, 0.1),
+    place(new THREE.ConeGeometry(0.3, 1.4, 4), 0.55, 0.62, 0.2, 1, 1, 1, -0.1, 1.1, -0.35),
+    place(new THREE.ConeGeometry(0.26, 1.0, 4), -0.45, 0.42, -0.15, 1, 1, 1, 0.2, 2.0, 0.4),
+  ]));
+  const spikeMat = T.m(new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0.1, flatShading: true }));
+  const spikes = [];
+  for (let i = 0, n = Math.round(outerArea * 0.006); i < n; i++) {
+    const p = outer(2.2, 26, 4); if (!p) continue;
+    spikes.push({ x: p.x, z: p.z, s: rng.range(0.7, 1.5), ry: rng.range(0, TAU), color: jitterColor(theme.rock, 0.2) });
+  }
+  meshes.push(...inst(spikeGeo, spikeMat, spikes, { cast: true, receive: true }));
+
+  // ---- rocks outside, and the odd pebble on the ice (dark: they read on the pale ice)
+  const rockGeo = T.g(new THREE.DodecahedronGeometry(0.5, 0));
+  const rockMat = T.m(new THREE.MeshStandardMaterial({ roughness: 0.95, flatShading: true }));
+  const rocks = [];
+  for (let i = 0, n = Math.round(outerArea * 0.006); i < n; i++) {
+    const p = sampleOuter(1.5, 26), s = rng.range(0.5, 1.5);
+    rocks.push({ x: p.x, z: p.z, y: 0.12 * s, sx: s * rng.range(0.8, 1.3), sy: s * rng.range(0.45, 0.8), sz: s, ry: rng.range(0, TAU), color: jitterColor(theme.rock, 0.15) });
+  }
+  for (let i = 0, n = Math.round(corridorArea * 0.012); i < n; i++) {
+    const p = sampleCorridor(0.4); if (!p) continue;
+    const s = rng.range(0.12, 0.24);
+    rocks.push({ x: p.x, z: p.z, y: 0.03, sx: s * 1.3, sy: s * 0.5, sz: s, ry: rng.range(0, TAU), color: jitterColor(theme.rock, 0.15) });
+  }
+  meshes.push(...inst(rockGeo, rockMat, rocks, { cast: true, receive: true }));
+
+  // ---- bones and skulls in the ash (never on the ice)
+  const BONE = 0xd9cdb2;
+  const boneGeo = T.g(mergeGeos([
+    paint(place(new THREE.CylinderGeometry(0.045, 0.045, 0.62, 5), 0, 0.06, 0, 1, 1, 1, 0, 0, Math.PI / 2), BONE),
+    ...[[-0.33, 0.06], [-0.33, -0.06], [0.33, 0.06], [0.33, -0.06]].map(([x, z]) => paint(place(new THREE.IcosahedronGeometry(0.075, 0), x, 0.06, z), BONE)),
+  ]));
+  const skullGeo = T.g(mergeGeos([
+    paint(place(new THREE.IcosahedronGeometry(0.3, 1), 0, 0.27, -0.03, 1, 0.85, 1.05), BONE),
+    paint(place(new THREE.BoxGeometry(0.3, 0.14, 0.2), 0, 0.1, 0.18), BONE),
+    paint(place(new THREE.IcosahedronGeometry(0.075, 0), -0.11, 0.28, 0.23), 0x1a0808),
+    paint(place(new THREE.IcosahedronGeometry(0.075, 0), 0.11, 0.28, 0.23), 0x1a0808),
+    paint(place(new THREE.ConeGeometry(0.035, 0.07, 3), 0, 0.17, 0.29, 1, 1, 1, Math.PI / 2, 0, 0), 0x1a0808),
+  ]));
+  const boneMat = T.m(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, flatShading: true }));
+  const bones = [], skulls = [];
+  for (let i = 0, n = Math.round(outerArea * 0.012); i < n; i++) {
+    const p = sampleOuter(0.9, 20), s = rng.range(0.8, 1.4);
+    bones.push({ x: p.x, z: p.z, s, ry: rng.range(0, TAU), color: new THREE.Color(1, 1, 1).multiplyScalar(rng.range(0.75, 1)) });
+    if (rng.chance(0.4)) bones.push({ x: p.x + rng.range(-0.3, 0.3), z: p.z + rng.range(-0.3, 0.3), y: 0.08, s, ry: rng.range(0, TAU), color: new THREE.Color(1, 1, 1).multiplyScalar(rng.range(0.75, 1)) });
+  }
+  for (let i = 0, n = Math.round(outerArea * 0.0018); i < n; i++) {
+    const p = sampleOuter(1.0, 18);
+    skulls.push({ x: p.x, z: p.z, s: rng.range(0.9, 1.4), ry: rng.range(-0.6, 0.6), rx: rng.range(-0.15, 0.1), color: new THREE.Color(1, 1, 1).multiplyScalar(rng.range(0.8, 1)) });
+  }
+  meshes.push(...inst(boneGeo, boneMat, bones, { receive: true }));
+  meshes.push(...inst(skullGeo, boneMat, skulls, { cast: true, receive: true }));
+
+  // ---- faint ember glows smouldering in the ash
+  const glowGeo = T.g(new THREE.PlaneGeometry(1, 1)); glowGeo.rotateX(-Math.PI / 2);
+  const glowMat = T.m(new THREE.MeshBasicMaterial({ map: makeGlowTexture(T), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  const embers = [];
+  for (let i = 0, n = Math.round(outerArea * 0.0025); i < n; i++) {
+    const p = sampleOuter(2, 26);
+    embers.push({ x: p.x, z: p.z, y: 0.02, s: rng.range(2.5, 6), ry: rng.range(0, TAU), color: new THREE.Color(0xff3a10).multiplyScalar(rng.range(0.12, 0.26)) });
+  }
+  for (const g of inst(glowGeo, glowMat, embers)) { g.renderOrder = 1; meshes.push(g); }
+  return meshes;
+}
+
 // ---------------------------------------------------------------- particles
 
 // box = { w, d } (the final run): instead of a disc over the whole map, the particles fill a w x d box that wraps
@@ -1097,7 +1234,7 @@ function buildParticles(theme, rng, radius, T, box = null) {
   if (kind === 'pollen') { palette = [0xfff6c0, 0xffffff, 0xfff0a0]; H = 4; size = 0.16; additive = true; sprite = 'dot'; }
   else if (kind === 'leaves') { palette = theme.crowns; H = 11; size = 0.42; additive = false; sprite = 'leaf'; }
   else if (kind === 'snow') { palette = [0xffffff, 0xf0f6ff]; H = 12; size = 0.2; additive = false; sprite = 'snow'; }
-  else { palette = [theme.accent, theme.wallTop, 0xb68cff]; H = 7; size = 0.26; additive = true; sprite = 'dot'; }
+  else { palette = theme.particlePalette || [theme.accent, theme.wallTop, 0xb68cff]; H = 7; size = 0.26; additive = true; sprite = 'dot'; }
   const bright = kind === 'motes' || kind === 'pollen' ? 0.9 : 1;
   for (let i = 0; i < count; i++) {
     if (box) { base[i * 5] = rng.range(0, box.w); base[i * 5 + 1] = rng.range(0, box.d); } else {
@@ -1239,16 +1376,13 @@ function buildCheckpoints(levelData, T) {
   return out;
 }
 
-// ---------------------------------------------------------------- the final run (Skate only, last level)
+// ---------------------------------------------------------------- the final run (last level)
 //
-// Set dressing for levelData.finale: a start gate ("FINAL RUN") and a checkered finish arch ("FINISH") standing on
-// the corridor walls, start / finish lines on the floor (no distance markers: you don't know how far is left),
-// glowing ice-crystal clusters outside both walls at a steady rhythm, aurora light
-// shimmering on the ice, and a snow patch with a warm pulsing ring under the halfway tree (the one place to rest).
-// The camera looks down toward -z at ~56°, so signs sit above the FAR wall and are tilted to face it, and nothing
-// tall stands on the near wall (it would hide the kitties).
-
-const CAM_TILT = Math.atan2(0.83, 0.56);   // main.js CAM_DIR pitch
+// Set dressing for levelData.finale, a frozen hell (no start / finish markings, nothing that tells how far is left):
+// fire braziers outside both walls at a steady rhythm, a faint blood-red shimmer on the ice, and a snow patch with a
+// warm pulsing ring under the halfway tree (the one place to rest). At the end, the goal room is the sweet reward:
+// cushions, yarn balls, bowls of milk and golden sparkles round the giant fish (models.js). Nothing tall stands on
+// the near (+z) side: the camera looks down toward -z at ~56° and it would hide the kitties.
 
 function textTexture(T, w, h, draw) {
   const c = document.createElement('canvas');
@@ -1260,123 +1394,53 @@ function textTexture(T, w, h, draw) {
   return T.t(t);
 }
 
-function signTexture(T, text, accent) {
-  return textTexture(T, 512, 128, (g, w, h) => {
-    const r = 26;
-    g.fillStyle = '#16233f';
-    g.beginPath(); g.roundRect(6, 6, w - 12, h - 12, r); g.fill();
-    g.lineWidth = 8; g.strokeStyle = accent;
-    g.beginPath(); g.roundRect(10, 10, w - 20, h - 20, r - 4); g.stroke();
-    g.font = 'bold 76px "Arial Black", Arial, sans-serif';
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.lineWidth = 10; g.strokeStyle = 'rgba(0,0,0,0.45)'; g.strokeText(text, w / 2, h / 2 + 4);
-    g.fillStyle = '#ffffff'; g.fillText(text, w / 2, h / 2 + 4);
-  });
-}
-
 function buildFinale(levelData, theme, T, rng) {
   const meshes = [];
   const W = levelData.corridorWidth, h = W / 2, rh = levelData.roomHalf, R = CFG.TREE_RADIUS;
-  const xs = levelData.corners[0].x, xStart = xs + h + 0.4, xFinish = -rh - 1;
-  const xLo = xs - h, xHi = -rh;                 // the corridor's ice
+  const xs = levelData.corners[0].x, xStart = xs + h + 0.4, xEnd = -rh - 1;
+  const xHi = -rh;                               // the corridor's ice ends at the goal room's door
 
-  // ---- floor lines: checkered finish line in front of the door, a glowing start line out of the start square
-  const checker = textTexture(T, 64, 64, (g) => {
-    g.fillStyle = '#ffffff'; g.fillRect(0, 0, 64, 64);
-    g.fillStyle = '#1b2236'; g.fillRect(0, 0, 32, 32); g.fillRect(32, 32, 32, 32);
-  });
-  checker.wrapS = checker.wrapT = THREE.RepeatWrapping;
-  checker.magFilter = THREE.NearestFilter;
-  const lineW = W - CFG.WALL_THICKNESS;
-  const finGeo = T.g(new THREE.PlaneGeometry(1.6, lineW));
-  { const uv = finGeo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 1.5, uv.getY(i) * 10); }
-  finGeo.rotateX(-Math.PI / 2);
-  const finLine = new THREE.Mesh(finGeo, T.m(new THREE.MeshStandardMaterial({ map: checker, roughness: 0.6, transparent: true, opacity: 0.92, depthWrite: false })));
-  finLine.position.set(xFinish, 0.014, 0);
-  finLine.renderOrder = 1;
-  finLine.receiveShadow = true;
-  meshes.push(finLine);
-  const startGeo = T.g(new THREE.PlaneGeometry(0.5, lineW)); startGeo.rotateX(-Math.PI / 2);
-  const startMat = T.m(new THREE.MeshBasicMaterial({ color: 0x8fdcff, transparent: true, opacity: 0.7, depthWrite: false }));
-  const startLine = new THREE.Mesh(startGeo, startMat);
-  startLine.position.set(xStart, 0.014, 0);
-  startLine.renderOrder = 1;
-  meshes.push(startLine);
-
-  // ---- ice-crystal clusters outside both walls (staggered); evenly spaced, so they don't tell how far is left
-  const crysGeo = T.g(place(new THREE.OctahedronGeometry(0.5, 0), 0, 0.5, 0, 0.55, 1.9, 0.55));
-  const crysMat = T.m(emissiveByColor(new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 0.1, emissive: 0xffffff, emissiveIntensity: 0.4, flatShading: true })));
-  const crysCols = [0x9fe4ff, 0xd8f4ff, 0x7fc4ff, 0xc8b8ff];
-  const crys = [], crysGlow = [];
-  const cluster = (x, z, big) => {
-    const n = big ? 5 : 3, S = (big ? 1.5 : 1) * (z > 0 ? 0.6 : 1);   // near side (toward the camera): keep them low
-    for (let k = 0; k < n; k++) {
-      const s = (k === 0 ? 1.35 : rng.range(0.55, 0.95)) * S;
-      crys.push({ x: x + (k ? rng.range(-0.7, 0.7) * S : 0), z: z + (k ? rng.range(-0.5, 0.5) * S : 0), s, sy: s * (k ? 1 : 1.25), ry: rng.range(0, TAU), rx: k ? rng.range(-0.35, 0.35) : 0, rz: k ? rng.range(-0.35, 0.35) : 0, color: new THREE.Color(rng.pick(crysCols)) });
-    }
-    crysGlow.push({ x, z, y: 0.03, s: big ? 6 : 4, color: new THREE.Color(0x7fd0ff).multiplyScalar(big ? 0.35 : 0.22) });
+  // ---- fire braziers outside both walls (staggered); evenly spaced, so they don't tell how far is left
+  const brazGeo = T.g(mergeGeos([
+    paint(place(new THREE.CylinderGeometry(0.42, 0.5, 0.16, 7), 0, 0.08, 0), 0x2a2224),
+    paint(place(new THREE.CylinderGeometry(0.1, 0.16, 0.85, 6), 0, 0.55, 0), 0x2a2224),
+    paint(place(new THREE.CylinderGeometry(0.58, 0.3, 0.34, 8), 0, 1.08, 0), 0x3a2e30),
+    paint(place(new THREE.CylinderGeometry(0.5, 0.5, 0.04, 8), 0, 1.24, 0), 0x601a0c),   // the coals
+  ]));
+  const brazMat = T.m(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.3, flatShading: true }));
+  const flameGeo = T.g(new THREE.ConeGeometry(0.4, 1, 7)); flameGeo.translate(0, 0.5, 0);
+  const flameOut = T.m(new THREE.MeshBasicMaterial({ color: 0xe8461a, transparent: true, opacity: 0.85, depthWrite: false }));
+  const flameIn = T.m(new THREE.MeshBasicMaterial({ color: 0xffb040, transparent: true, opacity: 0.9, depthWrite: false }));
+  const braz = [], flames = [], brazGlow = [];
+  const brazier = (x, z) => {
+    const S = z > 0 ? 0.75 : 1;                // near side (toward the camera): keep them low
+    braz.push({ x, z, s: S, ry: rng.range(0, TAU) });
+    flames.push({ x, z, y: 1.25 * S, s: S, ph: rng.range(0, 10) });
+    brazGlow.push({ x, z, y: 0.03, s: 6.5, color: new THREE.Color(0xff4a18).multiplyScalar(0.32) });
   };
   const off = h + CFG.WALL_THICKNESS / 2 + 1.5;
-  for (let x = xStart + 10; x < xFinish - 6; x += 24) {
-    cluster(x, -off - rng.range(0, 0.6), false);
-    cluster(x + 12, off + rng.range(0, 0.6), false);
+  for (let x = xStart + 10; x < xEnd - 6; x += 24) {
+    brazier(x, -off - rng.range(0, 0.6));
+    brazier(x + 12, off + rng.range(0, 0.6));
   }
-  meshes.push(...makeInstancedChunks(crysGeo, crysMat, crys, { cast: true }, 96));
+  meshes.push(...makeInstancedChunks(brazGeo, brazMat, braz, { cast: true }, 96));
+  // flames: two cones per brazier that flicker (one instanced mesh each, matrices rewritten every frame)
+  const outerF = new THREE.InstancedMesh(flameGeo, flameOut, flames.length), innerF = new THREE.InstancedMesh(flameGeo, flameIn, flames.length);
+  outerF.frustumCulled = innerF.frustumCulled = false;
+  outerF.renderOrder = 2; innerF.renderOrder = 3;
+  meshes.push(outerF, innerF);
   const glowGeo = T.g(new THREE.PlaneGeometry(1, 1)); glowGeo.rotateX(-Math.PI / 2);
   const glowTex = makeGlowTexture(T);
   const glowMat = T.m(new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
-  for (const g of makeInstancedChunks(glowGeo, glowMat, crysGlow, {}, 96)) { g.renderOrder = 1; meshes.push(g); }
+  for (const g of makeInstancedChunks(glowGeo, glowMat, brazGlow, {}, 96)) { g.renderOrder = 1; meshes.push(g); }
 
-  // ---- gates: a banner on two poles standing on the FAR wall (a beam across the corridor would hide wolves at the
-  // door), a short lantern post on the near wall, glowing orbs on top
-  const H = CFG.WALL_HEIGHT;
-  const postGeo = T.g(mergeGeos([
-    place(new THREE.BoxGeometry(0.9, 0.25, 0.9), 0, 0.12, 0),
-    place(new THREE.BoxGeometry(0.62, 1, 0.62), 0, 0.5, 0),
-  ]));
-  const poleGeo = T.g(new THREE.CylinderGeometry(0.08, 0.1, 1, 8)); poleGeo.translate(0, 0.5, 0);
-  const postMat = T.m(new THREE.MeshStandardMaterial({ roughness: 0.8, flatShading: true }));
-  const poleMat = T.m(new THREE.MeshStandardMaterial({ color: 0xc8d2e0, roughness: 0.45, metalness: 0.4 }));
-  const orbGeo = T.g(new THREE.IcosahedronGeometry(0.26, 2));
-  const orbMat = T.m(new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  const posts = [], poles = [], orbs = [];
-  const zp = h + 0.05, NP = 2.1, SY = 4.3, SW = 6.4, SH = 1.6;
-  const tilt = new THREE.Vector3(0, Math.sin(CAM_TILT), Math.cos(CAM_TILT));   // sign normal
-  const up = new THREE.Vector3(0, Math.cos(CAM_TILT), -Math.sin(CAM_TILT));    // sign's up in world space
-  const gate = (x, label, accent, orbHex, chequered) => {
-    posts.push({ x, z: zp, sy: NP, color: new THREE.Color(theme.pillar) });
-    orbs.push({ x, z: zp, y: NP + 0.4, color: new THREE.Color(orbHex) });
-    for (const dx of [-SW / 2 + 0.5, SW / 2 - 0.5]) {
-      poles.push({ x: x + dx, z: -zp, y: H, sy: SY + SH / 2 - H + 0.1 });
-      orbs.push({ x: x + dx, z: -zp, y: SY + SH / 2 + 0.45, color: new THREE.Color(orbHex) });
-    }
-    const sign = new THREE.Mesh(T.g(new THREE.PlaneGeometry(SW, SH)), T.m(new THREE.MeshBasicMaterial({ map: signTexture(T, label, accent), transparent: true })));
-    sign.position.set(x, SY, -zp - 0.14);
-    sign.rotation.x = -CAM_TILT;
-    meshes.push(sign);
-    if (chequered) {
-      const bg = T.g(new THREE.PlaneGeometry(SW - 0.5, 0.42));
-      { const uv = bg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 15, uv.getY(i)); }
-      const band = new THREE.Mesh(bg, T.m(new THREE.MeshBasicMaterial({ map: checker })));
-      band.position.set(x, SY, -zp - 0.14).addScaledVector(up, -SH / 2 - 0.26).addScaledVector(tilt, -0.01);
-      band.rotation.x = -CAM_TILT;
-      meshes.push(band);
-    }
-  };
-  gate(xStart, 'FINAL RUN', '#8fdcff', 0x8fdcff, false);
-  gate(-rh, 'FINISH', '#ffd24a', 0xffd24a, true);
-  meshes.push(makeInstanced(postGeo, postMat, posts, { cast: true, receive: true }));
-  meshes.push(makeInstanced(poleGeo, poleMat, poles, { cast: true }));
-  const orbMesh = makeInstanced(orbGeo, orbMat, orbs);
-  meshes.push(orbMesh);
-
-  // ---- aurora light shimmering on the ice (additive, faint; not under the tree's snow patch)
+  // ---- a faint blood-red / violet shimmer drifting over the ice (not under the tree's snow patch)
   const tr = (levelData.trees && levelData.trees[0]) || { x: 1e5, z: 0 };
   const auroraGeo = T.g(new THREE.PlaneGeometry(xHi - xStart, 2 * h - CFG.WALL_THICKNESS, Math.ceil((xHi - xStart) / 8), 1));
   auroraGeo.rotateX(-Math.PI / 2);
   auroraGeo.translate((xStart + xHi) / 2, 0.009, 0);
   const auroraMat = T.m(new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uTree: { value: new THREE.Vector3(tr.x, tr.z, R + 0.6) }, uK: { value: 0.22 } },
+    uniforms: { uTime: { value: 0 }, uTree: { value: new THREE.Vector3(tr.x, tr.z, R + 0.6) }, uK: { value: 0.2 } },
     vertexShader: 'varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
     fragmentShader: `varying vec2 vP; uniform float uTime; uniform vec3 uTree; uniform float uK;
       void main(){
@@ -1385,9 +1449,9 @@ function buildFinale(levelData, theme, T, rng) {
         float b1 = sin(vP.x * 0.043 + t * 0.33 + w);
         float b2 = sin(vP.x * 0.019 - t * 0.19 + vP.y * 0.16 + 1.7);
         float a = smoothstep(0.3, 1.0, b1) * 0.75 + smoothstep(0.55, 1.0, b2) * 0.55;
-        vec3 green = vec3(0.25, 1.0, 0.62), violet = vec3(0.62, 0.42, 1.0), cyan = vec3(0.35, 0.85, 1.0);
+        vec3 blood = vec3(0.75, 0.08, 0.06), ember = vec3(0.9, 0.3, 0.1), violet = vec3(0.4, 0.12, 0.55);
         float m = 0.5 + 0.5 * sin(vP.x * 0.0071 + t * 0.07);
-        vec3 col = mix(mix(green, cyan, m), violet, smoothstep(0.6, 1.0, b2));
+        vec3 col = mix(mix(blood, ember, m), violet, smoothstep(0.6, 1.0, b2));
         float edge = 1.0 - smoothstep(3.6, 5.2, abs(vP.y));
         float hole = smoothstep(uTree.z, uTree.z + 1.2, distance(vP, uTree.xy));
         gl_FragColor = vec4(col, clamp(a, 0.0, 1.0) * edge * hole * uK);
@@ -1397,7 +1461,7 @@ function buildFinale(levelData, theme, T, rng) {
     transparent: true, depthWrite: false,
   }));
   const aurora = new THREE.Mesh(auroraGeo, auroraMat);
-  aurora.renderOrder = 0;   // after the ice sheet (-1), before the painted lines / numbers (1)
+  aurora.renderOrder = 0;   // after the ice sheet (-1), before the snow patch / glows (1)
   aurora.frustumCulled = false;
   meshes.push(aurora);
 
@@ -1423,13 +1487,100 @@ function buildFinale(levelData, theme, T, rng) {
     }
   }
 
-  const orbC = orbs.map((o) => o.color.clone()), tmp = new THREE.Color();
+  const room = buildRewardRoom(levelData, T, rng, glowGeo, glowMat);
+  meshes.push(...room.meshes);
+
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), s = new THREE.Vector3();
   const update = (time) => {
     auroraMat.uniforms.uTime.value = time;
     if (ringMat) ringMat.opacity = 0.6 + 0.3 * Math.sin(time * 2.2);
-    startMat.opacity = 0.55 + 0.2 * Math.sin(time * 3.1);
-    for (let i = 0; i < orbs.length; i++) orbMesh.setColorAt(i, tmp.copy(orbC[i]).multiplyScalar(0.85 + 0.15 * Math.sin(time * 4 + i * 1.3)));
-    if (orbMesh.instanceColor) orbMesh.instanceColor.needsUpdate = true;
+    for (let i = 0; i < flames.length; i++) {
+      const f = flames[i], k = f.ph;
+      const fy = 0.85 + 0.2 * Math.sin(time * 9.1 + k * 7) + 0.1 * Math.sin(time * 23.7 + k * 3);
+      const fw = 0.92 + 0.08 * Math.sin(time * 13.3 + k * 5);
+      q.setFromEuler(e.set(0.08 * Math.sin(time * 5.3 + k), k, 0.08 * Math.sin(time * 4.1 + k * 2)));
+      m4.compose(p.set(f.x, f.y, f.z), q, s.set(f.s * fw, f.s * fy * 1.1, f.s * fw));
+      outerF.setMatrixAt(i, m4);
+      m4.compose(p, q, s.set(f.s * fw * 0.55, f.s * fy * 0.7, f.s * fw * 0.55));
+      innerF.setMatrixAt(i, m4);
+    }
+    outerF.instanceMatrix.needsUpdate = innerF.instanceMatrix.needsUpdate = true;
+    room.update(time);
+  };
+  update(0);
+  return { meshes, update };
+}
+
+// The goal room after hell: cosy and warm. Cushions in the corners, yarn balls and bowls of milk along the front
+// wall, a soft golden glow on the floor and slow golden sparkles drifting in the air (all clear of the goal disc
+// and the giant fish curled round its back; purely cosmetic, nothing here collides).
+function buildRewardRoom(levelData, T, rng, glowGeo, glowMat) {
+  const meshes = [];
+  const rh = levelData.roomHalf;
+  const vc = T.m(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: true }));
+
+  // cushions: a plump pillow with a tufted button, tinted per instance
+  const cushionGeo = T.g(mergeGeos([
+    paint(place(new THREE.SphereGeometry(1, 14, 8), 0, 0.26, 0, 1.0, 0.3, 1.0), 0xffffff),
+    paint(place(new THREE.IcosahedronGeometry(0.12, 1), 0, 0.53, 0, 1, 0.5, 1), 0xe8e0f0),
+    ...[0, 1, 2, 3].map((k) => paint(place(new THREE.IcosahedronGeometry(0.16, 0), Math.cos(k * Math.PI / 2 + Math.PI / 4) * 0.98, 0.24, Math.sin(k * Math.PI / 2 + Math.PI / 4) * 0.98), 0xffe9a8)),
+  ]));
+  const c = rh - 1.55;
+  const cushions = [
+    { x: -c + 0.3, z: c - 0.5, color: 0xff9ec7 }, { x: c, z: c - 0.5, color: 0xc4a8ff }, { x: c, z: -c, color: 0xffc49a }, { x: -c, z: -c, color: 0xa8e4c8 },
+  ].map((o) => ({ ...o, s: 1.15, ry: rng.range(0, TAU), color: new THREE.Color(o.color) }));
+  meshes.push(makeInstanced(cushionGeo, vc, cushions, { cast: true, receive: true }));
+
+  // yarn balls: a ball wound with a few strands
+  const yarnGeo = T.g(mergeGeos([
+    paint(place(new THREE.IcosahedronGeometry(0.3, 2), 0, 0.3, 0), 0xffffff),
+    paint(place(new THREE.TorusGeometry(0.3, 0.028, 4, 18), 0, 0.3, 0, 1, 1, 1, 0.3, 0, 0), 0xd8d8d8),
+    paint(place(new THREE.TorusGeometry(0.3, 0.028, 4, 18), 0, 0.3, 0, 1, 1, 1, 1.4, 0.8, 0), 0xd8d8d8),
+    paint(place(new THREE.TorusGeometry(0.3, 0.028, 4, 18), 0, 0.3, 0, 1, 1, 1, 2.2, -0.6, 0.4), 0xd8d8d8),
+    paint(place(new THREE.CylinderGeometry(0.025, 0.025, 0.7, 4), 0.42, 0.03, 0.18, 1, 1, 1, 0, 0.4, Math.PI / 2), 0xd8d8d8),   // a loose end
+  ]));
+  // (the front wall hides the last ~1 unit of floor from the camera: nothing goes past z = rh - 1.4)
+  const yarn = [[-4.3, rh - 1.6, 0xff5a6a], [-c + 1.5, c - 1.2, 0x5ab4ff], [4.4, rh - 1.7, 0xffd04a], [c - 0.4, c - 2.2, 0xff8ad0], [c + 0.3, 2.4, 0x8ae070]]
+    .map(([x, z, col]) => ({ x, z, s: rng.range(0.9, 1.15), ry: rng.range(0, TAU), color: new THREE.Color(col) }));
+  meshes.push(makeInstanced(yarnGeo, vc, yarn, { cast: true, receive: true }));
+
+  // bowls of milk
+  const bowlGeo = T.g(mergeGeos([
+    paint(place(new THREE.CylinderGeometry(0.46, 0.32, 0.24, 16), 0, 0.12, 0), 0x7aa8ff),
+    paint(place(new THREE.CylinderGeometry(0.4, 0.4, 0.02, 16), 0, 0.245, 0), 0xfffaf0),
+    paint(place(new THREE.TorusGeometry(0.44, 0.035, 4, 20), 0, 0.24, 0, 1, 1, 1, Math.PI / 2, 0, 0), 0xa8c8ff),
+  ]));
+  const bowls = [[-2.3, rh - 1.75], [0, rh - 1.55], [2.3, rh - 1.75]].map(([x, z]) => ({ x, z, s: 1 }));
+  meshes.push(makeInstanced(bowlGeo, vc, bowls, { cast: true, receive: true }));
+
+  // soft golden pools of light: one over the room, one under every cushion
+  const glows = [{ x: 0, z: 0, y: 0.02, s: 2 * rh + 6, color: new THREE.Color(0xffb060).multiplyScalar(0.12) }];
+  for (const o of cushions) glows.push({ x: o.x, z: o.z, y: 0.025, s: 4.5, color: new THREE.Color(0xffc070).multiplyScalar(0.2) });
+  const g = makeInstanced(glowGeo, glowMat, glows);
+  g.renderOrder = 1;
+  meshes.push(g);
+
+  // golden sparkles drifting in the air
+  const N = 34, sp = [];
+  for (let i = 0; i < N; i++) {
+    let x, z;
+    do { x = rng.range(-rh + 0.6, rh - 0.6); z = rng.range(-rh + 0.6, rh - 0.6); } while (Math.hypot(x, z) < 3.5);
+    sp.push({ x, z, y: rng.range(0.6, 2.8), ph: rng.range(0, TAU), sp: rng.range(0.4, 0.9) });
+  }
+  const spGeo = T.g(new THREE.OctahedronGeometry(0.09, 0)); spGeo.scale(1, 1.6, 1);
+  const spMat = T.m(new THREE.MeshBasicMaterial({ color: 0xffd98a, transparent: true, opacity: 0.9, depthWrite: false }));
+  const spMesh = new THREE.InstancedMesh(spGeo, spMat, N);
+  spMesh.frustumCulled = false;
+  meshes.push(spMesh);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), s = new THREE.Vector3();
+  const update = (time) => {
+    for (let i = 0; i < N; i++) {
+      const o = sp[i], t = time * o.sp + o.ph;
+      const k = Math.max(0, Math.sin(t * 2.3));   // twinkle: grow and shrink
+      m4.compose(p.set(o.x + Math.sin(t) * 0.4, o.y + Math.sin(t * 0.7) * 0.35, o.z + Math.cos(t * 0.9) * 0.4), q.setFromEuler(e.set(0, t * 2, 0)), s.setScalar(0.25 + 0.9 * k));
+      spMesh.setMatrixAt(i, m4);
+    }
+    spMesh.instanceMatrix.needsUpdate = true;
   };
   update(0);
   return { meshes, update };
@@ -1440,14 +1591,15 @@ function buildFinale(levelData, theme, T, rng) {
 function buildWorld(scene, levelData) {
   const T = makeTracker();
   const ti = (((levelData.theme ?? ((levelData.level || 1) - 1)) % THEMES.length) + THEMES.length) % THEMES.length;
-  const theme = THEMES[ti];
+  const base = THEMES[ti];
+  const theme = levelData.finale ? { ...base, ...HELL } : base;   // the final run: a frozen hell (see HELL)
   const rng = createRng(hashSeed(levelData.seed ?? 1, levelData.level ?? 1, 'world'));
   const group = new THREE.Group();
   group.name = 'world';
 
   for (const m of buildFloors(levelData, theme, T)) group.add(m);
   for (const m of buildCheckpoints(levelData, T)) group.add(m);
-  for (const m of buildClimbTrees(levelData, theme, T)) group.add(m);
+  for (const m of buildClimbTrees(levelData, base, T)) group.add(m);   // the halfway tree stays green and frosted: the one refuge
   for (const m of buildWalls(levelData, theme, T)) group.add(m);
   const lanterns = buildLanterns(levelData, theme, T, rng);
   for (const m of lanterns.meshes) group.add(m);
@@ -1509,17 +1661,40 @@ function setupLighting(scene) {
   scene.fog = fog;
   scene.background = bg;
 
-  function setTheme(theme) {
-    const t = THEMES[(((theme | 0) % THEMES.length) + THEMES.length) % THEMES.length];
+  const apply = (t) => {
     bg.set(t.sky);
     fog.color.set(t.fog); fog.near = t.fogNear; fog.far = t.fogFar;
-    scene.fog = fog; scene.background = bg;
     hemi.color.set(t.hemiSky); hemi.groundColor.set(t.hemiGround); hemi.intensity = t.hemiIntensity;
     sun.color.set(t.sunColor); sun.intensity = t.sunIntensity;
+  };
+  // the final run: hell lighting down the run, warming up to the goal room's golden light as the camera gets there
+  let blend = null, blendK = -1;
+  const ca = new THREE.Color(), cb = new THREE.Color();
+  const mixLight = (k) => {
+    const A = HELL_LIGHT, B = HEAVEN_LIGHT, L = (a, b) => a + (b - a) * k;
+    bg.copy(ca.set(A.sky)).lerp(cb.set(B.sky), k);
+    fog.color.copy(ca.set(A.fog)).lerp(cb.set(B.fog), k); fog.near = L(A.fogNear, B.fogNear); fog.far = L(A.fogFar, B.fogFar);
+    hemi.color.copy(ca.set(A.hemiSky)).lerp(cb.set(B.hemiSky), k);
+    hemi.groundColor.copy(ca.set(A.hemiGround)).lerp(cb.set(B.hemiGround), k);
+    hemi.intensity = L(A.hemiIntensity, B.hemiIntensity);
+    sun.color.copy(ca.set(A.sunColor)).lerp(cb.set(B.sunColor), k); sun.intensity = L(A.sunIntensity, B.sunIntensity);
+  };
+
+  // levelData (optional): the final run's lighting follows the camera (see update)
+  function setTheme(theme, levelData = null) {
+    scene.fog = fog; scene.background = bg;
+    blend = levelData && levelData.finale ? { x0: -levelData.roomHalf - 34, x1: -levelData.roomHalf + 2 } : null;
+    blendK = -1;
+    if (blend) { mixLight(0); return; }
+    apply(THEMES[(((theme | 0) % THEMES.length) + THEMES.length) % THEMES.length]);
   }
   setTheme(0);
 
   function update(dt, time, focusX = 0, focusZ = 0) {
+    if (blend) {
+      const u = clamp((focusX - blend.x0) / (blend.x1 - blend.x0), 0, 1), k = u * u * (3 - 2 * u);
+      if (Math.abs(k - blendK) > 0.002) { blendK = k; mixLight(k); }
+    }
     F.set(focusX, 0, focusZ);
     const fx = Math.round(F.dot(ax) / texel) * texel;
     const fy = Math.round(F.dot(ay) / texel) * texel;

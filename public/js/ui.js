@@ -281,9 +281,9 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-hud.rkr-finale .rkr-map,.rkr-hud.rkr-finale .rkr-tc,.rkr-hud.rkr-finale .rkr-hint{display:none;}
 
 /* banner styles */
-.rkr-banner.rkr-b-finale .rkr-bt{color:#eaf8ff;letter-spacing:.06em;-webkit-text-stroke:3px #10234f;
-  text-shadow:0 6px 0 #10234f,0 10px 0 rgba(0,0,0,.3),0 0 50px rgba(120,200,255,.9);}
-.rkr-banner.rkr-b-finale .rkr-bs{background:rgba(10,30,70,.7);color:#d8f1ff;border:2px solid rgba(160,220,255,.6);}
+.rkr-banner.rkr-b-finale .rkr-bt{color:#ffe2d6;letter-spacing:.06em;-webkit-text-stroke:3px #3a0a0a;
+  text-shadow:0 6px 0 #3a0a0a,0 10px 0 rgba(0,0,0,.35),0 0 40px rgba(220,50,20,.7);}
+.rkr-banner.rkr-b-finale .rkr-bs{background:rgba(40,8,8,.75);color:#ffd8c8;border:2px solid rgba(230,90,60,.55);}
 .rkr-banner.rkr-b-gold .rkr-bt{color:#ffe27a;text-shadow:0 6px 0 #3a1650,0 10px 0 rgba(0,0,0,.25),0 0 60px rgba(255,210,80,.95);}
 
 /* ---------------- victory ---------------- */
@@ -759,7 +759,7 @@ function createUI(root) {
 
   // ================= banner & toast =================
   let bannerTimers = [];
-  // style: undefined (default), 'finale' (icy, the final run) or 'gold' (victory)
+  // style: undefined (default), 'finale' (ember red, the final run) or 'gold' (victory)
   function banner(title, subtitle, ms, style) {
     ms = ms || 1800;
     bannerEl.classList.toggle('rkr-b-finale', style === 'finale');

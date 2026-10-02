@@ -427,7 +427,7 @@ function buildView() {
   const ld = sim.levelData;
   const world = buildWorld(scene, ld);
   if (world.group.parent !== scene) scene.add(world.group);
-  lighting.setTheme(ld.theme);
+  lighting.setTheme(ld.theme, ld);   // the final run: hell, warming to gold at the goal room
   const portal = createPortalModel();
   scene.add(portal.group);
   const crown = createCrownPickupModel();
@@ -557,7 +557,7 @@ function handleEvents(events) {
         for (const k of kitties.values()) k.paws.clear(); // prints belong to the old map
         for (const p of sim.players) effects.teleport(p.x, p.z, p.color);
         const finale = !!sim.levelData.finale;
-        if (finale) ui.banner('THE FINAL RUN', 'No checkpoints. No stopping. There\'s a tree halfway. Good luck.', 4200, 'finale');
+        if (finale) ui.banner('THE FINAL RUN', 'Wolves all the way through. No checkpoints, no stopping. There\'s a tree halfway, and something sweet at the end.', 4200, 'finale');
         else ui.banner(`LEVEL ${ev.level}`, levelSubtitle(ev.level), 2200);
         if (audio.isMuted() && !soundHintShown) {
           soundHintShown = true;

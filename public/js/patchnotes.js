@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'The final run is now a frozen hell: dark ash, dead trees, bones, fire braziers and red lanterns all the way down (no more start / finish line or signs), and the goal room at the end is a warm, golden reward with cushions, yarn balls and bowls of milk round the giant fish',
       'Softer lighting: no more glare. Kitty rings, auras, the goal portal, lanterns, revive circles and sparkles keep their colours without blowing out to white',
       'Online: while you\'re down you can switch which kitty you watch: tap the ‹ › arrows on the "Watching" label, press ← → (or A / D, Tab), or use the shoulder buttons / d-pad on a controller',
       'Phones and tablets: tap the new 📜 button next to 💬 to scroll back through older chat messages',

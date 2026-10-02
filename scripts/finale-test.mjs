@@ -17,8 +17,7 @@
 // a mismatch fails the run.
 //
 // Usage: node scripts/finale-test.mjs [--seeds 8 | --seed 42] [--boots 0,1,2,3,4] [--verbose]
-//          [--margin 0.1] [--window 0.3] [--slack 0.1] [--level 8] [--planlane]
-//   --planlane  skate only the generator's solution lane of each room (checks the solver's own solutions)
+//          [--margin 0.1] [--window 0.3] [--slack 0.1] [--level 8]
 // Exit code 1 if any run is not won.
 
 import { createSim, stepSim, predictPlayer } from '../public/js/shared/sim.js';
@@ -37,7 +36,6 @@ const VERBOSE = flag('verbose');
 const MARGIN = Number(arg('margin', 0.1));         // clearance (units) beyond the hit distance
 const MIN_WIN = Number(arg('window', 0.3));        // launch window wanted when standing (s)
 const SLACK = Number(arg('slack', 0.1));           // circle exits must survive leaving this early / late (s)
-const PLAN_ONLY = flag('planlane');                // only skate each room's solver lane (levelData.patternPlan)
 
 const TICK = CFG.TICK;
 const HIT = CFG.KITTY_RADIUS * CFG.KITTY_HIT_SCALE + CFG.WOLF_RADIUS * CFG.WOLF_HIT_SCALE;
@@ -136,7 +134,6 @@ function playFinale(seed, nBoots) {
   const O = makeOracle(ld);
   const run = makeKitty(ld, ld.items);
   const legs = ld.legs, nl = legs.length;
-  const plan = new Map((ld.patternPlan || []).map((pl) => [pl.leg, pl]));
   const tree = ld.trees[0];
   // wolf-free zone of kitty centers in front of room i (x in [a, b]); zone 0 is the start pocket
   const xr = (leg) => {
@@ -174,7 +171,6 @@ function playFinale(seed, nBoots) {
     const nz = i + 1 < nl ? zones[i + 1] : null;
     return run(st, (p, j) => (j < n0 ? ctl0(p, j) : laneCtl(L)(p)), (p) => nz && p.x >= nz.a + 0.3, Math.round(60 / TICK));
   };
-  const lanesFor = (i) => { const pl = plan.get(i); return pl ? [pl.lane].concat(PLAN_ONLY ? [] : LANES.filter((r) => r !== pl.lane)) : LANES; };
 
   for (let i = 0; i < nl && !fail && sim.state !== 'victory'; i++) {
     const Z = zones[i];
@@ -190,7 +186,7 @@ function playFinale(seed, nBoots) {
       if (fail) break;
       const st = snap(P, taken());
       let best = null;
-      for (const L of lanesFor(i)) {
+      for (const L of LANES) {
         const tr = runRoom(st, i, L, null, 0);
         if (i + 1 < nl && tr.end.x < zones[i + 1].a) continue;
         // safe launch delays (ticks): the run is the same whenever it starts
@@ -214,7 +210,7 @@ function playFinale(seed, nBoots) {
       // ---- ice gap: holding circle, exit into the lane
       const st = snap(P, taken());
       const cands = [];
-      for (const L of lanesFor(i)) {
+      for (const L of LANES) {
         cands.push({ L, rho: 0, exit: 0, ctl: null });         // straight on, no circle
         for (const s of [1, -1]) for (let rho = 1.3; rho <= 3.2; rho += 0.15) {
           const cz = L + s * rho, cx = Z.b - rho - 0.2;
@@ -255,8 +251,6 @@ function playFinale(seed, nBoots) {
       rec = { room: i, how: pick.rho ? `circle r=${pick.rho.toFixed(2)}` : 'straight', lane: pick.L, wait: pick.exit * TICK, tried };
     }
     rec.ms = Math.round(performance.now() - t0);
-    rec.planLane = plan.get(i) ? plan.get(i).lane : null;
-    rec.planWindow = plan.get(i) ? plan.get(i).window : null;
     log.push(rec);
     if (VERBOSE) console.log('   ', JSON.stringify(rec));
   }
@@ -274,10 +268,9 @@ for (const seed of SEEDS) {
   for (const b of BOOTS) {
     const t0 = performance.now();
     const r = playFinale(seed, b);
-    const offLane = r.log.filter((x) => x.planLane != null && x.lane !== x.planLane).length;
     const circ = r.log.filter((x) => x.how.startsWith('circle')).length;
     const minWin = Math.min(...r.log.filter((x) => x.window != null).map((x) => x.window));
-    console.log(`seed ${String(seed).padEnd(7)} boots ${b}: ${r.won ? 'WON ' : 'LOST'} run ${r.time.toFixed(1)}s, rooms ${r.log.length}, circled ${circ}, off-plan lanes ${offLane}, ` +
+    console.log(`seed ${String(seed).padEnd(7)} boots ${b}: ${r.won ? 'WON ' : 'LOST'} run ${r.time.toFixed(1)}s, rooms ${r.log.length}, circled ${circ}, ` +
       `longest wait ${Math.max(...r.log.map((x) => x.wait)).toFixed(1)}s, stand windows >= ${minWin.toFixed(2)}s, wolves ${r.wolves}` +
       (r.zoneOverlap.length ? `, NO GAP before rooms ${r.zoneOverlap}` : '') + ` (${Math.round(performance.now() - t0)} ms)` + (r.fail ? `\n    FAIL: ${r.fail}` : ''));
     if (!r.won) bad++;

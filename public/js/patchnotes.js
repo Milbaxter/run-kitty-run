@@ -6,7 +6,7 @@ const PATCH_NOTES = [
     items: [
       'The game now has an ending: level 9 is the boss level, THE FINAL RUN (Run + Skate and Skate only)',
       'Run + Skate seasons: summer, fall, winter, three times over, and the third winter is the final run',
-      'One long straight sheet of ice packed with wolves: no safe squares, no checkpoints, and you can never stop, only carve circles while you wait for a gap',
+      'One long straight sheet of ice packed with wolves: no safe squares, no checkpoints, and you can never stop, only carve circles while you wait for a gap. Its wolves move like Skate only\'s: tight rows that never pause, broken up by wolves running faster or slower than the rest, rows from both walls, charger lanes at different speeds',
       'Halfway there is a single tree: climb under its branches to catch your breath, wolves can\'t reach you up there',
       'The camera flies down the whole run before you start (touch anything to skip)',
       'A progress bar replaces the minimap on the final run: start flag, the tree, the finish, every kitty as a dot in its colour and how many metres are left',

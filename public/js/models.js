@@ -786,7 +786,6 @@ const WOLF_TYPES = {
   charger: { base: 0x343a4c, light: 0xaab4cc, dark: 0x181b26, accent: 0xff2a55, scarf: 0xd0163f, track: 0xe0244c },
   crosser: { base: 0xc9d6e8, light: 0xf6f9ff, dark: 0x5f7499, accent: 0x18d6ff, scarf: 0x1886c8, track: 0x0f8fd0 },
   diagonal: { base: 0x54477e, light: 0xc4b6ec, dark: 0x251c44, accent: 0xb85cff, scarf: 0x7e34d8, track: 0x8f3ff0 },
-  looper: { base: 0x5a5148, light: 0xd8cbb8, dark: 0x2a241f, accent: 0xffb21a, scarf: 0xe8860a, track: 0xe08a00 },
 };
 
 function wolfGeos(type) {

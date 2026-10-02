@@ -242,8 +242,6 @@ function stepEnemy(e, dt) {
 //   route: [{ r, th }]  waypoints in leg-local coords
 //   loop:  true  -> A > B > C > A ...   false/absent -> ping-pong A > B > C > B > A ...
 //   speed: cruise speed (units/s);  phase: 0..1 offset into the cycle (same phase = same timing)
-//   hold:  (the final run, ping-pong routes) seconds it stands at each end before running back (the lap grows by
-//          2 holds; still a pure function of time: st.time is the whole state)
 //   rIn/rOut/a0/a1: bounding box of the route (kept for bounds checks / selftest)
 // Public extras on the enemy: e.route (the spec route), e.cycleT (cycle length, s), e.cycleU (0..1 now).
 // No tell: a pattern wolf turns round at the end of a run without warning.
@@ -258,7 +256,6 @@ function buildPlan(spec, f, speed) {
   if (spec.loop) order.push(0);
   else for (let i = pts.length - 2; i >= 0; i--) order.push(i);   // ping-pong back to the start
   const segs = [];
-  const hold = !spec.loop && spec.hold > 0 ? spec.hold : 0;
   let t = 0;
   for (let k = 0; k + 1 < order.length; k++) {
     const a = pts[order[k]], b = pts[order[k + 1]];
@@ -267,8 +264,6 @@ function buildPlan(spec, f, speed) {
     const dir = L > 1e-5 ? Math.atan2(f.uz * (b.th - a.th) + f.nz * (b.r - a.r), f.ux * (b.th - a.th) + f.nx * (b.r - a.r)) : null;
     segs.push({ r0: a.r, th0: a.th, r1: b.r, th1: b.th, L, T, dir, tStart: t });
     t += T;
-    // the final run: a wolf may stand at each end of its run for its own fixed time (spec.hold) before running back
-    if (hold > 0) { segs.push({ r0: b.r, th0: b.th, r1: b.r, th1: b.th, L: 0, T: hold, dir: null, tStart: t, hold: true }); t += hold; }
   }
   // segments with no movement inherit the previous direction
   let last = null;
@@ -281,8 +276,7 @@ function buildPlan(spec, f, speed) {
 // to reach cruise speed (maze.js fits each room wolf to its leg's beat this way and checks the resulting cycle).
 function patternSpeed(spec, cycle) {
   const plan = buildPlan(spec, UNIT_FRAME, 1), runs = plan.segs.filter((s) => s.L > 1e-5);
-  const held = plan.segs.reduce((a, s) => a + (s.hold ? s.T : 0), 0);
-  return runs.reduce((a, s) => a + s.L, 0) / (cycle - held - runs.length * EASE_T);
+  return runs.reduce((a, s) => a + s.L, 0) / (cycle - runs.length * EASE_T);
 }
 
 // Pure: pose of a pattern wolf at cycle time tc (0 <= tc < cycle).
@@ -291,7 +285,6 @@ function patternPose(plan, tc) {
   let i = segs.length - 1;
   for (let k = 0; k < segs.length; k++) { if (tc < segs[k].tStart + segs[k].T) { i = k; break; } }
   const s = segs[i];
-  if (s.hold) return { r: s.r0, th: s.th0, heading: s.dir, speed: 0, hold: true };
   const u = tc - s.tStart;
   const d = profileS(u, s.T, s.L, plan.speed);
   const q = s.L > 0 ? clamp(d / s.L, 0, 1) : 1;
@@ -302,7 +295,7 @@ function poseEnemy(e) {
   const plan = e._plan;
   const tc = clamp(e._st.time, 0, plan.cycle - 1e-9);
   const p = patternPose(plan, tc);
-  e.heading = p.heading; e.moving = !p.hold; e.speedNow = p.speed;
+  e.heading = p.heading; e.moving = true; e.speedNow = p.speed;
   e.cycleU = tc / plan.cycle;
   place(e, p.r, p.th);
 }

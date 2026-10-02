@@ -371,6 +371,7 @@ function startMsg(room, withWolves) {
     players: sim.players.map((p) => ({ id: p.id, name: p.name, color: p.color })),
     wolves: withWolves ? serializeEnemies(sim.enemies) : null,
     lh: levelHash(sim.levelData),   // level fingerprint: the client reports a mismatch (no fallback)
+    it: sim.items.filter((i) => i.taken).map((i) => i.id), ct: sim.crownTaken ? 1 : 0, // mid-game joiners: already picked up
   };
 }
 

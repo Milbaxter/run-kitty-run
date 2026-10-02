@@ -1013,6 +1013,11 @@ function syncVisuals(dt, alpha) {
   }
   view.wolfPack.end();
   // items
+  // drop pickups the server says are taken (a 'pickup' event from before we joined / reconnected never reached us)
+  for (const it of sim.items) {
+    const m = it.taken && view.items.get(it.id);
+    if (m) { disposeModel(m.group); view.items.delete(it.id); }
+  }
   for (const m of view.items.values()) m.update(dt, t);
   // revive circles
   const seen = _seenCircles; seen.clear();
@@ -1321,6 +1326,8 @@ function beginOnlineGame(m) {
   sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode });
   analytics.runStart('online', m.mode || 'mixed');
   sim.started = true;
+  if (m.it) { const taken = new Set(m.it); for (const it of sim.items) it.taken = taken.has(it.id); } // joined mid-level
+  sim.crownTaken = !!m.ct;
   gameOverShown = false;
   victory = null;
   intro = null;

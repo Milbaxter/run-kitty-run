@@ -82,17 +82,23 @@ const ui = createUI(document.getElementById('ui'));
 const PLAYLIST = ['music/soundtrack.mp3', 'music/soundtrack2.mp3'];
 let trackIdx = 0;
 const badTracks = new Set();
-const track = new Audio(PLAYLIST[0]);
+// No src until the first real play(): nothing (4+ MB) is fetched at load, or ever while muted.
+const track = new Audio();
 track.volume = 0.5;
-track.preload = 'auto';
+track.preload = 'none';
 let trackWanted = false, trackFailed = false, musicLevel = 1;
+let inBackground = false; // see setBackground()
+function playTrack() {
+  if (!track.getAttribute('src')) track.src = PLAYLIST[trackIdx];
+  track.play().catch(() => { /* needs a user gesture; retried on input */ });
+}
 function nextTrack() {
   for (let k = 1; k <= PLAYLIST.length; k++) {
     const i = (trackIdx + k) % PLAYLIST.length;
     if (badTracks.has(i)) continue;
     trackIdx = i;
-    track.src = PLAYLIST[i];
-    if (trackWanted && !audio.isMuted()) track.play().catch(() => {});
+    if (trackWanted && !audio.isMuted() && !inBackground) { track.src = PLAYLIST[i]; playTrack(); }
+    else track.removeAttribute('src'); // loaded lazily by the next playTrack()
     return;
   }
 }
@@ -107,7 +113,7 @@ function musicPlay(level) {
   musicLevel = level;
   trackWanted = true;
   if (trackFailed) { audio.startMusic(level); return; }
-  if (!audio.isMuted() && track.paused) track.play().catch(() => { /* needs a user gesture; retried on input */ });
+  if (!audio.isMuted() && !inBackground && track.paused) playTrack();
 }
 // after the victory fanfare the soundtrack comes back in softly (ramped in tick())
 function musicFadeIn(level) {
@@ -121,8 +127,8 @@ function musicStop() {
 }
 function syncTrack() {
   if (trackFailed) return;
-  if (audio.isMuted() || !trackWanted) track.pause();
-  else if (track.paused) track.play().catch(() => {});
+  if (audio.isMuted() || !trackWanted || inBackground) track.pause();
+  else if (track.paused) playTrack();
 }
 
 // Sound starts ON unless the player muted it before (remembered per browser).
@@ -1560,26 +1566,29 @@ document.addEventListener('click', (e) => {
   if (e.target.closest && e.target.closest('button, .rkr-mute, .rkr-hudbtn, .rkr-menubtn, .rkl-lob')) haptic('light');
 }, true);
 
-// Background / foreground. Web: just make sure the socket is alive again. Apps: also pause a local
-// run, silence music and wake the audio context back up afterwards.
-let inBackground = false;
+// Background / foreground (web tab hidden / page hidden, or app backgrounded): silence the
+// soundtrack and suspend the audio context; back in front wake both up again (respecting mute)
+// and make sure the socket is alive. Apps also pause a local run. visibilitychange, pagehide and
+// appStateChange can all fire for one transition; the inBackground guard makes that a no-op.
 function setBackground(bg) {
   if (bg === inBackground) return;
   inBackground = bg;
   if (bg) {
     keys.clear();
     touchId = null; joy.on = false; drawJoy();
-    if (!NATIVE) return;
-    if (mode === 'play' && !online.playing && !paused && sim.state === 'playing') togglePause();
     track.pause();
     audio.setBackground(true);
+    if (NATIVE && mode === 'play' && !online.playing && !paused && sim.state === 'playing') togglePause();
   } else {
-    if (NATIVE) { audio.setBackground(false); syncTrack(); }
+    audio.setBackground(false);
+    syncTrack();
     net.wake();
     if (online.playing && net.connected) net.send({ t: 'resync' });
   }
 }
 document.addEventListener('visibilitychange', () => setBackground(document.visibilityState === 'hidden'));
+window.addEventListener('pagehide', () => setBackground(true));
+window.addEventListener('pageshow', (e) => { if (e.persisted && document.visibilityState === 'visible') setBackground(false); });
 const App = plugin('App');
 if (App) {
   App.addListener('appStateChange', (st) => setBackground(!st.isActive));

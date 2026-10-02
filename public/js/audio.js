@@ -15,6 +15,7 @@ function createAudio() {
   let muted = false;
   let danger = 0;
   let pendingLevel = null;
+  let primed = false;          // silent buffer played while the context is running
   let current = null;          // active music instance
   const instances = [];        // all instances (incl. fading ones)
   let timer = null;
@@ -53,7 +54,8 @@ function createAudio() {
     noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-    ctx.onstatechange = () => { if (ready()) onRunning(); };
+    // Leaving 'running' (suspended, or iOS 'interrupted') means the next unlock() must prime again.
+    ctx.onstatechange = () => { if (ready()) onRunning(); else primed = false; };
     return true;
   }
 
@@ -724,18 +726,23 @@ function createAudio() {
   // ---------------------------------------------------------------- public: misc
   function unlock() {
     if (!ctx && !build()) return;
+    if (primed && ctx.state === 'running') return; // called on every key/pointer: nothing to do
     try {
       if (ctx.state !== 'running') {
         const pr = ctx.resume();
         if (pr && pr.then) pr.then(() => { if (ready()) onRunning(); }, () => {});
       }
-      // tiny silent buffer (iOS unlock)
-      const b = ctx.createBufferSource();
-      b.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
-      b.connect(ctx.destination); b.start(0);
-      b.onended = () => { try { b.disconnect(); } catch (e) { /* ignore */ } };
+      // tiny silent buffer (iOS unlock). Repeated until the context is actually running (it must
+      // land inside a user gesture), then skipped until the context leaves 'running' again.
+      if (!primed) {
+        const b = ctx.createBufferSource();
+        b.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+        b.connect(ctx.destination); b.start(0);
+        b.onended = () => { try { b.disconnect(); } catch (e) { /* ignore */ } };
+      }
     } catch (e) { /* ignore */ }
-    if (ready()) onRunning();
+    primed = ready();
+    if (primed) onRunning();
   }
 
   function setMuted(m) {

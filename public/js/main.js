@@ -110,13 +110,39 @@ track.addEventListener('error', () => {
   nextTrack();
 });
 
+// Beating the final run plays this song (instead of the synthesized fanfare); the soundtrack waits until it ends.
+const victorySong = new Audio('music/one-and-only.mp3');
+victorySong.volume = 0.8;
+victorySong.preload = 'auto';
+let victorySongOn = false; // wanted (playing, or paused only because sound is muted)
+function victorySongPlay() {
+  victorySongOn = true;
+  try { victorySong.currentTime = 0; } catch (e) { /* not loaded yet */ }
+  if (!audio.isMuted()) victorySong.play().catch(() => { /* retried on input via syncTrack */ });
+}
+function victorySongStop() {
+  if (!victorySongOn) return;
+  victorySongOn = false;
+  victorySong.pause();
+}
+victorySong.addEventListener('ended', () => {
+  victorySongOn = false;
+  if (victory && !victory.musicBack && victory.sim === sim) { victory.musicBack = true; musicFadeIn(sim.level); }
+});
+victorySong.addEventListener('error', () => {
+  if (!victorySongOn) return;
+  victorySongOn = false; // missing file: fall back to the old fanfare
+  if (victory && victory.t < 2) audio.play('victory');
+});
+
 function musicPlay(level) {
+  victorySongStop();
   musicLevel = level;
   trackWanted = true;
   if (trackFailed) { audio.startMusic(level); return; }
   if (!audio.isMuted() && !inBackground && track.paused) playTrack();
 }
-// after the victory fanfare the soundtrack comes back in softly (ramped in tick())
+// after the victory song the soundtrack comes back in softly (ramped in tick())
 function musicFadeIn(level) {
   track.volume = 0.04;
   musicPlay(level);
@@ -127,6 +153,8 @@ function musicStop() {
   audio.stopMusic();
 }
 function syncTrack() {
+  if (audio.isMuted() || !victorySongOn) victorySong.pause();
+  else if (victorySong.paused) victorySong.play().catch(() => {});
   if (trackFailed) return;
   if (audio.isMuted() || !trackWanted || inBackground) track.pause();
   else if (track.paused) playTrack();
@@ -674,7 +702,7 @@ function startVictory(ev) {
   if (online.menu) { online.menu = false; ui.hidePause(); } // the victory screen replaces the online menu
   analytics.runEnd({ ...runSummary(), won: true });
   musicStop();
-  audio.play('victory');
+  victorySongPlay(); // the user's victory song replaces the synthesized 'victory' fanfare
   effects.confetti(0, 0);
   effects.shake(0.6);
   effects.reviveBeam(0, 0, 0xffd34a);
@@ -691,7 +719,7 @@ function startVictory(ev) {
 function updateVictory(dt) {
   if (victory && (victory.sim !== sim || mode !== 'play' || sim.state !== 'victory')) victory = null;
   if (!victory && mode === 'play' && sim.state === 'victory') startVictory(null); // missed the event: still party
-  if (!victory) return;
+  if (!victory) { victorySongStop(); return; }
   const v = victory;
   if (!(dt > 0)) return;
   v.t += dt;
@@ -701,7 +729,7 @@ function updateVictory(dt) {
     v.nextFw += v.t < 10 ? 0.25 + Math.random() * 0.4 : 0.9 + Math.random() * 1.5; // a big show, then a calmer one
   }
   if (v.t < 7) effects.confettiRain(0, 0, 10, Math.max(1, Math.round(3 * QUALITY.particles)));
-  if (!v.musicBack && v.t > 4.8) { v.musicBack = true; musicFadeIn(sim.level); }
+  if (!v.musicBack && !victorySongOn && v.t > 4.8) { v.musicBack = true; musicFadeIn(sim.level); }
   if (view && view.fish) {
     if (!v.feastCue && v.t > 2.4) { v.feastCue = true; if (!view.fish.done()) { const h = view.fish.headPos(); effects.floatText(h.x * 0.75, 2.4, h.z * 0.75, 'FISH FEAST!', '#ffb27a'); } }
     if (v.shown) ui.updateVictoryFish(Math.floor(view.fish.eaten() * 100));

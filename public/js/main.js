@@ -29,6 +29,8 @@ import { NATIVE, haptic, plugin, call, storeUrl, openExternal, APP_VERSION } fro
 const params = new URLSearchParams(location.search);
 const DEBUG_LEVEL = Math.max(1, parseInt(params.get('level') || '1', 10) || 1);
 const DEBUG_MODE = ['mixed', 'run', 'ice'].includes(params.get('mode')) ? params.get('mode') : undefined; // offline testing: ?mode=ice
+// local testing only (localhost): ?wins=7 starts every offline kitty with that many wins and a crown (all run rewards)
+const DEBUG_WINS = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? Math.max(0, parseInt(params.get('wins') || '0', 10) || 0) : 0;
 
 // ---------- renderer / scene ----------
 const canvas = document.getElementById('game');
@@ -414,6 +416,7 @@ function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
 function startSim(players, startLevel) {
   sim = createSim({ seed: newSeed(), players, startLevel, mode: DEBUG_MODE });
+  if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   accumulator = 0;
   gameOverShown = false;
   victory = null;

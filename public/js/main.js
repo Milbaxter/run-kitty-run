@@ -196,6 +196,13 @@ window.addEventListener('keydown', (e) => {
     chat.open();
     return;
   }
+  // dev: offline, Enter opens the (otherwise hidden) chat box as a command line
+  if (e.key === 'Enter' && !online.room && !online.playing && mode === 'play' && !paused && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input')) {
+    e.preventDefault();
+    chat.setEnabled(true);
+    chat.open();
+    return;
+  }
   audio.unlock();
   if (e.code !== 'KeyM') syncTrack(); // browsers only start media after a user gesture
   if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
@@ -1144,11 +1151,22 @@ const lobbyUI = createLobbyUI(document.getElementById('ui'), {
   onBack: () => leaveOnline(),
 });
 
+// dev: playtest godmode, toggled by a chat command (never sent as a chat message)
+let devGod = false;
+function toggleDevGod() {
+  devGod = !devGod;
+  if (online.room) net.send({ t: 'god', on: devGod });
+  ui.toast(devGod ? 'godmode on' : 'godmode off', devGod ? '#ffcf5a' : '#b9a4ff');
+}
 const chat = createChat(document.getElementById('ui'), {
   touch: TOUCH,
-  onSend: (text) => net.send({ t: 'chat', text }),
+  onSend: (text) => {
+    if (text.toLowerCase() === '/catnip') { toggleDevGod(); return; }
+    if (online.room) net.send({ t: 'chat', text });
+  },
   onOpen: () => keys.clear(), // don't keep running while typing
   onReport: NATIVE ? (id, reason) => net.send({ t: 'report', id, reason }) : null, // Report only in the store apps
+  onClose: () => { if (!online.room) chat.setEnabled(false); }, // offline the box is only a command line
 });
 net.on('chat', (m) => {
   if (!chat.add(m)) return; // blocked player or chat hidden: no bubble either
@@ -1240,6 +1258,7 @@ net.on('room', (m) => {
   online.room = m;
   online.me = m.you;
   chat.setEnabled(true);
+  if (devGod) net.send({ t: 'god', on: true }); // dev: keep playtest godmode across rooms/reconnects
   for (const mem of m.members) online.roster.set(mem.id, mem);
   setRoomInUrl(m.code);
   if (!online.playing || mode !== 'play') lobbyUI.showRoom(m);
@@ -1553,6 +1572,7 @@ function tick(dt) {
         });
         if (window.__bot) Object.assign(inputs, window.__bot(sim));
       }
+      for (const p of sim.players) p.god = devGod && mode === 'play'; // dev: playtest godmode (local players)
       const events = stepSim(sim, inputs, CFG.TICK);
       if (mode === 'play') handleEvents(events);
       else if (events.some((e) => e.type === 'levelStart')) { pregenNext(sim); buildView(); }

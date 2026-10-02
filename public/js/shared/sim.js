@@ -442,7 +442,7 @@ function stepSim(sim, inputs, dt) {
   for (let i = 0; i < players.length; i++) {
     const p = players[i];
     if (sim.state !== 'playing') break; // no deaths during the level-clear celebration
-    if (!p.alive || p.inCenter || p.invuln > 0 || p.shield > 0) continue;
+    if (!p.alive || p.inCenter || p.invuln > 0 || p.shield > 0 || p.god) continue; // p.god: dev playtest godmode
     if (inTree(ld, p.x, p.z)) continue; // up a tree: safe
     for (let e = 0; e < enemies.length; e++) {
       const en = enemies[e];

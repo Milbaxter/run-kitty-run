@@ -402,6 +402,7 @@ function stepRoom(room) {
     if (inp) m.lastInput = inp;
     inputs[m.id] = m.lastInput;
     for (const key of m.inputs.keys()) if (key <= k) m.inputs.delete(key);
+    if (m.god !== undefined) { const p = sim.players.find((q) => q.id === m.id); if (p) p.god = m.god; } // dev: playtest godmode
   }
   const events = stepSim(sim, inputs, CFG.TICK);
   room.tick = k;
@@ -619,6 +620,10 @@ wss.on('connection', (ws, req) => {
         broadcast(room, { t: 'chat', id: client.id, name: client.name, color: client.color, text: raw }); // unfiltered (the apps mask on their side)
         break;
       }
+      case 'god':
+        // dev: playtest godmode for the sender's kitty (applied every tick in stepRoom)
+        client.god = !!msg.on;
+        break;
       case 'ping':
         send(ws, { t: 'pong', c: msg.c, k: room && room.phase === 'playing' ? room.tick : 0 });
         break;

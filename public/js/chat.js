@@ -55,7 +55,7 @@ function save(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } ca
 function hex(c) { return '#' + ((c >>> 0) & 0xffffff).toString(16).padStart(6, '0'); }
 
 // onReport(id, reason) is optional; without it the Report option is hidden.
-function createChat(root, { onSend, onOpen, onReport, touch = false }) {
+function createChat(root, { onSend, onOpen, onReport, onClose, touch = false }) {
   const st = document.createElement('style');
   st.textContent = CSS;
   document.head.appendChild(st);
@@ -213,7 +213,7 @@ function createChat(root, { onSend, onOpen, onReport, touch = false }) {
     }
   });
   input.addEventListener('keyup', (e) => e.stopPropagation());
-  input.addEventListener('blur', () => box.classList.remove('rkc-open'));
+  input.addEventListener('blur', () => { box.classList.remove('rkc-open'); if (onClose) onClose(); });
 
   // Returns whether the message is shown (false when blocked / chat hidden) so callers can skip speech bubbles too.
   function add(msg) {

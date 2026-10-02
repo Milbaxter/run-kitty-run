@@ -378,7 +378,7 @@ function buildView() {
   for (const it of sim.items) {
     if (it.taken) continue;
     const m = createItemModel(it.type);
-    m.group.position.set(it.x, 0, it.z);
+    m.group.position.set(it.x, inTree(ld, it.x, it.z) ? 2.2 : 0, it.z); // tree boots sit on the canopy
     scene.add(m.group);
     items.set(it.id, m);
   }

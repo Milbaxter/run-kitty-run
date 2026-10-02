@@ -115,6 +115,8 @@ ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG
   s.levelData.trees.pop();
   ev = onWolf();
   ok(ev.some((e) => e.type === 'death'), 'the same spot without a tree is deadly');
+  const tb = s.levelData.items.filter((it) => it.tree);
+  ok(tb.length === s.levelData.trees.length && tb.every((it, i) => it.type === 'boots' && it.x === s.levelData.trees[i].x), `a pair of boots on top of every tree (${tb.length})`);
   void t;
 }
 // the crown is a pickup over the goal's center: reaching the goal's edge clears the level but doesn't grab it

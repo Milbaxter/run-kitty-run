@@ -302,6 +302,7 @@ function generateLevel(level, seed, mode = 'mixed') {
   lvl.trees = lvl.theme === TREE_THEME && !lvl.ice ? placeTrees(createRng(hashSeed(seed, L, 'trees')), legs) : [];
   lvl.enemies = placeEnemies(rng, lvl, p);
   lvl.items = placeItems(rng, lvl, p);
+  for (const t of lvl.trees) lvl.items.push({ id: lvl.items.length, type: 'boots', x: t.x, z: t.z, tree: true }); // a pair of boots up every tree
   return lvl;
 }
 

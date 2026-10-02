@@ -8,7 +8,7 @@ Everything needed to build, test and ship the store apps. Work top to bottom; se
 - The apps play on the **same server** as the website (`https://80-47-225-25.nip.io`), so web, iOS and Android players share lobbies (cross-play). Solo / local co-op work offline.
 - **Protocol gate:** on connect the client sends `{t:'hi', v:PROTOCOL_VERSION}`; the server rejects `v < MIN_PROTOCOL` with an "update the app" screen. Web players always get the newest code, app players don't — an app update takes days (review + users updating), so the server must stay backward compatible (see §9).
 - **Deep links:** invite links on either host (`https://80-47-225-25.nip.io/?room=ABCD` or `https://runkittyrun.80-47-225-25.nip.io/?room=ABCD`) open the app if installed (iOS Universal Links via `/.well-known/apple-app-site-association`, Android App Links via `/.well-known/assetlinks.json`), plus the `runkittyrun://join?room=ABCD` scheme.
-- **Moderation** (required by both stores for chat): server-side name/chat filter, Report and Block in the chat player menu (`public/js/chat.js`), terms acceptance before first online game (`public/js/terms.js`), reports in `/var/lib/run-kitty-run/reports.jsonl`.
+- **Moderation** (required by both stores for chat; apps only, the web is unfiltered): name/chat filter applied in the app when messages arrive (`public/js/shared/filter.js` via `net.js`), Report and Mute in the chat player menu (`public/js/chat.js`), terms acceptance before first online game (`public/js/terms.js`), reports in `/var/lib/run-kitty-run/reports.jsonl`.
 - Native bits: haptics, native share sheet, keep-awake, status bar/splash (`public/js/platform.js`).
 
 ## 2. Local development

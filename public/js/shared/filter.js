@@ -1,7 +1,9 @@
-// Chat / player-name filter (App Store 1.2, Play UGC policy). Small built-in list, tolerant of
+// Chat / player-name filter, used only inside the iOS/Android apps (App Store 1.2, Play UGC policy): net.js masks
+// what app players see. The server and the web relay chat and names exactly as typed.
+// Small built-in list, tolerant of
 // leetspeak, accents, stretched letters ("fuuuck") and spaced-out letters ("f u c k"), but
 // word-boundary aware so "class", "Scunthorpe", "therapist" or "cocktail" stay untouched.
-import { PLAYER_NAMES } from '../public/js/shared/config.js';
+import { PLAYER_NAMES } from './config.js';
 
 const MASK = '♥♥♥';
 
@@ -91,11 +93,14 @@ function isOffensive(text) {
   return PHRASES.some((re) => re.test(flat));
 }
 
-// Names are stricter: also check the letters glued together ("Mr.Sh_it"). Offensive -> random safe name.
+// Names are stricter: also check the letters glued together ("Mr.Sh_it"). Offensive -> a safe name picked from the
+// name itself, so the same player shows up under the same name in every message.
 function filterName(name) {
   const glued = String(name).replace(/[\s._\-~'"`,:;]+/g, '');
   if (isOffensive(name) || (glued.length >= 3 && badWord(glued))) {
-    return { name: PLAYER_NAMES[Math.floor(Math.random() * PLAYER_NAMES.length)], changed: true };
+    let h = 0;
+    for (const ch of String(name)) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    return { name: PLAYER_NAMES[h % PLAYER_NAMES.length], changed: true };
   }
   return { name, changed: false };
 }

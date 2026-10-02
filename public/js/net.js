@@ -1,9 +1,25 @@
 // Thin WebSocket client for online lobbies. Reconnects on drop; messages are JSON objects with a `t` type.
 import * as CONF from './shared/config.js';
-import { wsUrl, PLATFORM, APP_VERSION } from './platform.js';
+import { wsUrl, PLATFORM, APP_VERSION, NATIVE } from './platform.js';
+import { filterChat, filterName } from './shared/filter.js';
 
 // Sent in the 'hi' handshake; the server gates modes on it (MODE_MIN_PROTOCOL in server/index.js).
 const PROTOCOL_VERSION = CONF.PROTOCOL_VERSION;
+
+// The store apps mask swear words in chat and player names (App Store 1.2 / Play UGC policy); the web shows
+// everything as sent. Only messages that carry names or chat text are walked (snapshots don't).
+const UGC = /"(?:name|host|text)"/;
+function cleanForApp(msg) {
+  if (msg.t === 'chat' && typeof msg.text === 'string') msg.text = filterChat(msg.text);
+  (function walk(o) {
+    if (!o || typeof o !== 'object') return;
+    if (Array.isArray(o)) { o.forEach(walk); return; }
+    for (const k in o) {
+      if ((k === 'name' || k === 'host') && typeof o[k] === 'string') o[k] = filterName(o[k]).name;
+      else walk(o[k]);
+    }
+  })(msg);
+}
 
 // Per-tab token sent in 'hi': after a dropped connection the server recognises the kitty that comes back
 // (it keeps its lives, and stays down if it was down). sessionStorage: survives a reload, not shared between tabs.
@@ -56,6 +72,7 @@ function createNet() {
       ws.onmessage = (e) => {
         let msg;
         try { msg = JSON.parse(e.data); } catch { return; }
+        if (NATIVE && UGC.test(e.data)) cleanForApp(msg);
         lastMsgAt = performance.now();
         if (msg.t === 'outdated') { net.outdated = true; wantOpen = false; clearTimeout(retryT); }
         if (msg.t === 'hello') net.id = msg.id;

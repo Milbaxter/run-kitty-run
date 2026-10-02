@@ -6,7 +6,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { CFG, NET, PLAYER_COLORS, PLAYER_NAMES, SKATE_FINAL_LEVEL } from '../public/js/shared/config.js';
-import { filterChat, filterName } from './filter.js';
 import { hashSeed } from '../public/js/shared/rng.js';
 import { GAME_MODES, createSim, stepSim, addPlayer, removePlayer } from '../public/js/shared/sim.js';
 import { serializeEnemies } from '../public/js/shared/enemies.js';
@@ -56,12 +55,10 @@ const stats = createStats(process.env.STATS_FILE || path.join(path.dirname(FEEDB
 // web, so only raise this when old clients would really break; they get an 'outdated' notice instead of a broken game.
 // (Per-mode floors are MODE_MIN_PROTOCOL above.)
 const MIN_PROTOCOL = 4;   // 4: slim wolf resync format (every mode resyncs wolves; older clients would break)
-// Player reports (moderation) are appended here as JSON lines, next to the feedback file by default.
+// Player reports (only the store apps have a Report button) are appended here as JSON lines, next to the feedback file by default.
 const REPORTS_FILE = process.env.REPORTS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'reports.jsonl');
 const REPORTS_PER_HOUR = 10;        // per connection
 const REPORT_REASONS = ['spam', 'abuse', 'name', 'other'];
-const MUTE_REPORTS = 3;             // distinct reporters in one room ...
-const MUTE_MS = 10 * 60e3;          // ... mute that player's chat there for this long
 const CHAT_HISTORY = 10;            // recent lines kept per player, attached to reports
 // App deep links (Universal Links / Android App Links); set on the server, see deploy/run-kitty-run.service.
 const APPLE_TEAM_ID = process.env.APPLE_TEAM_ID || 'TEAMID_PLACEHOLDER';
@@ -289,8 +286,7 @@ function joinRoom(client, room, name) {
   const slot = freeColorSlot(room);
   client.room = room;
   client.slot = slot;
-  const f = filterName(cleanName(name, PLAYER_NAMES[slot]));
-  client.name = f.name;
+  client.name = cleanName(name, PLAYER_NAMES[slot]);
   client.color = PLAYER_COLORS[slot];
   client.inputs = new Map();
   client.lastInput = null; // nothing received yet
@@ -299,7 +295,6 @@ function joinRoom(client, room, name) {
   if (!room.hostId) room.hostId = client.id;
   sendRoom(room);
   broadcast(room, { t: 'chat', sys: true, text: `${client.name} joined` });
-  if (f.changed) send(client.ws, { t: 'chat', sys: true, text: `That name isn't allowed here, so you're ${client.name} for now.` });
   if (room.phase === 'playing') {
     // Join mid-game: spawn now; send full state (including wolves) so the newcomer is in sync.
     const p = addPlayer(room.sim, { id: client.id, name: client.name, color: client.color });
@@ -566,7 +561,6 @@ wss.on('connection', (ws, req) => {
         const mode = GAME_MODES.includes(msg.mode) ? msg.mode : 'mixed';
         if (!modeOk(client, mode)) return send(ws, { t: 'error', msg: `${MODE_NAMES[mode]} needs the latest version - ${updateHow(client)} to play it. The other modes work as usual.` });
         const r = { code: makeCode(), mode, members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0, victory: null,
-          reports: new Map(), mutes: new Map(), // reported id -> Set(reporter ips); muted id -> until
           left: new Map() }; // tab token -> state of a kitty that left this game (reconnect grace)
         stats.lobbyCreated();
         rooms.set(r.code, r);
@@ -622,10 +616,7 @@ wss.on('connection', (ws, req) => {
         if (!raw) return;
         client.chatLog.push({ at: new Date(now).toISOString(), room: room.code, text: raw });
         if (client.chatLog.length > CHAT_HISTORY) client.chatLog.shift();
-        const until = room.mutes.get(client.id) || 0;
-        if (until > now) return send(ws, { t: 'chat', sys: true, text: `You're muted for ${Math.ceil((until - now) / 60e3)} more min after reports from other players.` });
-        const text = filterChat(raw);
-        broadcast(room, { t: 'chat', id: client.id, name: client.name, color: client.color, text });
+        broadcast(room, { t: 'chat', id: client.id, name: client.name, color: client.color, text: raw }); // unfiltered (the apps mask on their side)
         break;
       }
       case 'ping':
@@ -669,18 +660,6 @@ function handleReport(client, msg) {
   };
   fs.appendFile(REPORTS_FILE, JSON.stringify(entry) + '\n', (err) => { if (err) console.error('report write failed:', err.message); });
   reply('Thanks — report sent.');
-  // Auto-mute: enough different people in the same room reported this player.
-  if (room && target.room === room) {
-    const set = room.reports.get(target.id) || new Set();
-    set.add(client.ip);
-    room.reports.set(target.id, set);
-    if (set.size >= MUTE_REPORTS && !((room.mutes.get(target.id) || 0) > now)) {
-      room.mutes.set(target.id, now + MUTE_MS);
-      room.reports.delete(target.id);
-      send(target.ws, { t: 'chat', sys: true, text: 'Other players reported you, so your chat is muted in this lobby for 10 minutes. Please be kind!' });
-      console.log(`auto-muted ${target.name} (#${target.id}) in ${room.code}`);
-    }
-  }
 }
 
 // Cross-play usage at a glance in the service log.

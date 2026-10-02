@@ -1,7 +1,7 @@
 // Manual server test (NOT in CI): starts its own server on a free port (test hooks on, temp state files) and runs
 //   1. online Skate only finale: version gating, start on the final run, victory event/snapshots, late joiner,
 //      back to the lobby, the win in /api/stats, a fresh game afterwards
-//   2. moderation / cross-play: hi/outdated gate, app badges, chat filter, reports, auto-mute, CORS, deep-link files
+//   2. moderation / cross-play: hi/outdated gate, app badges, unfiltered chat, reports (apps), CORS, deep-link files
 //   3. lobby/server smoke: lobby limits, chat, host start/migration, inputs, snapshots, mode gating for old clients
 // Usage: node scripts/server-test.mjs   (PORT=... to pick a port; default: a free one). Never point it at the live server.
 import { spawn } from 'node:child_process';
@@ -170,15 +170,12 @@ async function moderation() {
   ok(apps[idOf(host)] === 'ios' && apps[idOf(droid)] === 'android' && apps[idOf(legacy)] === 'web' && apps[idOf(weird)] === 'web',
     'member app field: ' + JSON.stringify(Object.values(apps)));
   const weirdName = host.last.room.members.find((m) => m.id === idOf(weird)).name;
-  ok(PLAYER_NAMES.includes(weirdName), `offensive name replaced with ${weirdName}`);
-  ok(weird.sys().some((t) => /name isn't allowed/.test(t)), 'renamed player is told why');
+  ok(weirdName === 'xXfuckerXx', `names relayed as typed (${weirdName})`);
 
-  // chat filtering
+  // chat is relayed unfiltered (only the store apps mask words, client side)
   droid.send({ t: 'chat', text: 'what the fuck, join www.spam.com' }); await sleep(200);
   const got = host.chats().at(-1);
-  ok(got && got.text === 'what the ♥♥♥, join [link]', 'chat filtered: ' + (got && got.text));
-  droid.send({ t: 'chat', text: 'gg nice class' }); await sleep(200);
-  ok(host.chats().at(-1).text === 'gg nice class', 'clean chat unchanged');
+  ok(got && got.text === 'what the fuck, join www.spam.com', 'chat unfiltered: ' + (got && got.text));
 
   // reports
   const sysCount = host.sys().length;
@@ -202,19 +199,11 @@ async function moderation() {
   ok(all.filter((r) => r.reporter.name === 'Spammer').length === 10, 'reports rate limited to 10/hour');
   ok(all.filter((r) => r.reporter.name === 'Spammer').every((r) => r.reason === 'other'), 'unknown reason stored as "other"');
 
-  // auto-mute: 3 distinct reporters in the room (the same person twice doesn't count)
-  const before = host.chats().length;
-  legacy.send({ t: 'report', id: idOf(droid), reason: 'abuse' });
-  legacy.send({ t: 'report', id: idOf(droid), reason: 'abuse' }); await sleep(200);
+  // no auto-mute: reports never silence anyone
+  for (const b of [legacy, weird, spammer]) b.send({ t: 'report', id: idOf(droid), reason: 'abuse' });
+  await sleep(200);
   droid.send({ t: 'chat', text: 'still here' }); await sleep(200);
-  ok(host.chats().length === before + 1, 'not muted after 2 distinct reporters');
-  weird.send({ t: 'report', id: idOf(droid), reason: 'spam' }); await sleep(200);
-  ok(droid.sys().some((t) => /muted/.test(t)), 'muted player is told');
-  droid.send({ t: 'chat', text: 'can you hear me' }); await sleep(200);
-  ok(host.chats().length === before + 1 && !legacy.chats().some((m) => m.text === 'can you hear me'), 'muted player chat not relayed');
-  ok(droid.sys().some((t) => /muted for 10 more min/.test(t)), 'muted player gets remaining time');
-  legacy.send({ t: 'chat', text: 'others still chat' }); await sleep(200);
-  ok(host.chats().at(-1).text === 'others still chat', 'others unaffected');
+  ok(host.chats().at(-1).text === 'still here' && !droid.sys().some((t) => /muted/.test(t)), 'reports never mute');
 
   // HTTP: CORS + deep-link files + pages
   {

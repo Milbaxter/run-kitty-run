@@ -3,7 +3,7 @@
 import { createSim, stepSim } from '../public/js/shared/sim.js';
 import { CFG, SKATE_FINAL_LEVEL, FINAL_MODES, PLAYER_NAMES } from '../public/js/shared/config.js';
 import { generateLevel, mazeSelfTest } from '../public/js/shared/maze.js';
-import { filterChat, filterName } from '../server/filter.js';
+import { filterChat, filterName } from '../public/js/shared/filter.js';
 const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process.exitCode = 1; };
 
 // ======== rules: first kitty home clears the level, everyone respawns; wolves ramp toward the goal; pickups, crown, trees
@@ -191,7 +191,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   }
 }
 
-// ======== chat + name filter (server/filter.js)
+// ======== chat + name filter (public/js/shared/filter.js, store apps only)
 {
   const masked = ['fuck you', 'F U C K', 'f.u.c.k', 'sh1t', '$h!t', 'a$$', 'fuuuuck', 'b!tch', 'you ass!', 'fück', 'n1gger',
     'sh*t', 'bullshit', 'kys', 'kill yourself', 'stupid c u n t', 'sexy'];

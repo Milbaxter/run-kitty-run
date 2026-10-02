@@ -1,5 +1,5 @@
 // Lobby/game chat box (bottom-left). Enter opens it, Enter sends, Esc closes.
-// Tap a player's name for Block / Report (moderation); "Hide chat" turns player messages off.
+// Tap a player's name to Mute them (and Report, in the store apps); "Hide chat" turns player messages off.
 // All message text is inserted with textContent.
 
 const CSS = `
@@ -76,12 +76,17 @@ function createChat(root, { onSend, onOpen, onReport, touch = false }) {
   tog.className = 'rkc-tog';
   const bar = document.createElement('div');
   bar.className = 'rkc-bar';
-  bar.append(tog, hint);
+  // muted players stay listed here, so they can be unmuted after their messages are gone
+  const mutedBtn = document.createElement('button');
+  mutedBtn.className = 'rkc-tog';
+  mutedBtn.title = 'Players you muted';
+  bar.append(tog, mutedBtn, hint);
   box.append(log, input, bar);
 
   // moderation state: blocked names persist, blocked ids are for this session
   const blockedNames = new Set(load(BLOCK_KEY, []).filter((n) => typeof n === 'string'));
   const blockedIds = new Set();
+  const idNames = new Map(); // muted id -> name at the time, so unmuting by name from the list clears it too
   let off = !!load(HIDE_KEY, false);
   function applyOff() {
     box.classList.toggle('rkc-off', off);
@@ -92,18 +97,28 @@ function createChat(root, { onSend, onOpen, onReport, touch = false }) {
   tog.addEventListener('click', (e) => { e.stopPropagation(); off = !off; save(HIDE_KEY, off); closePop(); applyOff(); });
   const isBlocked = (m) => blockedIds.has(m.id) || blockedNames.has(m.name);
   function setBlocked(m, on) {
-    if (on) { blockedIds.add(m.id); blockedNames.add(m.name); } else { blockedIds.delete(m.id); blockedNames.delete(m.name); }
+    if (on) { blockedIds.add(m.id); blockedNames.add(m.name); idNames.set(m.id, m.name); } else {
+      blockedNames.delete(m.name);
+      for (const [id, n] of idNames) if (id === m.id || n === m.name) { blockedIds.delete(id); idNames.delete(id); }
+    }
     save(BLOCK_KEY, [...blockedNames].slice(-200));
+    applyMuted();
     for (const line of log.children) if (line._msg && (line._msg.id === m.id || line._msg.name === m.name)) line.style.display = on ? 'none' : '';
   }
 
+  function applyMuted() {
+    mutedBtn.style.display = blockedNames.size ? '' : 'none';
+    mutedBtn.textContent = `🔇 Muted (${blockedNames.size})`;
+  }
+  applyMuted();
+
   let pop = null;
   function closePop() { if (pop) pop.remove(); pop = null; }
-  function openPop(m) {
+  function newPop() {
     closePop();
     pop = document.createElement('div');
     pop.className = 'rkc-pop';
-    const btn = (text, fn, cls) => {
+    return (text, fn, cls) => {
       const b = document.createElement('button');
       b.textContent = text;
       if (cls) b.className = cls;
@@ -111,13 +126,28 @@ function createChat(root, { onSend, onOpen, onReport, touch = false }) {
       pop.appendChild(b);
       return b;
     };
+  }
+  function openMuted() {
+    const btn = newPop();
+    const l = document.createElement('div');
+    l.className = 'rkc-pl';
+    l.textContent = 'Muted players';
+    pop.appendChild(l);
+    for (const name of blockedNames) btn(`Unmute ${name}`, () => { setBlocked({ name, id: -1 }, false); if (blockedNames.size) openMuted(); else closePop(); });
+    btn('Close', closePop);
+    box.appendChild(pop);
+    fitPop();
+  }
+  mutedBtn.addEventListener('click', (e) => { e.stopPropagation(); openMuted(); });
+  function openPop(m) {
+    const btn = newPop();
     const head = document.createElement('div');
     head.className = 'rkc-pn';
     head.textContent = m.name;
     head.style.color = hex(m.color);
     pop.appendChild(head);
     const blocked = isBlocked(m);
-    btn(blocked ? 'Unblock' : 'Block (hide their messages)', () => { setBlocked(m, !blocked); closePop(); });
+    btn(blocked ? 'Unmute' : 'Mute (hide their messages)', () => { setBlocked(m, !blocked); closePop(); });
     if (onReport) {
       btn('Report…', () => {
         pop.replaceChildren(head);

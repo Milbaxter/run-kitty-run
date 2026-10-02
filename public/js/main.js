@@ -1146,7 +1146,7 @@ const chat = createChat(document.getElementById('ui'), {
   touch: TOUCH,
   onSend: (text) => net.send({ t: 'chat', text }),
   onOpen: () => keys.clear(), // don't keep running while typing
-  onReport: (id, reason) => net.send({ t: 'report', id, reason }),
+  onReport: NATIVE ? (id, reason) => net.send({ t: 'report', id, reason }) : null, // Report only in the store apps
 });
 net.on('chat', (m) => {
   if (!chat.add(m)) return; // blocked player or chat hidden: no bubble either
@@ -1185,8 +1185,9 @@ function savedName() {
   try { return localStorage.getItem('rkr-name') || ''; } catch { return ''; }
 }
 
-// First time online: Terms / zero-tolerance notice (terms.js). Missing module = nothing to accept.
+// First time online in the store apps: Terms / zero-tolerance notice (terms.js; App Store 1.2). The web has no gate.
 function termsAccepted() {
+  if (!NATIVE) return Promise.resolve(true);
   return import('./terms.js').then((m) => (m.ensureTermsAccepted ? m.ensureTermsAccepted() : true), () => true);
 }
 

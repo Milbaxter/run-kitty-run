@@ -165,20 +165,17 @@ jobs:
           sleep 40; shot_until_painted 01-title 300 # a screenshot can take minutes while the game renders
           [ $SECONDS -lt 200 ] && drive "title state" "$STATE"
 
-          # 2) Cold start from the deep link runkittyrun://join?room=TEST (app killed first so the simulator is idle).
-          #    iOS first asks "Open in Run Kitty Run?" on the home screen (a system alert simctl can't answer):
-          #    press Open with a raw AXe touch, then expect the terms notice / online lobby instead of the title.
-          to 30 xcrun simctl terminate "$UDID" "$BID"; sleep 3
+          # 2) Deep link runkittyrun://join?room=TEST with the app killed first (the rendering game would slow
+          #    everything down). iOS asks "Open in Run Kitty Run?" on the home screen: that alert proves the scheme
+          #    is registered to the app. Simulator tooling (simctl/AXe) cannot press buttons on system alerts, so the
+          #    in-app join handling (App.getLaunchUrl / appUrlOpen -> lobby) can't be exercised here.
+          freeze CONT; pkill -9 -f "Devices/$UDID/data/Containers/Bundle/Application/.*/App.app/App"; pkill -9 -f 'com.apple.WebKit.(GPU|WebContent)'
+          sleep 3
           log "openurl"
-          (to 240 xcrun simctl openurl "$UDID" "runkittyrun://join?room=TEST" &)
-          sleep 8; shot 02-link-sheet
-          # AXe/simctl can't press system alerts, so a raw touch is best effort; the alert itself proves iOS routes
-          # runkittyrun:// to the app.
-          to 30 axe touch -x 277 -y 467 --down --up --udid "$UDID" 2>&1 | tail -1 | tee -a "$OUT/timeline.txt"
-          sleep 20; shot_until_painted 03-deeplink $(( SECONDS + 90 ))
-
+          (to 120 xcrun simctl openurl "$UDID" "runkittyrun://join?room=TEST" &)
+          sleep 8; shot 02-deeplink-alert
           log "device log"
-          to 45 xcrun simctl spawn "$UDID" log show --start "$START" --style compact --predicate 'process == "App" AND (messageType == error OR messageType == fault)' > "$OUT/device-log-errors.txt" 2>&1
+          to 30 xcrun simctl spawn "$UDID" log show --start "$START" --style compact --predicate 'process == "App" AND (messageType == error OR messageType == fault)' > "$OUT/device-log-errors.txt" 2>&1
           [ -n "$IWDP" ] && kill $IWDP
           kill $NICE
           # Stop the software-rendered game before the artifact upload, or the runner crawls for minutes.

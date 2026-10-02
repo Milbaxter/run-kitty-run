@@ -92,4 +92,9 @@ const NET = {
   INPUT_LEAD: 3,       // ticks of safety margin client inputs should arrive ahead of the server
 };
 
-export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET };
+// Skate only: the last level. Instead of the spiral it is one long straight run (as long as the whole spiral)
+// packed with every kind of pattern wolf, no safe squares and no checkpoints, one climbable tree halfway.
+// Clearing it wins the game (sim state 'victory').
+const SKATE_FINAL_LEVEL = 8;
+
+export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL };

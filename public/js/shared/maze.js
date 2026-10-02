@@ -1,4 +1,4 @@
-import { CFG, levelParams } from './config.js';
+import { CFG, levelParams, SKATE_FINAL_LEVEL } from './config.js';
 import { createRng, hashSeed } from './rng.js';
 import { buildPlan, patternPose, patternSpeed, createEnemies, updateEnemies } from './enemies.js';
 
@@ -109,6 +109,16 @@ function buildSpiral() {
   return { walls, legs, corners, wallCorners: v.slice(4), outer: ext };
 }
 
+function buildStraightPath(corners) {
+  const pts = [];
+  const end = corners[corners.length - 1].x;
+  for (let x = corners[0].x; x < end; x += 2) pts.push({ x, z: 0 });
+  pts.push({ x: end, z: 0 });
+  for (let x = end + 2; x < 0; x += 2) pts.push({ x, z: 0 });
+  pts.push({ x: 0, z: 0 });
+  return pts;
+}
+
 function buildPath(corners, legs) {
   const W = CFG.RING_WIDTH;
   const pts = [];
@@ -128,6 +138,77 @@ function buildPath(corners, legs) {
   pushTo(last.x + nx * W, last.z + nz * W);
   pushTo(0, 0);
   return pts;
+}
+
+// ---------------------------------------------------------------- the final run (Skate only, last level)
+//
+// One long straight corridor from the start pocket (far left) to the goal room (right; the room keeps its
+// usual place around the origin, so everything that knows where the goal is still does). The path is exactly as
+// long as the spiral's. There are no safe squares besides the start pocket: the corridor is cut into invisible
+// "rooms" (collinear legs, each solved by the pattern-wolf generator like a spiral leg), and between two rooms is
+// only a short wolf-free gap of ice (FINALE_GAP) where a good skater can carve a tight circle to wait for the
+// next opening. Halfway along, one gap is wider and holds a climbable tree: under its canopy is snow, not ice
+// (onIce), and wolves can't reach you (inTree), the only real breather of the run.
+//
+// Legs follow the spiral's conventions: leg i runs from corner i (s = len, where the kitty enters) to corner
+// i + 1 (s = 0); u points back toward the start (run direction is -u). leg.padHi / leg.padLo = wolf-free
+// half-gap at the entry / exit end (usableRanges).
+
+const FINALE_GAP = 6.5;          // wolf-free ice between two rooms (wolf bodies), enough for a tight skating circle
+const FINALE_TREE_GAP = 13;      // ...around the halfway tree
+const FINALE_ROOM = [34, 52];    // room lengths
+const FINALE_HEAT = 0.8;         // pattern difficulty at the start of the run...
+const FINALE_RAMP = 0.7;         // ...rising by this much toward the goal
+
+let spiralPathLen = 0;
+function spiralLength() {
+  if (!spiralPathLen) {
+    const { legs, corners } = buildSpiral();
+    const pts = buildPath(corners, legs);
+    for (let k = 1; k < pts.length; k++) spiralPathLen += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z);
+  }
+  return spiralPathLen;
+}
+
+function buildStraight(rng) {
+  const W = CFG.RING_WIDTH, h = W / 2;
+  const total = Math.round(spiralLength());
+  const xs = -total;                 // start square center: the path start -> goal center is `total` long
+  const xd = -ROOM - h;              // the last corner: the ice square in front of the goal room's door
+  const xTree = Math.round(xs + total / 2);
+  // room boundaries: two runs of rooms, start -> tree and tree -> door, each split into near-equal random rooms
+  const split = (a, b) => {
+    const n = Math.max(1, Math.round((b - a) / ((FINALE_ROOM[0] + FINALE_ROOM[1]) / 2)));
+    const w = [];
+    for (let i = 0; i < n; i++) w.push(rng.range(FINALE_ROOM[0], FINALE_ROOM[1]));
+    const sum = w.reduce((x, y) => x + y, 0);
+    const out = [];
+    let x = a;
+    for (let i = 0; i < n - 1; i++) { x += (b - a) * w[i] / sum; out.push(Math.round(x * 10) / 10); }
+    return out;
+  };
+  const xsCorners = [xs, ...split(xs, xTree), xTree, ...split(xTree, xd), xd];
+  const corners = xsCorners.map((x) => ({ x, z: 0 }));
+  const gapAt = (i) => (corners[i].x === xTree ? FINALE_TREE_GAP : FINALE_GAP);
+  const legs = [];
+  for (let i = 0; i < corners.length - 1; i++) {
+    legs.push({
+      arm: i, ox: corners[i + 1].x, oz: 0, ux: -1, uz: 0, nx: 0, nz: 1, len: corners[i + 1].x - corners[i].x, loop: 0,
+      padHi: gapAt(i) / 2, padLo: gapAt(i + 1) / 2,
+    });
+  }
+  const x0 = xs - h;
+  const walls = [
+    { ax: x0, az: -h, bx: -ROOM, bz: -h },          // far wall of the corridor
+    { ax: -ROOM, az: h, bx: x0, bz: h },            // near wall
+    { ax: x0, az: h, bx: x0, bz: -h },              // back wall of the start pocket
+    { ax: -ROOM, az: -h, bx: -ROOM, bz: -ROOM },    // goal room
+    { ax: -ROOM, az: -ROOM, bx: ROOM, bz: -ROOM },
+    { ax: ROOM, az: -ROOM, bx: ROOM, bz: ROOM },
+    { ax: ROOM, az: ROOM, bx: -ROOM, bz: ROOM },
+    { ax: -ROOM, az: ROOM, bx: -ROOM, bz: h },
+  ];
+  return { walls, legs, corners, wallCorners: [], outer: -x0, tree: { x: xTree, z: 0 }, length: total };
 }
 
 // ---------------------------------------------------------------- placement
@@ -247,8 +328,8 @@ const NO_FRAME = { ox: 0, oz: 0, ux: 1, uz: 0, nx: 0, nz: 1 };
 function usableRanges(legs) {
   const W = CFG.RING_WIDTH, last = legs.length - 1;
   return legs.map((leg, li) => {
-    let lo = W / 2 + CORNER_REST + CFG.WOLF_RADIUS;
-    let hi = leg.len - W / 2 - CORNER_REST - CFG.WOLF_RADIUS;
+    let lo = (leg.padLo ?? W / 2 + CORNER_REST) + CFG.WOLF_RADIUS;
+    let hi = leg.len - (leg.padHi ?? W / 2 + CORNER_REST) - CFG.WOLF_RADIUS;
     if (li === last) { lo = -W / 2 + WOLF_MARGIN; hi = leg.len + W / 2 - WOLF_MARGIN; }
     if (li === 0) hi = leg.len - W / 2 - CFG.START_SAFE_ARC - CFG.WOLF_RADIUS;
     return { lo, hi: Math.max(lo, hi) };
@@ -508,6 +589,7 @@ function placePatternEnemies(rng, lvl, p) {
   const vOut = W / 2 - WOLF_MARGIN;
   const ranges = usableRanges(legs);
   const last = legs.length - 1;
+  const door = lvl.finale ? -1 : last;   // the spiral's final stretch (door before the goal); the final run has none
   const enemies = [];
   const plans = [];
   const frameOf = (leg) => ({ ox: leg.ox, oz: leg.oz, ux: leg.ux, uz: leg.uz, nx: leg.nx, nz: leg.nz });
@@ -521,7 +603,7 @@ function placePatternEnemies(rng, lvl, p) {
   // own their lane all the time, so they don't need the room's beat. A leg's chargers share one speed and take
   // turns: their laps (5-35 s) would need speeds up to 60% apart to come back into step within PAT_DRIFT_PERIOD.
   const chargerLanes = (li, D) => {
-    if (li === last) return [];
+    if (li === door) return [];
     const lesson = level === 1 ? PAT_LESSONS[li] : null;
     if (lesson) return lesson[0];
     const n = D < 0.25 ? (rng.chance(0.6) ? 1 : 0) : D < 0.6 ? 1 + (rng.chance(0.6) ? 1 : 0) : D < 1 ? 2 + (rng.chance(D - 0.4) ? 1 : 0) : 3;
@@ -556,13 +638,13 @@ function placePatternEnemies(rng, lvl, p) {
     const T = T0 || Math.round(Math.max(5, 7.5 - 2 * D) * 4) / 4;
     const fit = (w) => patFit(w, T);
     const segs = [];
-    let cursor = li === last ? Math.min(hi, leg.len - W / 2 - 2.0) : hi - rng.range(0, 1.2);
+    let cursor = li === door ? Math.min(hi, leg.len - W / 2 - 2.0) : hi - rng.range(0, 1.2);
     for (let n = 0; n < 30; n++) {
       let made = null;
       for (let tries = 0; tries < 5 && !made; tries++) {
         let fam = 'crosswalk', opt = {};
         if (lesson) [fam, opt] = lesson[1][n % lesson[1].length];
-        else if (li === last) opt = { k: D < 0.5 ? 1 : 2, variant: 'comb' };     // the final door
+        else if (li === door) opt = { k: D < 0.5 ? 1 : 2, variant: 'comb' };     // the final door
         else if (D >= 0.3 && rng.chance(0.3)) fam = 'diagonal';
         if (tries > 2) { fam = 'crosswalk'; opt = { k: 1 }; }
         const sd = PAT_FAMILIES[fam](c, { room: cursor - lo, ...opt });
@@ -583,7 +665,7 @@ function placePatternEnemies(rng, lvl, p) {
       }
       if (!made) break;
       segs.push(made);
-      if (li === last) break;
+      if (li === door) break;
       cursor = made.base - spacer() - 2 * PAT_SAFE;
       if (cursor < lo) break;
     }
@@ -723,10 +805,10 @@ function placePatternEnemies(rng, lvl, p) {
   const heat = p.patternHeat || 0;
   for (let li = 0; li < legs.length; li++) {
     const lesson = level === 1 && li < PAT_LESSONS.length;
-    const D = lesson ? 0.1 * li : Math.min(1.6, heat + 0.5 * li / Math.max(1, last));
+    const D = lesson ? 0.1 * li : lvl.finale ? FINALE_HEAT + FINALE_RAMP * li / Math.max(1, last) : Math.min(1.6, heat + 0.5 * li / Math.max(1, last));
     const wTarget = Math.max(0.3, 0.75 - 0.3 * D);
     const fTarget = lesson ? 0.34 : Math.max(0.08, 0.25 - 0.12 * D);
-    if (li === last && plans.length && plans[plans.length - 1].leg === li - 1) {
+    if (li === door && plans.length && plans[plans.length - 1].leg === li - 1) {
       // final stretch: the door before the goal. Its first corner is ice, so it is timed together with the
       // previous leg (launch from the last safe square) using the skating model.
       const prevPlan = plans[plans.length - 1];
@@ -875,8 +957,10 @@ function generateLevel(level, seed, mode = 'mixed') {
   const L = Math.max(1, level | 0);
   const p = levelParams(L);
   const rng = createRng(hashSeed(seed, L));
-  const { walls, legs, corners, wallCorners, outer } = buildSpiral();
-  const path = buildPath(corners, legs);
+  const finale = mode === 'ice' && L === SKATE_FINAL_LEVEL;
+  const straight = finale ? buildStraight(createRng(hashSeed(seed, L, 'straight'))) : null;
+  const { walls, legs, corners, wallCorners, outer } = straight || buildSpiral();
+  const path = finale ? buildStraightPath(corners) : buildPath(corners, legs);
 
   // spawn: 2x2 block in the start pocket, facing up the first leg
   const start = corners[0];
@@ -900,7 +984,7 @@ function generateLevel(level, seed, mode = 'mixed') {
     wallCorners,
     legs,
     corners,
-    safeCorners: corners.slice(0, -2),          // wolf-free squares (not the two corners of the final stretch)
+    safeCorners: finale ? corners.slice(0, 1) : corners.slice(0, -2),   // wolf-free squares (not the two corners of the final stretch; the final run: just the start)
     startAngle: heading,
     spawnPoints,
     enemies: [],
@@ -908,15 +992,22 @@ function generateLevel(level, seed, mode = 'mixed') {
     path,
     theme: CFG.ICE_TEST || mode === 'ice' ? ICE_THEME : THEME_ORDER[(L - 1) % 4], // run mode: same seasons, winter just isn't ice
     mode,
+    finale,
   };
   lvl.ice = mode !== 'run' && lvl.theme === ICE_THEME;
-  lvl.checkpoints = lvl.ice ? pickCheckpoints(corners, legs, lvl.safeCorners.length) : [];
-  // the crown: just inside the goal room's door, on the way to the portal
-  {
+  lvl.checkpoints = lvl.ice && !finale ? pickCheckpoints(corners, legs, lvl.safeCorners.length) : [];
+  if (finale) {
+    lvl.loops = 0;
+    lvl.runLength = straight.length;              // start square center -> goal center
+    lvl.crown = { x: -ROOM + 1.6, z: 0 };
+    const t = straight.tree, leg = legs.findIndex((l) => l.ox === t.x);
+    lvl.trees = [{ x: t.x, z: t.z, leg }];
+  } else {
+    // the crown: just inside the goal room's door, on the way to the portal
     const last = corners[corners.length - 1], inner = legs[legs.length - 1], d = CFG.RING_WIDTH / 2 + 1.6;
     lvl.crown = { x: last.x + inner.nx * d, z: last.z + inner.nz * d };
+    lvl.trees = lvl.theme === TREE_THEME && !lvl.ice ? placeTrees(createRng(hashSeed(seed, L, 'trees')), legs) : [];
   }
-  lvl.trees = lvl.theme === TREE_THEME && !lvl.ice ? placeTrees(createRng(hashSeed(seed, L, 'trees')), legs) : [];
   lvl.enemies = mode === 'ice' ? placePatternEnemies(rng, lvl, p) : placeEnemies(rng, lvl, p);
   lvl.items = placeItems(rng, lvl, p);
   for (const t of lvl.trees) lvl.items.push({ id: lvl.items.length, type: 'boots', x: t.x, z: t.z, tree: true }); // a pair of boots up every tree
@@ -1016,6 +1107,7 @@ function locate(levelData, x, z) {
 // Ice level: everything except the goal room and the safe corner squares is ice.
 function onIce(levelData, x, z) {
   if (!levelData.ice) return false;
+  if (levelData.finale && inTree(levelData, x, z)) return false;   // the final run's tree: up there you can sit still
   const rh = levelData.roomHalf;
   if (Math.abs(x) < rh && Math.abs(z) < rh) return false;
   const h = levelData.corridorWidth / 2;

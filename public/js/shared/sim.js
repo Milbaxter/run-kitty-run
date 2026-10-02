@@ -482,11 +482,16 @@ function stepSim(sim, inputs, dt) {
     } else if (aliveInCenter > 0) {
       const by = players.find((q) => q.alive && q.inCenter);
       by.finishes = (by.finishes || 0) + 1;
-      sim.state = 'levelclear';
-      sim.stateTimer = CFG.LEVEL_CLEAR_TIME;
       sim.stats.levelsCleared++;
       events.push({ type: 'levelClear', level: sim.level, by: by.id });
+      if (ld.finale) win(sim, by, events);
+      else {
+        sim.state = 'levelclear';
+        sim.stateTimer = CFG.LEVEL_CLEAR_TIME;
+      }
     }
+  } else if (sim.state === 'victory') {
+    sim.stateTimer += dt;      // seconds since the win (the party never ends; the client / server decide when to leave)
   } else if (sim.state === 'levelclear') {
     sim.stateTimer -= dt;
     if (sim.stateTimer <= 0) {
@@ -496,6 +501,30 @@ function stepSim(sim, inputs, dt) {
   }
 
   return events;
+}
+
+// The final run is cleared: the game is won. Every kitty that went down on the way is carried into the goal
+// room for the party (a ring around the portal); state 'victory' is final (no next level, no more deaths).
+function win(sim, by, events) {
+  sim.state = 'victory';
+  sim.stateTimer = 0;
+  const party = [];
+  let slot = 0;
+  for (let i = 0; i < sim.players.length; i++) {
+    const p = sim.players[i];
+    if (p.alive && p.inCenter) continue;
+    const a = slot++ * 2.399963;   // golden angle: an even ring however many show up
+    const r = 2.6 + 0.35 * (slot % 3);
+    p.alive = true;
+    p.x = Math.cos(a) * r; p.z = Math.sin(a) * r;
+    p.vx = 0; p.vz = 0; p.moving = false;
+    p.heading = Math.atan2(-p.z, -p.x);
+    p.inCenter = true;
+    p.shield = 0; p.invuln = 0;
+    party.push(p.id);
+  }
+  sim.circles = [];
+  events.push({ type: 'victory', level: sim.level, by: by.id, time: sim.levelTime, party });
 }
 
 function justDied(events, playerId) {

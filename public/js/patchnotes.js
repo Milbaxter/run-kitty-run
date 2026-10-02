@@ -19,6 +19,7 @@ const PATCH_NOTES = [
       'Finish 3+ runs first and your aura leaves a short trail of flames in your kitty\'s colour behind you as you move',
       'Skate only: wolves no longer wear skates, they trot across the ice on their own paws like on every other level',
       'The crown you wear is a little smaller',
+      'Winning a level (finishing first) is now worth +20 on the scoreboard',
     ],
   },
   {

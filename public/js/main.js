@@ -765,8 +765,8 @@ function updateHUD() {
   }
   feedback.setVisible(down);
   if (mode !== 'play') { ui.setScores(null); return; }
-  // score: +1 per friend saved, -1 per time caught
-  ui.setScores(sim.players.map((p) => ({ name: p.name, color: p.color, score: p.rescues - p.deaths, crown: p.id === sim.lastWinner, me: online.playing ? p.id === online.me : true, you: online.playing && p.id === online.me })));
+  // score: +1 per friend saved, -1 per time caught, +20 per win (finishing a level first)
+  ui.setScores(sim.players.map((p) => ({ name: p.name, color: p.color, score: p.rescues - p.deaths + 20 * (p.finishes || 0), crown: p.id === sim.lastWinner, me: online.playing ? p.id === online.me : true, you: online.playing && p.id === online.me })));
   ui.setHUD({
     level: sim.level,
     players: sim.players.map((p) => ({

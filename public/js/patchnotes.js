@@ -4,7 +4,8 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
-      'Skate only now has an ending: level 8 is THE FINAL RUN',
+      'The game now has an ending: level 9 is the boss level, THE FINAL RUN (Run + Skate and Skate only)',
+      'Run + Skate seasons: summer, fall, winter, three times over, and the third winter is the final run',
       'One long straight sheet of ice packed with wolves: no safe squares, no checkpoints, and you can never stop, only carve circles while you wait for a gap',
       'Halfway there is a single tree: climb under its branches to catch your breath, wolves can\'t reach you up there',
       'The camera flies down the whole run before you start (touch anything to skip)',
@@ -20,7 +21,7 @@ const PATCH_NOTES = [
     items: [
       'Skate only: wolves don\'t wander anymore, they run fixed patterns you can learn',
       'Every wolf goes end to end: across the lane from wall to wall, or charging down its own lane from one safe square to the next',
-      'Many more wolves on ice: rows of crossers and lanes of chargers, busier and faster toward the middle and on later levels',
+      'Many more wolves on ice: about twice as many on level 1, then 10% more every level up to level 7 (over 400). Long waves of crossers, fans of diagonals and packs of chargers, busier and faster toward the middle and on later levels, with a gap always there',
       'Wolves never stand still: they turn straight round at each end. In many rooms one or two wolves run a little faster or slower than the rest, so the pattern slowly slides out of step and comes back together within a minute (there is always a gap)',
       'Watch from a safe square, spot the rhythm, then skate through the gap',
       'Fixed: a key or joystick still held when a level starts no longer shoots your kitty off the start square onto the ice (let go once, then skate)',
@@ -39,6 +40,7 @@ const PATCH_NOTES = [
       'The aura now comes at 3 wins (was 2), and the flame trail at 4 (was 3)',
       'Your crown collects a gem for every win from 2 to 6: blue, yellow, red, purple and green',
       'Win 6 runs and your aura, flame trail, paw prints and skate marks cycle through every kitty colour',
+      'The crown floats over the middle of the goal room again',
     ],
   },
   {

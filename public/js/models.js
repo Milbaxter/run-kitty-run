@@ -1284,7 +1284,7 @@ function createPortalModel() {
   return { group, update };
 }
 
-// The crown up for grabs just inside the goal room's door: big, spinning, bobbing, with a golden glow.
+// The crown up for grabs over the goal room's middle (above the portal): big, spinning, bobbing, with a golden glow.
 // chunky solid crown (band, spikes, ball tips, red gems): reads from the top-down camera
 // (pearls = false: the worn crown, whose pearls are separate meshes so crown stones can replace them)
 function chunkyCrownGeometry(pearls = true) {
@@ -1317,7 +1317,7 @@ function createCrownPickupModel() {
   const glow = new THREE.Mesh(cgeo('crownGlow', () => new THREE.PlaneGeometry(2.4, 2.4)), new THREE.MeshBasicMaterial({ map: radialTexture(), color: new THREE.Color(0xffc23a).multiplyScalar(0.9), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
   group.add(glow);
   function update(dt, t, camera) {
-    tilt.position.y = 1.15 + Math.sin(t * 2.2) * 0.12;
+    tilt.position.y = 2.4 + Math.sin(t * 2.2) * 0.15;
     crown.rotation.y = t * 1.4;
     glow.position.y = tilt.position.y + 0.3;
     if (camera) glow.quaternion.copy(camera.quaternion);

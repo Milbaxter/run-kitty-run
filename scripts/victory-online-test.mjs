@@ -57,7 +57,10 @@ try {
   app2.send({ t: 'join', code, name: 'Old' }); await sleep(150);
   ok(app2.last.error && /code/.test(app2.last.error.msg) && !app2.last.room, `old app can't join it by code: "${app2.last.error && app2.last.error.msg}"`);
   app2.send({ t: 'create', name: 'Old', mode: 'mixed' }); await sleep(150);
-  ok(app2.last.room && app2.last.room.mode === 'mixed', 'old app can still create a Run + Skate lobby');
+  ok(!app2.last.room && app2.last.error, 'old app can\'t create a Run + Skate lobby either (boss run on level 9)');
+  app2.last.error = null;
+  app2.send({ t: 'create', name: 'Old', mode: 'run' }); await sleep(150);
+  ok(app2.last.room && app2.last.room.mode === 'run', 'old app can still create a Run only lobby');
 
   // ---- start on the final run
   const guest = bot(NEW); await guest.ready;

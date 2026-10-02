@@ -22,7 +22,7 @@ const VICTORY_TO_LOBBY_MS = 12000;
 // Older clients can still play the other modes; they can't create or join these lobbies and don't see them listed.
 //   2 = Skate only wolves walk deterministic patterns (protocol-1 clients simulate random wanderers)
 //   3 = Skate only level 8 (SKATE_FINAL_LEVEL) is the final run and clearing it wins (older clients build the spiral)
-const MODE_MIN_PROTOCOL = { ice: 3 };
+const MODE_MIN_PROTOCOL = { ice: 3, mixed: 3 };   // 3 = the boss run on level 9 (and Run + Skate's summer/fall/winter order)
 const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
 const MODE_NAMES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
 const updateHow = (client) => (client.app === 'web' ? 'reload the page' : 'update the app');

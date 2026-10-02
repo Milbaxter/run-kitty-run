@@ -39,7 +39,7 @@ const CFG = {
 
   // Items
   ITEM_RADIUS: 0.6,
-  CROWN_RADIUS: 1.0,         // pickup radius of the crown inside the goal room's door
+  CROWN_RADIUS: 1.0,         // pickup radius of the crown over the goal room's middle
   TREE_RADIUS: 1.7,          // autumn levels: a kitty this close to a climbable tree's trunk is up in it (safe)         // pickup radius of the crown over the goal's center
 
   // Flow
@@ -92,9 +92,10 @@ const NET = {
   INPUT_LEAD: 3,       // ticks of safety margin client inputs should arrive ahead of the server
 };
 
-// Skate only: the last level. Instead of the spiral it is one long straight run (as long as the whole spiral)
-// packed with every kind of pattern wolf, no safe squares and no checkpoints, one climbable tree halfway.
-// Clearing it wins the game (sim state 'victory').
-const SKATE_FINAL_LEVEL = 8;
+// The boss level (Run + Skate and Skate only): instead of the spiral it is one long icy straight run (as long as
+// the whole spiral) packed with pattern wolves, no safe squares and no checkpoints, one climbable tree halfway.
+// Clearing it wins the game (sim state 'victory'). Run only has no boss level (it goes on forever).
+const SKATE_FINAL_LEVEL = 9;
+const FINAL_MODES = ['mixed', 'ice'];
 
-export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL };
+export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES };

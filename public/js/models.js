@@ -630,9 +630,9 @@ function createKittyModel(color) {
 
   // crown sits on the head (follows its bob/tilt)
   const crown = new THREE.Mesh(chunkyCrownGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, emissive: 0x7a4a00, emissiveIntensity: 0.6, metalness: 0.45, roughness: 0.35, flatShading: true }));
-  crown.position.set(-0.02, 0.27, 0);
+  crown.position.set(-0.02, 0.25, 0);
   crown.rotation.z = -0.12;
-  crown.scale.setScalar(2.2);
+  crown.scale.setScalar(1.76);
   crown.castShadow = true;
   crown.visible = false;
   head.add(crown);
@@ -671,7 +671,7 @@ function createKittyModel(color) {
     s = s || {};
     const t = s.time || 0;
     crown.visible = !!s.crown && rig.visible;
-    if (crown.visible) crown.position.y = 0.27 + Math.sin(t * 3) * 0.008;
+    if (crown.visible) crown.position.y = 0.25 + Math.sin(t * 3) * 0.008;
     aura.visible = !!s.aura;
     if (aura.visible) {
       // flicker: tongues scroll around, the shell pulses and stretches

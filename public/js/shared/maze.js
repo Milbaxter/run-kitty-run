@@ -320,8 +320,9 @@ function placeEnemies(rng, lvl, p) {
 // A leg = a set of charger lanes + crosser / diagonal segments top (entry, high th) to bottom. The room's beat is T:
 // a crosser / diagonal runs there and back once per T. Rows are tight (PAT_ROW_SP < 2 * PAT_HIT: the kitty can't slip
 // between two neighbours), so a row in step is a wall; it opens up through speed differences: in every row of 3+ at
-// least one wolf in four (patRowNeed, more at random, spread along the row) drifts, lap T / (1 +- 1 / n), n in
-// PAT_DRIFT_N (~10% faster / slower: it gains or loses a lap every n beats); lone crossers, pairs and scissors drift
+// least one wolf in four (patRowNeed, more at random, spread along the row) drifts, lap T / (1 + j / n), n in
+// PAT_DRIFT_N, j a whole number of laps gained / lost every n beats, picked so its speed is PAT_DRIFT_MU (0.8x - 1.4x)
+// of the room's; lone crossers, pairs and scissors drift
 // now and then. The room repeats every n * T <= PAT_DRIFT_PERIOD seconds. Rooms are built as designed, with no
 // launch-window solver (the balance is playtested): each segment gets a random timing offset (placeLeg), about half
 // of a room's rows starting the level nearer the other wall.
@@ -338,8 +339,9 @@ const PAT_VMAX = CFG.KITTY_SPEED * 0.9;
 const PAT_BOOSTS = [1.05, 1.1, 1.15, 1.2];    // the final run must also stay passable with 1-4 pairs of speed boots
 const PAT_SPEEDS = [PAT_VK].concat(PAT_BOOSTS.map((m) => PAT_VK * m));
 const PAT_DRIFT_PERIOD = 60;                  // drifting wolves are back in step with their room within this (s)
-const PAT_DRIFT_N = [9, 12];                  // a drifting wolf gains / loses one lap every n beats (n in this range, 8
-                                              // in the slowest rooms): it runs ~10% faster / slower than its row
+const PAT_DRIFT_N = [9, 12];                  // a room's drifting wolves gain / lose whole laps every n beats (n in this
+                                              // range, 8 in the slowest rooms), so they're back in step every n beats
+const PAT_DRIFT_MU = [0.8, 1.4];              // a drifting wolf's speed vs its room's (as far as PAT_VMAX allows)
 const PAT_ROW_SP = [1.35, 1.6];               // spacing within a row (units): under 2 * PAT_HIT, shoulder to shoulder
 const PAT_ROW_GAP = 1.69;                     // a staggered row's neighbours stay closer than this (< 2 * PAT_HIT)
 const patRowNeed = (k) => (k >= 3 ? Math.ceil(k / 4) : 0);   // wolves of a row of k that run at a speed of their own
@@ -686,7 +688,7 @@ function placePatternEnemies(rng, lvl, p) {
   // A room's timing (no launch-window solver: rooms are built as designed). Each segment gets a random timing offset,
   // chosen so that about half the room's rows start the level nearer the other wall. Drifting wolves: each row of 3+
   // gets at least one wolf in four (patRowNeed, sometimes more, spread along the row so gaps open in different places)
-  // on lap T / mu, mu = 1 +- 1 / n (n in PAT_DRIFT_N: ~10% faster / slower, it gains or loses a lap every n beats);
+  // on lap T / mu, mu = 1 + j / n (n in PAT_DRIFT_N, j laps gained / lost every n beats, mu within PAT_DRIFT_MU);
   // lone crossers, pairs and scissors now and then (calm: level 1's lessons and the final door, only their rows). The
   // room repeats every n beats (<= PAT_DRIFT_PERIOD s).
   const placeLeg = (li, design, chargers, calm) => {
@@ -695,10 +697,12 @@ function placePatternEnemies(rng, lvl, p) {
     const nTop = Math.min(PAT_DRIFT_N[1], Math.floor(PAT_DRIFT_PERIOD / T + 1e-9));
     const n = nTop <= PAT_DRIFT_N[0] ? nTop : PAT_DRIFT_N[0] + Math.floor(rng.next() * (nTop - PAT_DRIFT_N[0] + 1));
     let period = 0;
-    const sign = () => (rng.chance(0.5) ? 1 : -1);
-    // a lap more (j = 1) or less (-1) every n beats; the other way if that would be too fast
+    // j laps more (j > 0) or fewer (j < 0) every n beats: any whole j != 0 with 1 + j / n within PAT_DRIFT_MU
+    const jLo = Math.max(1, Math.floor((1 - PAT_DRIFT_MU[0]) * n + 1e-9)), jHi = Math.max(1, Math.floor((PAT_DRIFT_MU[1] - 1) * n + 1e-9));
+    const sign = () => { const k = 1 + Math.floor(rng.next() * (jLo + jHi)); return k <= jLo ? -k : k - jLo; };
+    // too fast for PAT_VMAX: fewer extra laps, down to none (then a lap less)
     const drift = (w, j) => {
-      for (const jj of [j, -j]) {
+      for (let jj = j; jj !== 0; jj = jj > 1 ? jj - 1 : jj === 1 ? -1 : 0) {
         const v = patternSpeed(w, w.cycle / (1 + jj / n));
         if (v > 0 && v <= PAT_VMAX) { w.speed = v; w.drift = true; period = n * T; return; }   // w.cycle (the beat) stays its phase reference
       }

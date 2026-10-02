@@ -698,7 +698,7 @@ function createKittyModel(color) {
   const hot = auraCol.clone().lerp(new THREE.Color(0xffffff), 0.45);
   const flameTex = auraTexture();
   const outerMat = new THREE.MeshBasicMaterial({ map: flameTex, color: auraCol, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide });
-  const innerMat = new THREE.MeshBasicMaterial({ map: flameTex, color: hot.clone().multiplyScalar(1.4), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const innerMat = new THREE.MeshBasicMaterial({ map: flameTex, color: hot.clone().multiplyScalar(0.75), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
   const aura = new THREE.Group();
   // flares outward toward the top, like the classic aura
   const outer = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.5, 1.7, 36, 1, true), outerMat);
@@ -766,7 +766,7 @@ function createKittyModel(color) {
       if (s.auraColor) { // live recolour (6+ finishes cycle through the cat colours)
         outerMat.color.copy(s.auraColor); ringMat.color.copy(s.auraColor);
         sparks.material.color.copy(s.auraColor).lerp(AURA_WHITE, 0.45);
-        innerMat.color.copy(sparks.material.color).multiplyScalar(1.4);
+        innerMat.color.copy(sparks.material.color).multiplyScalar(0.75);
       }
       // flicker: tongues scroll around, the shell pulses and stretches
       flameTex.offset.x = (t * 0.35) % 1;
@@ -774,9 +774,10 @@ function createKittyModel(color) {
       const f = Math.sin(t * 17) * 0.5 + Math.sin(t * 29 + 1.3) * 0.5;
       outer.scale.set(1 + 0.04 * f, 1 + 0.12 * Math.abs(f), 1 + 0.04 * f);
       inner.scale.set(1, 1 + 0.15 * Math.abs(Math.sin(t * 23)), 1);
-      outerMat.opacity = 0.6 + 0.15 * f;
-      innerMat.opacity = 0.75 + 0.2 * Math.sin(t * 13);
-      ringMat.opacity = 0.45 + 0.15 * f;
+      // brightness only breathes gently (fast strong flicker strained the eyes); the shape still flickers
+      outerMat.opacity = 0.5 + 0.06 * f;
+      innerMat.opacity = 0.45 + 0.06 * Math.sin(t * 13);
+      ringMat.opacity = 0.35 + 0.05 * f;
       for (let i = 0; i < NS; i++) {
         const [a, r, ph, sp] = sparkSeed[i];
         const u = (t * sp * 0.8 + ph) % 1;

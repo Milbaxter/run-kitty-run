@@ -105,7 +105,10 @@ jobs:
         timeout-minutes: 14
         run: |
           set +e
-          to() { perl -e 'alarm shift; exec @ARGV' "$@"; } # timeout: nothing here may hang the job
+          # to <secs> cmd...: run in its own process group and kill the whole group on timeout (xcrun/simctl spawn
+          # helpers that would otherwise keep pipes open and hang the step).
+          to() { perl -e '$t = shift; $p = fork; if (!$p) { setpgrp(0, 0); exec @ARGV; exit 127 }
+            $SIG{ALRM} = sub { kill "KILL", -$p; print STDERR "TIMEOUT ${t}s: @ARGV\n"; exit 124 }; alarm $t; waitpid($p, 0); exit($? >> 8)' "$@"; }
           OUT="$GITHUB_WORKSPACE/smoke"; mkdir -p "$OUT"
           APP=ios/App/build/sim/Build/Products/Debug-iphonesimulator/App.app
           BID=io.runkittyrun.app

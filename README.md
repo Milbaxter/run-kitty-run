@@ -2,7 +2,7 @@
 
 3D square-spiral kitty runner (three.js): one long corridor of straight legs winding in to the goal room, with solo, local co-op and **online lobbies (up to 8 players)**.
 
-Live: https://runkittyrun.80-47-225-25.nip.io (mirror: https://runkittyrun.80-47-225-25.sslip.io; the bare-IP names https://80-47-225-25.nip.io / .sslip.io still work)
+Live: https://runkittyrun.fun (domain on Cloudflare, DNS only → the UpCloud box; Caddy gets the cert). The old free names (https://runkittyrun.80-47-225-25.nip.io, https://80-47-225-25.nip.io and the .sslip.io mirrors) redirect pages there but still serve /ws and /api for app builds.
 
 ## Run locally
 

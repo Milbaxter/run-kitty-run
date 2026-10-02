@@ -1,7 +1,17 @@
-# Free hostnames that resolve to the box's IP; Caddy gets Let's Encrypt certs automatically.
-# (Two providers, because some routers/DNS filters block one of them.)
-# runkittyrun.* is the friendly name; the bare-IP names stay so old links and app builds keep working.
+# runkittyrun.fun is the main address; www redirects to it.
+runkittyrun.fun {
+	encode gzip
+	reverse_proxy 127.0.0.1:8080
+}
+www.runkittyrun.fun {
+	redir https://runkittyrun.fun{uri} permanent
+}
+
+# Old free hostnames (nip.io / sslip.io): pages redirect to runkittyrun.fun, but the game server itself
+# (/ws, /api, /healthz) and Android App Links verification (/.well-known) keep working there for app builds.
 runkittyrun.80-47-225-25.nip.io, runkittyrun.80-47-225-25.sslip.io, 80-47-225-25.nip.io, 80-47-225-25.sslip.io {
 	encode gzip
+	@page not path /ws /ws/* /api/* /healthz /.well-known/*
+	redir @page https://runkittyrun.fun{uri} 302
 	reverse_proxy 127.0.0.1:8080
 }

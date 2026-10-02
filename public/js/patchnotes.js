@@ -15,6 +15,7 @@ const PATCH_NOTES = [
       'Win 8 runs and your kitty carries a little backpack full of kittens in your teammates\' colours (you\'re carrying the team)',
       'The speed boots you pick up now look just like the ones your kitty wears',
       'Confetti is now confetti fish: little fish in every colour tumble down when a level is won',
+      'Skate only (and Run + Skate ice): levels 7 and 8 are harder now, with level 8 the toughest yet (453 wolves)',
       'Win a level (first into the finish circle) and you always get a crown, even if someone else grabbed the floating one',
       'The game now has an ending: level 9 is the boss level, THE FINAL RUN (Run + Skate and Skate only)',
       'Run + Skate seasons: summer, fall, winter, three times over, and the third winter is the final run',

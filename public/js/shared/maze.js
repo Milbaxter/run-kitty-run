@@ -316,15 +316,15 @@ const PAT_ROW_SP = [1.35, 1.6];               // spacing within a row (units): u
 const PAT_ROW_GAP = 1.69;                     // a staggered row's neighbours stay closer than this (< 2 * PAT_HIT)
 const patRowNeed = (k) => (k >= 3 ? Math.ceil(k / 4) : 0);   // wolves of a row of k that run at a speed of their own
 const PAT_TYPES = ['charger', 'crosser', 'diagonal'];
-// How many wolves a level has: level 1 ~2x the 116 of the first pattern design, +10% per level up to level 7.
+// How many wolves a level has: level 1 ~2x the 116 of the first pattern design, +10% per level up to level 8.
 // Rooms are packed by density G (shorter spacers, longer rows, wider fans); the count is then made exact with
 // charger packs (followers in a charger's own lane) or, if a level came out over, by shortening its longest rows,
 // then leaving out lone crossers.
-const PAT_WOLVES_L1 = 232.6, PAT_WOLVES_GROWTH = 1.1, PAT_WOLVES_TOP = 7;
+const PAT_WOLVES_L1 = 232.6, PAT_WOLVES_GROWTH = 1.1, PAT_WOLVES_TOP = 8;
 const PAT_PACK_MAX = 5;                       // wolves per charger lane, at most (lanes fill evenly: 4-5 only at level 6+)
 const PAT_PACK_GAP = 2.2;                     // distance between pack members (units): 1-2x this, at random
 const patWolfTarget = (level, finale) => finale ? FINALE_WOLVES : Math.round(PAT_WOLVES_L1 * ipow(PAT_WOLVES_GROWTH, Math.min(level, PAT_WOLVES_TOP) - 1));
-const patDensity = (level) => Math.min(2, 1.2 + 0.14 * (Math.min(level, PAT_WOLVES_TOP) - 1));
+const patDensity = (level) => Math.min(2.2, 1.2 + 0.14 * (Math.min(level, PAT_WOLVES_TOP) - 1));
 const NO_FRAME = { ox: 0, oz: 0, ux: 1, uz: 0, nx: 0, nz: 1 };
 
 function usableRanges(legs) {
@@ -437,7 +437,7 @@ function placePatternEnemies(rng, lvl, p) {
   const door = lvl.finale ? -1 : last;   // the spiral's final stretch (door before the goal); the final run has none
   const enemies = [];
   const plans = [];
-  const G0 = patDensity(level);
+  const G0 = lvl.finale ? 2 : patDensity(level);   // the final run keeps its own tuning (density 2)
   const target = patWolfTarget(level, lvl.finale);
   const frameOf = (leg) => ({ ox: leg.ox, oz: leg.oz, ux: leg.ux, uz: leg.uz, nx: leg.nx, nz: leg.nz });
   const finish = (w, leg) => {
@@ -581,10 +581,11 @@ function placePatternEnemies(rng, lvl, p) {
     return { leg: li, beat: T, period, segs: kept, open };
   };
 
-  const heat = p.patternHeat || 0;
+  // the final run keeps its own tuning (heat 1.2, D up to 1.6); levels 7-8 go past it
+  const heat = lvl.finale ? Math.min(1.2, p.patternHeat || 0) : p.patternHeat || 0, dTop = lvl.finale ? 1.6 : 1.9;
   for (let li = 0; li < legs.length; li++) {
     const lesson = level === 1 && li < PAT_LESSONS.length;
-    const D = lesson ? 0.1 * li : Math.min(1.6, heat + 0.5 * li / Math.max(1, last));
+    const D = lesson ? 0.1 * li : Math.min(dTop, heat + 0.5 * li / Math.max(1, last));
     if (li === door) {
       // final stretch: the door before the goal, on the beat of the room before it
       const prev = plans.length && plans[plans.length - 1].leg === li - 1 ? plans[plans.length - 1] : null;

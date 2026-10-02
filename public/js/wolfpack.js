@@ -17,7 +17,7 @@ function createWolfPack(scene, models) {
       if (!o.isMesh) return;
       let p = packs.get(o.geometry);
       if (!p) {
-        // the eyes have a per-wolf MeshBasicMaterial (glow 1..4x accent): white material * instance color instead
+        // the eyes have a per-wolf MeshBasicMaterial (accent colour): white material * instance color instead
         const eye = o.material.isMeshBasicMaterial;
         const mesh = new THREE.InstancedMesh(o.geometry, eye ? new THREE.MeshBasicMaterial() : o.material, cap.get(o.geometry));
         mesh.castShadow = o.castShadow;

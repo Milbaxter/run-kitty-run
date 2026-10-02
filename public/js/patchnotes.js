@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Softer lighting: no more glare. Kitty rings, auras, the goal portal, lanterns, revive circles and sparkles keep their colours without blowing out to white',
       'Online: while you\'re down you can switch which kitty you watch: tap the ‹ › arrows on the "Watching" label, press ← → (or A / D, Tab), or use the shoulder buttons / d-pad on a controller',
       'Phones and tablets: tap the new 📜 button next to 💬 to scroll back through older chat messages',
       'Online: when you get caught, the camera follows the closest kitty still running (with a "Watching <name>" label) so you can see your rescue, then glides back to you once you\'re revived',

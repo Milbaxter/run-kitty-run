@@ -47,34 +47,11 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 400);
 camera.position.set(0, 40, 30);
 
-// Bloom (desktop only): post chain loaded on demand so phones never download it; until it arrives
-// (and always on phones) the scene renders straight to the canvas with the same tone mapping.
-// The composer gets a 4x MSAA target: the canvas' own antialias does nothing once rendering goes offscreen.
-let composer = null;
-if (QUALITY.bloom) {
-  Promise.all([
-    import('three/addons/postprocessing/EffectComposer.js'),
-    import('three/addons/postprocessing/RenderPass.js'),
-    import('three/addons/postprocessing/UnrealBloomPass.js'),
-    import('three/addons/postprocessing/OutputPass.js'),
-  ]).then(([{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }]) => {
-    const dpr = renderer.getPixelRatio(), w = window.innerWidth, h = window.innerHeight;
-    const rt = new THREE.WebGLRenderTarget(w * dpr, h * dpr, { type: THREE.HalfFloatType, samples: 4 });
-    const c = new EffectComposer(renderer, rt);
-    c.addPass(new RenderPass(scene, camera));
-    c.addPass(new UnrealBloomPass(new THREE.Vector2(w, h), 0.55, 0.45, 0.88));
-    c.addPass(new OutputPass());
-    c.setSize(w, h);
-    composer = c;
-  }).catch((e) => console.warn('bloom unavailable', e));
-}
-
 window.addEventListener('resize', () => {
   const w = window.innerWidth, h = window.innerHeight;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
-  if (composer) composer.setSize(w, h); // resizes every pass (bloom included)
 });
 
 const lighting = setupLighting(scene);
@@ -385,7 +362,7 @@ function mouseInput(p, kb) {
 let targetPulse = 0;
 const targetMarker = new THREE.Mesh(
   new THREE.RingGeometry(0.32, 0.44, 32),
-  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false }),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false }), // exact player colour
 );
 targetMarker.rotation.x = -Math.PI / 2;
 targetMarker.visible = false;
@@ -395,7 +372,7 @@ function updateTargetMarker(dt) {
   const p = sim && sim.players[mousePlayerIndex()];
   if (mode !== 'play' || !p || !p.alive || !mouse.target) { targetMarker.visible = false; return; }
   targetMarker.visible = true;
-  targetMarker.material.color.set(p.color).multiplyScalar(1.8);
+  targetMarker.material.color.set(p.color);
   targetPulse = Math.max(0, targetPulse - dt * 3);
   const s = 1 + targetPulse * 0.8 + Math.sin(simTime * 6) * 0.06;
   targetMarker.scale.set(s, s, s);
@@ -485,8 +462,8 @@ function ensureKitties() {
     if (!kitties.has(p.id)) {
       const model = createKittyModel(p.color);
       // Player-colored ground marker with a heading pip (readability + co-op identity).
-      const glow = new THREE.Color(p.color).multiplyScalar(1.6);
-      const mat = new THREE.MeshBasicMaterial({ color: glow, transparent: true, opacity: 0.75, depthWrite: false });
+      // not tone mapped: shows the exact swatch colour (ACES would wash it out), never brighter than it
+      const mat = new THREE.MeshBasicMaterial({ color: p.color, transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false });
       const ring = new THREE.Mesh(new THREE.RingGeometry(0.58, 0.7, 40), mat);
       ring.rotation.x = -Math.PI / 2;
       ring.position.y = 0.03;
@@ -1765,7 +1742,7 @@ function tick(dt) {
   }
 
   setKeepAwake(mode === 'play' && !paused && sim.state !== 'gameover');
-  if (composer) composer.render(); else renderer.render(scene, camera);
+  renderer.render(scene, camera);
   hideSplash(); // after the first rendered frame
 }
 

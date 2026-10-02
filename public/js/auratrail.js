@@ -51,7 +51,7 @@ function createAuraTrail(scene, color) {
   geo.setAttribute('aAlpha', new THREE.BufferAttribute(alpha, 1).setUsage(THREE.DynamicDrawUsage));
 
   const base = new THREE.Color(color);
-  const hot = base.clone().lerp(WHITE, 0.3).multiplyScalar(1.2);
+  const hot = base.clone().lerp(WHITE, 0.3);
   const layer = (col, opacity, sizeMul, sharp, blending, order) => {
     const mat = new THREE.ShaderMaterial({
       uniforms: { uColor: { value: col }, uOpacity: { value: opacity }, uSizeMul: { value: sizeMul }, uSharp: { value: sharp }, uHalfH: { value: 400 } },
@@ -65,7 +65,7 @@ function createAuraTrail(scene, color) {
     return pts;
   };
   const shell = layer(base, 0.75, 1, 1.4, THREE.NormalBlending, 3);
-  const core = layer(hot, 0.85, 0.55, 2.2, THREE.AdditiveBlending, 3);
+  const core = layer(hot, 0.55, 0.55, 2.2, THREE.AdditiveBlending, 3);
   shell.visible = core.visible = false;
 
   let time = 0, head = 0, live = 0, lx = 0, lz = 0, wasActive = false;
@@ -83,7 +83,7 @@ function createAuraTrail(scene, color) {
   function update(dt, x, y, z, heading, active, color) {
     time += dt;
     if (!active && live === 0) return; // idle: nothing alive, nothing to emit (layers already hidden)
-    if (color) { base.copy(color); hot.copy(color).lerp(WHITE, 0.3).multiplyScalar(1.2); }
+    if (color) { base.copy(color); hot.copy(color).lerp(WHITE, 0.3); }
     if (active) {
       // emit from just behind the body, at aura height, spaced by distance so speed/framerate don't leave gaps
       const bx = x - Math.cos(heading) * 0.22, bz = z - Math.sin(heading) * 0.22;

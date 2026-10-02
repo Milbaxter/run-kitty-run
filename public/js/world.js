@@ -27,7 +27,7 @@ const THEMES = [
     wall: 0x3f8e3d, wallTop: 0x8ed86f, accent: 0xfff2a0, lamp: 0xffd27a,
     pillar: 0xe0d6bd, trunk: 0x8a5a3a, rock: 0xa3a39a, tuft: 0x5fae45, chevron: 0xffffff,
     hemiSky: 0xd8f0ff, hemiGround: 0x5d7a3c, hemiIntensity: 1.2,
-    sunColor: 0xfff0d8, sunIntensity: 2.3, lampBoost: 2.6, glowK: 0.22, chevronOpacity: 0.32,
+    sunColor: 0xfff0d8, sunIntensity: 2.3, glowK: 0.22, chevronOpacity: 0.32,
     floorStyle: 'grass', wallStyle: 'hedge', particles: 'pollen', crownEmissive: 0,
     crowns: [0x5cb84a, 0x4aa63f, 0x78c850, 0x3f9a45, 0x8fd35a],
     smalls: [0xffffff, 0xff8fc8, 0xffe14d, 0xb48cff, 0xff6b6b],
@@ -39,7 +39,7 @@ const THEMES = [
     wall: 0xa8432a, wallTop: 0xf08c3c, accent: 0xffc04a, lamp: 0xffa040,
     pillar: 0xcdb89c, trunk: 0x6b4430, rock: 0x948a7c, tuft: 0xb08d3c, chevron: 0xfff2cc,
     hemiSky: 0xffe4c4, hemiGround: 0x6e4a2c, hemiIntensity: 1.1,
-    sunColor: 0xffc890, sunIntensity: 2.2, lampBoost: 2.8, glowK: 0.28, chevronOpacity: 0.32,
+    sunColor: 0xffc890, sunIntensity: 2.2, glowK: 0.28, chevronOpacity: 0.32,
     floorStyle: 'autumn', wallStyle: 'hedge', particles: 'leaves', crownEmissive: 0,
     crowns: [0xe8642c, 0xd83f2a, 0xf2a03a, 0xf5c542, 0xb8462e],
     smalls: [0xe8642c, 0xd83f2a, 0xf2a03a, 0xf5c542, 0x9c3b22],
@@ -51,7 +51,7 @@ const THEMES = [
     wall: 0x7f90ab, wallTop: 0xf6f9ff, accent: 0x8fdcff, lamp: 0xffc878,
     pillar: 0x9aa6ba, trunk: 0x5a4636, rock: 0x8d9bb0, tuft: 0xffffff, chevron: 0x5aa8f0,
     hemiSky: 0xe4eeff, hemiGround: 0x5f7fc0, hemiIntensity: 1.15,
-    sunColor: 0xfff4e6, sunIntensity: 1.6, lampBoost: 3.0, glowK: 0.3, chevronOpacity: 0.38,
+    sunColor: 0xfff4e6, sunIntensity: 1.6, glowK: 0.3, chevronOpacity: 0.38,
     floorStyle: 'snow', wallStyle: 'stone', particles: 'snow', crownEmissive: 0,
     crowns: [0x2f6b52, 0x3a7a5e, 0x2a5e4a, 0x497f68, 0xbfd8dc],
     smalls: [0xffffff, 0xd8ecff, 0x9fd8ff],
@@ -63,7 +63,7 @@ const THEMES = [
     wall: 0x352c66, wallTop: 0xff4fd8, accent: 0x3ff6ff, lamp: 0x7cf8ff,
     pillar: 0x40367a, trunk: 0x2a2040, rock: 0x3e3570, tuft: 0x3b2f7a, chevron: 0x3ff6ff,
     hemiSky: 0x9a84ff, hemiGround: 0x2a1a48, hemiIntensity: 1.2,
-    sunColor: 0xb8a8ff, sunIntensity: 1.1, lampBoost: 2.8, glowK: 0.35, chevronOpacity: 0.6,
+    sunColor: 0xb8a8ff, sunIntensity: 1.1, glowK: 0.35, chevronOpacity: 0.6,
     floorStyle: 'neon', wallStyle: 'neon', particles: 'motes', crownEmissive: 0.12,
     crowns: [0x5b2fa0, 0x47288a, 0x6a35b0, 0x3a2470, 0x2f6fa0],
     smalls: [0x3ff6ff, 0xff4fd8, 0xb6ff4f, 0xffd24f],
@@ -75,7 +75,7 @@ const THEMES = [
     wall: 0x4f9a48, wallTop: 0xf6b8d4, accent: 0xffd0e6, lamp: 0xffd6a0,
     pillar: 0xeadfd0, trunk: 0x6e4a3a, rock: 0xa8a8a0, tuft: 0x6cc24f, chevron: 0xffffff,
     hemiSky: 0xf0f4ff, hemiGround: 0x6a8a4a, hemiIntensity: 1.2,
-    sunColor: 0xfff4ec, sunIntensity: 2.2, lampBoost: 2.6, glowK: 0.22, chevronOpacity: 0.32,
+    sunColor: 0xfff4ec, sunIntensity: 2.2, glowK: 0.22, chevronOpacity: 0.32,
     floorStyle: 'grass', wallStyle: 'hedge', particles: 'leaves', crownEmissive: 0,
     crowns: [0xffb7d5, 0xff9ec7, 0xffc9df, 0xf7a8c8, 0xfff0f6],   // cherry blossom trees (and falling petals)
     smalls: [0xffffff, 0xffb7d5, 0xfff07a, 0xb7e4ff, 0xd6b8ff],
@@ -591,7 +591,7 @@ function buildWalls(levelData, theme, T) {
   const bodyMat = T.m(new THREE.MeshStandardMaterial({ map: wallTex, vertexColors: true, roughness: style === 'neon' ? 0.55 : 0.92, metalness: style === 'neon' ? 0.2 : 0 }));
   let capMat;
   if (style === 'neon') {
-    capMat = T.m(emissiveByColor(new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, emissive: 0xffffff, emissiveIntensity: 0.85, roughness: 0.4 })));
+    capMat = T.m(emissiveByColor(new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, emissive: 0xffffff, emissiveIntensity: 0.45, roughness: 0.4 })));
   } else if (style === 'stone') {
     capMat = T.m(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75 }));
   } else {
@@ -654,7 +654,7 @@ function buildFloors(levelData, theme, T) {
 
   const { map, emissiveMap } = makeFloorTextures(theme.floorStyle, T);
   const opts = { map, vertexColors: true, roughness: 0.95, metalness: 0 };
-  if (theme.floorStyle === 'snow') Object.assign(opts, { emissiveMap, emissive: 0xffffff, emissiveIntensity: 1.1, roughness: 0.8 });
+  if (theme.floorStyle === 'snow') Object.assign(opts, { emissiveMap, emissive: 0xffffff, emissiveIntensity: 0.45, roughness: 0.8 });
   if (theme.floorStyle === 'neon') Object.assign(opts, { emissiveMap, emissive: theme.accent, emissiveIntensity: 0.16, roughness: 0.6, metalness: 0.15 });
   const floor = new THREE.Mesh(g, T.m(new THREE.MeshStandardMaterial(opts)));
   floor.receiveShadow = true;
@@ -805,8 +805,7 @@ function buildLanterns(levelData, theme, T, rng) {
     for (let i = 0; i < spots.length; i++) {
       const ph = phases[i];
       const f = 0.86 + 0.08 * Math.sin(time * 6.3 + ph * 7) + 0.06 * Math.sin(time * 17.1 + ph * 13);
-      tmp.copy(lampC).multiplyScalar(theme.lampBoost * f);
-      orbs.setColorAt(i, tmp);
+      orbs.setColorAt(i, tmp.copy(lampC).multiplyScalar(f));
       tmp.copy(lampC).multiplyScalar(theme.glowK * f);
       glows.setColorAt(i, tmp);
     }
@@ -824,7 +823,7 @@ function buildLanterns(levelData, theme, T, rng) {
     chevItems.push({ x: cs[k].x, z: cs[k].z, y: 0.02, ry: -Math.atan2(dz, dx) });
   }
   const chevMat = T.m(new THREE.MeshBasicMaterial({
-    map: makeChevronTexture(T), color: new THREE.Color(theme.chevron).multiplyScalar(theme.wallStyle === 'neon' ? 1.6 : 1),
+    map: makeChevronTexture(T), color: theme.chevron,
     transparent: true, opacity: theme.chevronOpacity, depthWrite: false, fog: true,
   }));
   const chevrons = makeInstanced(chevGeo, chevMat, chevItems);
@@ -1062,7 +1061,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
       paint(place(new THREE.CylinderGeometry(0.035, 0.05, 0.16, 5), 0, 0.08, 0), 0x777799),
       paint(place(new THREE.SphereGeometry(0.13, 8, 4, 0, TAU, 0, Math.PI / 2), 0, 0.15, 0, 1, 0.7, 1), 0xffffff),
     ]));
-    const mushMat = T.m(emissiveByColor(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, emissive: 0xffffff, emissiveIntensity: 0.9 })));
+    const mushMat = T.m(emissiveByColor(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, emissive: 0xffffff, emissiveIntensity: 0.45 })));
     const mush = clusters(Math.round(corridorArea * 0.02), [2, 5], 0.4, 0.6, (x, z) => ({ x, z, s: rng.range(0.7, 1.5), ry: rng.range(0, TAU), color: new THREE.Color(rng.pick(theme.smalls)) }));
     for (let i = 0; i < outerArea * 0.03; i++) {
       const p = sampleOuter(1, 26);
@@ -1070,7 +1069,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
     }
     meshes.push(...inst(mushGeo, mushMat, mush));
     const crysGeo = T.g(place(new THREE.OctahedronGeometry(0.35, 0), 0, 0.6, 0, 0.7, 2.2, 0.7));
-    const crysMat = T.m(emissiveByColor(new THREE.MeshStandardMaterial({ roughness: 0.25, metalness: 0.2, emissive: 0xffffff, emissiveIntensity: 1.6 })));
+    const crysMat = T.m(emissiveByColor(new THREE.MeshStandardMaterial({ roughness: 0.25, metalness: 0.2, emissive: 0xffffff, emissiveIntensity: 0.5 })));
     const crys = [];
     for (let i = 0; i < outerArea * 0.006; i++) {
       const p = sampleOuter(2, 26), n = rng.int(2, 4);
@@ -1099,7 +1098,7 @@ function buildParticles(theme, rng, radius, T, box = null) {
   else if (kind === 'leaves') { palette = theme.crowns; H = 11; size = 0.42; additive = false; sprite = 'leaf'; }
   else if (kind === 'snow') { palette = [0xffffff, 0xf0f6ff]; H = 12; size = 0.2; additive = false; sprite = 'snow'; }
   else { palette = [theme.accent, theme.wallTop, 0xb68cff]; H = 7; size = 0.26; additive = true; sprite = 'dot'; }
-  const bright = kind === 'motes' ? 1.8 : kind === 'pollen' ? 1.1 : 1;
+  const bright = kind === 'motes' || kind === 'pollen' ? 0.9 : 1;
   for (let i = 0; i < count; i++) {
     if (box) { base[i * 5] = rng.range(0, box.w); base[i * 5 + 1] = rng.range(0, box.d); } else {
       const r = radius * Math.sqrt(rng.next()), a = rng.range(0, TAU);
@@ -1298,7 +1297,7 @@ function buildFinale(levelData, theme, T, rng) {
   finLine.receiveShadow = true;
   meshes.push(finLine);
   const startGeo = T.g(new THREE.PlaneGeometry(0.5, lineW)); startGeo.rotateX(-Math.PI / 2);
-  const startMat = T.m(new THREE.MeshBasicMaterial({ color: new THREE.Color(0x8fdcff).multiplyScalar(1.2), transparent: true, opacity: 0.7, depthWrite: false }));
+  const startMat = T.m(new THREE.MeshBasicMaterial({ color: 0x8fdcff, transparent: true, opacity: 0.7, depthWrite: false }));
   const startLine = new THREE.Mesh(startGeo, startMat);
   startLine.position.set(xStart, 0.014, 0);
   startLine.renderOrder = 1;
@@ -1306,7 +1305,7 @@ function buildFinale(levelData, theme, T, rng) {
 
   // ---- ice-crystal clusters outside both walls (staggered); evenly spaced, so they don't tell how far is left
   const crysGeo = T.g(place(new THREE.OctahedronGeometry(0.5, 0), 0, 0.5, 0, 0.55, 1.9, 0.55));
-  const crysMat = T.m(emissiveByColor(new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 0.1, emissive: 0xffffff, emissiveIntensity: 0.55, flatShading: true })));
+  const crysMat = T.m(emissiveByColor(new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 0.1, emissive: 0xffffff, emissiveIntensity: 0.4, flatShading: true })));
   const crysCols = [0x9fe4ff, 0xd8f4ff, 0x7fc4ff, 0xc8b8ff];
   const crys = [], crysGlow = [];
   const cluster = (x, z, big) => {
@@ -1429,7 +1428,7 @@ function buildFinale(levelData, theme, T, rng) {
     auroraMat.uniforms.uTime.value = time;
     if (ringMat) ringMat.opacity = 0.6 + 0.3 * Math.sin(time * 2.2);
     startMat.opacity = 0.55 + 0.2 * Math.sin(time * 3.1);
-    for (let i = 0; i < orbs.length; i++) orbMesh.setColorAt(i, tmp.copy(orbC[i]).multiplyScalar(1.6 + 0.35 * Math.sin(time * 4 + i * 1.3)));
+    for (let i = 0; i < orbs.length; i++) orbMesh.setColorAt(i, tmp.copy(orbC[i]).multiplyScalar(0.85 + 0.15 * Math.sin(time * 4 + i * 1.3)));
     if (orbMesh.instanceColor) orbMesh.instanceColor.needsUpdate = true;
   };
   update(0);

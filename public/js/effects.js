@@ -92,7 +92,7 @@ void main() {
   float t = (vR - uInner) / (1.0 - uInner);
   if (t < 0.0) discard;
   float a = t * t * (1.0 - smoothstep(0.8, 1.0, t));
-  gl_FragColor = vec4(uColor * (1.0 + a), a * uOpacity);
+  gl_FragColor = vec4(uColor, a * uOpacity);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
@@ -115,11 +115,11 @@ varying vec2 vUv;
 varying float vFres;
 void main() {
   float h = vUv.y;
-  float fall = pow(max(1.0 - h, 0.0), 1.4); // max: pow of a negative is NaN, which bloom smears into black boxes
+  float fall = pow(max(1.0 - h, 0.0), 1.4); // max: pow of a negative is NaN (renders black)
   float stripes = 0.72 + 0.28 * sin(h * 28.0 - uTime * 11.0);
   float core = pow(max(vFres, 0.0), 1.6);
   float a = fall * stripes * (0.15 + 0.85 * core) * uOpacity;
-  gl_FragColor = vec4(uColor * (0.8 + core * 0.5), a);
+  gl_FragColor = vec4(uColor * (0.75 + core * 0.25), a);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
@@ -170,7 +170,7 @@ function createEffects(scene) {
     scaleUniform.value = h * 0.5 * camera.projectionMatrix.elements[5];
   }
 
-  const glow = makePool(4000, THREE.AdditiveBlending, 1.0, 20);   // sparkles, puffs, glows
+  const glow = makePool(4000, THREE.AdditiveBlending, 0.4, 20);   // sparkles, puffs, glows
   const soft = makePool(4000, THREE.NormalBlending, 0.15, 19);    // dust, confetti, fur, firework stars (readable on snow)
 
   // Emits one particle; returns its base offset into pool.data, or -1 if pool is full.
@@ -386,7 +386,7 @@ function createEffects(scene) {
     const life = o.life !== undefined ? o.life : 0.8;
     const gravity = o.gravity !== undefined ? o.gravity : -6;
     const spread = o.spread !== undefined ? o.spread : 1;
-    const c = rgbOf(o.color, 1.6);
+    const c = rgbOf(o.color, 0.9);
     const cr = c.r, cg = c.g, cb = c.b;
     const cosMax = Math.cos(Math.min(1, Math.max(0, spread)) * Math.PI);
     for (let i = 0; i < count; i++) {
@@ -403,7 +403,7 @@ function createEffects(scene) {
   }
 
   function deathPoof(x, z, color) {
-    const c = rgbOf(color, 1.8);
+    const c = rgbOf(color, 0.9);
     const cr = c.r, cg = c.g, cb = c.b;
     // colored puff
     for (let i = 0; i < 30; i++) {
@@ -417,7 +417,7 @@ function createEffects(scene) {
     for (let i = 0; i < 14; i++) {
       const a = rand() * TAU, sp = rr(4, 8);
       const p = emit(glow, x, 0.5, z, Math.cos(a) * sp, rr(2, 6), Math.sin(a) * sp,
-        rr(0.4, 0.7), 0.22, 0.05, 2, 2, 2, 1);
+        rr(0.4, 0.7), 0.22, 0.05, 0.85, 0.85, 0.85, 1);
       if (p < 0) break;
       glow.data[p + GRAV] = -10; glow.data[p + DRAG] = 2;
       glow.data[p + SHAPE] = SHAPE_TWINKLE; glow.data[p + FREQ] = 40;
@@ -433,16 +433,16 @@ function createEffects(scene) {
       soft.data[p + GRAV] = -7; soft.data[p + DRAG] = 2.2;
       soft.data[p + SHAPE] = SHAPE_RECT; soft.data[p + SPIN] = rr(-8, 8); soft.data[p + FREQ] = rr(6, 12);
     }
-    ring(x, 0.06, z, color, 0.3, 3.4, 0.55, 0.78, 1, 2.0);
-    ring(x, 0.08, z, 0xffffff, 0.2, 2.0, 0.35, 0.85, 0.8, 1.5);
+    ring(x, 0.06, z, color, 0.3, 3.4, 0.55, 0.78, 0.9, 1);
+    ring(x, 0.08, z, 0xffffff, 0.2, 2.0, 0.35, 0.85, 0.5, 0.8);
   }
 
   function reviveBeam(x, z, color) {
-    beam(x, z, color, 1.15, 9, 1.1, 1.3);
-    beam(x, z, 0xffffff, 0.35, 11, 0.8, 0.8);
-    ring(x, 0.06, z, color, 0.4, 2.8, 0.7, 0.75, 1, 2.2);
-    const c = rgbOf(color, 1.5);
-    const cr = c.r * 0.7 + 0.5, cg = c.g * 0.7 + 0.5, cb = c.b * 0.7 + 0.5;
+    beam(x, z, color, 1.15, 9, 1.1, 0.85);
+    beam(x, z, 0xffffff, 0.35, 11, 0.8, 0.5);
+    ring(x, 0.06, z, color, 0.4, 2.8, 0.7, 0.75, 0.9, 1);
+    const c = rgbOf(color, 0.9);
+    const cr = c.r * 0.65 + 0.3, cg = c.g * 0.65 + 0.3, cb = c.b * 0.65 + 0.3;
     for (let i = 0; i < 46; i++) {
       const a = rand() * TAU, rad = Math.sqrt(rand()) * 1.1;
       const px = x + Math.cos(a) * rad, pz = z + Math.sin(a) * rad;
@@ -456,8 +456,8 @@ function createEffects(scene) {
   }
 
   function pickup(x, z, color) {
-    ring(x, 0.06, z, color, 0.2, 1.7, 0.45, 0.82, 1, 2.0);
-    const c = rgbOf(color, 1.7);
+    ring(x, 0.06, z, color, 0.2, 1.7, 0.45, 0.82, 0.9, 1);
+    const c = rgbOf(color, 0.9);
     const cr = c.r, cg = c.g, cb = c.b;
     for (let i = 0; i < 18; i++) {
       const a = (i / 18) * TAU + rand() * 0.2, sp = rr(2.5, 3.5);
@@ -467,17 +467,17 @@ function createEffects(scene) {
       glow.data[p + SHAPE] = SHAPE_TWINKLE; glow.data[p + FREQ] = 35;
     }
     for (let i = 0; i < 8; i++) {
-      const p = emit(glow, x + rr(-0.3, 0.3), rr(0.3, 0.8), z + rr(-0.3, 0.3), 0, rr(2, 4), 0, rr(0.5, 0.8), 0.18, 0.04, 2, 2, 2, 1);
+      const p = emit(glow, x + rr(-0.3, 0.3), rr(0.3, 0.8), z + rr(-0.3, 0.3), 0, rr(2, 4), 0, rr(0.5, 0.8), 0.18, 0.04, 0.85, 0.85, 0.85, 1);
       if (p < 0) break;
       glow.data[p + DRAG] = 2;
     }
   }
 
   function teleport(x, z, color) {
-    beam(x, z, 0xffffff, 0.6, 13, 0.5, 1.0);
-    beam(x, z, color, 1.35, 10, 0.85, 1.3);
-    ring(x, 0.06, z, color, 0.3, 3.0, 0.55, 0.7, 1, 2.2);
-    const c = rgbOf(color, 1.6);
+    beam(x, z, 0xffffff, 0.6, 13, 0.5, 0.55);
+    beam(x, z, color, 1.35, 10, 0.85, 0.85);
+    ring(x, 0.06, z, color, 0.3, 3.0, 0.55, 0.7, 0.9, 1);
+    const c = rgbOf(color, 0.9);
     const cr = c.r, cg = c.g, cb = c.b;
     const dir = rand() < 0.5 ? -1 : 1;
     for (let i = 0; i < 64; i++) {
@@ -485,7 +485,7 @@ function createEffects(scene) {
       const white = i % 3 === 0;
       const p = emit(glow, x + Math.cos(a) * rad, rr(0, 0.6), z + Math.sin(a) * rad,
         -Math.cos(a) * 0.4, rr(3, 7.5), -Math.sin(a) * 0.4, rr(0.8, 1.3), rr(0.18, 0.32), 0.04,
-        white ? 2 : cr, white ? 2 : cg, white ? 2 : cb, 1);
+        white ? 0.85 : cr, white ? 0.85 : cg, white ? 0.85 : cb, 1);
       if (p < 0) break;
       const d = glow.data;
       d[p + GRAV] = 2.5; d[p + DRAG] = 0.4;
@@ -494,13 +494,13 @@ function createEffects(scene) {
   }
 
   function shieldPop(x, z) {
-    ring(x, 0.06, z, 0x7fe9ff, 0.6, 2.2, 0.35, 0.8, 1, 2.0);
+    ring(x, 0.06, z, 0x7fe9ff, 0.6, 2.2, 0.35, 0.8, 0.9, 1);
     for (let i = 0; i < 32; i++) {
       const u = rand() * 2 - 1, a = rand() * TAU, s = Math.sqrt(1 - u * u);
       const nx = Math.cos(a) * s, ny = Math.abs(u), nz = Math.sin(a) * s;
       const sp = rr(3, 5.5);
       const p = emit(glow, x + nx * 0.8, 0.5 + ny * 0.8, z + nz * 0.8, nx * sp, ny * sp, nz * sp,
-        rr(0.35, 0.6), rr(0.18, 0.3), 0.05, 0.8, 1.8, 2.2, 1);
+        rr(0.35, 0.6), rr(0.18, 0.3), 0.05, 0.4, 0.8, 0.95, 1);
       if (p < 0) break;
       glow.data[p + DRAG] = 4; glow.data[p + GRAV] = -4;
     }
@@ -537,7 +537,7 @@ function createEffects(scene) {
       tmpColor.setHex(col);
       const p = emit(soft, x + rr(-0.4, 0.4), rr(0.3, 0.8), z + rr(-0.4, 0.4),
         Math.cos(a) * st * sp, Math.cos(tilt) * sp, Math.sin(a) * st * sp,
-        rr(2.5, 3.6), rr(0.38, 0.5), 0.32, tmpColor.r * 1.1, tmpColor.g * 1.1, tmpColor.b * 1.1, 1);
+        rr(2.5, 3.6), rr(0.38, 0.5), 0.32, tmpColor.r, tmpColor.g, tmpColor.b, 1);
       if (p < 0) break;
       const d = soft.data;
       d[p + GRAV] = -9; d[p + DRAG] = rr(1.4, 2.2);
@@ -548,13 +548,13 @@ function createEffects(scene) {
       const st = Math.sin(tilt);
       tmpColor.setHex(CONFETTI_COLORS[(rand() * CONFETTI_COLORS.length) | 0]);
       const p = emit(glow, x, 0.5, z, Math.cos(a) * st * sp, Math.cos(tilt) * sp, Math.sin(a) * st * sp,
-        rr(1.0, 1.8), 0.28, 0.05, tmpColor.r * 2, tmpColor.g * 2, tmpColor.b * 2, 1);
+        rr(1.0, 1.8), 0.28, 0.05, tmpColor.r * 0.9, tmpColor.g * 0.9, tmpColor.b * 0.9, 1);
       if (p < 0) break;
       const d = glow.data;
       d[p + GRAV] = -8; d[p + DRAG] = 1.6;
       d[p + SHAPE] = SHAPE_TWINKLE; d[p + FREQ] = 30;
     }
-    ring(x, 0.06, z, 0xffe680, 0.5, 4.5, 0.7, 0.85, 1, 2.0);
+    ring(x, 0.06, z, 0xffe680, 0.5, 4.5, 0.7, 0.85, 0.9, 1);
   }
 
   // A kitty takes a bite of the giant fish (the final run): pink-orange flesh crumbs and silver scales spray up out of
@@ -573,7 +573,7 @@ function createEffects(scene) {
     }
     for (let i = 0; i < 2; i++) {
       const p = emit(glow, x + rr(-0.2, 0.2), y + 0.1, z + rr(-0.2, 0.2), rr(-0.6, 0.6), rr(1, 2), rr(-0.6, 0.6),
-        rr(0.3, 0.5), 0.22, 0.04, 1.6, 1.5, 1.3, 0.8);
+        rr(0.3, 0.5), 0.22, 0.04, 0.85, 0.8, 0.7, 0.8);
       if (p < 0) break;
       glow.data[p + SHAPE] = SHAPE_TWINKLE; glow.data[p + FREQ] = 35;
     }
@@ -608,8 +608,8 @@ function createEffects(scene) {
   function fireworkBurst(r) {
     const n = Math.max(24, Math.round(130 * r.scale));
     const willow = r.kind === 'willow', ringK = r.kind === 'ring';
-    const c1 = rgbOf(r.color, 1.9), c1r = c1.r, c1g = c1.g, c1b = c1.b;
-    const c2 = rgbOf(r.color2 === undefined ? r.color : r.color2, 1.9), c2r = c2.r, c2g = c2.g, c2b = c2.b;
+    const c1 = rgbOf(r.color, 1), c1r = c1.r, c1g = c1.g, c1b = c1.b;
+    const c2 = rgbOf(r.color2 === undefined ? r.color : r.color2, 1), c2r = c2.r, c2g = c2.g, c2b = c2.b;
     // ring bursts are tilted toward the camera a little so they read as rings, not lines
     const tilt = rr(0.5, 0.9);
     for (let i = 0; i < n; i++) {
@@ -623,11 +623,11 @@ function createEffects(scene) {
       }
       const sp = (willow ? rr(5, 7) : rr(7.5, 10)) * (ringK ? 1 : rr(0.85, 1));
       const two = i % 3 === 0;
-      // half the stars glow (bloom at night / on ice), half are solid colour so they still read against white snow
-      const solid = i % 2 === 1, pool = solid ? soft : glow, m = solid ? 1 / 1.9 : 1;
+      // half the stars glow (additive), half are solid colour so they still read against white snow
+      const solid = i % 2 === 1, pool = solid ? soft : glow;
       const p = emit(pool, r.x, r.y, r.z, dx * sp, dy * sp + 1, dz * sp,
         willow ? rr(2.0, 2.8) : rr(1.1, 1.6), willow ? 0.32 : solid ? 0.36 : 0.42, 0.06,
-        (two ? c2r : c1r) * m, (two ? c2g : c1g) * m, (two ? c2b : c1b) * m, 1);
+        two ? c2r : c1r, two ? c2g : c1g, two ? c2b : c1b, 1);
       if (p < 0) break;
       const d = pool.data;
       d[p + GRAV] = willow ? -2.2 : -3.2; d[p + DRAG] = willow ? 1.9 : 1.35;
@@ -636,7 +636,7 @@ function createEffects(scene) {
     // white-hot core flash + crackle
     for (let i = 0; i < Math.round(22 * r.scale) + 4; i++) {
       const u = rand() * 2 - 1, a = rand() * TAU, s = Math.sqrt(1 - u * u), sp = rr(1.5, 4.5);
-      const p = emit(glow, r.x, r.y, r.z, Math.cos(a) * s * sp, u * sp, Math.sin(a) * s * sp, rr(0.25, 0.5), 0.9, 0.1, 2.2, 2.1, 1.9, 1);
+      const p = emit(glow, r.x, r.y, r.z, Math.cos(a) * s * sp, u * sp, Math.sin(a) * s * sp, rr(0.25, 0.5), 0.9, 0.1, 0.9, 0.85, 0.75, 1);
       if (p < 0) break;
       glow.data[p + DRAG] = 3;
       glow.data[p + SHAPE] = SHAPE_TWINKLE; glow.data[p + FREQ] = 45;
@@ -652,9 +652,9 @@ function createEffects(scene) {
       r.trailT -= dt;
       while (r.trailT <= 0) {
         r.trailT += 0.016;
-        const c = rgbOf(r.color, 0.6);
+        const c = rgbOf(r.color, 0.35);
         const p = emit(glow, r.px + rr(-0.05, 0.05), r.py, r.pz + rr(-0.05, 0.05), rr(-0.4, 0.4), rr(-1.5, -0.3), rr(-0.4, 0.4),
-          rr(0.35, 0.6), 0.26, 0.04, 1.6 + c.r, 1.4 + c.g, 1.1 + c.b, 0.9);
+          rr(0.35, 0.6), 0.26, 0.04, 0.6 + c.r, 0.5 + c.g, 0.4 + c.b, 0.9);
         if (p < 0) break;
         glow.data[p + GRAV] = -2; glow.data[p + DRAG] = 1;
         glow.data[p + SHAPE] = SHAPE_TWINKLE; glow.data[p + FREQ] = 40;
@@ -672,7 +672,7 @@ function createEffects(scene) {
       const a = rand() * TAU, rad = Math.sqrt(rand()) * radius;
       tmpColor.setHex(CONFETTI_COLORS[(rand() * CONFETTI_COLORS.length) | 0]);
       const p = emit(soft, x + Math.cos(a) * rad, rr(12, 16), z + Math.sin(a) * rad, rr(-0.6, 0.6), rr(-1.5, -0.5), rr(-0.6, 0.6),
-        rr(4.5, 6.5), rr(0.34, 0.46), 0.3, tmpColor.r * 1.1, tmpColor.g * 1.1, tmpColor.b * 1.1, 1);
+        rr(4.5, 6.5), rr(0.34, 0.46), 0.3, tmpColor.r, tmpColor.g, tmpColor.b, 1);
       if (p < 0) return;
       const d = soft.data;
       d[p + GRAV] = -2.6; d[p + DRAG] = 1.2;

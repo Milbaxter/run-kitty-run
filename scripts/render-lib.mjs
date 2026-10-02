@@ -43,8 +43,7 @@ export async function launch(pw) {
 export function importmap() {
   const local = fs.existsSync(path.join(ROOT, 'public/vendor/three/build/three.module.js'));
   const three = local ? '/vendor/three/build/three.module.js' : 'https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js';
-  const addons = local ? '/vendor/three/examples/jsm/' : 'https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/';
-  return `<script type="importmap">${JSON.stringify({ imports: { three, 'three/addons/': addons } })}</script>`;
+  return `<script type="importmap">${JSON.stringify({ imports: { three } })}</script>`;
 }
 
 // Serve resources/src/* at BASE/__render/* (same origin as the game, so /js/models.js imports work).

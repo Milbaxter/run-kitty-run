@@ -7,7 +7,7 @@ import { QUALITY } from './device.js';
 // Notes / interpretations:
 // - Static parts of each rig are baked into single vertex-colored geometries (cached per color/type) and
 //   share ONE MeshStandardMaterial (flatShading, vertexColors) to keep draw calls and programs low.
-// - Glowing parts use MeshBasicMaterial / ShaderMaterial with colors > 1 so the bloom pass picks them up.
+// - Glowing parts use MeshBasicMaterial / ShaderMaterial (often additive) with colours kept <= 1, so nothing glares.
 // - createKittyModel(...).setGhost(on, tint?) accepts an optional tint color (used by the revive circle).
 
 // ---------------------------------------------------------------------------
@@ -102,13 +102,11 @@ function bake(parts) {
   return out;
 }
 
-function glowColor(hex, k) { return new THREE.Color(hex).multiplyScalar(k); }
-
 const VC_MAT = () => cmat('vc', () => new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.82, metalness: 0.0 }));
 
-function basicGlow(key, hex, k, opts) {
-  return cmat('glow:' + key + ':' + hex + ':' + k, () => new THREE.MeshBasicMaterial(Object.assign({
-    color: glowColor(hex, k), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: true,
+function basicGlow(key, hex, opts) {
+  return cmat('glow:' + key + ':' + hex, () => new THREE.MeshBasicMaterial(Object.assign({
+    color: hex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
   }, opts || {})));
 }
 
@@ -206,7 +204,7 @@ void main(){
   float rim = pow(max(f, 0.0), 2.4);
   float band = 0.5 + 0.5 * sin(vP.y * 13.0 - uTime * 3.2 + sin(vP.x * 5.0 + uTime) * 1.6);
   float hex = smoothstep(0.82, 1.0, abs(sin(vP.x * 11.0 + uTime * 0.7) * sin(vP.y * 11.0) * sin(vP.z * 11.0 - uTime * 0.5)));
-  vec3 col = uColor * (0.10 + rim * 2.4 + band * rim * 0.9 + hex * 0.35);
+  vec3 col = uColor * (0.06 + rim * 0.75 + band * rim * 0.25 + hex * 0.15);
   gl_FragColor = vec4(col * uOpacity, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -225,7 +223,7 @@ const BEAM_FS = `
 uniform vec3 uColor; uniform float uIntensity; uniform float uTime;
 varying vec2 vUv;
 void main(){
-  float fade = pow(max(1.0 - vUv.y, 0.0), 1.6) * smoothstep(0.0, 0.06, vUv.y + 0.02); // max: pow of a negative is NaN (MSAA can push vUv.y past 1), and bloom smears NaN into black boxes
+  float fade = pow(max(1.0 - vUv.y, 0.0), 1.6) * smoothstep(0.0, 0.06, vUv.y + 0.02); // max: pow of a negative is NaN (MSAA can push vUv.y past 1), which renders as black
   float streak = 0.65 + 0.35 * sin(vUv.y * 18.0 - uTime * 5.0 + vUv.x * 6.2832 * 3.0);
   gl_FragColor = vec4(uColor * fade * streak * uIntensity, 1.0);
   #include <tonemapping_fragment>
@@ -247,7 +245,7 @@ void main(){
   float core = exp(-r * 5.0);
   float rimGlow = smoothstep(0.75, 0.97, r) * edge;
   vec3 col = mix(uColB, uColA, smoothstep(0.0, 0.9, r)) * (s1 * 0.55 + s2 * 0.3 + 0.08) * edge;
-  col += uColB * core * 1.6 + uColA * rimGlow * 0.6;
+  col += uColB * core * 0.6 + uColA * rimGlow * 0.5;
   gl_FragColor = vec4(col * uIntensity, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
@@ -405,7 +403,7 @@ function ghostMaterial(tint) {
     const em = new THREE.Color(0x9cc8ff);
     if (key !== 'ghost') { const t = new THREE.Color(tint); col.lerp(t, 0.25); em.lerp(t, 0.35); }
     return new THREE.MeshStandardMaterial({
-      color: col, emissive: em, emissiveIntensity: 1.0, flatShading: true,
+      color: col, emissive: em, emissiveIntensity: 0.45, flatShading: true,
       transparent: true, opacity: 0.42, depthWrite: false, roughness: 0.6,
     });
   });
@@ -419,7 +417,7 @@ const AURA_WHITE = new THREE.Color(0xffffff);
 const STONE_COLORS = [0x3d7bff, 0xffd23d, 0xff3b4e, 0xa24dff, 0x30d97a];
 const STONE_GEO = shared(new THREE.OctahedronGeometry(1, 0));
 function stoneMat(n) {
-  return cmat('stone' + n, () => new THREE.MeshStandardMaterial({ color: STONE_COLORS[n], emissive: STONE_COLORS[n], emissiveIntensity: 0.85, metalness: 0.2, roughness: 0.25, flatShading: true }));
+  return cmat('stone' + n, () => new THREE.MeshStandardMaterial({ color: STONE_COLORS[n], emissive: STONE_COLORS[n], emissiveIntensity: 0.4, metalness: 0.2, roughness: 0.25, flatShading: true }));
 }
 function pearlMat() {
   return cmat('crownPearl', () => new THREE.MeshStandardMaterial({ color: 0xfff2b0, emissive: 0x7a4a00, emissiveIntensity: 0.6, metalness: 0.45, roughness: 0.35, flatShading: true }));
@@ -965,7 +963,7 @@ const ITEM_GLOW = { boots: 0x6fe0ff, life: 0xff5a8a, shield: 0x7ab8ff };
 function itemDisc(type) {
   const m = new THREE.Mesh(
     cgeo('itemDisc', () => flatDisc(0.75, 24)),
-    cmat('itemDisc:' + type, () => new THREE.MeshBasicMaterial({ map: radialTexture(), color: glowColor(ITEM_GLOW[type], 1.1), transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending })),
+    cmat('itemDisc:' + type, () => new THREE.MeshBasicMaterial({ map: radialTexture(), color: ITEM_GLOW[type], transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending })),
   );
   m.position.y = 0.03;
   m.renderOrder = 1;
@@ -993,7 +991,7 @@ function bootGeos() {
     const src = wg.toNonIndexed();
     const pa = src.attributes.position;
     const col = [];
-    const cw = new THREE.Color(0xffffff), cg = glowColor(0x7fe8ff, 3.2);
+    const cw = new THREE.Color(0xffffff), cg = new THREE.Color(0x7fe8ff);
     for (let i = 0; i < pa.count; i++) {
       const t = Math.min(1, Math.max(0, (-pa.getX(i) - 0.14) / 0.2));
       _c.copy(cw).lerp(cg, t * t);
@@ -1083,7 +1081,7 @@ function createItemModel(type) {
   } else if (type === 'life') {
     const heartMat = cmat('heartMat', () => new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.5, emissive: 0xff2a5a, emissiveIntensity: 0.35 }));
     const heart = new THREE.Mesh(heartGeo(), heartMat); heart.castShadow = QUALITY.propShadows; spin.add(heart);
-    const halo = new THREE.Mesh(cgeo('haloTorus', () => new THREE.TorusGeometry(0.19, 0.022, 6, 28)), basicGlow('halo', 0xffd76a, 2.6, { blending: THREE.NormalBlending, transparent: false, depthWrite: true }));
+    const halo = new THREE.Mesh(cgeo('haloTorus', () => new THREE.TorusGeometry(0.19, 0.022, 6, 28)), basicGlow('halo', 0xffd76a, { blending: THREE.NormalBlending, transparent: false, depthWrite: true }));
     halo.rotation.x = Math.PI / 2 - 0.25;
     halo.position.y = 0.45;
     float.add(halo);
@@ -1100,7 +1098,7 @@ function createItemModel(type) {
     orb.scale.setScalar(0.33);
     orb.renderOrder = 4;
     float.add(orb);
-    const starMat = cmat('starMat', () => new THREE.MeshStandardMaterial({ color: 0xffd34a, emissive: 0xffb020, emissiveIntensity: 1.3, flatShading: true, roughness: 0.4 }));
+    const starMat = cmat('starMat', () => new THREE.MeshStandardMaterial({ color: 0xffd34a, emissive: 0xffb020, emissiveIntensity: 0.45, flatShading: true, roughness: 0.4 }));
     const star = new THREE.Mesh(starGeo(), starMat); spin.add(star);
     animate = (t) => {
       orbMat.uniforms.uTime.value = t;
@@ -1128,21 +1126,21 @@ function createReviveCircleModel(color) {
   group.name = 'reviveCircle';
   const col = new THREE.Color(color === undefined ? 0xffffff : color);
 
-  const haloMat = new THREE.MeshBasicMaterial({ map: ringHaloTexture(), color: col.clone().multiplyScalar(1.3), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  const haloMat = new THREE.MeshBasicMaterial({ map: ringHaloTexture(), color: col.clone().multiplyScalar(0.8), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
   const halo = new THREE.Mesh(cgeo('reviveHalo', () => flatDisc(R / 0.75, 40)), haloMat);
   halo.position.y = 0.03; halo.renderOrder = 1; group.add(halo);
 
-  const ringMat = new THREE.MeshBasicMaterial({ color: col.clone().multiplyScalar(2.4), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  const ringMat = new THREE.MeshBasicMaterial({ color: col.clone(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
   const ring = new THREE.Mesh(cgeo('reviveRing', () => flatRing(R - 0.07, R + 0.05, 56)), ringMat);
   ring.position.y = 0.04; ring.renderOrder = 2; group.add(ring);
 
-  const dashMat = new THREE.MeshBasicMaterial({ color: col.clone().multiplyScalar(1.8), transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  const dashMat = new THREE.MeshBasicMaterial({ color: col.clone().multiplyScalar(0.85), transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
   const dash = new THREE.Mesh(cgeo('reviveDash', () => dashedRingGeometry(R * 0.72, R * 0.72 + 0.06, 14, 0.55, 3)), dashMat);
   dash.position.y = 0.045; dash.renderOrder = 2; group.add(dash);
   const dash2 = new THREE.Mesh(cgeo('reviveDash2', () => dashedRingGeometry(R * 0.5, R * 0.5 + 0.035, 8, 0.3, 2)), dashMat);
   dash2.position.y = 0.045; dash2.renderOrder = 2; group.add(dash2);
 
-  const moteMat = new THREE.MeshBasicMaterial({ color: col.clone().lerp(new THREE.Color(0xffffff), 0.5).multiplyScalar(3), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  const moteMat = new THREE.MeshBasicMaterial({ color: col.clone().lerp(new THREE.Color(0xffffff), 0.5), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
   const motes = [];
   const moteGeo = cgeo('mote', () => new THREE.OctahedronGeometry(0.05, 0));
   for (let i = 0; i < 9; i++) {
@@ -1159,14 +1157,14 @@ function createReviveCircleModel(color) {
   group.add(ghost.group);
 
   const off = Math.random() * TAU_;
-  const baseRing = col.clone().multiplyScalar(2.4);
+  const baseRing = col.clone();
   function update(dt, time) {
     const t = time === undefined ? performance.now() / 1000 : time;
     const pulse = 0.5 + 0.5 * Math.sin(t * 4 + off);
-    ringMat.color.copy(baseRing).multiplyScalar(0.7 + 0.6 * pulse);
+    ringMat.color.copy(baseRing).multiplyScalar(0.7 + 0.3 * pulse);
     const rs = 1 + 0.04 * pulse;
     ring.scale.set(rs, 1, rs);
-    haloMat.opacity = 0.4 + 0.3 * pulse;
+    haloMat.opacity = 0.35 + 0.2 * pulse;
     dash.rotation.y = t * 0.9;
     dash2.rotation.y = -t * 1.4;
     for (const m of motes) {
@@ -1223,10 +1221,10 @@ function createPortalModel() {
 
   // rune rings
   const runeCol = new THREE.Color(0x6fe6ff);
-  const runeMat = new THREE.MeshBasicMaterial({ map: runeTexture(), color: runeCol.clone().multiplyScalar(1.6), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  const runeMat = new THREE.MeshBasicMaterial({ map: runeTexture(), color: runeCol.clone(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
   const runeOuter = new THREE.Mesh(flatRing(R * 0.8, R * 1.0, 96), runeMat);
   runeOuter.position.y = 0.075; runeOuter.renderOrder = 2; group.add(runeOuter);
-  const runeInnerMat = runeMat.clone(); runeInnerMat.color = new THREE.Color(0xffd27a).multiplyScalar(1.6);
+  const runeInnerMat = runeMat.clone(); runeInnerMat.color = new THREE.Color(0xffd27a).multiplyScalar(0.6);
   const runeInner = new THREE.Mesh(flatRing(1.75 * 0.8, 1.75, 64), runeInnerMat);
   runeInner.position.y = 0.08; runeInner.renderOrder = 2; group.add(runeInner);
 
@@ -1237,7 +1235,7 @@ function createPortalModel() {
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
   });
   const beamGeo = new THREE.CylinderGeometry(0.06, 0.16, 4.5, 8, 1, true); beamGeo.translate(0, 2.25, 0);
-  const shardMat = new THREE.MeshStandardMaterial({ color: 0x9ff0ff, emissive: 0x3fd0ff, emissiveIntensity: 1.4, flatShading: true, roughness: 0.25 });
+  const shardMat = new THREE.MeshStandardMaterial({ color: 0x9ff0ff, emissive: 0x3fd0ff, emissiveIntensity: 0.5, flatShading: true, roughness: 0.25 });
   const shardGeo = bake([
     [P.oct, mtx([0, 0.28, 0], null, [0.12, 0.3, 0.12]), 0xffffff],
     [P.oct, mtx([0.08, 0.16, 0.04], [0, 0, -0.5], [0.06, 0.16, 0.06]), 0xffffff],
@@ -1258,15 +1256,15 @@ function createPortalModel() {
   const column = new THREE.Mesh(colGeo, colMat); column.position.y = 0.08; column.renderOrder = 3; group.add(column);
 
   const crystalPivot = new THREE.Group(); crystalPivot.position.y = 2.9; group.add(crystalPivot);
-  const crystalMat = new THREE.MeshStandardMaterial({ color: 0xb8f6ff, emissive: 0x4fd8ff, emissiveIntensity: 1.5, flatShading: true, roughness: 0.2, metalness: 0.1 });
+  const crystalMat = new THREE.MeshStandardMaterial({ color: 0xb8f6ff, emissive: 0x4fd8ff, emissiveIntensity: 0.55, flatShading: true, roughness: 0.2, metalness: 0.1 });
   const crystal = new THREE.Mesh(bake([
     [P.oct, mtx([0, 0, 0], null, [0.45, 0.9, 0.45]), 0xffffff],
   ]), crystalMat);
   crystal.castShadow = true;
   crystalPivot.add(crystal);
-  const glowSprite = new THREE.Mesh(cgeo('portalGlowDisc', () => new THREE.PlaneGeometry(3.2, 3.2)), new THREE.MeshBasicMaterial({ map: radialTexture(), color: new THREE.Color(0x7fe0ff).multiplyScalar(0.9), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  const glowSprite = new THREE.Mesh(cgeo('portalGlowDisc', () => new THREE.PlaneGeometry(3.2, 3.2)), new THREE.MeshBasicMaterial({ map: radialTexture(), color: new THREE.Color(0x7fe0ff).multiplyScalar(0.35), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
   crystalPivot.add(glowSprite);
-  const haloMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffd36a).multiplyScalar(2.2) });
+  const haloMat = new THREE.MeshBasicMaterial({ color: 0xffd36a });
   const halo1 = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.03, 6, 48), haloMat);
   const halo2 = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.022, 6, 48), haloMat);
   crystalPivot.add(halo1, halo2);
@@ -1281,23 +1279,23 @@ function createPortalModel() {
     const speed = 1 + 2.2 * act;
     swirlT += dt * speed;
     const pulse = 0.5 + 0.5 * Math.sin(t * 2.2);
-    const I = 0.85 + 0.15 * pulse + 1.3 * act;
+    const I = 0.45 + 0.08 * pulse + 0.25 * act;
     swirlMat.uniforms.uTime.value = swirlT;
     swirlMat.uniforms.uIntensity.value = I;
     runeOuter.rotation.y = swirlT * 0.12;
     runeInner.rotation.y = -swirlT * 0.25;
-    runeMat.color.copy(runeCol).multiplyScalar(1.3 + 0.5 * pulse + 1.5 * act);
+    runeMat.color.copy(runeCol).multiplyScalar(0.55 + 0.1 * pulse + 0.2 * act);
     beamMat.uniforms.uTime.value = t;
-    beamMat.uniforms.uIntensity.value = 0.7 + 0.2 * pulse + 1.4 * act;
+    beamMat.uniforms.uIntensity.value = 0.4 + 0.08 * pulse + 0.35 * act;
     colMat.uniforms.uTime.value = t;
-    colMat.uniforms.uIntensity.value = 0.5 + 0.15 * pulse + 1.2 * act;
+    colMat.uniforms.uIntensity.value = 0.1 + 0.03 * pulse + 0.25 * act;
     for (let i = 0; i < beams.length; i++) {
       const s = 1 + 0.6 * act + 0.08 * Math.sin(t * 3 + i);
       beams[i].scale.set(1 + act, s, 1 + act);
     }
     crystalPivot.position.y = 2.9 + Math.sin(t * 1.6) * 0.15 + 0.3 * act;
     crystal.rotation.y = swirlT * 0.9;
-    crystalMat.emissiveIntensity = 1.3 + 0.4 * pulse + 1.8 * act;
+    crystalMat.emissiveIntensity = 0.45 + 0.15 * pulse + 0.3 * act;
     glowSprite.quaternion.identity();
     glowSprite.rotation.x = -0.96; // face the angled camera
     glowSprite.scale.setScalar(1 + 0.15 * pulse + 0.6 * act);
@@ -1363,7 +1361,7 @@ function createCrownPickupModel() {
   tilt.rotation.x = 0.75;
   tilt.add(crown);
   group.add(tilt);
-  const glow = new THREE.Mesh(cgeo('crownGlow', () => new THREE.PlaneGeometry(2.4, 2.4)), new THREE.MeshBasicMaterial({ map: radialTexture(), color: new THREE.Color(0xffc23a).multiplyScalar(0.9), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  const glow = new THREE.Mesh(cgeo('crownGlow', () => new THREE.PlaneGeometry(2.4, 2.4)), new THREE.MeshBasicMaterial({ map: radialTexture(), color: new THREE.Color(0xffc23a).multiplyScalar(0.6), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
   group.add(glow);
   function update(dt, t, camera) {
     tilt.position.y = 2.4 + Math.sin(t * 2.2) * 0.15;
@@ -1706,7 +1704,7 @@ function createGiantFishModel() {
       if (s.t >= s.life) { s.t = 0; s.life = 0.6 + Math.random() * 0.8; placeSparkle(k); }
       const f = s.t <= 0 ? 0 : Math.sin((s.t / s.life) * Math.PI);
       const col = done ? gold : white;
-      const b = f * f * (done ? 1.6 : 1.1);
+      const b = f * f * (done ? 1 : 0.8);
       spCol[k * 3] = col.r * b; spCol[k * 3 + 1] = col.g * b; spCol[k * 3 + 2] = col.b * b;
     }
     spGeo.attributes.position.needsUpdate = true;

@@ -15,8 +15,8 @@ function detectTouch() {
 }
 
 const QUALITY = TOUCH
-  ? { pixelRatio: 1.5, antialias: false, bloom: false, shadowMap: 1024, softShadows: false, propShadows: false, particles: 0.45 }
-  : { pixelRatio: 2, antialias: true, bloom: true, shadowMap: 2048, softShadows: true, propShadows: true, particles: 1 };
+  ? { pixelRatio: 1.5, antialias: false, shadowMap: 1024, softShadows: false, propShadows: false, particles: 0.45 }
+  : { pixelRatio: 2, antialias: true, shadowMap: 2048, softShadows: true, propShadows: true, particles: 1 };
 
 const root = document.documentElement;
 if (TOUCH) root.classList.add('rkr-touch');

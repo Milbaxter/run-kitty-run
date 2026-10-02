@@ -2,6 +2,19 @@
 // When you ship something players will notice, add a line to the top entry (or start a new one).
 const PATCH_NOTES = [
   {
+    version: '1.0', date: '2026-10-02', title: 'The final run',
+    items: [
+      'Skate only now has an ending: level 8 is THE FINAL RUN',
+      'One long straight sheet of ice packed with wolves: no safe squares, no checkpoints, and you can never stop, only carve circles while you wait for a gap',
+      'Halfway there is a single tree: climb under its branches to catch your breath, wolves can\'t reach you up there',
+      'The camera flies down the whole run before you start (touch anything to skip)',
+      'A progress bar replaces the minimap on the final run: start flag, the tree, the finish, every kitty as a dot in its colour and how many metres are left',
+      'Reach the end and you beat Run Kitty Run: fireworks, confetti, a fanfare and a victory screen with your run time, rescues, and who got there first',
+      'Every kitty that went down on the way is carried into the goal room for the party',
+      'Menus and the game-over / victory screens work with a gamepad too (A to confirm, d-pad to switch)',
+    ],
+  },
+  {
     version: '0.9', date: '2026-10-02', title: 'Wolf patterns on ice',
     items: [
       'Skate only: wolves don\'t wander anymore, they run fixed patterns you can learn',

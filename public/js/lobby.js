@@ -7,7 +7,7 @@ const CROWN = `<svg viewBox="0 0 40 30"><path d="M3 26 L6 7 L14 16 L20 3 L26 16 
 const MODES = [
   { id: 'mixed', label: 'Run + Skate', tip: 'Level 3 (winter) is an ice rink' },
   { id: 'run', label: 'Run only', tip: 'No ice' },
-  { id: 'ice', label: 'Skate only', tip: 'Every level is ice; wolves walk fixed patterns' },
+  { id: 'ice', label: 'Skate only', tip: 'Every level is ice; level 8 is the final run' },
 ];
 const modeLabel = (id) => (MODES.find((m) => m.id === id) || MODES[0]).label;
 

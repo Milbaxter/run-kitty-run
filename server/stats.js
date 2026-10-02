@@ -12,14 +12,17 @@ const EVENTS_PER_HOUR = 400;        // per IP (a long session sends maybe 50)
 const SAVE_EVERY_MS = 5000;
 
 const day = (t = Date.now()) => new Date(t).toISOString().slice(0, 10);
-const blankDay = () => ({ newPlayers: 0, players: 0, runs: 0, levels: 0, deaths: 0, rescues: 0, seconds: 0, lobbies: 0 });
+const blankDay = () => ({ newPlayers: 0, players: 0, runs: 0, levels: 0, deaths: 0, rescues: 0, seconds: 0, lobbies: 0, wins: 0 });
 
 function createStats(file) {
   let s = {
     since: day(), players: {},                               // cid -> first day seen
-    totals: { runs: 0, levels: 0, deaths: 0, rescues: 0, seconds: 0, lobbies: 0, onlineGames: 0, bestLevel: 0 },
+    // wins: runs that cleared the Skate only final run (client run_end with won: true);
+    // onlineWins: online games won (server side, once per room), onlineWinsByMode likewise
+    totals: { runs: 0, levels: 0, deaths: 0, rescues: 0, seconds: 0, lobbies: 0, onlineGames: 0, bestLevel: 0, wins: 0, onlineWins: 0 },
     kinds: Object.fromEntries(KINDS.map((k) => [k, 0])),
     modes: Object.fromEntries(MODES.map((k) => [k, 0])),
+    onlineWinsByMode: Object.fromEntries(MODES.map((k) => [k, 0])),
     devices: Object.fromEntries(DEVICES.map((k) => [k, 0])),
     days: {},                                                // 'YYYY-MM-DD' -> blankDay()
     today: { day: day(), seen: [] },                         // cids active today (for the daily unique count)
@@ -88,6 +91,7 @@ function createStats(file) {
         D.seconds += sec; T.seconds += sec;
         const de = num(ev.deaths, 999), re = num(ev.rescues, 999);
         D.deaths += de; T.deaths += de; D.rescues += re; T.rescues += re;
+        if (ev.won === true) { D.wins = (D.wins || 0) + 1; T.wins++; }   // older days were saved without wins
         break;
       }
     }
@@ -98,6 +102,11 @@ function createStats(file) {
   // server-side facts
   function lobbyCreated() { today().lobbies++; s.totals.lobbies++; dirty = true; }
   function onlineGameStarted() { s.totals.onlineGames++; dirty = true; }
+  function onlineGameWon(mode) {
+    s.totals.onlineWins++;
+    if (MODES.includes(mode)) s.onlineWinsByMode[mode] = (s.onlineWinsByMode[mode] || 0) + 1;
+    dirty = true;
+  }
   function online(count) {
     if (count > s.peakOnline.count) { s.peakOnline = { count, at: new Date().toISOString() }; dirty = true; }
   }
@@ -108,6 +117,7 @@ function createStats(file) {
     return {
       since: s.since, players: Object.keys(s.players).length, playersToday: todaySeen.size,
       onlineNow, peakOnline: s.peakOnline, totals: s.totals, kinds: s.kinds, modes: s.modes, devices: s.devices,
+      onlineWinsByMode: s.onlineWinsByMode,
       days: days.slice(-120),
     };
   }
@@ -132,7 +142,7 @@ function createStats(file) {
   // forget old rate-limit buckets now and then
   setInterval(() => { const now = Date.now(); for (const [ip, h] of hits) if (!h.some((t) => now - t < 3600e3)) hits.delete(ip); }, 600e3).unref();
 
-  return { handle, record, lobbyCreated, onlineGameStarted, online, summary, save: flush };
+  return { handle, record, lobbyCreated, onlineGameStarted, onlineGameWon, online, summary, save: flush };
 }
 
 export { createStats };

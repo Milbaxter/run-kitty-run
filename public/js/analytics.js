@@ -35,7 +35,7 @@ const analytics = {
   level(level) { if (run) send('level', { level }); },
   runEnd(s = {}) {
     if (!run) return;
-    send('run_end', { seconds: (performance.now() - run.t0) / 1000, deaths: s.deaths | 0, rescues: s.rescues | 0 });
+    send('run_end', { seconds: (performance.now() - run.t0) / 1000, deaths: s.deaths | 0, rescues: s.rescues | 0, ...(s.won ? { won: true } : {}) });
     run = null;
   },
 };

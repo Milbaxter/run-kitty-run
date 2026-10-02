@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { CFG, NET, PLAYER_COLORS, PLAYER_NAMES } from '../public/js/shared/config.js';
+import { CFG, NET, PLAYER_COLORS, PLAYER_NAMES, SKATE_FINAL_LEVEL } from '../public/js/shared/config.js';
 import { hashSeed } from '../public/js/shared/rng.js';
 import { GAME_MODES, createSim, stepSim, addPlayer, removePlayer } from '../public/js/shared/sim.js';
 import { serializeEnemies } from '../public/js/shared/enemies.js';
@@ -15,6 +15,21 @@ const PORT = +process.env.PORT || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public');
 const GAMEOVER_TO_LOBBY_MS = 4000;
+// Skate only final run won (sim state 'victory'): keep the room stepping and snapshotting for the party, then lobby.
+const VICTORY_TO_LOBBY_MS = 12000;
+// Client protocol versions (sent in the client's first 'hi' message, see net.js; clients that never send one
+// count as 0). Bump a mode's floor when the shared sim changes so that an older client would desync there.
+// Older clients can still play the other modes; they can't create or join these lobbies and don't see them listed.
+//   2 = Skate only wolves walk deterministic patterns (protocol-1 clients simulate random wanderers)
+//   3 = Skate only level 8 (SKATE_FINAL_LEVEL) is the final run and clearing it wins (older clients build the spiral)
+const MODE_MIN_PROTOCOL = { ice: 3 };
+const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
+const MODE_NAMES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
+const updateHow = (client) => (client.app === 'web' ? 'reload the page' : 'update the app');
+const APPS = ['web', 'ios', 'android'];
+// Test hooks (scripts/victory-online-test.mjs): 'start' may pick a level and 'dbg' can drop a kitty in the goal.
+// Never set this in production.
+const TEST_HOOKS = process.env.RKR_TEST_HOOKS === '1';
 // Player feedback is appended here as JSON lines (systemd gives the service /var/lib/run-kitty-run).
 const FEEDBACK_FILE = process.env.FEEDBACK_FILE || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../feedback.jsonl');
 const FEEDBACK_MAX = 1000;          // characters per message
@@ -142,10 +157,11 @@ function sendRoom(room) {
   for (const m of room.members) send(m.ws, { ...info, you: m.id });
 }
 
-function lobbyList() {
+function lobbyList(client) {
   const list = [];
   for (const r of rooms.values()) {
     if (r.members.length === 0) continue;
+    if (!modeOk(client, r.mode)) continue; // this client's build can't play that mode
     list.push({
       code: r.code, players: r.members.length, max: NET.MAX_PLAYERS, phase: r.phase,
       host: (r.members.find((m) => m.id === r.hostId) || r.members[0]).name,
@@ -161,6 +177,9 @@ function freeColorSlot(room) {
 }
 
 function joinRoom(client, room, name) {
+  // Covers every way in: lobby list, code, invite link, reconnect rejoin, mid-game join.
+  // 'code' in the text makes clients drop ?room= from the URL so they don't retry the link.
+  if (!modeOk(client, room.mode)) return send(client.ws, { t: 'error', msg: `That lobby code is for ${MODE_NAMES[room.mode]}, which needs the latest version - ${updateHow(client)} to play it.` });
   if (room.members.length >= NET.MAX_PLAYERS) return send(client.ws, { t: 'error', msg: `That lobby is full (${NET.MAX_PLAYERS}/${NET.MAX_PLAYERS}).` });
   leaveRoom(client);
   const slot = freeColorSlot(room);
@@ -177,7 +196,14 @@ function joinRoom(client, room, name) {
   broadcast(room, { t: 'chat', sys: true, text: `${client.name} joined` });
   if (room.phase === 'playing') {
     // Join mid-game: spawn now; send full state (including wolves) so the newcomer is in sync.
-    addPlayer(room.sim, { id: client.id, name: client.name, color: client.color });
+    const p = addPlayer(room.sim, { id: client.id, name: client.name, color: client.color });
+    // Mid-victory: join the party in the goal room instead of starting alone at the far end of the final run.
+    if (room.sim.state === 'victory') {
+      const a = room.sim.players.length * 2.399963, r = 3.3;
+      p.x = Math.cos(a) * r; p.z = Math.sin(a) * r; p.vx = 0; p.vz = 0;
+      p.heading = Math.atan2(-p.z, -p.x);
+      p.inCenter = true;
+    }
     send(client.ws, startMsg(room, true));
   }
 }
@@ -198,20 +224,22 @@ function startMsg(room, withWolves) {
   const sim = room.sim;
   return {
     t: 'start', seed: sim.seed, mode: sim.mode, level: sim.level, tick: room.tick, lt: sim.enemyTicks,
+    st: sim.state, vic: room.victory || null, // mid-game joiners: the run may already be won (the 'victory' event went out before)
     players: sim.players.map((p) => ({ id: p.id, name: p.name, color: p.color })),
     wolves: withWolves ? serializeEnemies(sim.enemies) : null,
   };
 }
 
-function startGame(room) {
+function startGame(room, startLevel = 1) {
   stats.onlineGameStarted();
   room.phase = 'playing';
   room.tick = 0;
   room.pending = [];
   room.overAt = 0;
+  room.victory = null;
   const seed = hashSeed(Date.now(), Math.random(), room.code) >>> 0;
   room.sim = createSim({
-    seed, startLevel: 1, mode: room.mode,
+    seed, startLevel, mode: room.mode,
     players: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
   });
   for (const m of room.members) { m.inputs.clear(); m.lastInput = null; }
@@ -233,7 +261,15 @@ function stepRoom(room) {
   const events = stepSim(sim, inputs, CFG.TICK);
   room.tick = k;
   for (const e of events) room.pending.push(e);
-  if (events.some((e) => e.type === 'gameOver')) room.overAt = Date.now() + GAMEOVER_TO_LOBBY_MS;
+  for (const e of events) {
+    if (e.type === 'gameOver') room.overAt = Date.now() + GAMEOVER_TO_LOBBY_MS;
+    else if (e.type === 'victory') {
+      // final state: the sim keeps stepping (snapshots carry st 'victory') until the room goes back to the lobby
+      room.victory = e;
+      room.overAt = Date.now() + VICTORY_TO_LOBBY_MS;
+      stats.onlineGameWon(room.mode);
+    }
+  }
   if (k % NET.SNAP_EVERY === 0 || events.length) sendSnapshot(room);
 }
 
@@ -286,6 +322,8 @@ setInterval(() => {
     if (room.phase === 'playing' && room.overAt && Date.now() >= room.overAt) {
       room.phase = 'lobby';
       room.sim = null;
+      room.victory = null;
+      room.overAt = 0;
       sendRoom(room);
     }
   }
@@ -296,7 +334,8 @@ const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 16 * 1024 });
 
 wss.on('connection', (ws) => {
   stats.online(wss.clients.size);
-  const client = { id: nextClientId++, ws, room: null, name: '' };
+  // v/app come from the client's 'hi' (sent before anything else); clients that never send one are old web tabs
+  const client = { id: nextClientId++, ws, room: null, name: '', v: 0, app: 'web' };
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
   send(ws, { t: 'hello', id: client.id });
@@ -307,13 +346,18 @@ wss.on('connection', (ws) => {
     if (!msg || typeof msg.t !== 'string') return;
     const room = client.room;
     switch (msg.t) {
+      case 'hi':
+        client.v = Number.isFinite(msg.v) ? msg.v : 0;
+        client.app = APPS.includes(msg.app) ? msg.app : 'web';
+        break;
       case 'list':
-        send(ws, { t: 'lobbies', list: lobbyList() });
+        send(ws, { t: 'lobbies', list: lobbyList(client) });
         break;
       case 'create': {
         if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', msg: 'Server is full, try again later.' });
         const mode = GAME_MODES.includes(msg.mode) ? msg.mode : 'mixed';
-        const r = { code: makeCode(), mode, members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0 };
+        if (!modeOk(client, mode)) return send(ws, { t: 'error', msg: `${MODE_NAMES[mode]} needs the latest version - ${updateHow(client)} to play it. The other modes work as usual.` });
+        const r = { code: makeCode(), mode, members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0, victory: null };
         stats.lobbyCreated();
         rooms.set(r.code, r);
         joinRoom(client, r, msg.name);
@@ -331,8 +375,17 @@ wss.on('connection', (ws) => {
         send(ws, { t: 'left' });
         break;
       case 'start':
-        if (room && room.hostId === client.id && room.phase === 'lobby') startGame(room);
+        if (room && room.hostId === client.id && room.phase === 'lobby') {
+          startGame(room, TEST_HOOKS && Number.isFinite(msg.level) ? Math.max(1, Math.min(SKATE_FINAL_LEVEL, msg.level | 0)) : 1);
+        }
         break;
+      case 'dbg': {
+        // test hook: put the sender's kitty in the goal (it clears the level on the next tick)
+        if (!TEST_HOOKS || !room || !room.sim) return;
+        const p = room.sim.players.find((q) => q.id === client.id);
+        if (p && msg.do === 'goal') { p.alive = true; p.x = 0; p.z = 0; p.vx = 0; p.vz = 0; }
+        break;
+      }
       case 'in': {
         if (!room || room.phase !== 'playing') return;
         const k = msg.k | 0;

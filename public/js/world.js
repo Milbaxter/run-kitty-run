@@ -453,6 +453,23 @@ function makeInstanced(geo, mat, items, { cast = false, receive = false } = {}) 
   return mesh;
 }
 
+// One InstancedMesh per `chunk`-wide band of x (items sorted into bands), so each band can be frustum-culled.
+function makeInstancedChunks(geo, mat, items, opts, chunk) {
+  const bands = new Map();
+  for (const it of items) {
+    const k = Math.floor(it.x / chunk);
+    if (!bands.has(k)) bands.set(k, []);
+    bands.get(k).push(it);
+  }
+  const out = [];
+  for (const list of bands.values()) {
+    const mesh = makeInstanced(geo, mat, list, opts);
+    mesh.computeBoundingSphere();
+    out.push(mesh);
+  }
+  return out.length ? out : [makeInstanced(geo, mat, [], opts)];
+}
+
 // ---------------------------------------------------------------- swept wall geometry
 
 function linePath(ax, az, bx, bz, segLen) {
@@ -734,10 +751,23 @@ function buildIce(levelData, T) {
 function buildLanterns(levelData, theme, T, rng) {
   const H = CFG.WALL_HEIGHT;
   const spots = levelData.wallCorners.map((p) => ({ x: p.x, z: p.z }));
-  // extra lanterns along the outermost loop (last 4 arms + cap)
-  for (const w of levelData.walls.slice(-6)) {
-    const L = Math.hypot(w.bx - w.ax, w.bz - w.az), n = Math.floor(L / 9);
-    for (let k = 1; k < n; k++) spots.push({ x: w.ax + (w.bx - w.ax) * k / n, z: w.az + (w.bz - w.az) * k / n });
+  if (levelData.finale) {
+    // the final run: a steady rhythm of lanterns down both corridor walls (staggered), plus the goal room and start cap
+    // (from just past the start gate to just before the finish arch, which stand on the walls: see buildFinale)
+    const rh = levelData.roomHalf, step = 12, x0 = levelData.corners[0].x + levelData.corridorWidth / 2 + 5;
+    for (const [w, off] of [[levelData.walls[0], 0], [levelData.walls[1], step / 2]]) {
+      for (let x = x0 + off; x < -rh - 4; x += step) spots.push({ x, z: w.az });
+    }
+    for (const w of levelData.walls.slice(3)) {
+      const L = Math.hypot(w.bx - w.ax, w.bz - w.az), n = Math.max(1, Math.floor(L / 8));
+      for (let k = 1; k < n; k++) spots.push({ x: w.ax + (w.bx - w.ax) * k / n, z: w.az + (w.bz - w.az) * k / n });
+    }
+  } else {
+    // extra lanterns along the outermost loop (last 4 arms + cap)
+    for (const w of levelData.walls.slice(-6)) {
+      const L = Math.hypot(w.bx - w.ax, w.bz - w.az), n = Math.floor(L / 9);
+      for (let k = 1; k < n; k++) spots.push({ x: w.ax + (w.bx - w.ax) * k / n, z: w.az + (w.bz - w.az) * k / n });
+    }
   }
 
   const PH = H + 0.25;
@@ -747,7 +777,7 @@ function buildLanterns(levelData, theme, T, rng) {
     place(new THREE.BoxGeometry(0.74, 0.12, 0.74), 0, PH + 0.02, 0),
     place(new THREE.CylinderGeometry(0.2, 0.12, 0.14, 8), 0, PH + 0.14, 0),
   ]));
-  const orbGeo = T.g(new THREE.IcosahedronGeometry(0.21, 2));
+  const orbGeo = T.g(new THREE.IcosahedronGeometry(0.21, levelData.finale ? 1 : 2));   // the final run has ~150 lanterns
   const glowGeo = T.g(new THREE.PlaneGeometry(1, 1)); glowGeo.rotateX(-Math.PI / 2);
 
   const pillarItems = [], orbItems = [], glowItems = [];
@@ -809,6 +839,8 @@ function buildLanterns(levelData, theme, T, rng) {
 function buildDecor(levelData, theme, ti, T, rng) {
   const W = levelData.corridorWidth, rh = levelData.roomHalf;
   const meshes = [];
+  // the final run is ~870 units long: split along x so off-screen stretches get frustum-culled (also in the shadow pass)
+  const inst = (geo, mat, items, opts) => (levelData.finale ? makeInstancedChunks(geo, mat, items, opts, 96) : [makeInstanced(geo, mat, items, opts)]);
   // bounding box of the walls
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const w of levelData.walls) {
@@ -865,8 +897,8 @@ function buildDecor(levelData, theme, ti, T, rng) {
     const p = sampleOuter(2.8, 26), s = rng.range(0.8, 1.55);
     trees.push({ x: p.x, z: p.z, s, ry: rng.range(0, TAU), color: jitterColor(rng.pick(theme.crowns)) });
   }
-  meshes.push(makeInstanced(trunkGeo, trunkMat, trees.map((t) => ({ ...t, color: null })), { cast: true }));
-  meshes.push(makeInstanced(crownGeo, crownMat, trees, { cast: true, receive: true }));
+  meshes.push(...inst(trunkGeo, trunkMat, trees.map((t) => ({ ...t, color: null })), { cast: true }));
+  meshes.push(...inst(crownGeo, crownMat, trees, { cast: true, receive: true }));
 
   // ---- bushes (hug the outer wall + scattered)
   const bushGeo = T.g(mergeGeos([
@@ -877,7 +909,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
   const bushMat = T.m(new THREE.MeshStandardMaterial({ roughness: 0.9, flatShading: true }));
   if (theme.crownEmissive > 0) { bushMat.emissive.set(0xffffff); bushMat.emissiveIntensity = theme.crownEmissive; emissiveByColor(bushMat); }
   const bushes = [];
-  for (const w of levelData.walls.slice(-6, -2)) {
+  for (const w of (levelData.finale ? levelData.walls.slice(0, 2) : levelData.walls.slice(-6, -2))) {
     // outer side of the outermost arms = away from the centre
     const L = Math.hypot(w.bx - w.ax, w.bz - w.az), ux = (w.bx - w.ax) / L, uz = (w.bz - w.az) / L;
     const mx = (w.ax + w.bx) / 2, mz = (w.az + w.bz) / 2;
@@ -896,7 +928,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
     const p = sampleOuter(2, 26);
     bushes.push({ x: p.x, z: p.z, s: rng.range(0.7, 1.4), ry: rng.range(0, TAU), color: jitterColor(rng.pick(theme.crowns), 0.18) });
   }
-  meshes.push(makeInstanced(bushGeo, bushMat, bushes, { cast: true, receive: true }));
+  meshes.push(...inst(bushGeo, bushMat, bushes, { cast: true, receive: true }));
 
   // ---- rocks
   const rockGeo = T.g(new THREE.DodecahedronGeometry(0.5, 0));
@@ -914,7 +946,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
     const s = rng.range(0.12, 0.26);
     rocks.push({ x: p.x, z: p.z, y: 0.03, sx: s * 1.3, sy: s * 0.5, sz: s, ry: rng.range(0, TAU), color: jitterColor(theme.rock, 0.15) });
   }
-  meshes.push(makeInstanced(rockGeo, rockMat, rocks, { cast: true, receive: true }));
+  meshes.push(...inst(rockGeo, rockMat, rocks, { cast: true, receive: true }));
 
   // ---- grass tufts (not in snow)
   if (ti !== 2) {
@@ -935,7 +967,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
       const p = sampleOuter(1.2, 26);
       tufts.push({ x: p.x, z: p.z, s: rng.range(0.9, 1.6), ry: rng.range(0, TAU), color: jitterColor(theme.tuft, 0.18) });
     }
-    meshes.push(makeInstanced(tuftGeo, tuftMat, tufts));
+    meshes.push(...inst(tuftGeo, tuftMat, tufts));
   }
 
   // ---- theme-specific small things in corridors
@@ -965,7 +997,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
       const p = sampleOuter(1.2, 20);
       flowers.push({ x: p.x, z: p.z, s: rng.range(1, 1.6), ry: rng.range(0, TAU), color: new THREE.Color(rng.pick(theme.smalls)) });
     }
-    meshes.push(makeInstanced(flowerGeo, flowerMat, flowers));
+    meshes.push(...inst(flowerGeo, flowerMat, flowers));
   } else if (ti === 1) {
     const leafShape = new THREE.Shape();
     leafShape.moveTo(-0.5, 0); leafShape.quadraticCurveTo(0, 0.32, 0.5, 0); leafShape.quadraticCurveTo(0, -0.32, -0.5, 0);
@@ -976,7 +1008,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
       const p = sampleOuter(1, 26);
       leaves.push({ x: p.x, z: p.z, y: 0.02, s: rng.range(0.25, 0.42), ry: rng.range(0, TAU), color: jitterColor(rng.pick(theme.smalls), 0.15) });
     }
-    meshes.push(makeInstanced(leafGeo, leafMat, leaves));
+    meshes.push(...inst(leafGeo, leafMat, leaves));
     // pumpkins outside (cute)
     const pumpGeo = T.g(mergeGeos([
       paint(place(new THREE.SphereGeometry(0.4, 10, 6), 0, 0.3, 0, 1, 0.75, 1), 0xffffff),
@@ -988,7 +1020,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
       const p = sampleOuter(1.0, 6);
       pumps.push({ x: p.x, z: p.z, s: rng.range(0.6, 1.2), ry: rng.range(0, TAU), color: jitterColor(0xf08a24, 0.1) });
     }
-    meshes.push(makeInstanced(pumpGeo, pumpMat, pumps, { cast: true }));
+    meshes.push(...inst(pumpGeo, pumpMat, pumps, { cast: true }));
   } else if (ti === 2) {
     const moundGeo = T.g(new THREE.IcosahedronGeometry(0.5, 1));
     const moundMat = T.m(new THREE.MeshStandardMaterial({ color: 0xf4f8ff, roughness: 0.8, flatShading: true }));
@@ -1002,12 +1034,12 @@ function buildDecor(levelData, theme, ti, T, rng) {
       const p = sampleOuter(1.2, 26), s = rng.range(0.8, 2.2);
       mounds.push({ x: p.x, z: p.z, y: -0.15 * s, sx: s * 1.5, sy: s * 0.45, sz: s * 1.1, ry: rng.range(0, TAU) });
     }
-    meshes.push(makeInstanced(moundGeo, moundMat, mounds, { receive: true }));
+    meshes.push(...inst(moundGeo, moundMat, mounds, { receive: true }));
     // ice crystals (faintly glowing)
     const crysGeo = T.g(place(new THREE.OctahedronGeometry(0.12, 0), 0, 0.12, 0, 1, 1.8, 1));
     const crysMat = T.m(emissiveByColor(new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 0.1, emissive: 0xffffff, emissiveIntensity: 0.35 })));
     const crys = clusters(Math.round(corridorArea * 0.012), [2, 4], 0.25, 0.5, (x, z) => ({ x, z, s: rng.range(0.7, 1.4), ry: rng.range(0, TAU), rz: rng.range(-0.3, 0.3), color: new THREE.Color(rng.pick(theme.smalls)) }));
-    meshes.push(makeInstanced(crysGeo, crysMat, crys));
+    meshes.push(...inst(crysGeo, crysMat, crys));
     // snowmen outside
     const smGeo = T.g(mergeGeos([
       paint(place(new THREE.IcosahedronGeometry(0.55, 1), 0, 0.5, 0), 0xffffff),
@@ -1018,11 +1050,12 @@ function buildDecor(levelData, theme, ti, T, rng) {
     ]));
     const smMat = T.m(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, flatShading: true }));
     const sms = [];
-    for (let i = 0; i < Math.max(4, Math.round(8 * Rn / 20)); i++) {
+    const nSm = levelData.finale ? Math.round(levelData.runLength / 18) : Math.max(4, Math.round(8 * Rn / 20));
+    for (let i = 0; i < nSm; i++) {
       const p = sampleOuter(1.5, 8);
-      sms.push({ x: p.x, z: p.z, s: rng.range(0.8, 1.1), ry: -p.a + Math.PI + rng.range(-0.5, 0.5) });
+      sms.push({ x: p.x, z: p.z, s: rng.range(0.8, 1.1), ry: (levelData.finale ? -Math.PI / 2 : -p.a + Math.PI) + rng.range(-0.5, 0.5) });   // the final run: face the camera
     }
-    meshes.push(makeInstanced(smGeo, smMat, sms, { cast: true }));
+    meshes.push(...inst(smGeo, smMat, sms, { cast: true }));
   } else {
     // neon: glowing mushrooms in corridors and outside, crystals outside
     const mushGeo = T.g(mergeGeos([
@@ -1035,7 +1068,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
       const p = sampleOuter(1, 26);
       mush.push({ x: p.x, z: p.z, s: rng.range(1.2, 2.8), ry: rng.range(0, TAU), color: new THREE.Color(rng.pick(theme.smalls)) });
     }
-    meshes.push(makeInstanced(mushGeo, mushMat, mush));
+    meshes.push(...inst(mushGeo, mushMat, mush));
     const crysGeo = T.g(place(new THREE.OctahedronGeometry(0.35, 0), 0, 0.6, 0, 0.7, 2.2, 0.7));
     const crysMat = T.m(emissiveByColor(new THREE.MeshStandardMaterial({ roughness: 0.25, metalness: 0.2, emissive: 0xffffff, emissiveIntensity: 1.6 })));
     const crys = [];
@@ -1045,16 +1078,18 @@ function buildDecor(levelData, theme, ti, T, rng) {
         crys.push({ x: p.x + rng.range(-0.6, 0.6), z: p.z + rng.range(-0.6, 0.6), s: rng.range(0.6, 1.4), ry: rng.range(0, TAU), rx: rng.range(-0.35, 0.35), rz: rng.range(-0.35, 0.35), color: new THREE.Color(rng.pick([theme.accent, theme.wallTop, 0xb68cff])) });
       }
     }
-    meshes.push(makeInstanced(crysGeo, crysMat, crys, { cast: true }));
+    meshes.push(...inst(crysGeo, crysMat, crys, { cast: true }));
   }
   return meshes;
 }
 
 // ---------------------------------------------------------------- particles
 
-function buildParticles(theme, rng, radius, T) {
+// box = { w, d } (the final run): instead of a disc over the whole map, the particles fill a w x d box that wraps
+// around the camera's ground focus (read in onBeforeRender), so a 870-unit straight keeps the spiral's density.
+function buildParticles(theme, rng, radius, T, box = null) {
   const kind = theme.particles;
-  const area = Math.PI * radius * radius;
+  const area = box ? box.w * box.d : Math.PI * radius * radius;
   const count = Math.round(clamp(area * 0.1, 300, 1300) * QUALITY.particles);
   const pos = new Float32Array(count * 3), col = new Float32Array(count * 3);
   const base = new Float32Array(count * 5); // bx, bz, by, phase, speed
@@ -1066,8 +1101,10 @@ function buildParticles(theme, rng, radius, T) {
   else { palette = [theme.accent, theme.wallTop, 0xb68cff]; H = 7; size = 0.26; additive = true; sprite = 'dot'; }
   const bright = kind === 'motes' ? 1.8 : kind === 'pollen' ? 1.1 : 1;
   for (let i = 0; i < count; i++) {
-    const r = radius * Math.sqrt(rng.next()), a = rng.range(0, TAU);
-    base[i * 5] = r * Math.cos(a); base[i * 5 + 1] = r * Math.sin(a);
+    if (box) { base[i * 5] = rng.range(0, box.w); base[i * 5 + 1] = rng.range(0, box.d); } else {
+      const r = radius * Math.sqrt(rng.next()), a = rng.range(0, TAU);
+      base[i * 5] = r * Math.cos(a); base[i * 5 + 1] = r * Math.sin(a);
+    }
     base[i * 5 + 2] = kind === 'pollen' ? rng.range(0.4, 3.5) : rng.range(0, H);
     base[i * 5 + 3] = rng.range(0, 100);
     base[i * 5 + 4] = kind === 'leaves' ? rng.range(0.6, 1.2) : kind === 'snow' ? rng.range(0.7, 1.5) : rng.range(0.25, 0.6);
@@ -1083,7 +1120,17 @@ function buildParticles(theme, rng, radius, T) {
   }));
   const pts = new THREE.Points(g, mat);
   pts.frustumCulled = false;
+  let fx = 0, fz = 0;
+  if (box) {
+    const dir = new THREE.Vector3();
+    pts.onBeforeRender = (renderer, scene, camera) => {
+      camera.getWorldDirection(dir);
+      const p = camera.position, k = dir.y < -0.05 ? -p.y / dir.y : 0;
+      fx = p.x + dir.x * k; fz = p.z + dir.z * k;
+    };
+  }
   const update = (t) => {
+    const ox = fx - (box ? box.w / 2 : 0), oz = fz - (box ? box.d / 2 : 0);
     for (let i = 0; i < count; i++) {
       const o = i * 5, bx = base[o], bz = base[o + 1], by = base[o + 2], ph = base[o + 3], sp = base[o + 4];
       let x, y, z;
@@ -1100,6 +1147,7 @@ function buildParticles(theme, rng, radius, T) {
         x = bx + Math.sin(t * 1.2 * sp + ph) * sway + (H - fall) * 0.25;
         z = bz + Math.cos(t * 0.9 * sp + ph * 1.3) * sway;
       }
+      if (box) { x = ox + (((x - ox) % box.w) + box.w) % box.w; z = oz + (((z - oz) % box.d) + box.d) % box.d; }
       pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z;
     }
     g.attributes.position.needsUpdate = true;
@@ -1142,7 +1190,24 @@ function buildClimbTrees(levelData, theme, T) {
   });
   trunks.castShadow = blobs.castShadow = true;
   blobs.receiveShadow = true;
-  return [trunks, blobs];
+  if (!levelData.finale) return [trunks, blobs];
+  // the final run's tree: frosted. Snow caps on the pad and the rim puffs, icicles hanging off the rim.
+  const caps = [], icicles = [];
+  trees.forEach((t, i) => {
+    caps.push({ x: t.x, z: t.z, y: CLIMB_Y - 0.08, sx: R * 0.78, sy: 0.16, sz: R * 0.7, ry: rng.range(0, TAU) });
+    for (let k = 1; k < per; k++) {
+      blobs.getMatrixAt(i * per + k, m); m.decompose(pos, q, sc);
+      caps.push({ x: pos.x, z: pos.z, y: pos.y + sc.y * 0.55, sx: sc.x * 0.62, sy: 0.18, sz: sc.z * 0.62, ry: rng.range(0, TAU) });
+    }
+    for (let k = 0; k < 14; k++) {
+      const a = (k / 14) * TAU + rng.range(-0.15, 0.15), d = R + rng.range(0.1, 0.45);
+      icicles.push({ x: t.x + Math.cos(a) * d, z: t.z + Math.sin(a) * d, y: CLIMB_Y - 0.75, s: rng.range(0.6, 1.15), ry: rng.range(0, TAU) });
+    }
+  });
+  const capMesh = makeInstanced(T.g(new THREE.IcosahedronGeometry(1, 1)), T.m(new THREE.MeshStandardMaterial({ color: 0xf6faff, roughness: 0.7, flatShading: true })), caps, { cast: true, receive: true });
+  const iceGeo = T.g(new THREE.ConeGeometry(0.07, 0.55, 5)); iceGeo.rotateX(Math.PI); iceGeo.translate(0, -0.27, 0);
+  const iceMat = T.m(new THREE.MeshStandardMaterial({ color: 0xcfeeff, emissive: 0x6fc8ff, emissiveIntensity: 0.35, roughness: 0.2, metalness: 0.1, flatShading: true }));
+  return [trunks, blobs, capMesh, makeInstanced(iceGeo, iceMat, icicles)];
 }
 
 // Checkpoint squares (ice levels): a glowing ring on the tile and a flag in its back corner.
@@ -1175,6 +1240,242 @@ function buildCheckpoints(levelData, T) {
   return out;
 }
 
+// ---------------------------------------------------------------- the final run (Skate only, last level)
+//
+// Set dressing for levelData.finale: a start gate ("FINAL RUN") and a checkered finish arch ("FINISH") standing on
+// the corridor walls, start / finish lines on the floor, distance-to-go numbers painted on the ice every 100 units,
+// glowing ice-crystal clusters outside both walls at a steady rhythm (bigger ones at the markers), aurora light
+// shimmering on the ice, and a snow patch with a warm pulsing ring under the halfway tree (the one place to rest).
+// The camera looks down toward -z at ~56°, so signs sit above the FAR wall and are tilted to face it, and nothing
+// tall stands on the near wall (it would hide the kitties).
+
+const CAM_TILT = Math.atan2(0.83, 0.56);   // main.js CAM_DIR pitch
+
+function textTexture(T, w, h, draw) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return T.t(t);
+}
+
+function signTexture(T, text, accent) {
+  return textTexture(T, 512, 128, (g, w, h) => {
+    const r = 26;
+    g.fillStyle = '#16233f';
+    g.beginPath(); g.roundRect(6, 6, w - 12, h - 12, r); g.fill();
+    g.lineWidth = 8; g.strokeStyle = accent;
+    g.beginPath(); g.roundRect(10, 10, w - 20, h - 20, r - 4); g.stroke();
+    g.font = 'bold 76px "Arial Black", Arial, sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineWidth = 10; g.strokeStyle = 'rgba(0,0,0,0.45)'; g.strokeText(text, w / 2, h / 2 + 4);
+    g.fillStyle = '#ffffff'; g.fillText(text, w / 2, h / 2 + 4);
+  });
+}
+
+function buildFinale(levelData, theme, T, rng) {
+  const meshes = [];
+  const W = levelData.corridorWidth, h = W / 2, rh = levelData.roomHalf, R = CFG.TREE_RADIUS;
+  const xs = levelData.corners[0].x, xStart = xs + h + 0.4, xFinish = -rh - 1;
+  const xLo = xs - h, xHi = -rh;                 // the corridor's ice
+
+  // ---- floor lines: checkered finish line in front of the door, a glowing start line out of the start square
+  const checker = textTexture(T, 64, 64, (g) => {
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, 64, 64);
+    g.fillStyle = '#1b2236'; g.fillRect(0, 0, 32, 32); g.fillRect(32, 32, 32, 32);
+  });
+  checker.wrapS = checker.wrapT = THREE.RepeatWrapping;
+  checker.magFilter = THREE.NearestFilter;
+  const lineW = W - CFG.WALL_THICKNESS;
+  const finGeo = T.g(new THREE.PlaneGeometry(1.6, lineW));
+  { const uv = finGeo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 1.5, uv.getY(i) * 10); }
+  finGeo.rotateX(-Math.PI / 2);
+  const finLine = new THREE.Mesh(finGeo, T.m(new THREE.MeshStandardMaterial({ map: checker, roughness: 0.6, transparent: true, opacity: 0.92, depthWrite: false })));
+  finLine.position.set(xFinish, 0.014, 0);
+  finLine.renderOrder = 1;
+  finLine.receiveShadow = true;
+  meshes.push(finLine);
+  const startGeo = T.g(new THREE.PlaneGeometry(0.5, lineW)); startGeo.rotateX(-Math.PI / 2);
+  const startMat = T.m(new THREE.MeshBasicMaterial({ color: new THREE.Color(0x8fdcff).multiplyScalar(1.2), transparent: true, opacity: 0.7, depthWrite: false }));
+  const startLine = new THREE.Mesh(startGeo, startMat);
+  startLine.position.set(xStart, 0.014, 0);
+  startLine.renderOrder = 1;
+  meshes.push(startLine);
+
+  // ---- distance to go, painted on the ice every 100 units (one atlas, one merged mesh)
+  const marks = [];
+  for (let d = 100; d <= levelData.runLength - 40 && marks.length < 8; d += 100) marks.push(d);
+  const atlas = textTexture(T, 1024, 512, (g) => {
+    g.clearRect(0, 0, 1024, 512);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = 'bold 112px "Arial Black", Arial, sans-serif';
+    marks.forEach((d, k) => {
+      const cx = (k % 2) * 512 + 256, cy = Math.floor(k / 2) * 128 + 66;
+      g.lineWidth = 14; g.lineJoin = 'round'; g.strokeStyle = 'rgba(255,255,255,0.95)'; g.strokeText(String(d), cx, cy);
+      g.fillStyle = '#3d8fe0'; g.fillText(String(d), cx, cy);
+    });
+  });
+  if (marks.length) {
+    const parts = marks.map((d, k) => {
+      const geo = new THREE.PlaneGeometry(8.4, 2.1), uv = geo.attributes.uv;
+      const u0 = (k % 2) * 0.5, v0 = 1 - (Math.floor(k / 2) + 1) * 0.25;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, u0 + uv.getX(i) * 0.5, v0 + uv.getY(i) * 0.25);
+      geo.rotateX(-Math.PI / 2); geo.translate(-d, 0.013, 0);   // the goal is at x = 0: x = -d is d to go
+      return geo;
+    });
+    const mg = new THREE.BufferGeometry();
+    const n = parts.reduce((a, g) => a + g.attributes.position.count, 0);
+    const P = new Float32Array(n * 3), N = new Float32Array(n * 3), U = new Float32Array(n * 2), I = [];
+    let o = 0;
+    for (const g of parts) {
+      P.set(g.attributes.position.array, o * 3); N.set(g.attributes.normal.array, o * 3); U.set(g.attributes.uv.array, o * 2);
+      for (const ix of g.index.array) I.push(ix + o);
+      o += g.attributes.position.count;
+      g.dispose();
+    }
+    mg.setAttribute('position', new THREE.BufferAttribute(P, 3));
+    mg.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+    mg.setAttribute('uv', new THREE.BufferAttribute(U, 2));
+    mg.setIndex(I);
+    const markMesh = new THREE.Mesh(T.g(mg), T.m(new THREE.MeshBasicMaterial({ map: atlas, transparent: true, opacity: 0.85, depthWrite: false })));
+    markMesh.renderOrder = 1;
+    meshes.push(markMesh);
+  }
+
+  // ---- ice-crystal clusters outside both walls (staggered), bigger ones flanking each distance marker
+  const crysGeo = T.g(place(new THREE.OctahedronGeometry(0.5, 0), 0, 0.5, 0, 0.55, 1.9, 0.55));
+  const crysMat = T.m(emissiveByColor(new THREE.MeshStandardMaterial({ roughness: 0.2, metalness: 0.1, emissive: 0xffffff, emissiveIntensity: 0.55, flatShading: true })));
+  const crysCols = [0x9fe4ff, 0xd8f4ff, 0x7fc4ff, 0xc8b8ff];
+  const crys = [], crysGlow = [];
+  const cluster = (x, z, big) => {
+    const n = big ? 5 : 3, S = (big ? 1.5 : 1) * (z > 0 ? 0.6 : 1);   // near side (toward the camera): keep them low
+    for (let k = 0; k < n; k++) {
+      const s = (k === 0 ? 1.35 : rng.range(0.55, 0.95)) * S;
+      crys.push({ x: x + (k ? rng.range(-0.7, 0.7) * S : 0), z: z + (k ? rng.range(-0.5, 0.5) * S : 0), s, sy: s * (k ? 1 : 1.25), ry: rng.range(0, TAU), rx: k ? rng.range(-0.35, 0.35) : 0, rz: k ? rng.range(-0.35, 0.35) : 0, color: new THREE.Color(rng.pick(crysCols)) });
+    }
+    crysGlow.push({ x, z, y: 0.03, s: big ? 6 : 4, color: new THREE.Color(0x7fd0ff).multiplyScalar(big ? 0.35 : 0.22) });
+  };
+  const off = h + CFG.WALL_THICKNESS / 2 + 1.5;
+  for (let x = xStart + 10; x < xFinish - 6; x += 24) {
+    if (marks.some((d) => Math.abs(-d - x) < 8)) continue;
+    cluster(x, -off - rng.range(0, 0.6), false);
+    cluster(x + 12, off + rng.range(0, 0.6), false);
+  }
+  for (const d of marks) { cluster(-d, -off - 0.4, true); cluster(-d, off + 0.4, true); }
+  meshes.push(...makeInstancedChunks(crysGeo, crysMat, crys, { cast: true }, 96));
+  const glowGeo = T.g(new THREE.PlaneGeometry(1, 1)); glowGeo.rotateX(-Math.PI / 2);
+  const glowTex = makeGlowTexture(T);
+  const glowMat = T.m(new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  for (const g of makeInstancedChunks(glowGeo, glowMat, crysGlow, {}, 96)) { g.renderOrder = 1; meshes.push(g); }
+
+  // ---- gates: a banner on two poles standing on the FAR wall (a beam across the corridor would hide wolves at the
+  // door), a short lantern post on the near wall, glowing orbs on top
+  const H = CFG.WALL_HEIGHT;
+  const postGeo = T.g(mergeGeos([
+    place(new THREE.BoxGeometry(0.9, 0.25, 0.9), 0, 0.12, 0),
+    place(new THREE.BoxGeometry(0.62, 1, 0.62), 0, 0.5, 0),
+  ]));
+  const poleGeo = T.g(new THREE.CylinderGeometry(0.08, 0.1, 1, 8)); poleGeo.translate(0, 0.5, 0);
+  const postMat = T.m(new THREE.MeshStandardMaterial({ roughness: 0.8, flatShading: true }));
+  const poleMat = T.m(new THREE.MeshStandardMaterial({ color: 0xc8d2e0, roughness: 0.45, metalness: 0.4 }));
+  const orbGeo = T.g(new THREE.IcosahedronGeometry(0.26, 2));
+  const orbMat = T.m(new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
+  const posts = [], poles = [], orbs = [];
+  const zp = h + 0.05, NP = 2.1, SY = 4.3, SW = 6.4, SH = 1.6;
+  const tilt = new THREE.Vector3(0, Math.sin(CAM_TILT), Math.cos(CAM_TILT));   // sign normal
+  const up = new THREE.Vector3(0, Math.cos(CAM_TILT), -Math.sin(CAM_TILT));    // sign's up in world space
+  const gate = (x, label, accent, orbHex, chequered) => {
+    posts.push({ x, z: zp, sy: NP, color: new THREE.Color(theme.pillar) });
+    orbs.push({ x, z: zp, y: NP + 0.4, color: new THREE.Color(orbHex) });
+    for (const dx of [-SW / 2 + 0.5, SW / 2 - 0.5]) {
+      poles.push({ x: x + dx, z: -zp, y: H, sy: SY + SH / 2 - H + 0.1 });
+      orbs.push({ x: x + dx, z: -zp, y: SY + SH / 2 + 0.45, color: new THREE.Color(orbHex) });
+    }
+    const sign = new THREE.Mesh(T.g(new THREE.PlaneGeometry(SW, SH)), T.m(new THREE.MeshBasicMaterial({ map: signTexture(T, label, accent), transparent: true })));
+    sign.position.set(x, SY, -zp - 0.14);
+    sign.rotation.x = -CAM_TILT;
+    meshes.push(sign);
+    if (chequered) {
+      const bg = T.g(new THREE.PlaneGeometry(SW - 0.5, 0.42));
+      { const uv = bg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 15, uv.getY(i)); }
+      const band = new THREE.Mesh(bg, T.m(new THREE.MeshBasicMaterial({ map: checker })));
+      band.position.set(x, SY, -zp - 0.14).addScaledVector(up, -SH / 2 - 0.26).addScaledVector(tilt, -0.01);
+      band.rotation.x = -CAM_TILT;
+      meshes.push(band);
+    }
+  };
+  gate(xStart, 'FINAL RUN', '#8fdcff', 0x8fdcff, false);
+  gate(-rh, 'FINISH', '#ffd24a', 0xffd24a, true);
+  meshes.push(makeInstanced(postGeo, postMat, posts, { cast: true, receive: true }));
+  meshes.push(makeInstanced(poleGeo, poleMat, poles, { cast: true }));
+  const orbMesh = makeInstanced(orbGeo, orbMat, orbs);
+  meshes.push(orbMesh);
+
+  // ---- aurora light shimmering on the ice (additive, faint; not under the tree's snow patch)
+  const tr = (levelData.trees && levelData.trees[0]) || { x: 1e5, z: 0 };
+  const auroraGeo = T.g(new THREE.PlaneGeometry(xHi - xStart, 2 * h - CFG.WALL_THICKNESS, Math.ceil((xHi - xStart) / 8), 1));
+  auroraGeo.rotateX(-Math.PI / 2);
+  auroraGeo.translate((xStart + xHi) / 2, 0.009, 0);
+  const auroraMat = T.m(new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uTree: { value: new THREE.Vector3(tr.x, tr.z, R + 0.6) }, uK: { value: 0.22 } },
+    vertexShader: 'varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: `varying vec2 vP; uniform float uTime; uniform vec3 uTree; uniform float uK;
+      void main(){
+        float t = uTime;
+        float w = sin(vP.y * 0.32 + vP.x * 0.011 + t * 0.21) * 1.7;
+        float b1 = sin(vP.x * 0.043 + t * 0.33 + w);
+        float b2 = sin(vP.x * 0.019 - t * 0.19 + vP.y * 0.16 + 1.7);
+        float a = smoothstep(0.3, 1.0, b1) * 0.75 + smoothstep(0.55, 1.0, b2) * 0.55;
+        vec3 green = vec3(0.25, 1.0, 0.62), violet = vec3(0.62, 0.42, 1.0), cyan = vec3(0.35, 0.85, 1.0);
+        float m = 0.5 + 0.5 * sin(vP.x * 0.0071 + t * 0.07);
+        vec3 col = mix(mix(green, cyan, m), violet, smoothstep(0.6, 1.0, b2));
+        float edge = 1.0 - smoothstep(3.6, 5.2, abs(vP.y));
+        float hole = smoothstep(uTree.z, uTree.z + 1.2, distance(vP, uTree.xy));
+        gl_FragColor = vec4(col, clamp(a, 0.0, 1.0) * edge * hole * uK);
+      }`,
+    transparent: true, depthWrite: false,
+  }));
+  const aurora = new THREE.Mesh(auroraGeo, auroraMat);
+  aurora.renderOrder = 0;   // after the ice sheet (-1), before the painted lines / numbers (1)
+  aurora.frustumCulled = false;
+  meshes.push(aurora);
+
+  // ---- the halfway tree: a disc of snow over the ice (you can stand still here) and a warm ring that breathes
+  let ringMat = null;
+  if (levelData.trees && levelData.trees.length) {
+    const snowTex = textTexture(T, 128, 128, (g, S) => {
+      const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+      gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.78, 'rgba(250,252,255,1)'); gr.addColorStop(1, 'rgba(240,246,255,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, S, S);
+      for (let i = 0; i < 120; i++) { g.fillStyle = `rgba(170,195,235,${0.08 + 0.1 * Math.random()})`; g.beginPath(); g.arc(S / 2 + (Math.random() - 0.5) * S * 0.8, S / 2 + (Math.random() - 0.5) * S * 0.8, 1 + Math.random() * 2, 0, TAU); g.fill(); }
+    });
+    const snowGeo = T.g(new THREE.PlaneGeometry(2 * R + 1.4, 2 * R + 1.4)); snowGeo.rotateX(-Math.PI / 2);
+    const snowMat = T.m(new THREE.MeshStandardMaterial({ map: snowTex, transparent: true, roughness: 0.85, depthWrite: false, emissive: 0x9fb8e0, emissiveIntensity: 0.15 }));
+    const ringGeo = T.g(new THREE.RingGeometry(R + 0.15, R + 0.45, 48)); ringGeo.rotateX(-Math.PI / 2);
+    ringMat = T.m(new THREE.MeshBasicMaterial({ color: 0xffb340, transparent: true, opacity: 0.8, depthWrite: false }));
+    for (const t of levelData.trees) {
+      const snow = new THREE.Mesh(snowGeo, snowMat);
+      snow.position.set(t.x, 0.011, t.z); snow.renderOrder = 1; snow.receiveShadow = true;
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.position.set(t.x, 0.016, t.z); ring.renderOrder = 2;
+      meshes.push(snow, ring);
+    }
+  }
+
+  const orbC = orbs.map((o) => o.color.clone()), tmp = new THREE.Color();
+  const update = (time) => {
+    auroraMat.uniforms.uTime.value = time;
+    if (ringMat) ringMat.opacity = 0.6 + 0.3 * Math.sin(time * 2.2);
+    startMat.opacity = 0.55 + 0.2 * Math.sin(time * 3.1);
+    for (let i = 0; i < orbs.length; i++) orbMesh.setColorAt(i, tmp.copy(orbC[i]).multiplyScalar(1.6 + 0.35 * Math.sin(time * 4 + i * 1.3)));
+    if (orbMesh.instanceColor) orbMesh.instanceColor.needsUpdate = true;
+  };
+  update(0);
+  return { meshes, update };
+}
+
 // ---------------------------------------------------------------- public API
 
 function buildWorld(scene, levelData) {
@@ -1192,7 +1493,9 @@ function buildWorld(scene, levelData) {
   const lanterns = buildLanterns(levelData, theme, T, rng);
   for (const m of lanterns.meshes) group.add(m);
   for (const m of buildDecor(levelData, theme, ti, T, rng)) group.add(m);
-  const parts = buildParticles(theme, rng, levelData.outerRadius + 14, T);
+  const finale = levelData.finale ? buildFinale(levelData, theme, T, rng) : null;
+  if (finale) for (const m of finale.meshes) group.add(m);
+  const parts = buildParticles(theme, rng, levelData.outerRadius + 14, T, levelData.finale ? { w: 96, d: 80 } : null);
   group.add(parts.points);
 
   scene.add(group);
@@ -1203,6 +1506,7 @@ function buildWorld(scene, levelData) {
     theme: ti,
     update(dt, time) {
       lanterns.update(time);
+      if (finale) finale.update(time);
       parts.update(time);
     },
     dispose() {

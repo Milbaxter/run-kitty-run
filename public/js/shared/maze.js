@@ -149,6 +149,10 @@ function buildPath(corners, legs) {
 // only a short wolf-free gap of ice (FINALE_GAP) where a good skater can carve a tight circle to wait for the
 // next opening. Halfway along, one gap is wider and holds a climbable tree: under its canopy is snow, not ice
 // (onIce), and wolves can't reach you (inTree), the only real breather of the run.
+// Its rooms show off the whole pattern library (FINALE_FEATURES: every crosswalk / diagonal variant and the
+// carousels, each room leads with the next one), 1-3 charger lanes (more toward the goal) and tight spacing.
+// Fairness: the rooms are solved like spiral legs (a straight run from the gap's middle); scripts/finale-test.mjs
+// checks that a kitty circling in each gap and leaving the circle into the solution lane gets through.
 //
 // Legs follow the spiral's conventions: leg i runs from corner i (s = len, where the kitty enters) to corner
 // i + 1 (s = 0); u points back toward the start (run direction is -u). leg.padHi / leg.padLo = wolf-free
@@ -289,6 +293,7 @@ function placeEnemies(rng, lvl, p) {
 //              (go beside them). A leg's chargers share one speed and take turns.
 //   crosser    crosses the lane wall to wall, in rows (crosswalk: single / wave / comb / ripple / anti offsets)
 //   diagonal   crosses wall to wall at an angle (swing, scissors = two crossing half a beat apart, fan)
+//   looper     the final run only: carousels of 2-3 loopers chasing round a box or diamond spanning the lane
 // A leg = a set of charger lanes + crosser / diagonal segments top (entry, high th) to bottom. Every crosser
 // and diagonal in a leg runs there and back once per beat T (its speed is fitted to the beat), so the room
 // repeats every T seconds. Each segment's timing offset is chosen by a launch-window solver (solveLeg): a kitty
@@ -322,7 +327,7 @@ const PAT_SLACK = 0.4;                        // spare time kept on both sides o
                                               // rooms are packed for the same launch-window targets
 const PAT_DRIFT_PERIOD = 60;                  // a drifting group is back in step with its room within this (s)
 const PAT_DRIFT_CHANCE = 0.75;                // rooms (after level 1's lessons) that get a drifting group, if one fits
-const PAT_TYPES = ['charger', 'crosser', 'diagonal'];
+const PAT_TYPES = ['charger', 'crosser', 'diagonal', 'looper'];   // looper: carousels, the final run only
 const NO_FRAME = { ox: 0, oz: 0, ux: 1, uz: 0, nx: 0, nz: 1 };
 
 function usableRanges(legs) {
@@ -330,7 +335,8 @@ function usableRanges(legs) {
   return legs.map((leg, li) => {
     let lo = (leg.padLo ?? W / 2 + CORNER_REST) + CFG.WOLF_RADIUS;
     let hi = leg.len - (leg.padHi ?? W / 2 + CORNER_REST) - CFG.WOLF_RADIUS;
-    if (li === last) { lo = -W / 2 + WOLF_MARGIN; hi = leg.len + W / 2 - WOLF_MARGIN; }
+    // the spiral's final stretch: neither corner is safe; the final run's last room keeps its entry gap (padHi)
+    if (li === last) { lo = -W / 2 + WOLF_MARGIN; if (leg.padHi == null) hi = leg.len + W / 2 - WOLF_MARGIN; }
     if (li === 0) hi = leg.len - W / 2 - CFG.START_SAFE_ARC - CFG.WOLF_RADIUS;
     return { lo, hi: Math.max(lo, hi) };
   });
@@ -344,7 +350,7 @@ function usableRanges(legs) {
 function segCrosswalk(c, o = {}) {
   const { rng, vOut } = c;
   let sp = rng.range(2.7, 3.6);
-  const k = o.k || Math.max(1, Math.min(4, 1 + Math.floor(c.D * 2.5 + rng.next() * 1.2), 1 + Math.floor((o.room ?? 99) / sp)));
+  const k = o.k || Math.max(o.kMin || 1, Math.min(4, 1 + Math.floor(c.D * 2.5 + rng.next() * 1.2), 1 + Math.floor((o.room ?? 99) / sp)));
   if (k === 1) sp = 0;
   const variant = o.variant || (k === 1 ? 'single' : c.D < 0.3 ? 'wave' : rng.pick(c.D < 0.9 ? ['wave', 'comb', 'ripple', 'anti', 'comb', 'wave'] : ['wave', 'comb', 'ripple', 'anti', 'comb', 'anti']));
   const side = rng.chance(0.5) ? 1 : -1;
@@ -381,7 +387,30 @@ function segDiagonal(c, o = {}) {
   return { name: 'diagonal-' + variant, depth, wolves };
 }
 
-const PAT_FAMILIES = { crosswalk: segCrosswalk, diagonal: segDiagonal };
+// carousel (the final run only): two or three loopers chase each other round a loop spanning the lane, evenly spaced,
+// a lap per beat: box = a rectangle (two crossings + a run along each wall), diamond = four diagonal runs
+function segCarousel(c, o = {}) {
+  const { rng, vOut } = c;
+  const variant = o.variant || rng.pick(['box', 'diamond']);
+  const n = variant === 'diamond' || rng.chance(0.5) ? 2 : 3;
+  const d = variant === 'box' ? rng.range(2.4, 3.4) : rng.range(5, 6.5);
+  let route = variant === 'box'
+    ? [{ r: -vOut, th: 0 }, { r: vOut, th: 0 }, { r: vOut, th: d }, { r: -vOut, th: d }]
+    : [{ r: 0, th: 0 }, { r: vOut, th: d / 2 }, { r: 0, th: d }, { r: -vOut, th: d / 2 }];
+  if (rng.chance(0.5)) route = route.reverse();     // either way round
+  const wolves = [];
+  for (let i = 0; i < n; i++) wolves.push({ type: 'looper', route: route.map((q) => ({ ...q })), loop: true, offT: i / n, offS: 0 });
+  return { name: 'carousel-' + variant, depth: d, wolves };
+}
+
+const PAT_FAMILIES = { crosswalk: segCrosswalk, diagonal: segDiagonal, carousel: segCarousel };
+// The final run features every pattern: each room leads with the next of these (shuffled; one that doesn't make it
+// into its room is retried in the next), the rest of the room is random
+const FINALE_FEATURES = [
+  ['crosswalk', { variant: 'wave', kMin: 2 }], ['crosswalk', { variant: 'comb', kMin: 2 }], ['crosswalk', { variant: 'ripple', k: 2 }],
+  ['crosswalk', { variant: 'anti', kMin: 2 }], ['diagonal', { variant: 'swing' }], ['diagonal', { variant: 'scissors' }],
+  ['diagonal', { variant: 'fan' }], ['carousel', { variant: 'box' }], ['carousel', { variant: 'diamond' }],
+];
 
 // Level 1 eases in: two legs of plain crossers, then the first charger lane; after that it's the real thing.
 // Each lesson: [chargers (lanes) or null = random, segments to cycle through]
@@ -606,7 +635,9 @@ function placePatternEnemies(rng, lvl, p) {
     if (li === door) return [];
     const lesson = level === 1 ? PAT_LESSONS[li] : null;
     if (lesson) return lesson[0];
-    const n = D < 0.25 ? (rng.chance(0.6) ? 1 : 0) : D < 0.6 ? 1 + (rng.chance(0.6) ? 1 : 0) : D < 1 ? 2 + (rng.chance(D - 0.4) ? 1 : 0) : 3;
+    // the final run: every kind of charger set, 1-2 lanes at the start, 2-3 toward the goal
+    const n = lvl.finale ? 1 + Math.min(2, Math.floor(3 * (0.67 * rng.next() + 0.33 * (D - FINALE_HEAT) / FINALE_RAMP)))
+      : D < 0.25 ? (rng.chance(0.6) ? 1 : 0) : D < 0.6 ? 1 + (rng.chance(0.6) ? 1 : 0) : D < 1 ? 2 + (rng.chance(D - 0.4) ? 1 : 0) : 3;
     const sets = {
       0: [[]], 1: [[0], [-1.8], [1.8], [-3.6], [3.6]],
       2: [[-1.8, 1.8], [-3.6, 3.6], [-3.6, 0], [0, 3.6], [-1.8, 3.6], [-3.6, 1.8]],
@@ -627,10 +658,11 @@ function placePatternEnemies(rng, lvl, p) {
     });
   };
 
-  const legDesign = (li, D, T0) => {
+  const legDesign = (li, D, T0, feature) => {
     const leg = legs[li];
     const { lo, hi } = ranges[li];
-    const spacer = () => Math.max(2.4, 8 - 5.5 * D) + rng.range(-0.8, 1.2);
+    const spacer = lvl.finale ? () => Math.max(1.4, 5 - 3 * D) + rng.range(-0.5, 1)     // the final run: packed tight
+      : () => Math.max(2.4, 8 - 5.5 * D) + rng.range(-0.8, 1.2);
     const c = { D, rng, vOut };
     const lesson = level === 1 ? PAT_LESSONS[li] : null;
     // the room's beat: every crosser / diagonal runs there and back once per beat (at the speed that takes), so the
@@ -645,6 +677,18 @@ function placePatternEnemies(rng, lvl, p) {
         let fam = 'crosswalk', opt = {};
         if (lesson) [fam, opt] = lesson[1][n % lesson[1].length];
         else if (li === door) opt = { k: D < 0.5 ? 1 : 2, variant: 'comb' };     // the final door
+        else if (lvl.finale) {
+          // the final run: the room's featured pattern up top, then anything (carousels too)
+          if (n === 0 && feature && tries < 3) [fam, opt] = feature;
+          else {
+            const u = rng.next();
+            fam = u < 0.25 ? 'diagonal' : u < 0.37 ? 'carousel' : 'crosswalk';
+            if (fam === 'crosswalk') {     // rows of 2-4 (singles are plan B); a ripple of 4 would close every lane
+              const variant = rng.pick(['wave', 'comb', 'ripple', 'anti', 'wave', 'comb', 'anti']);
+              opt = { variant, k: 2 + Math.floor(rng.next() * (variant === 'wave' ? 3 : 2)) };
+            }
+          }
+        }
         else if (D >= 0.3 && rng.chance(0.3)) fam = 'diagonal';
         if (tries > 2) { fam = 'crosswalk'; opt = { k: 1 }; }
         const sd = PAT_FAMILIES[fam](c, { room: cursor - lo, ...opt });
@@ -748,7 +792,8 @@ function placePatternEnemies(rng, lvl, p) {
     const segs = pl.segs.filter((sg) => !sg.chargers);
     const segOf = new Map();
     for (const sg of segs) for (const w of sg.wolves) segOf.set(w, sg);
-    const multi = rng.shuffle(segs.filter((sg) => sg.wolves.length > 1));
+    // (a carousel never drifts: its loopers would run into each other)
+    const multi = rng.shuffle(segs.filter((sg) => sg.wolves.length > 1 && sg.family !== 'carousel'));
     const groups = multi.map((sg) => [rng.pick(sg.wolves)]);
     if (multi.length > 1 && rng.chance(0.3)) groups.unshift([groups[0][0], groups[1][0]]);     // one of each of two rows
     else if (multi.length && multi[0].wolves.length > 2 && rng.chance(0.3)) groups.unshift(multi[0].wolves.filter((w) => w !== groups[0][0]).slice(0, 2));   // two of a row
@@ -803,6 +848,7 @@ function placePatternEnemies(rng, lvl, p) {
   };
 
   const heat = p.patternHeat || 0;
+  let features = lvl.finale ? [] : null;
   for (let li = 0; li < legs.length; li++) {
     const lesson = level === 1 && li < PAT_LESSONS.length;
     const D = lesson ? 0.1 * li : lvl.finale ? FINALE_HEAT + FINALE_RAMP * li / Math.max(1, last) : Math.min(1.6, heat + 0.5 * li / Math.max(1, last));
@@ -845,8 +891,12 @@ function placePatternEnemies(rng, lvl, p) {
       continue;
     }
     const chargers = makeChargers(li, D, chargerLanes(li, D));
-    const pl = solveLeg(li, legDesign(li, D, 0), chargers, wTarget, fTarget);
+    if (features && !features.length) features = rng.shuffle(FINALE_FEATURES.slice());
+    const feature = features ? features.shift() : null;
+    const pl = solveLeg(li, legDesign(li, D, 0, feature), chargers, wTarget, fTarget);
     if (pl) plans.push(pl);
+    // a featured pattern the solver had to drop (or swap for a single crosser) is featured again in the next room
+    if (feature && !(pl && pl.segs.some((sg) => sg.name === feature[0] + '-' + feature[1].variant))) features.unshift(feature);
   }
 
   // ---- drift: not in level 1's lessons, nor in the final door (the room before it may drift, door included)
@@ -1190,8 +1240,14 @@ function checkPatternWolves(ld, P, stats) {
       if (!(Math.abs(q.r) <= vOut + eps && q.th >= rg.lo - eps && q.th <= rg.hi + eps)) P(`${tag}: waypoint out of bounds (${q.r.toFixed(2)}, ${q.th.toFixed(2)})`);
       if (!(q.r >= e.rIn - eps && q.r <= e.rOut + eps && q.th >= e.a0 - eps && q.th <= e.a1 + eps)) P(`${tag}: waypoint outside its spec bounds`);
     }
-    // end to end: crossers / diagonals wall to wall; chargers the whole leg, safe square to safe square
-    if (e.loop || e.route.length !== 2) P(`${tag}: route is not a single end-to-end run`);
+    // end to end: crossers / diagonals wall to wall; chargers the whole leg, safe square to safe square; loopers
+    // (the final run's carousels) round a closed loop that touches both walls
+    const rs = e.route.map((q) => q.r);
+    if (e.type === 'looper') {
+      if (!ld.finale) P(`${tag}: loopers belong to the final run`);
+      if (!e.loop || e.route.length < 3) P(`${tag}: route is not a loop`);
+      else if (Math.abs(Math.max(...rs) - vOut) > eps || Math.abs(Math.min(...rs) + vOut) > eps) P(`${tag}: loop does not reach both walls`);
+    } else if (e.loop || e.route.length !== 2) P(`${tag}: route is not a single end-to-end run`);
     else if (e.type === 'charger') {
       const [A, B] = e.route;
       if (Math.abs(A.r - B.r) > eps || Math.abs(Math.min(A.th, B.th) - rg.lo) > eps || Math.abs(Math.max(A.th, B.th) - rg.hi) > eps) P(`${tag}: charger does not run the whole leg`);
@@ -1201,6 +1257,8 @@ function checkPatternWolves(ld, P, stats) {
       const [A, B] = e.route;
       if (Math.abs(Math.abs(A.r) - vOut) > eps || Math.abs(Math.abs(B.r) - vOut) > eps || Math.sign(A.r) === Math.sign(B.r)) P(`${tag}: does not run wall to wall`);
       if (e.type === 'crosser' && Math.abs(A.th - B.th) > eps) P(`${tag}: crosser not straight across`);
+    }
+    if (e.type !== 'charger' && (e.type === 'looper' ? e.loop : !e.loop && e.route.length === 2)) {
       // its lap divides the leg beat T, or it drifts: back in step with the beat within PAT_DRIFT_PERIOD, and the leg's
       // period (n beats) is a whole number of its laps
       const cyc = buildPlan(e, e.frame, e.speed).cycle, T = beat.get(e.leg), base = T / Math.max(1, Math.round(T / cyc));

@@ -96,6 +96,11 @@ function musicPlay(level) {
   if (trackFailed) { audio.startMusic(level); return; }
   if (!audio.isMuted() && track.paused) track.play().catch(() => { /* needs a user gesture; retried on input */ });
 }
+// after the victory fanfare the soundtrack comes back in softly (ramped in tick())
+function musicFadeIn(level) {
+  track.volume = 0.04;
+  musicPlay(level);
+}
 function musicStop() {
   trackWanted = false;
   track.pause();
@@ -124,7 +129,7 @@ function toggleSound() {
 }
 ui.onMuteClick(toggleSound);
 ui.onMenuClick(() => {
-  if (mode !== 'play' || sim.state === 'gameover') return;
+  if (mode !== 'play' || runOver()) return;
   if (online.playing) toggleOnlineMenu(); else togglePause();
 });
 
@@ -150,7 +155,7 @@ window.addEventListener('keydown', (e) => {
   keys.add(e.code);
   if (e.code === 'KeyM') {
     toggleSound();
-  } else if ((e.code === 'KeyP' || e.code === 'Escape') && mode === 'play' && sim.state !== 'gameover') {
+  } else if ((e.code === 'KeyP' || e.code === 'Escape') && mode === 'play' && !runOver()) {
     if (online.playing) toggleOnlineMenu();
     else togglePause();
   }
@@ -337,6 +342,10 @@ let playerCount = 1;
 let simTime = 0;          // presentation clock (seconds)
 let accumulator = 0;
 let gameOverShown = false;
+let victory = null;       // the final run is beaten: { sim, t, ev, shown, shownAt, lobbyAt, nextFw, musicBack } (presentation only)
+let intro = null;         // the final run's opening fly-over: { sim, t }
+// the run is over: everyone down, or the final run was beaten (no pause menu, no game-over screen after a win)
+function runOver() { return sim.state === 'gameover' || sim.state === 'victory'; }
 
 // Visual bindings
 let view = null;          // { levelData, world, portal, wolves: Map, items: Map, circles: Map }
@@ -349,6 +358,8 @@ function startSim(players, startLevel) {
   sim = createSim({ seed: newSeed(), players, startLevel, mode: DEBUG_MODE });
   accumulator = 0;
   gameOverShown = false;
+  victory = null;
+  intro = null;
   prevPos.clear();
 }
 
@@ -432,6 +443,8 @@ function enterTitle(showTitleScreen = true) {
   mode = 'title';
   paused = false;
   online.playing = false;
+  ui.hideVictory();
+  ui.hideHUD();
   removeKitties();
   startSim([], 1 + Math.floor(Math.random() * 3));
   stepSim(sim, {}, CFG.TICK); // generate level
@@ -440,19 +453,20 @@ function enterTitle(showTitleScreen = true) {
   musicPlay(1);
 }
 
-function startGame(n) {
+function startGame(n, level = DEBUG_LEVEL) {
   goFullscreenLandscape();
   audio.unlock();
   audio.play('click');
   playerCount = n;
   ui.hideTitle();
   ui.hideGameOver();
+  ui.hideVictory();
   mode = 'play';
   paused = false;
   const players = [];
   for (let i = 0; i < n; i++) players.push({ id: i + 1, name: PLAYER_NAMES[i], color: PLAYER_COLORS[i] });
   removeKitties();
-  startSim(players, DEBUG_LEVEL);
+  startSim(players, level);
   analytics.runStart(n === 1 ? 'solo' : 'coop', 'mixed');
   cameraSnap = true;
   // First step emits levelStart which triggers buildView.
@@ -486,14 +500,19 @@ function handleEvents(events) {
         ensureKitties();
         for (const k of kitties.values()) k.paws.clear(); // prints belong to the old map
         for (const p of sim.players) effects.teleport(p.x, p.z, p.color);
-        ui.banner(`LEVEL ${ev.level}`, levelSubtitle(ev.level), 2200);
+        const finale = !!sim.levelData.finale;
+        if (finale) ui.banner('THE FINAL RUN', 'No checkpoints. No stopping. One tree. Reach the end.', 4200, 'finale');
+        else ui.banner(`LEVEL ${ev.level}`, levelSubtitle(ev.level), 2200);
         if (audio.isMuted() && !soundHintShown) {
           soundHintShown = true;
           ui.toast('Sound is off. Press M or click the speaker to turn it on', '#b9a4ff');
         }
-        audio.play('levelStart');
+        audio.play(finale ? 'finale' : 'levelStart');
+        if (finale) effects.shake(0.35);
         musicPlay(ev.level);
         cameraSnap = cameraSnap || ev.level === DEBUG_LEVEL;
+        // the final run: the camera flies down the whole corridor, goal -> start, until you touch anything
+        intro = finale ? { sim, t: 0 } : null;
         break;
       }
       case 'death': {
@@ -561,9 +580,10 @@ function handleEvents(events) {
       case 'levelClear': {
         effects.confetti(0, 0);
         effects.shake(0.2);
+        analytics.level(ev.level);
+        if (sim.levelData.finale) break; // the final run: the 'victory' event that follows throws the party
         const by = playerById(ev.by);
         ui.banner(by && sim.players.length > 1 ? `${by.name.toUpperCase()} MADE IT!` : 'MADE IT!', 'Everyone back to the start…', 2000);
-        analytics.level(ev.level);
         audio.play('levelClear');
         break;
       }
@@ -571,6 +591,10 @@ function handleEvents(events) {
         analytics.runEnd(runSummary());
         audio.play('gameOver');
         musicStop();
+        break;
+      }
+      case 'victory': {
+        startVictory(ev);
         break;
       }
       case 'shieldEnd': {
@@ -581,6 +605,128 @@ function handleEvents(events) {
       }
     }
   }
+}
+
+// ---------- the final run: opening fly-over and the victory party ----------
+const FW_COLORS = [0xff5c8a, 0xffd23f, 0x3ee08f, 0x4cc9ff, 0xb388ff, 0xff8c42, 0xffffff];
+const FW_KINDS = ['peony', 'peony', 'ring', 'willow'];
+
+function launchFirework(fuse) {
+  const R = (sim.levelData.roomHalf || 8) - 1;
+  const a = Math.random() * Math.PI * 2;
+  const x0 = Math.cos(a) * R, z0 = Math.sin(a) * R;
+  const x = (Math.random() * 2 - 1) * 6, z = (Math.random() * 2 - 1) * 6 - 2, y = 7 + Math.random() * 5;
+  // mostly the kitties' own colours
+  const pc = sim.players.length && Math.random() < 0.6 ? sim.players[(Math.random() * sim.players.length) | 0].color : null;
+  const color = pc != null ? pc : FW_COLORS[(Math.random() * FW_COLORS.length) | 0];
+  const color2 = Math.random() < 0.5 ? color : FW_COLORS[(Math.random() * FW_COLORS.length) | 0];
+  const kind = FW_KINDS[(Math.random() * FW_KINDS.length) | 0];
+  audio.play('fireworkLaunch', { pan: panFor(x0), volume: 0.6, pitch: 0.9 + Math.random() * 0.25 });
+  effects.firework(x0, z0, x, y, z, {
+    color, color2, kind, fuse, scale: QUALITY.particles,
+    onBurst: (bx) => { audio.play('fireworkBoom', { pan: panFor(bx), volume: 0.7, pitch: 0.85 + Math.random() * 0.3 }); effects.shake(0.06); },
+  });
+}
+
+function startVictory(ev) {
+  if (victory && victory.sim === sim) return;
+  victory = { sim, t: 0, ev: ev || null, shown: false, nextFw: 1.6, musicBack: false };
+  intro = null;
+  mouse.target = null; mouse.iceDir = null;
+  if (online.menu) { online.menu = false; ui.hidePause(); } // the victory screen replaces the online menu
+  analytics.runEnd({ ...runSummary(), won: true });
+  musicStop();
+  audio.play('victory');
+  effects.confetti(0, 0);
+  effects.shake(0.6);
+  effects.reviveBeam(0, 0, 0xffd34a);
+  // kitties that went down on the way were carried into the room for the party
+  for (const id of (ev && ev.party) || []) {
+    const p = playerById(id);
+    if (p) { effects.teleport(p.x, p.z, p.color); prevPos.delete('p' + p.id); }
+  }
+  const by = ev ? playerById(ev.by) : null;
+  ui.banner('VICTORY!', by && sim.players.length > 1 ? `${by.name} reached the end first!` : 'You beat the final run!', 3800, 'gold');
+  for (let i = 0; i < 3; i++) launchFirework(0.6 + i * 0.3); // opening salvo
+}
+
+function updateVictory(dt) {
+  if (victory && (victory.sim !== sim || mode !== 'play' || sim.state !== 'victory')) victory = null;
+  if (!victory && mode === 'play' && sim.state === 'victory') startVictory(null); // missed the event: still party
+  if (!victory) return;
+  const v = victory;
+  if (!(dt > 0)) return;
+  v.t += dt;
+  v.nextFw -= dt;
+  while (v.nextFw <= 0) {
+    launchFirework();
+    v.nextFw += v.t < 10 ? 0.25 + Math.random() * 0.4 : 0.9 + Math.random() * 1.5; // a big show, then a calmer one
+  }
+  if (v.t < 7) effects.confettiRain(0, 0, 10, Math.max(1, Math.round(3 * QUALITY.particles)));
+  if (!v.musicBack && v.t > 4.8) { v.musicBack = true; musicFadeIn(sim.level); }
+  if (!v.shown && v.t > 5.5) { v.shown = true; v.shownAt = v.t; showVictoryScreen(); }
+  // online: the server sent everyone back to the lobby; give the victory screen a few seconds, then follow
+  if (v.lobbyAt != null && online.playing && v.shown && v.t - Math.max(v.lobbyAt, v.shownAt) > 5) {
+    ui.hideVictory();
+    backToLobby();
+  }
+}
+
+function showVictoryScreen() {
+  const ev = victory.ev;
+  const by = ev ? playerById(ev.by) : null;
+  const wasOnline = online.playing;
+  const stats = {
+    runTime: ev && Number.isFinite(ev.time) ? ev.time : (wasOnline ? undefined : sim.levelTime),
+    totalTime: Math.max(0, sim.time - victory.t), // time at the win (online, sim.time only arrives with the snapshots)
+    deaths: sim.stats.deaths, rescues: sim.stats.rescues,
+    first: by ? { name: by.name, color: by.color } : null,
+    players: sim.players.map((p) => ({ name: p.name, color: p.color, first: !!by && p.id === by.id })),
+  };
+  const buttons = wasOnline
+    ? [{ label: 'BACK TO LOBBY', onClick: () => backToLobby() }]
+    : [{ label: 'PLAY AGAIN', sub: 'from level 1', onClick: () => startGame(playerCount, 1) },
+      { label: 'MAIN MENU', alt: true, onClick: () => enterTitle() }];
+  ui.showVictory(stats, buttons);
+}
+
+function padActive() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (const pad of pads || []) {
+    if (!pad || !pad.connected) continue;
+    if (Math.abs(pad.axes[0] || 0) > 0.3 || Math.abs(pad.axes[1] || 0) > 0.3) return true;
+    if (pad.buttons.some((b) => b.pressed)) return true;
+  }
+  return false;
+}
+
+// The fly-over ends by itself, or the moment anyone touches a control / a kitty moves (it never holds anyone back).
+function updateIntro(dt) {
+  if (!intro) return;
+  if (intro.sim !== sim || mode !== 'play' || sim.state !== 'playing' || paused) { intro = null; return; }
+  intro.t += dt;
+  const moved = sim.players.some((p) => (!online.playing || p.id === online.me) && p.alive && Math.hypot(p.vx, p.vz) > 0.5);
+  if (intro.t > 5.2 || moved || keys.size > 0 || mouse.held || joy.on || padActive()) intro = null;
+}
+
+// Gamepad on the overlays (victory / game over / pause): A or Start = confirm, d-pad / stick left-right = switch.
+const padNav = { confirm: false, prev: false, next: false };
+function pollPadNav() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  let confirm = false, prev = false, next = false;
+  for (const pad of pads || []) {
+    if (!pad || !pad.connected) continue;
+    const b = (i) => !!(pad.buttons[i] && pad.buttons[i].pressed);
+    confirm = confirm || b(0) || b(9);
+    prev = prev || b(14) || b(12) || (pad.axes[0] || 0) < -0.6;
+    next = next || b(15) || b(13) || (pad.axes[0] || 0) > 0.6;
+  }
+  if (ui.isOverlayOpen()) {
+    if (prev && !padNav.prev) ui.navigate('prev');
+    if (next && !padNav.next) ui.navigate('next');
+    if (confirm && !padNav.confirm) ui.navigate('confirm');
+  }
+  padNav.confirm = confirm; padNav.prev = prev; padNav.next = next;
 }
 
 function levelSubtitle(level) {
@@ -604,6 +750,10 @@ const camPos = new THREE.Vector3(0, 40, 30);
 let camDist = 22;
 let cameraSnap = true;
 const CAM_DIR = new THREE.Vector3(0, 0.83, 0.56).normalize(); // ~56° pitch, looking toward -Z
+// victory: the camera pulls back and slowly orbits the goal room at a lower pitch (so the fireworks are in view)
+let camOrbit = 0, camYaw = 0;
+const _orbDir = new THREE.Vector3(), _camDir = new THREE.Vector3();
+const smooth01 = (v) => { v = Math.max(0, Math.min(1, v)); return v * v * (3 - 2 * v); };
 
 function updateCamera(dt, alpha) {
   let tx = 0, tz = 0, want = 22;
@@ -630,16 +780,35 @@ function updateCamera(dt, alpha) {
     const spread = Math.max(maxX - minX, (maxZ - minZ) * 1.4);
     want = Math.max(17, Math.min(50, 15 + spread * 0.9));
     if (sim.state === 'levelclear') want += 6;
+    if (victory) { tx = 0; tz = 0; want = 30; }
   }
-  const k = cameraSnap ? 1 : 1 - Math.exp(-dt * 5);
+  let flyover = false;
+  if (intro && mode === 'play') {
+    // 0-1.2 s on the goal room, then down the whole corridor to the start line
+    const x0 = sim.levelData.corners[0].x;
+    tx = x0 * smooth01((intro.t - 1.2) / 3.8); tz = 0; want = 30;
+    flyover = true;
+  }
+  const k = cameraSnap || flyover ? 1 : 1 - Math.exp(-dt * 5);
   camTarget.x += (tx - camTarget.x) * k;
   camTarget.z += (tz - camTarget.z) * k;
   camDist += (want - camDist) * (cameraSnap ? 1 : 1 - Math.exp(-dt * 2.5));
   cameraSnap = false;
-  camPos.copy(camTarget).addScaledVector(CAM_DIR, camDist);
+  let dir = CAM_DIR, lookY = 0;
+  if (victory && mode === 'play') {
+    camOrbit += (1 - camOrbit) * (1 - Math.exp(-dt * 0.9));
+    camYaw += dt * 0.2 * camOrbit;
+    const pitch = 0.62, cp = Math.cos(pitch);
+    _orbDir.set(Math.sin(camYaw) * cp, Math.sin(pitch), Math.cos(camYaw) * cp);
+    dir = _camDir.copy(CAM_DIR).lerp(_orbDir, camOrbit).normalize();
+    lookY = 4 * camOrbit;
+  } else {
+    camOrbit = 0; camYaw = 0; // leaving the party always means a new scene
+  }
+  camPos.copy(camTarget).addScaledVector(dir, camDist);
   const sh = effects.getShakeOffset();
   camera.position.set(camPos.x + sh.x, camPos.y + sh.y, camPos.z + sh.z);
-  camera.lookAt(camTarget.x + sh.x * 0.5, 0, camTarget.z + sh.z * 0.5);
+  camera.lookAt(camTarget.x + sh.x * 0.5, lookY, camTarget.z + sh.z * 0.5);
 }
 
 // ---------- per-frame visual sync ----------
@@ -711,7 +880,7 @@ function syncVisuals(dt, alpha) {
   }
   for (const [id, m] of view.circles) if (!seen.has(id)) { scene.remove(m.group); view.circles.delete(id); }
   // portal
-  view.portal.update(dt, t, { active: sim.state === 'levelclear' });
+  view.portal.update(dt, t, { active: sim.state === 'levelclear' || sim.state === 'victory' });
   view.crown.group.visible = !sim.crownTaken;
   if (!sim.crownTaken) view.crown.update(dt, t, camera);
   // kitties
@@ -866,6 +1035,7 @@ net.on('room', (m) => {
   for (const mem of m.members) online.roster.set(mem.id, mem);
   setRoomInUrl(m.code);
   if (!online.playing || mode !== 'play') lobbyUI.showRoom(m);
+  else if (m.phase === 'lobby' && victory) victory.lobbyAt = victory.t; // the party is over on the server: head back soon
 });
 net.on('left', () => { online.room = null; chat.setEnabled(false); setRoomInUrl(null); if (online.playing) enterTitle(false); lobbyUI.showBrowser(); });
 net.on('close', () => {
@@ -873,6 +1043,7 @@ net.on('close', () => {
   chat.setEnabled(false);
   if (online.playing) enterTitle(false);
   ui.hideGameOver();
+  ui.hideVictory();
   ui.hidePause();
   online.menu = false;
   lobbyUI.showBrowser();
@@ -894,6 +1065,7 @@ function beginOnlineGame(m) {
   lobbyUI.hide();
   ui.hideTitle();
   ui.hideGameOver();
+  ui.hideVictory();
   ui.hidePause();
   audio.unlock();
   online.menu = false;
@@ -906,6 +1078,8 @@ function beginOnlineGame(m) {
   analytics.runStart('online', m.mode || 'mixed');
   sim.started = true;
   gameOverShown = false;
+  victory = null;
+  intro = null;
   prevPos.clear();
   online.playing = true;
   online.inputs.clear();
@@ -923,6 +1097,12 @@ function beginOnlineGame(m) {
   cameraSnap = true;
   online.shownLevel = sim.level;
   handleEvents([{ type: 'levelStart', level: sim.level }]);
+  // joined (or reconnected) after the final run was won: the stored victory event won't come again
+  if (m.st === 'victory') {
+    sim.state = 'victory';
+    intro = null;
+    startVictory(m.vic || null);
+  }
 }
 
 function backToLobby() {
@@ -1169,6 +1349,10 @@ function tick(dt) {
   }
 
   const vdt = running ? dt : 0;
+  updateVictory(vdt);
+  updateIntro(vdt);
+  pollPadNav();
+  if (track.volume < 0.5) track.volume = Math.min(0.5, track.volume + dt * 0.15); // musicFadeIn
   syncVisuals(vdt, alpha);
   updateTargetMarker(vdt);
   effects.update(vdt);
@@ -1187,7 +1371,7 @@ function tick(dt) {
   minimapT -= dt;
   if (mode === 'play' && minimapT <= 0) {
     minimapT = 1 / 30;
-    ui.updateMinimap(sim.levelData, sim);
+    ui.updateMinimap(sim.levelData, sim, online.playing ? online.me : null);
   }
 
   composer.render();

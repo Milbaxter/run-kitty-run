@@ -2,7 +2,9 @@
 import * as CONF from './shared/config.js';
 import { wsUrl, PLATFORM, APP_VERSION } from './platform.js';
 
-const PROTOCOL_VERSION = CONF.PROTOCOL_VERSION ?? 1;
+// Sent in the 'hi' handshake; the server gates modes on it (MODE_MIN_PROTOCOL in server/index.js).
+// 3 = this build knows the Skate only final run (SKATE_FINAL_LEVEL). Taken from the shared config when it says so.
+const PROTOCOL_VERSION = Math.max(CONF.PROTOCOL_VERSION ?? 1, CONF.SKATE_FINAL_LEVEL ? 3 : 1);
 
 function createNet() {
   const handlers = new Map();

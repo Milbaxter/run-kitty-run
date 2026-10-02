@@ -165,7 +165,7 @@ function createEffects(scene) {
   }
 
   const glow = makePool(4000, THREE.AdditiveBlending, 1.0, 20);   // sparkles, puffs, glows
-  const soft = makePool(2500, THREE.NormalBlending, 0.15, 19);    // dust, confetti, fur
+  const soft = makePool(4000, THREE.NormalBlending, 0.15, 19);    // dust, confetti, fur, firework stars (readable on snow)
 
   // Emits one particle; returns its base offset into pool.data, or -1 if pool is full.
   function emit(pool, x, y, z, vx, vy, vz, life, s0, s1, r, g, b, a) {
@@ -547,6 +547,102 @@ function createEffects(scene) {
     ring(x, 0.06, z, 0xffe680, 0.5, 4.5, 0.7, 0.85, 1, 2.0);
   }
 
+  // ---------------------------------------------------------------- fireworks (the final run's victory party)
+  // A rocket climbs from (x0, z0) to (x, y, z) leaving a sparkly trail, then bursts. opts:
+  //   color, color2 (second burst colour), kind ('peony' | 'ring' | 'willow'), fuse (s), scale (particle count, 0..1),
+  //   onBurst(x, y, z) (e.g. for the bang).
+  const rockets = [];
+  function firework(x0, z0, x, y, z, opts) {
+    const o = opts || {};
+    if (rockets.length >= 24) return;
+    rockets.push({
+      x0, z0, x, y, z, age: 0, fuse: o.fuse || rr(0.75, 1.05), trailT: 0,
+      color: o.color === undefined ? CONFETTI_COLORS[(rand() * 6) | 0] : o.color,
+      color2: o.color2, kind: o.kind || 'peony', scale: o.scale === undefined ? 1 : o.scale, onBurst: o.onBurst || null,
+      px: x0, py: 0.4, pz: z0,
+    });
+  }
+  function rocketPos(r, k) {
+    const e = 1 - (1 - k) * (1 - k);                 // fast launch, slowing toward the top
+    r.px = r.x0 + (r.x - r.x0) * k;
+    r.pz = r.z0 + (r.z - r.z0) * k;
+    r.py = 0.4 + (r.y - 0.4) * e;
+  }
+  function fireworkBurst(r) {
+    const n = Math.max(24, Math.round(130 * r.scale));
+    const willow = r.kind === 'willow', ringK = r.kind === 'ring';
+    const c1 = rgbOf(r.color, 1.9), c1r = c1.r, c1g = c1.g, c1b = c1.b;
+    const c2 = rgbOf(r.color2 === undefined ? r.color : r.color2, 1.9), c2r = c2.r, c2g = c2.g, c2b = c2.b;
+    // ring bursts are tilted toward the camera a little so they read as rings, not lines
+    const tilt = rr(0.5, 0.9);
+    for (let i = 0; i < n; i++) {
+      let dx, dy, dz;
+      if (ringK) {
+        const a = (i / n) * TAU;
+        dx = Math.cos(a); dy = Math.sin(a) * Math.cos(tilt); dz = Math.sin(a) * Math.sin(tilt);
+      } else {
+        const u = rand() * 2 - 1, a = rand() * TAU, s = Math.sqrt(1 - u * u);
+        dx = Math.cos(a) * s; dy = u; dz = Math.sin(a) * s;
+      }
+      const sp = (willow ? rr(5, 7) : rr(7.5, 10)) * (ringK ? 1 : rr(0.85, 1));
+      const two = i % 3 === 0;
+      // half the stars glow (bloom at night / on ice), half are solid colour so they still read against white snow
+      const solid = i % 2 === 1, pool = solid ? soft : glow, m = solid ? 1 / 1.9 : 1;
+      const p = emit(pool, r.x, r.y, r.z, dx * sp, dy * sp + 1, dz * sp,
+        willow ? rr(2.0, 2.8) : rr(1.1, 1.6), willow ? 0.32 : solid ? 0.36 : 0.42, 0.06,
+        (two ? c2r : c1r) * m, (two ? c2g : c1g) * m, (two ? c2b : c1b) * m, 1);
+      if (p < 0) break;
+      const d = pool.data;
+      d[p + GRAV] = willow ? -2.2 : -3.2; d[p + DRAG] = willow ? 1.9 : 1.35;
+      if (!solid) { d[p + SHAPE] = SHAPE_TWINKLE; d[p + FREQ] = rr(18, 34); }
+    }
+    // white-hot core flash + crackle
+    for (let i = 0; i < Math.round(22 * r.scale) + 4; i++) {
+      const u = rand() * 2 - 1, a = rand() * TAU, s = Math.sqrt(1 - u * u), sp = rr(1.5, 4.5);
+      const p = emit(glow, r.x, r.y, r.z, Math.cos(a) * s * sp, u * sp, Math.sin(a) * s * sp, rr(0.25, 0.5), 0.9, 0.1, 2.2, 2.1, 1.9, 1);
+      if (p < 0) break;
+      glow.data[p + DRAG] = 3;
+      glow.data[p + SHAPE] = SHAPE_TWINKLE; glow.data[p + FREQ] = 45;
+    }
+    if (r.onBurst) { try { r.onBurst(r.x, r.y, r.z); } catch (e) { /* ignore */ } }
+  }
+  function updateRockets(dt) {
+    for (let i = rockets.length - 1; i >= 0; i--) {
+      const r = rockets[i];
+      r.age += dt;
+      const k = Math.min(1, r.age / r.fuse);
+      rocketPos(r, k);
+      r.trailT -= dt;
+      while (r.trailT <= 0) {
+        r.trailT += 0.016;
+        const c = rgbOf(r.color, 0.6);
+        const p = emit(glow, r.px + rr(-0.05, 0.05), r.py, r.pz + rr(-0.05, 0.05), rr(-0.4, 0.4), rr(-1.5, -0.3), rr(-0.4, 0.4),
+          rr(0.35, 0.6), 0.26, 0.04, 1.6 + c.r, 1.4 + c.g, 1.1 + c.b, 0.9);
+        if (p < 0) break;
+        glow.data[p + GRAV] = -2; glow.data[p + DRAG] = 1;
+        glow.data[p + SHAPE] = SHAPE_TWINKLE; glow.data[p + FREQ] = 40;
+        const q = emit(soft, r.px, r.py - 0.1, r.pz, rr(-0.2, 0.2), rr(-1, 0), rr(-0.2, 0.2), rr(0.3, 0.5), 0.16, 0.03, 1, 0.62, 0.25, 0.8);
+        if (q >= 0) soft.data[q + DRAG] = 1;
+      }
+      if (k >= 1) { rockets.splice(i, 1); fireworkBurst(r); }
+    }
+  }
+
+  // Confetti drifting down from the sky over a disc of radius `radius` around (x, z); call every frame for rain.
+  function confettiRain(x, z, radius, count) {
+    const n = count === undefined ? 4 : count;
+    for (let i = 0; i < n; i++) {
+      const a = rand() * TAU, rad = Math.sqrt(rand()) * radius;
+      tmpColor.setHex(CONFETTI_COLORS[(rand() * CONFETTI_COLORS.length) | 0]);
+      const p = emit(soft, x + Math.cos(a) * rad, rr(12, 16), z + Math.sin(a) * rad, rr(-0.6, 0.6), rr(-1.5, -0.5), rr(-0.6, 0.6),
+        rr(4.5, 6.5), rr(0.34, 0.46), 0.3, tmpColor.r * 1.1, tmpColor.g * 1.1, tmpColor.b * 1.1, 1);
+      if (p < 0) return;
+      const d = soft.data;
+      d[p + GRAV] = -2.6; d[p + DRAG] = 1.2;
+      d[p + SHAPE] = SHAPE_RECT; d[p + SPIN] = rr(-7, 7); d[p + FREQ] = rr(4, 10);
+    }
+  }
+
   function shake(amount) {
     trauma = Math.min(1, trauma + (amount || 0));
   }
@@ -619,6 +715,7 @@ function createEffects(scene) {
     updateRings(dt);
     updateBeams(dt);
     updateTexts(dt);
+    updateRockets(dt);
     // shake (trauma model)
     trauma = Math.max(0, trauma - 1.5 * dt);
     const m = SHAKE_MAX * trauma * trauma;
@@ -629,7 +726,7 @@ function createEffects(scene) {
   }
 
   return {
-    burst, deathPoof, reviveBeam, pickup, teleport, shieldPop, dust, iceKick, confetti,
+    burst, deathPoof, reviveBeam, pickup, teleport, shieldPop, dust, iceKick, confetti, firework, confettiRain,
     shake, getShakeOffset, floatText, update,
   };
 }

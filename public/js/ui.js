@@ -45,6 +45,10 @@ const ICONS = {
   clock: `<svg viewBox="0 0 40 40"><circle cx="20" cy="21" r="14" fill="rgba(255,255,255,.12)" stroke="currentColor" stroke-width="3"/><path d="M20 12 L20 21 L26 25" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M16 4 L24 4" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`,
   eye: `<svg viewBox="0 0 40 40"><path d="M3 20 Q20 4 37 20 Q20 36 3 20 Z" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"/><circle cx="20" cy="20" r="6" fill="currentColor"/><path class="rkr-eslash" d="M7 33 L33 7" stroke="#ff5c7a" stroke-width="3.6" stroke-linecap="round"/></svg>`,
   menu: `<svg viewBox="0 0 40 40"><path d="M9 12 H31 M9 20 H31 M9 28 H31" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/></svg>`,
+  crown: `<svg viewBox="0 0 40 40"><path d="M5 30 L3 11 L13 19 L20 6 L27 19 L37 11 L35 30 Z" fill="#ffd34a" stroke="${INK}" stroke-width="2.6" stroke-linejoin="round"/><path d="M6 30 H34 V35 H6 Z" fill="#ffb21f" stroke="${INK}" stroke-width="2.4" stroke-linejoin="round"/><circle cx="20" cy="23" r="2.6" fill="#ff5c93"/><circle cx="12" cy="25" r="1.8" fill="#4cc9ff"/><circle cx="28" cy="25" r="1.8" fill="#3ee08f"/><path d="M8 14 L9.5 26" stroke="#fff" stroke-width="2" opacity=".6" stroke-linecap="round"/></svg>`,
+  flag: `<svg viewBox="0 0 40 40"><path d="M10 4 V37" stroke="${INK}" stroke-width="3.4" stroke-linecap="round"/><path d="M11 6 Q19 2 25 7 Q30 11 35 8 L35 22 Q29 25 24 21 Q18 17 11 21 Z" fill="#3ee08f" stroke="${INK}" stroke-width="2.4" stroke-linejoin="round"/></svg>`,
+  finish: `<svg viewBox="0 0 40 40"><defs><pattern id="rkr-chk" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#fff"/><rect width="4" height="4" fill="${INK}"/><rect x="4" y="4" width="4" height="4" fill="${INK}"/></pattern></defs><path d="M10 4 V37" stroke="${INK}" stroke-width="3.4" stroke-linecap="round"/><path d="M11 6 Q19 2 25 7 Q30 11 35 8 L35 22 Q29 25 24 21 Q18 17 11 21 Z" fill="url(#rkr-chk)" stroke="${INK}" stroke-width="2.4" stroke-linejoin="round"/></svg>`,
+  tree: `<svg viewBox="0 0 40 40"><path d="M17 26 H23 L24 37 H16 Z" fill="#8a5a2b" stroke="${INK}" stroke-width="2.2" stroke-linejoin="round"/><path d="M20 3 C11 3 6 9 7.5 15 C3 18 4.5 26 11 27 C14 30 26 30 29 27 C35.5 26 37 18 32.5 15 C34 9 29 3 20 3 Z" fill="#e8f6ff" stroke="${INK}" stroke-width="2.4" stroke-linejoin="round"/><path d="M12 12 Q15 8 19 8.5" stroke="#9fd4ff" stroke-width="2.4" fill="none" stroke-linecap="round"/><circle cx="25" cy="18" r="2" fill="#9fd4ff"/><circle cx="14" cy="21" r="1.6" fill="#9fd4ff"/></svg>`,
   speaker: `<svg viewBox="0 0 40 40"><path d="M6 15 L13 15 L22 7 L22 33 L13 25 L6 25 Z" fill="currentColor" stroke-linejoin="round"/><g class="rkr-waves" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M27 14 Q31 20 27 26"/><path d="M31 10 Q38 20 31 30"/></g><g class="rkr-slash" stroke="#ff5c7a" stroke-width="3.4" stroke-linecap="round"><path d="M27 14 L37 26 M37 14 L27 26"/></g></svg>`,
 };
 
@@ -257,6 +261,42 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-stat .rkr-sv{font-size:22px;font-weight:900;color:#fff;font-variant-numeric:tabular-nums;}
 .rkr-keyhint{font-size:13px;font-weight:700;color:rgba(255,255,255,.65);display:flex;gap:6px;align-items:center;}
 
+/* ---------------- the final run: progress bar (replaces the minimap) ---------------- */
+.rkr-prog{position:absolute;left:50%;top:12px;transform:translateX(-50%);width:min(40vw,560px);min-width:190px;height:52px;display:none;pointer-events:none;}
+.rkr-hud.rkr-finale .rkr-prog{display:block;}
+.rkr-hud.rkr-finale .rkr-map,.rkr-hud.rkr-finale .rkr-tc,.rkr-hud.rkr-finale .rkr-hint{display:none;}
+.rkr-ptrack{position:absolute;left:24px;right:24px;top:14px;height:12px;border-radius:9px;
+  background:linear-gradient(180deg,rgba(220,244,255,.55),rgba(120,180,255,.4));border:2px solid rgba(255,255,255,.85);
+  box-shadow:0 0 0 3px rgba(40,20,80,.55),0 6px 16px rgba(0,0,0,.35);}
+.rkr-pfill{position:absolute;left:0;top:0;bottom:0;width:0;border-radius:9px;background:linear-gradient(90deg,#7fd8ff,#ffe27a);box-shadow:0 0 10px rgba(255,226,122,.7);}
+.rkr-pico{position:absolute;width:26px;height:26px;transform:translate(-50%,-62%);top:50%;filter:drop-shadow(0 2px 0 rgba(0,0,0,.35));}
+.rkr-pico.rkr-pend,.rkr-pico.rkr-pstart{width:28px;height:28px;}
+.rkr-pdot{position:absolute;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1.5px rgba(40,20,80,.8),0 0 8px rgba(255,255,255,.5);z-index:2;}
+.rkr-pdot.rkr-me{width:19px;height:19px;margin:-9.5px 0 0 -9.5px;border-width:3px;z-index:3;box-shadow:0 0 0 2px rgba(40,20,80,.9),0 0 12px #fff;}
+.rkr-pdot.rkr-dn{opacity:.35;filter:grayscale(.7);z-index:1;border-style:dashed;}
+.rkr-pdist{position:absolute;left:0;right:0;top:33px;text-align:center;font-weight:900;font-size:15px;letter-spacing:.04em;color:#fff6d8;
+  text-shadow:0 2px 0 rgba(40,16,70,.9),0 0 10px rgba(40,16,70,.8);font-variant-numeric:tabular-nums;}
+.rkr-pdist.rkr-done{color:#ffe27a;}
+
+/* banner styles */
+.rkr-banner.rkr-b-finale .rkr-bt{color:#eaf8ff;letter-spacing:.06em;-webkit-text-stroke:3px #10234f;
+  text-shadow:0 6px 0 #10234f,0 10px 0 rgba(0,0,0,.3),0 0 50px rgba(120,200,255,.9);}
+.rkr-banner.rkr-b-finale .rkr-bs{background:rgba(10,30,70,.7);color:#d8f1ff;border:2px solid rgba(160,220,255,.6);}
+.rkr-banner.rkr-b-gold .rkr-bt{color:#ffe27a;text-shadow:0 6px 0 #3a1650,0 10px 0 rgba(0,0,0,.25),0 0 60px rgba(255,210,80,.95);}
+
+/* ---------------- victory ---------------- */
+.rkr-victory{background:radial-gradient(ellipse at 50% 30%,rgba(255,200,90,.12),rgba(20,8,48,.55) 70%);animation:rkr-fadein .6s ease-out;}
+.rkr-victory .rkr-glass{max-width:520px;border-color:rgba(255,215,100,.75);box-shadow:0 20px 60px rgba(0,0,0,.5),0 0 60px rgba(255,200,80,.35),inset 0 1px 0 rgba(255,255,255,.4);}
+.rkr-victory h2{font-size:clamp(34px,5.4vw,54px);color:#ffe27a;text-shadow:0 5px 0 #3a1650,0 0 34px rgba(255,200,80,.8);}
+.rkr-victory .rkr-vcrown{width:84px;height:84px;margin-bottom:-6px;animation:rkr-wiggle 2.4s ease-in-out infinite;filter:drop-shadow(0 0 16px rgba(255,210,80,.8));}
+.rkr-vfirst{display:flex;align-items:center;gap:8px;padding:6px 16px;border-radius:999px;background:rgba(255,210,80,.16);border:2px solid rgba(255,210,80,.6);font-weight:900;font-size:17px;}
+.rkr-vfirst svg{width:24px;height:24px;}
+.rkr-vfirst .rkr-vname,.rkr-chip span{-webkit-text-stroke:3px #2b1840;paint-order:stroke fill;}
+.rkr-party{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-height:96px;overflow:auto;}
+.rkr-chip{display:flex;align-items:center;gap:4px;padding:2px 10px 2px 4px;border-radius:999px;background:rgba(0,0,0,.25);font-weight:800;font-size:13px;}
+.rkr-chip .rkr-cat{width:20px;height:20px;}
+.rkr-vbtns{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;}
+
 /* ---------------- keyframes ---------------- */
 @keyframes rkr-bounce{0%,58%,100%{transform:translateY(0) scale(1,1);}
   8%{transform:translateY(0) scale(1.12,.86);}20%{transform:translateY(-.2em) scale(.92,1.1);}
@@ -278,6 +318,8 @@ html.rkr-touch .rkr-touchonly{display:block;}
 @keyframes rkr-drift{0%{transform:translateY(0) rotate(var(--r));}100%{transform:translateY(-120vh) rotate(var(--r));}}
 
 @media (max-width:760px){
+  .rkr-prog{top:8px;}
+  .rkr-pdist{font-size:13px;}
   .rkr-map{width:140px;height:140px;right:10px;bottom:10px;}
   .rkr-tl{left:10px;top:10px;}
   .rkr-card{min-width:170px;padding:6px 10px 6px 6px;}
@@ -305,6 +347,18 @@ html.rkr-touch .rkr-touchonly{display:block;}
   .rkr-glass h2{font-size:34px !important;}
   .rkr-glass .rkr-gcat{width:44px;height:44px;}
   .rkr-stats{gap:2px;}
+  .rkr-prog{top:6px;height:44px;}
+  .rkr-pico{width:22px;height:22px;}
+  .rkr-pdist{top:29px;font-size:12px;}
+  .rkr-victory .rkr-vcrown{width:44px;height:44px;}
+  .rkr-victory .rkr-glass{gap:7px;}
+  .rkr-victory .rkr-stat{padding:3px 10px;font-size:14px;}
+  .rkr-victory .rkr-stat .rkr-sv{font-size:17px;}
+  .rkr-victory .rkr-stats{display:grid;grid-template-columns:1fr 1fr;gap:4px;}
+  .rkr-victory .rkr-gsub{display:none;}
+  .rkr-victory h2{font-size:28px !important;}
+  .rkr-vfirst{font-size:14px;padding:3px 12px;}
+  .rkr-party{display:none;}
 }
 /* notches / rounded corners (after the base rules so these win) */
 .rkr-tl{left:max(16px,env(safe-area-inset-left));}
@@ -341,7 +395,7 @@ function createUI(root) {
   injectStyle();
   root.classList.add('rkr-root');
 
-  const state = { title: false, pause: false, gameOver: false };
+  const state = { title: false, pause: false, gameOver: false, victory: false };
   let onStartCb = null, onResumeCb = null, onRestartCb = null;
   // Title menu order (data-p = mode: 3 online, 1 solo, 2 local co-op); keys 1/2/3 follow this order.
   const TITLE_ORDER = [3, 1, 2];
@@ -380,7 +434,14 @@ function createUI(root) {
   mapEl.appendChild(mapCanvas);
 
   const scoresEl = el('div', 'rkr-scores');
-  hud.append(tl, tc, tr, mapEl, scoresEl);
+  // the final run: a start -> tree -> finish progress bar instead of the minimap
+  const progEl = el('div', 'rkr-prog',
+    `<div class="rkr-ptrack"><div class="rkr-pfill"></div>
+       <div class="rkr-pico rkr-pstart" style="left:0">${ICONS.flag}</div>
+       <div class="rkr-pico rkr-ptree">${ICONS.tree}</div>
+       <div class="rkr-pico rkr-pend" style="left:100%">${ICONS.finish}</div></div>
+     <div class="rkr-pdist"></div>`);
+  hud.append(tl, tc, tr, mapEl, scoresEl, progEl);
   // HUD on/off (remembered); phones start with it off
   let hudMin = TOUCH;
   try { const v = localStorage.getItem('rkr-hud'); if (v) hudMin = v === 'min'; } catch { /* ignore */ }
@@ -590,8 +651,61 @@ function createUI(root) {
   const ENEMY_COL = { patroller: '#ff4b4b', wanderer: '#ff7a33', orbiter: '#ff3d9a', sweeper: '#d81e1e' };
   const ITEM_COL = { boots: '#33e0ff', life: '#ff6fa8', shield: '#5aaaff' };
 
-  function updateMinimap(ld, sim) {
+  // ================= final run progress bar =================
+  const PR = { on: false, track: progEl.querySelector('.rkr-ptrack'), fill: progEl.querySelector('.rkr-pfill'),
+    tree: progEl.querySelector('.rkr-ptree'), dist: progEl.querySelector('.rkr-pdist'), dots: new Map(), ld: null, txt: null, fillW: null };
+  function setFinaleMode(on) {
+    if (on === PR.on) return;
+    PR.on = on;
+    hud.classList.toggle('rkr-finale', on);
+    if (!on) { for (const d of PR.dots.values()) d.el.remove(); PR.dots.clear(); PR.ld = null; PR.txt = null; }
+  }
+  // me: id of your own kitty online (highlighted, and the distance is yours); null = local play (the leader's distance)
+  function updateProgress(ld, sim, me) {
+    const x0 = ld.corners && ld.corners.length ? ld.corners[0].x : -(ld.runLength || 1);
+    const x1 = -(ld.centerRadius || CFG.CENTER_RADIUS);          // the goal room's disc: that's the finish
+    const span = Math.max(1, x1 - x0);
+    const frac = (x) => Math.max(0, Math.min(1, (x - x0) / span));
+    if (PR.ld !== ld) {
+      PR.ld = ld;
+      const t = ld.trees && ld.trees[0];
+      PR.tree.style.display = t ? '' : 'none';
+      if (t) PR.tree.style.left = (frac(t.x) * 100).toFixed(2) + '%';
+    }
+    const players = (sim && sim.players) || [];
+    const seen = new Set();
+    let ref = null, lead = -1;
+    for (const p of players) {
+      seen.add(p.id);
+      let d = PR.dots.get(p.id);
+      if (!d) { d = { el: el('div', 'rkr-pdot'), color: null, cls: null, left: null }; PR.track.appendChild(d.el); PR.dots.set(p.id, d); }
+      if (d.color !== p.color) { d.color = p.color; d.el.style.background = hexColor(p.color); }
+      const cls = 'rkr-pdot' + (me != null && p.id === me ? ' rkr-me' : '') + (p.alive === false ? ' rkr-dn' : '');
+      if (cls !== d.cls) { d.cls = cls; d.el.className = cls; }
+      const f = p.inCenter ? 1 : frac(p.x);
+      const left = (f * 100).toFixed(2) + '%';
+      if (left !== d.left) { d.left = left; d.el.style.left = left; }
+      if (p.alive !== false && f > lead) lead = f;
+      if (me != null ? p.id === me : (p.alive !== false && (!ref || f > (ref.inCenter ? 1 : frac(ref.x))))) ref = p;
+    }
+    for (const [id, d] of PR.dots) if (!seen.has(id)) { d.el.remove(); PR.dots.delete(id); }
+    if (!ref) ref = players.reduce((b, p) => (!b || p.x > b.x ? p : b), null);
+    const fw = (Math.max(0, lead) * 100).toFixed(1) + '%';
+    if (fw !== PR.fillW) { PR.fillW = fw; PR.fill.style.width = fw; }
+    let txt;
+    if (sim && (sim.state === 'victory' || players.some((p) => p.inCenter))) txt = 'FINISHED!';
+    else if (!ref) txt = '';
+    else {
+      const m = Math.max(0, Math.round(x1 - ref.x));
+      txt = (me != null && ref.alive === false ? 'down · ' : '') + m + ' m to go';
+    }
+    if (txt !== PR.txt) { PR.txt = txt; PR.dist.textContent = txt; PR.dist.classList.toggle('rkr-done', txt === 'FINISHED!'); }
+  }
+
+  function updateMinimap(ld, sim, me) {
     if (!ld) return;
+    setFinaleMode(!!ld.finale);
+    if (ld.finale) { updateProgress(ld, sim, me == null ? null : me); return; }
     const resized = ensureMapSize();
     if (resized || M.staticFor !== ld) { buildStatic(ld); M.staticFor = ld; }
     const g = M.ctx, dpr = M.dpr, sc = M.scale, cx = M.cx, cy = M.cy;
@@ -672,8 +786,11 @@ function createUI(root) {
 
   // ================= banner & toast =================
   let bannerTimers = [];
-  function banner(title, subtitle, ms) {
+  // style: undefined (default), 'finale' (icy, the final run) or 'gold' (victory)
+  function banner(title, subtitle, ms, style) {
     ms = ms || 1800;
+    bannerEl.classList.toggle('rkr-b-finale', style === 'finale');
+    bannerEl.classList.toggle('rkr-b-gold', style === 'gold');
     bannerTimers.forEach(clearTimeout); bannerTimers = [];
     bannerT.textContent = title || '';
     bannerS.textContent = subtitle || '';
@@ -792,6 +909,12 @@ function createUI(root) {
     H.visible = false;
     selectTitle(titleSel);
   }
+  // back to the menu / lobby without the title screen: don't leave the last run's HUD up behind it
+  function hideHUD() {
+    hud.classList.add('rkr-off');
+    H.visible = false;
+    setFinaleMode(false);
+  }
   function hideTitle() {
     if (!state.title || !titleEl) { state.title = false; return; }
     state.title = false;
@@ -901,6 +1024,99 @@ function createUI(root) {
     if (goEl) { goEl.remove(); goEl = null; }
   }
 
+  // ================= victory (the final run is beaten) =================
+  // stats: { runTime, totalTime, deaths, rescues, first: {name, color} | null, players: [{name, color, first}] }
+  // buttons: [{ label, sub?, alt?, onClick }] (first = default selection)
+  let vEl = null, vRaf = 0, vTimers = [], vBtns = [], vSel = 0, vArmedAt = 0;
+  const V_LINES = [
+    'Every wolf dodged. Every kitty home.',
+    'The ice is yours. Legends skate here.',
+    'Nine lives well spent.',
+  ];
+  function showVictory(stats, buttons) {
+    stats = stats || {};
+    hideVictory();
+    hidePause();
+    vEl = el('div', 'rkr-overlay rkr-victory');
+    const rows = [
+      { icon: ICONS.flag, label: 'Final run time', v: stats.runTime, fmt: fmtTime, color: '#3ee08f' },
+      { icon: ICONS.clock, label: 'Total time', v: stats.totalTime, fmt: fmtTime, color: '#cdbfff' },
+      { icon: ICONS.revive, label: 'Kitties rescued', v: stats.rescues | 0, fmt: String },
+      { icon: ICONS.wolf, label: 'Times caught', v: stats.deaths | 0, fmt: String },
+    ].filter((r) => r.v != null && isFinite(r.v));
+    const ps = stats.players || [];
+    const first = stats.first;
+    const line = (stats.deaths | 0) === 0 ? 'Not a single kitty caught. Flawless!' : V_LINES[((stats.deaths | 0) + ps.length) % V_LINES.length];
+    vEl.innerHTML = `<div class="rkr-glass">
+        <div class="rkr-vcrown">${ICONS.crown}</div>
+        <h2>YOU BEAT<br>RUN KITTY RUN!</h2>
+        <div class="rkr-gsub">${esc(line)}</div>
+        ${first && ps.length > 1 ? `<div class="rkr-vfirst">${ICONS.crown}<span>First to the goal: <span class="rkr-vname" style="color:${hexColor(first.color)}">${esc(first.name)}</span></span></div>` : ''}
+        <div class="rkr-stats">${rows.map((r) => `<div class="rkr-stat"><div class="rkr-ico" style="color:${r.color || '#fff'}">${r.icon}</div><span class="rkr-sl">${r.label}</span><span class="rkr-sv">${r.fmt(0)}</span></div>`).join('')}</div>
+        ${ps.length > 1 ? `<div class="rkr-party">${ps.map((p) => `<span class="rkr-chip" style="color:${hexColor(p.color)}">${ICONS.cat}<span>${p.first ? '👑 ' : ''}${esc(p.name)}</span></span>`).join('')}</div>` : ''}
+        <div class="rkr-vbtns">${(buttons || []).map((b) => `<button class="rkr-btn${b.alt ? ' rkr-alt' : ''}"><span>${esc(b.label)}</span>${b.sub ? `<small>${esc(b.sub)}</small>` : ''}</button>`).join('')}</div>
+        <div class="rkr-keyhint">press <span class="rkr-k rkr-wide">Enter</span></div>
+      </div>`;
+    vBtns = [...vEl.querySelectorAll('.rkr-vbtns .rkr-btn')];
+    vBtns.forEach((b, i) => {
+      b.addEventListener('click', () => pickVictory(i, buttons));
+      b.addEventListener('mouseenter', () => selectVictory(i));
+    });
+    vEl._buttons = buttons || [];
+    root.appendChild(vEl);
+    state.victory = true;
+    vArmedAt = performance.now() + 1000;
+    selectVictory(0);
+
+    const statEls = [...vEl.querySelectorAll('.rkr-stat')];
+    const anims = rows.map((r, i) => ({ el: statEls[i], val: statEls[i].querySelector('.rkr-sv'), r, start: 450 + i * 240, last: -1 }));
+    anims.forEach((a) => vTimers.push(setTimeout(() => a.el.classList.add('rkr-show'), a.start)));
+    const t0 = performance.now();
+    vRaf = setInterval(() => {
+      const e0 = performance.now() - t0;
+      let done = true;
+      for (const a of anims) {
+        const k = Math.max(0, Math.min(1, (e0 - a.start - 100) / 900));
+        if (k < 1) done = false;
+        const v = Math.round(a.r.v * (1 - Math.pow(1 - k, 3)));
+        if (v !== a.last) { a.last = v; a.val.textContent = a.r.fmt(v); }
+      }
+      if (done) { clearInterval(vRaf); vRaf = 0; }
+    }, 33);
+  }
+  function selectVictory(i) {
+    if (!vBtns.length) return;
+    vSel = (i + vBtns.length) % vBtns.length;
+    vBtns.forEach((b, k) => b.classList.toggle('rkr-sel', k === vSel));
+  }
+  function pickVictory(i, buttons) {
+    if (!state.victory) return;
+    const b = (buttons || [])[i];
+    hideVictory();
+    if (b && b.onClick) b.onClick();
+  }
+  function hideVictory() {
+    state.victory = false;
+    if (vRaf) clearInterval(vRaf);
+    vRaf = 0;
+    vTimers.forEach(clearTimeout); vTimers = [];
+    vBtns = [];
+    if (vEl) { vEl.remove(); vEl = null; }
+  }
+
+  // Gamepad (main.js polls the pad and sends edges): 'confirm' | 'prev' | 'next' for the open overlay.
+  function navigate(cmd) {
+    if (state.victory) {
+      if (cmd === 'prev') selectVictory(vSel - 1);
+      else if (cmd === 'next') selectVictory(vSel + 1);
+      else if (cmd === 'confirm' && performance.now() >= vArmedAt && vEl) pickVictory(vSel, vEl._buttons);
+    } else if (state.gameOver) {
+      if (cmd === 'confirm' && performance.now() >= gameOverArmedAt) restart();
+    } else if (state.pause) {
+      if (cmd === 'confirm') resume();
+    }
+  }
+
   // ================= scoreboard (top right) =================
   let scoresKey = '';
   let best = 0;
@@ -942,12 +1158,18 @@ function createUI(root) {
   muteEl.addEventListener('click', () => { if (muteHandler) muteHandler(); });
   function onMuteClick(fn) { muteHandler = fn; }
   function onMenuClick(fn) { menuHandler = fn; }
-  function isOverlayOpen() { return state.title || state.pause || state.gameOver; }
+  function isOverlayOpen() { return state.title || state.pause || state.gameOver || state.victory; }
 
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     const k = e.key;
     if ((k === 'h' || k === 'H') && !state.title && !e.target.closest?.('input')) { setHudMin(!hudMin); return; }
+    if (state.victory) {
+      if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'a' || k === 'A' || k === 'w' || k === 'W') selectVictory(vSel - 1);
+      else if (k === 'ArrowRight' || k === 'ArrowDown' || k === 'd' || k === 'D' || k === 's' || k === 'S') selectVictory(vSel + 1);
+      else if ((k === 'Enter' || k === ' ') && performance.now() >= vArmedAt) { e.preventDefault(); pickVictory(vSel, vEl && vEl._buttons); }
+      return;
+    }
     if (state.gameOver) {
       if ((k === 'Enter' || k === ' ') && performance.now() >= gameOverArmedAt) { e.preventDefault(); restart(); }
       return;
@@ -970,6 +1192,7 @@ function createUI(root) {
   return {
     showTitle, hideTitle, setHUD, updateMinimap, banner, toast, setScores,
     showPause, hidePause, showGameOver, hideGameOver, setMutedIcon, isOverlayOpen, onMuteClick, onMenuClick,
+    showVictory, hideVictory, isVictoryOpen: () => state.victory, navigate, hideHUD,
   };
 }
 

@@ -9,8 +9,8 @@ const CFG = {
   KITTY_SPEED: 6.5,          // units / second at speedMult 1
   KITTY_ACCEL_TAU: 0.05,     // velocity smoothing time constant (s)
   KITTY_HIT_SCALE: 0.85,     // kitty hitbox = radius * this
-  SPEED_BOOST: 0.04,         // +4% per boots
-  SPEED_MULT_MAX: 1.16,      // four pairs of boots max (lost when caught)
+  SPEED_BOOST: 0.05,         // +5% per boots
+  SPEED_MULT_MAX: 1.2,       // four pairs of boots max (lost when caught)
   MAX_EXTRA_LIVES: 1,
   SPAWN_INVULN: 2.0,         // seconds after level start / revive
   SHIELD_TIME: 4.0,          // seconds from shield pickup

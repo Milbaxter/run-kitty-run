@@ -24,7 +24,7 @@ ok(levelStart && sim.level === 2, 'next level starts');
 const spawns = sim.levelData.spawnPoints;
 ok(sim.players.every((p) => p.alive && !p.inCenter && Math.hypot(p.x - spawns[0].x, p.z - spawns[0].z) < 4), 'everyone (incl. the dead one) respawns alive at the start');
 
-// running levels ramp up toward the goal (level 2 of the default mode is the gentler ice rink, so use run mode)
+// running levels ramp up toward the goal (winter levels in the default mode are the gentler ice rink, so use run mode)
 const ld = generateLevel(sim.level, sim.levelData.seed, 'run');
 ok(ld.enemies.length >= 200, `wolves: ${ld.enemies.length}`);
 const half = Math.floor(ld.legs.length / 2);
@@ -102,7 +102,7 @@ ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG
 }
 // autumn levels: a kitty up a climbable tree can't be caught
 {
-  const s = createSim({ seed: 41, startLevel: 3, players: [{ id: 1, name: 'a' }] });
+  const s = createSim({ seed: 41, startLevel: 2, players: [{ id: 1, name: 'a' }] });
   stepSim(s, {}, CFG.TICK);
   const p = s.players[0], t = s.levelData.trees[2];
   ok(s.levelData.trees.length >= 10, `autumn level has climbable trees (${s.levelData.trees.length})`);

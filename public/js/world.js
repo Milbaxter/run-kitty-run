@@ -10,7 +10,7 @@ import { QUALITY } from './device.js';
 // - buildWorld adds its group to the scene itself; dispose() removes it and frees every
 //   geometry/material/texture it created.
 // - THEMES entries carry extra fields beyond the contract (lighting, fog, decor palettes).
-// - The theme index is levelData.theme, falling back to (level-1)%4.
+// - The theme index is levelData.theme (see THEME_ORDER in maze.js), falling back to (level-1)%THEMES.length.
 // - Radial walls are swept walls (same style as ring walls), shortened by half the wall
 //   thickness at both ends so they butt against the ring walls.
 // - Lantern pillars sit flush at both ends of every gap (inset into the wall end) and every
@@ -66,6 +66,18 @@ const THEMES = [
     floorStyle: 'neon', wallStyle: 'neon', particles: 'motes', crownEmissive: 0.12,
     crowns: [0x5b2fa0, 0x47288a, 0x6a35b0, 0x3a2470, 0x2f6fa0],
     smalls: [0x3ff6ff, 0xff4fd8, 0xb6ff4f, 0xffd24f],
+  },
+  {
+    name: 'Spring Blossom',
+    sky: 0xbfe6ff, fog: 0xd8eefa, fogNear: 48, fogFar: 125,
+    ground: 0x9edb73, groundAlt: 0xaae27f, outerGround: 0x92d468, plaza: 0xf3e6d8,
+    wall: 0x4f9a48, wallTop: 0xf6b8d4, accent: 0xffd0e6, lamp: 0xffd6a0,
+    pillar: 0xeadfd0, trunk: 0x6e4a3a, rock: 0xa8a8a0, tuft: 0x6cc24f, chevron: 0xffffff,
+    hemiSky: 0xf0f4ff, hemiGround: 0x6a8a4a, hemiIntensity: 1.2,
+    sunColor: 0xfff4ec, sunIntensity: 2.2, lampBoost: 2.6, glowK: 0.22, chevronOpacity: 0.32,
+    floorStyle: 'grass', wallStyle: 'hedge', particles: 'leaves', crownEmissive: 0,
+    crowns: [0xffb7d5, 0xff9ec7, 0xffc9df, 0xf7a8c8, 0xfff0f6],   // cherry blossom trees (and falling petals)
+    smalls: [0xffffff, 0xffb7d5, 0xfff07a, 0xb7e4ff, 0xd6b8ff],
   },
 ];
 
@@ -933,7 +945,7 @@ function buildDecor(levelData, theme, ti, T, rng) {
     return out;
   };
 
-  if (ti === 0) {
+  if (ti === 0 || ti === 4) { // summer + spring: flowers
     const petals = [];
     for (let k = 0; k < 5; k++) {
       const a = (k / 5) * TAU;
@@ -1163,7 +1175,7 @@ function buildCheckpoints(levelData, T) {
 
 function buildWorld(scene, levelData) {
   const T = makeTracker();
-  const ti = (((levelData.theme ?? ((levelData.level || 1) - 1)) % 4) + 4) % 4;
+  const ti = (((levelData.theme ?? ((levelData.level || 1) - 1)) % THEMES.length) + THEMES.length) % THEMES.length;
   const theme = THEMES[ti];
   const rng = createRng(hashSeed(levelData.seed ?? 1, levelData.level ?? 1, 'world'));
   const group = new THREE.Group();
@@ -1230,7 +1242,7 @@ function setupLighting(scene) {
   scene.background = bg;
 
   function setTheme(theme) {
-    const t = THEMES[(((theme | 0) % 4) + 4) % 4];
+    const t = THEMES[(((theme | 0) % THEMES.length) + THEMES.length) % THEMES.length];
     bg.set(t.sky);
     fog.color.set(t.fog); fog.near = t.fogNear; fog.far = t.fogFar;
     scene.fog = fog; scene.background = bg;

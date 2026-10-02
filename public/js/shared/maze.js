@@ -31,7 +31,10 @@ const ROOM = 8;                   // goal room half-size
 const ICE_THEME = 2;              // Snowy Peaks
 const TREE_THEME = 1;             // Autumn Grove: one climbable tree per lane
 const ICE_RAMP = 0.3;              // ice levels: how much of the usual toward-the-goal difficulty ramp applies
-const THEME_ORDER = [0, ICE_THEME, 1, 3]; // meadow, snow (ice), autumn, neon: level 2 is the ice rink
+const SPRING_THEME = 4;
+// Seasons: summer meadow, autumn (climbable trees), winter (the ice rink), spring blossom, repeat.
+// (Theme 3, the neon night garden, is out of the rotation.)
+const THEME_ORDER = [0, TREE_THEME, ICE_THEME, SPRING_THEME];
 
 // The 8 rotations/reflections of the plane; the spiral is mapped by the one that puts the start
 // in the top-left corner with the run going clockwise on screen (first step: to the right).
@@ -294,7 +297,7 @@ function generateLevel(level, seed, mode = 'mixed') {
     enemies: [],
     items: [],
     path,
-    theme: CFG.ICE_TEST || mode === 'ice' ? ICE_THEME : mode === 'run' ? (L - 1) % 4 : THEME_ORDER[(L - 1) % 4],
+    theme: CFG.ICE_TEST || mode === 'ice' ? ICE_THEME : THEME_ORDER[(L - 1) % 4], // run mode: same seasons, winter just isn't ice
     mode,
   };
   lvl.ice = mode !== 'run' && lvl.theme === ICE_THEME;

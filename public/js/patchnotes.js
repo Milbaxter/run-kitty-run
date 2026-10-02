@@ -18,6 +18,8 @@ const PATCH_NOTES = [
       'Chat is unfiltered on the web: say what you like. Tap a name to mute someone, and the new Muted button next to the chat lets you unmute them later',
       'The mouse is now player 1 everywhere: in local co-op player 1 plays with the mouse and player 2 with WASD or the arrow keys',
       'Skate only: rows of wolves now walk shoulder to shoulder, too tight to slip between. At least one wolf in every three or four runs at a different speed (from 20% slower to 40% faster than the rest), so the walls break up in different places over time: watch, wait a bit, then go. Rows start from both walls, charger lanes run at different speeds with looser packs',
+      'Checkpoints on every level now, not just the ice ones (Run only and the running levels of Run + Skate): two flags per level, reaching one revives everyone and gathers the team there',
+      'The kitty that reaches a checkpoint keeps going: no more snapping to the middle of the square, only the rest of the team is gathered there',
     ],
   },
   {

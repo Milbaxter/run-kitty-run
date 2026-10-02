@@ -961,7 +961,7 @@ function placeItems(rng, lvl, p) {
   return items;
 }
 
-// Ice levels: two safe squares are checkpoints (see sim.js): the one nearest 1/3 of the way along
+// Every level but the final run: two safe squares are checkpoints (see sim.js): the one nearest 1/3 of the way along
 // the path, and the fifth safe square before the end. Each faces down the leg that leaves it (legs[i] runs from corner i+1 at s=0 to corner i).
 function pickCheckpoints(corners, legs, nSafe) {
   const cum = [0];
@@ -1044,7 +1044,7 @@ function generateLevel(level, seed, mode = 'mixed') {
     finale,
   };
   lvl.ice = mode !== 'run' && lvl.theme === ICE_THEME;
-  lvl.checkpoints = lvl.ice && !finale ? pickCheckpoints(corners, legs, lvl.safeCorners.length) : [];
+  lvl.checkpoints = !finale ? pickCheckpoints(corners, legs, lvl.safeCorners.length) : [];
   // the crown: floats over the middle of the goal room (above the portal)
   lvl.crown = { x: 0, z: 0 };
   if (finale) {

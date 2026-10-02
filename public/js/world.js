@@ -1210,7 +1210,7 @@ function buildClimbTrees(levelData, theme, T) {
   return [trunks, blobs, capMesh, makeInstanced(iceGeo, iceMat, icicles)];
 }
 
-// Checkpoint squares (ice levels): a glowing ring on the tile and a flag in its back corner.
+// Checkpoint squares (every level but the final run): a glowing ring on the tile and a flag in its back corner.
 function buildCheckpoints(levelData, T) {
   const out = [];
   const ringMat = T.m(new THREE.MeshBasicMaterial({ color: 0x8fdcff, transparent: true, opacity: 0.55, depthWrite: false }));

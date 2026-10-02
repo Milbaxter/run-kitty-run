@@ -403,7 +403,9 @@ function stepSim(sim, inputs, dt) {
     }
   }
 
-  // --- checkpoints (ice levels): first kitty onto one revives everyone and gathers the team there ---
+  // --- checkpoints: first kitty onto one revives everyone and gathers the rest of the team there. The kitty that
+  // reached it keeps going untouched (position, speed, heading); the others land on the square's slot grid, skipping
+  // any slot the activator is standing on ---
   const cps = ld.checkpoints || [];
   for (let c = 0; c < cps.length; c++) {
     if (sim.state !== 'playing' || sim.checkpointsHit.indexOf(c) >= 0) continue;
@@ -416,10 +418,11 @@ function stepSim(sim, inputs, dt) {
     let slot = 0;
     for (let i = 0; i < players.length; i++) {
       const p = players[i];
-      if (p.inCenter) continue;
+      if (p.inCenter || p === by) continue;
       if (!p.alive) { p.alive = true; p.shield = 0; revived.push(p.id); }
       // a grid filling the square from the middle out (room for 36)
-      const sp = squareSlot(cp.x, cp.z, cp.heading, slot);
+      let sp = squareSlot(cp.x, cp.z, cp.heading, slot);
+      for (let g = 0; g < 36 && Math.hypot(sp.x - by.x, sp.z - by.z) < 1; g++) sp = squareSlot(cp.x, cp.z, cp.heading, ++slot);
       p.x = sp.x;
       p.z = sp.z;
       p.heading = cp.heading;

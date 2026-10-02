@@ -17,9 +17,10 @@ function createWolfPack(scene, models) {
       if (!o.isMesh) return;
       let p = packs.get(o.geometry);
       if (!p) {
-        // the eyes have a per-wolf MeshBasicMaterial (accent colour): white material * instance color instead
+        // the eyes have a per-wolf MeshBasicMaterial (eye colour): white material * instance color instead
+        // (the final run's ember cracks are unlit too: vertex colours * a white instance color)
         const eye = o.material.isMeshBasicMaterial;
-        const mesh = new THREE.InstancedMesh(o.geometry, eye ? new THREE.MeshBasicMaterial() : o.material, cap.get(o.geometry));
+        const mesh = new THREE.InstancedMesh(o.geometry, eye ? new THREE.MeshBasicMaterial({ vertexColors: !!o.material.vertexColors }) : o.material, cap.get(o.geometry));
         mesh.castShadow = o.castShadow;
         mesh.frustumCulled = false;   // wolves are already distance-culled in syncVisuals
         mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

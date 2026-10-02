@@ -838,16 +838,75 @@ function createKittyModel(color) {
 const WOLF_TYPES = {
   patroller: { base: 0x8a909c, light: 0xd8dce4, dark: 0x464b57, accent: 0xffc23d },
   wanderer: { base: 0x8c5a38, light: 0xdcb48a, dark: 0x45291a, accent: 0xff8a2a },
-  // Skate-only pattern wolves: wintry coats and a scarf in the type color. `track` = route color on ice.
+  // Skate-only pattern wolves: wintry coats and a collar band (`scarf`) in the type color. `track` = route color on ice.
   charger: { base: 0x343a4c, light: 0xaab4cc, dark: 0x181b26, accent: 0xff2a55, scarf: 0xd0163f, track: 0xe0244c },
   crosser: { base: 0xc9d6e8, light: 0xf6f9ff, dark: 0x5f7499, accent: 0x18d6ff, scarf: 0x1886c8, track: 0x0f8fd0 },
   diagonal: { base: 0x54477e, light: 0xc4b6ec, dark: 0x251c44, accent: 0xb85cff, scarf: 0x7e34d8, track: 0x8f3ff0 },
 };
 
-function wolfGeos(type) {
-  return cgeo('wolf:' + type, () => {
+// The scare ramp: every level the wolves look a bit nastier (tier 1 = grumpy ... 8 = feral, 9 = the final run's
+// hellhounds), dressed for the season. Visual only; one baked geometry set per type x tier x season, so the
+// instanced wolf pack still draws ~8 meshes per wolf type.
+//   fur drifts toward a grim seasonal tint; scruff spikes grow and multiply; flank hackles (3+); scars + a torn
+//   ear (4+); claws, extra fangs, elbow tufts (5+); drool (6+); claw-mark scars, spiky tail (7+).
+//   collars (2+; pattern wolves always wear one in their type colour): summer studded leather, autumn bramble with
+//   thorns (+ burrs and a dead leaf in the fur), winter spiked iron + frost-rimed spikes and icicles (no scarf),
+//   spring a chain collar with a broken chain over the shoulder and muddy legs.
+//   hell: charred fur, ember cracks (unlit glow mesh), bone spikes and horns, ember eyes.
+// Eyes: the run wolves' amber/orange eyes redden with the tier; pattern wolves keep their type colour (it matches
+// their track on the ice) until the final run, where every eye is an ember (the collar band keeps the type).
+const WOLF_SEASON = { 0: 'summer', 1: 'autumn', 2: 'winter', 3: 'summer', 4: 'spring' };
+const WOLF_GRIM = { summer: 0x29231e, autumn: 0x3a1d12, winter: 0x1e2537, spring: 0x272c1b };
+const WOLF_HELL = { base: 0x30251f, light: 0x63504a, dark: 0x140d0b };
+const WOLF_RED_EYE = 0xff2a12, WOLF_EMBER = 0xff5a1e, WOLF_EMBER_HOT = 0xffa23a;
+const BONE = 0xdccdad, STEEL = 0xc2c8d0, FROST = 0xe9f5ff, SCAR = 0xc98585, IRON = 0x2b2f37, LEATHER = 0x3c291c;
+
+function wolfLook(o) {
+  o = o || {};
+  if (o.finale) return { tier: 9, s: 1, season: 'hell', hell: true };
+  const tier = Math.max(1, Math.min(8, Math.round(o.level || 1)));
+  return { tier, s: (tier - 1) / 7, season: WOLF_SEASON[o.theme] || 'summer', hell: false };
+}
+
+function wolfEyeColor(T, look) {
+  if (look.hell) return new THREE.Color(WOLF_EMBER);
+  const c = new THREE.Color(T.accent);
+  return T.scarf ? c : c.lerp(new THREE.Color(WOLF_RED_EYE), 0.9 * look.s);
+}
+
+// matrix for a unit primitive (y axis, centred) stretched from point a to point b with radius r
+const _up = new THREE.Vector3(0, 1, 0);
+function along(a, b, r, rz) {
+  const d = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  const len = d.length();
+  const q = new THREE.Quaternion().setFromUnitVectors(_up, d.normalize());
+  return new THREE.Matrix4().compose(new THREE.Vector3((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2), q,
+    new THREE.Vector3(r, len, rz === undefined ? r : rz));
+}
+const lerp3 = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+const norm3 = (v) => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
+
+function wolfGeos(type, look) {
+  look = look || wolfLook();
+  return cgeo('wolf:' + type + ':' + look.tier + ':' + look.season, () => {
     const T = WOLF_TYPES[type];
-    const { base, light, dark } = T;
+    const { tier, s, season, hell } = look;
+    const winter = season === 'winter';
+    const C = (h) => new THREE.Color(h);
+    let base, light, dark;
+    if (hell) { base = C(WOLF_HELL.base); light = C(WOLF_HELL.light); dark = C(WOLF_HELL.dark); }
+    else {
+      const g = C(WOLF_GRIM[season]);
+      base = C(T.base).lerp(g, 0.5 * s); light = C(T.light).lerp(g, 0.36 * s); dark = C(T.dark).lerp(g, 0.42 * s);
+    }
+    const spikeCol = hell ? C(BONE) : dark;
+    // a cone spike from `a` along `dir` (h long, r wide) + its frosted / charred tip
+    const spike = (list, a, dir, h, r, col) => {
+      const b = [a[0] + dir[0] * h, a[1] + dir[1] * h, a[2] + dir[2] * h];
+      list.push([P.cone4, along(a, b, r), col]);
+      if (winter) list.push([P.cone4, along(lerp3(a, b, 0.5), lerp3(a, b, 1.015), r * 0.53), FROST]);
+      if (hell && col !== dark) list.push([P.cone4, along(lerp3(a, b, 0.62), lerp3(a, b, 1.01), r * 0.42), 0x3a2a22]);
+    };
     const body = [
       [P.ico1, mtx([-0.08, 0.6, 0], null, [0.46, 0.23, 0.24]), base],
       [P.ico1, mtx([0.24, 0.63, 0], null, [0.26, 0.29, 0.26]), base],
@@ -859,20 +918,106 @@ function wolfGeos(type) {
       [P.ico1, mtx([0.3, 0.55, 0.13], null, [0.13, 0.18, 0.12]), base],
       [P.ico1, mtx([0.3, 0.55, -0.13], null, [0.13, 0.18, 0.12]), base],
     ];
-    // spiky scruff along the back
+    // spiky scruff along the back: grows, multiplies and gets messier with the tier (hell: bone spines)
+    const sp = hell ? 1.6 : 0.8 + 0.75 * s;
     const spikes = [[0.36, 0.86, 0.09], [0.22, 0.88, 0.1], [0.08, 0.81, 0.08], [-0.08, 0.77, 0.07], [-0.24, 0.75, 0.06]];
-    for (const [x, y, s] of spikes) body.push([P.cone4, mtx([x, y, 0], [0, Math.PI / 4, 0.75], [s * 0.8, s * 2.1, s * 0.8]), dark]);
-    for (const sz of [1, -1]) body.push([P.cone4, mtx([0.32, 0.8, 0.12 * sz], [0.5 * sz, 0, 0.6], [0.06, 0.16, 0.06]), base]);
-    if (T.scarf) {
-      // scarf: a ring round the neck + two tails streaming back over the shoulder
-      const sc = new THREE.Color(T.scarf), sd = sc.clone().multiplyScalar(0.62);
-      body.push([P.torus, mtx([0.36, 0.68, 0], [0, Math.PI / 2, 0.55], [0.2, 0.2, 0.28]), sc]);
-      body.push([P.box, mtx([0.12, 0.8, 0.09], [0.15, 0.1, 0.35], [0.3, 0.045, 0.1]), sc]);
-      body.push([P.box, mtx([-0.08, 0.84, 0.13], [0.25, 0.2, 0.1], [0.22, 0.04, 0.09]), sd]);
-      body.push([P.box, mtx([-0.17, 0.85, 0.15], [0.25, 0.2, 0.1], [0.05, 0.05, 0.1]), 0xffffff]);
+    const extra = [[0.29, 0.86, 0.075], [0.15, 0.85, 0.075], [0.0, 0.79, 0.065], [-0.16, 0.76, 0.06], [-0.32, 0.72, 0.05]];
+    const nExtra = hell ? extra.length : Math.max(0, Math.min(extra.length, tier - 2));
+    const scruff = spikes.concat(extra.slice(0, nExtra).map((e) => [e[0], e[1], e[2] * 0.85]));
+    scruff.forEach(([x, y, sz], i) => {
+      const h = sz * 2.1 * sp;
+      const dir = norm3([-0.68, 0.73, (i % 2 ? 1 : -1) * (0.08 + 0.3 * s) * (i >= spikes.length ? 1.6 : 1)]);
+      spike(body, [x - dir[0] * h * 0.5, y - dir[1] * h * 0.5, -dir[2] * h * 0.5], dir, h, sz * 0.8, spikeCol);
+    });
+    for (const sz of [1, -1]) spike(body, [0.31, 0.74, 0.1 * sz], norm3([-0.45, 0.85, 0.45 * sz]), 0.16 * sp, 0.06, base);
+    // shaggy hackles fanning out of the flanks
+    const hackles = [[0.24, 0.72, 0.19], [0.06, 0.72, 0.2], [-0.15, 0.68, 0.2]];
+    const nHack = hell ? 3 : tier >= 7 ? 3 : tier >= 5 ? 2 : tier >= 3 ? 1 : 0;
+    for (let i = 0; i < nHack; i++) for (const sd of [1, -1]) {
+      const [x, y, z] = hackles[i];
+      spike(body, [x, y, z * sd], norm3([-0.6, 0.45, 0.65 * sd]), 0.13 + 0.07 * s, 0.045, hell ? dark : base);
+    }
+    // collar round the neck (a ring in the y-z plane round [0.36, 0.68, 0]): replaces the old scarf, the pattern
+    // wolves' band keeps their type colour
+    const NECK = [0.36, 0.68, 0];
+    const ring = (a, r) => [NECK[0], NECK[1] + Math.cos(a) * r, Math.sin(a) * r];
+    const band = T.scarf ? C(T.scarf) : null;
+    if (T.scarf || tier >= 2) {
+      const ringM = (sc, ry) => mtx(NECK, [0, Math.PI / 2 + (ry || 0), 0], sc);
+      if (season === 'autumn') {
+        // bramble: twisted thorny vines (over the band)
+        if (band) body.push([P.torus, ringM([0.2, 0.2, 0.22]), band]);
+        for (const ry of [0, 0.22, -0.22]) body.push([P.torus, ringM([0.218, 0.218, 0.16], ry), 0x6a5634]);
+        const n = 7 + Math.round(3 * s), th = 0.06 + 0.08 * s;
+        for (let i = 0; i < n; i++) {
+          const a = -1.5 + 3 * i / (n - 1), w = ((i * 37) % 7) / 7 - 0.5;
+          const o = ring(a, 0.225), d = norm3([w * 0.8, Math.cos(a), Math.sin(a)]);
+          body.push([P.cone4, along(o, [o[0] + d[0] * th, o[1] + d[1] * th, o[2] + d[2] * th], 0.022), 0x9a3c1e]);
+        }
+      } else if (season === 'spring') {
+        // rusty chain collar + a broken chain trailing over the shoulder
+        if (band) body.push([P.torus, ringM([0.19, 0.19, 0.2]), band]);
+        const n = 12;
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2, o = ring(a, 0.215);
+          const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1),
+            i % 2 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, Math.cos(a), Math.sin(a)));
+          body.push([P.torus, new THREE.Matrix4().compose(new THREE.Vector3(...o), q, new THREE.Vector3(0.045, 0.045, 0.06)), i % 2 ? 0x8a5232 : 0x6e4028]);
+        }
+        const nTrail = 2 + Math.round(3 * s);
+        for (let i = 0; i < nTrail; i++) {
+          const o = [0.24 - i * 0.085, 0.84 + Math.sin(i * 1.3) * 0.012 - (i > 2 ? (i - 2) * 0.02 : 0), 0.1 + i * 0.012];
+          const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), i % 2 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0));
+          body.push([P.torus, new THREE.Matrix4().compose(new THREE.Vector3(...o), q, new THREE.Vector3(0.05, 0.035, 0.06)), i % 2 ? 0x8a5232 : 0x6e4028]);
+        }
+      } else {
+        // spiked collar: studded leather in summer, iron with long (frosted) spikes in winter, bone in hell
+        const col = band || (season === 'summer' ? LEATHER : IRON);
+        body.push([P.torus, ringM([0.2, 0.2, 0.3]), col]);
+        const n = winter || hell ? 7 : 5;
+        const h = hell ? 0.17 : winter ? 0.07 + 0.12 * s : 0.04 + 0.12 * s;
+        for (let i = 0; i < n; i++) {
+          const a = -1.35 + 2.7 * i / (n - 1);
+          spike(body, ring(a, 0.215), [0, Math.cos(a), Math.sin(a)], h, 0.026 + 0.01 * s, hell ? C(BONE) : C(STEEL));
+        }
+      }
+    }
+    // autumn: burrs and a dead leaf caught in the fur
+    if (season === 'autumn' && tier >= 3) {
+      const burrs = [[0.1, 0.8, 0.12], [-0.2, 0.77, -0.12], [-0.33, 0.7, 0.16], [0.2, 0.79, -0.15], [-0.05, 0.79, 0.15]];
+      for (const b of burrs.slice(0, Math.min(5, tier - 2))) {
+        body.push([P.ico0, mtx(b, null, 0.03), 0x5a3a1c]);
+        for (const d of [[0, 1, 0], [0.7, 0.3, 0.6], [-0.6, 0.4, -0.6]]) body.push([P.cone4, along(b, [b[0] + d[0] * 0.05, b[1] + d[1] * 0.05, b[2] + d[2] * 0.05], 0.01), 0x4a2c12]);
+      }
+      const leaves = [[[-0.14, 0.81, -0.05], 0.7, 0xb8501a], [[0.12, 0.84, 0.07], -0.4, 0xd08a22], [[-0.34, 0.72, -0.1], 1.6, 0x9a2e16]];
+      for (const [p, ry, col] of leaves.slice(0, tier >= 7 ? 3 : tier >= 5 ? 2 : 1)) body.push([P.oct, mtx(p, [0.15, ry, 0.1], [0.085, 0.014, 0.05]), col]);
+    }
+    // claw-mark scars raked across the rump
+    if (tier >= 7 && !hell) for (let k = 0; k < 3; k++) body.push([P.box, mtx([-0.17 - k * 0.05, 0.8, 0.07], [0, 0.55, 0.12], [0.015, 0.026, 0.15]), SCAR]);
+
+    // hell: glowing ember cracks over the back and down the flanks (unlit MeshBasic, colours <= 1)
+    const glow = [];
+    if (hell) {
+      const topY = (x) => Math.max(0.6 + 0.23 * Math.sqrt(Math.max(0, 1 - ((x + 0.08) / 0.46) ** 2)), 0.71 + 0.11 * Math.sqrt(Math.max(0, 1 - ((x + 0.04) / 0.42) ** 2)));
+      const zig = [[0.26, 0.03], [0.13, -0.06], [0.01, 0.05], [-0.12, -0.05], [-0.26, 0.05], [-0.39, -0.02]];
+      for (let i = 0; i < zig.length - 1; i++) {
+        const a = [zig[i][0], topY(zig[i][0]) - 0.005, zig[i][1]], b = [zig[i + 1][0], topY(zig[i + 1][0]) - 0.005, zig[i + 1][1]];
+        glow.push([P.box, along(a, b, 0.024, 0.024), i % 2 ? WOLF_EMBER : WOLF_EMBER_HOT]);
+      }
+      const sideZ = (x, y) => 0.24 * Math.sqrt(Math.max(0, 1 - ((x + 0.08) / 0.46) ** 2 - ((y - 0.6) / 0.23) ** 2));
+      for (const sd of [1, -1]) for (const [x0, ph] of [[0.02, 0], [-0.27, 1]]) {
+        const pts = [[0, 0.76], [0.045, 0.69], [-0.02, 0.62], [0.035, 0.54]].map(([dx, y]) => [x0 + dx * (ph ? -1 : 1), y]);
+        for (let i = 0; i < pts.length - 1; i++) {
+          const [xa, ya] = pts[i], [xb, yb] = pts[i + 1];
+          glow.push([P.box, along([xa, ya, sd * (sideZ(xa, ya) - 0.004)], [xb, yb, sd * (sideZ(xb, yb) - 0.004)], 0.022, 0.022), i % 2 ? WOLF_EMBER_HOT : WOLF_EMBER]);
+        }
+      }
     }
 
-    const head = bake([
+    const browA = hell ? 0.78 : 0.3 + 0.42 * s, browT = 0.035 + 0.015 * s;
+    const fl = hell ? 0.15 : 0.06 + 0.07 * s, fr = 0.018 + 0.006 * s;
+    const torn = tier >= 4 && !hell;
+    const headParts = [
       [P.ico1, mtx([0, 0, 0], null, [0.2, 0.17, 0.18]), base],
       [P.ico1, mtx([-0.02, 0.075, 0], null, [0.15, 0.09, 0.13]), dark],
       [P.ico0, mtx([-0.05, -0.07, 0.13], null, [0.1, 0.08, 0.07]), light],
@@ -880,45 +1025,90 @@ function wolfGeos(type) {
       [P.cone5, mtx([0.26, -0.035, 0], [0, 0, -Math.PI / 2], [0.105, 0.4, 0.095]), base],
       [P.ico1, mtx([0.2, -0.08, 0], null, [0.17, 0.045, 0.08]), light],
       [P.ico0, mtx([0.455, -0.03, 0], null, [0.05, 0.045, 0.05]), 0x161318],
-      // ears
-      [P.cone4, mtx([-0.06, 0.24, 0.1], [0.3, Math.PI / 4, 0], [0.085, 0.24, 0.075]), dark],
+      // ears (from tier 4 the left one is torn short)
+      [P.cone4, mtx([-0.06, torn ? 0.2 : 0.24, 0.1], [0.3, Math.PI / 4, 0], [0.085, torn ? 0.15 : 0.24, 0.075]), dark],
       [P.cone4, mtx([-0.06, 0.24, -0.1], [-0.3, Math.PI / 4, 0], [0.085, 0.24, 0.075]), dark],
-      [P.cone4, mtx([-0.04, 0.22, 0.1], [0.3, Math.PI / 4, 0], [0.05, 0.16, 0.045]), light],
+      [P.cone4, mtx([-0.04, torn ? 0.19 : 0.22, 0.1], [0.3, Math.PI / 4, 0], [0.05, torn ? 0.1 : 0.16, 0.045]), light],
       [P.cone4, mtx([-0.04, 0.22, -0.1], [-0.3, Math.PI / 4, 0], [0.05, 0.16, 0.045]), light],
-      // angry brows
-      [P.box, mtx([0.12, 0.09, 0.1], [0.25, 0, -0.45], [0.14, 0.035, 0.05]), dark],
-      [P.box, mtx([0.12, 0.09, -0.1], [-0.25, 0, -0.45], [0.14, 0.035, 0.05]), dark],
+      // angry brows (steeper and heavier with the tier)
+      [P.box, mtx([0.12, 0.09, 0.1], [0.25, 0, -browA], [0.15, browT, 0.05]), dark],
+      [P.box, mtx([0.12, 0.09, -0.1], [-0.25, 0, -browA], [0.15, browT, 0.05]), dark],
       // fangs
-      [P.cone4, mtx([0.33, -0.105, 0.045], [Math.PI, 0, 0], [0.018, 0.06, 0.018]), 0xffffff],
-      [P.cone4, mtx([0.33, -0.105, -0.045], [Math.PI, 0, 0], [0.018, 0.06, 0.018]), 0xffffff],
-    ]);
+      [P.cone4, mtx([0.33, -0.075 - fl / 2, 0.045], [Math.PI, 0, 0], [fr, fl, fr]), hell ? BONE : 0xffffff],
+      [P.cone4, mtx([0.33, -0.075 - fl / 2, -0.045], [Math.PI, 0, 0], [fr, fl, fr]), hell ? BONE : 0xffffff],
+    ];
+    if (tier >= 5) for (const sd of [1, -1]) headParts.push([P.cone4, mtx([0.25, -0.08 - fl * 0.35, 0.06 * sd], [Math.PI, 0, 0], [fr * 0.8, fl * 0.7, fr * 0.8]), hell ? BONE : 0xf4f0e8]);
+    if (winter) {
+      for (const sd of [1, -1]) {   // frost-rimed ear tips
+        const half = torn && sd > 0 ? 0.075 : 0.12, cy = torn && sd > 0 ? 0.2 : 0.24;
+        const ax = [0, Math.cos(0.3), Math.sin(0.3) * sd], tip = [-0.06, cy + ax[1] * half, 0.1 * sd + ax[2] * half];
+        headParts.push([P.cone4, along(tip.map((v, k) => v - ax[k] * 0.08), tip.map((v, k) => v + ax[k] * 0.006), 0.03), FROST]);
+      }
+      if (tier >= 4) for (const sd of [1, -1]) headParts.push([P.cone4, mtx([0.22, -0.13, 0.075 * sd], [Math.PI, 0, 0], [0.012, 0.05 + 0.04 * s, 0.012]), FROST]);
+    }
+    if (torn) headParts.push([P.box, mtx([0.05, 0.145, 0.065], [0, 0.6, -0.2], [0.2, 0.014, 0.022]), SCAR]);
+    if (tier >= 6 && !hell) {
+      headParts.push([P.box, mtx([0.13, 0.04, -0.15], [0.35, 0, 0.3], [0.014, 0.17, 0.02]), SCAR]);
+      if (!winter) {   // drool
+        headParts.push([P.box, mtx([0.31, -0.075 - fl - 0.035, 0.07], null, [0.011, 0.07, 0.011]), 0xd4ecf6]);
+        headParts.push([P.ico0, mtx([0.31, -0.075 - fl - 0.075, 0.07], null, 0.016), 0xd4ecf6]);
+      }
+    }
+    if (hell) {
+      // curved demon horns, bone fading to char at the tips
+      for (const sd of [1, -1]) {
+        const pts = [[-0.03, 0.15, 0.1 * sd], [-0.03, 0.29, 0.17 * sd], [-0.14, 0.39, 0.22 * sd], [-0.29, 0.39, 0.22 * sd], [-0.38, 0.32, 0.2 * sd]];
+        const rad = [0.05, 0.04, 0.03, 0.02];
+        for (let i = 0; i < 4; i++) {
+          const a = pts[i], b = lerp3(a, pts[i + 1], 1.12);
+          headParts.push([i < 3 ? P.cyl6 : P.cone5, along(a, b, rad[i]), i < 2 ? BONE : i < 3 ? 0x9a8a72 : 0x3a2c24]);
+        }
+      }
+    }
+    const head = bake(headParts);
+    const ey = 0.034 - 0.008 * s, et = -0.3 - 0.22 * s;
     const eyes = bake([
-      [P.ico0, mtx([0.13, 0.035, 0.13], [0.3, -0.5, -0.3], [0.065, 0.034, 0.045]), 0xffffff],
-      [P.ico0, mtx([0.13, 0.035, -0.13], [-0.3, 0.5, -0.3], [0.065, 0.034, 0.045]), 0xffffff],
+      [P.ico0, mtx([0.13, 0.035, 0.13], [0.3, -0.5, et], [0.068 + 0.014 * s, ey, 0.045 + 0.006 * s]), 0xffffff],
+      [P.ico0, mtx([0.13, 0.035, -0.13], [-0.3, 0.5, et], [0.068 + 0.014 * s, ey, 0.045 + 0.006 * s]), 0xffffff],
     ]);
+    const jf = 0.04 + 0.04 * s;
     const jaw = bake([
       [P.cone4, mtx([0.16, 0, 0], [0, Math.PI / 4, -Math.PI / 2], [0.065, 0.3, 0.065]), light],
-      [P.cone4, mtx([0.22, 0.035, 0.03], null, [0.012, 0.04, 0.012]), 0xffffff],
-      [P.cone4, mtx([0.22, 0.035, -0.03], null, [0.012, 0.04, 0.012]), 0xffffff],
+      [P.cone4, mtx([0.22, 0.015 + jf / 2, 0.03], null, [0.012 + 0.004 * s, jf, 0.012 + 0.004 * s]), hell ? BONE : 0xffffff],
+      [P.cone4, mtx([0.22, 0.015 + jf / 2, -0.03], null, [0.012 + 0.004 * s, jf, 0.012 + 0.004 * s]), hell ? BONE : 0xffffff],
     ]);
-    const leg = bake([
+    const legParts = [
       [P.ico1, mtx([0, -0.03, 0], null, [0.09, 0.1, 0.08]), base],
       [P.cyl6, mtx([0, -0.22, 0], null, [0.058, 0.42, 0.058]), base],
       [P.ico1, mtx([0.025, -0.455, 0], null, [0.08, 0.05, 0.07]), dark],
-    ]);
+    ];
+    if (season === 'spring') {   // muddy socks, splashing higher up the leg each level
+      const mh = 0.1 + 0.16 * s;
+      legParts.push([P.cyl6, mtx([0, -0.43 + mh / 2, 0], null, [0.064, mh, 0.064]), 0x4e3826]);
+      legParts.push([P.ico1, mtx([0.025, -0.45, 0], null, [0.086, 0.056, 0.076]), 0x3e2c1e]);
+    }
+    if (tier >= 5) {
+      for (const z of [-0.035, 0, 0.035]) legParts.push([P.cone4, along([0.08, -0.46, z], [0.135, -0.485, z * 1.2], 0.012), hell ? BONE : 0xe8e2d6]);
+      spike(legParts, [-0.04, -0.1, 0], norm3([-0.9, -0.35, 0]), 0.09, 0.03, base);
+    }
+    const leg = bake(legParts);
+    const tailMid = [[P.ico1, mtx([0, 0.09, 0], null, [0.125, 0.16, 0.12]), base], [P.ico0, mtx([0.03, 0.06, 0], [0, 0, 0.4], [0.1, 0.12, 0.13]), dark]];
+    if (tier >= 7) for (const [y, d] of [[0.04, [1, 0.4, 0.3]], [0.12, [1, 0.4, -0.3]]]) spike(tailMid, [0.09, y, 0], norm3(d), 0.11, 0.035, spikeCol);
     const tail = [
       bake([[P.ico1, mtx([0, 0.08, 0], null, [0.09, 0.12, 0.09]), base]]),
-      bake([[P.ico1, mtx([0, 0.09, 0], null, [0.125, 0.16, 0.12]), base], [P.ico0, mtx([0.03, 0.06, 0], [0, 0, 0.4], [0.1, 0.12, 0.13]), dark]]),
-      bake([[P.ico1, mtx([0, 0.06, 0], null, [0.1, 0.12, 0.1]), base], [P.ico1, mtx([0, 0.15, 0], null, [0.075, 0.1, 0.075]), light], [P.cone5, mtx([0, 0.26, 0], null, [0.045, 0.1, 0.045]), light]]),
+      bake(tailMid),
+      bake([[P.ico1, mtx([0, 0.06, 0], null, [0.1, 0.12, 0.1]), base], [P.ico1, mtx([0, 0.15, 0], null, [0.075, 0.1, 0.075]), hell ? 0x7a2412 : light], [P.cone5, mtx([0, 0.26, 0], null, [0.045, 0.1, 0.045]), hell ? 0x2a1a14 : light]]),
     ];
-    return { body: bake(body), head, eyes, jaw, leg, tail };
+    return { body: bake(body), head, eyes, jaw, leg, tail, glow: glow.length ? bake(glow) : null };
   });
 }
 
-function createWolfModel(type) {
+// opts: { level, theme, finale } pick the scare tier + season look (see wolfLook); without them: the tier-1 summer wolf
+function createWolfModel(type, opts) {
   if (!WOLF_TYPES[type]) type = 'patroller';
   const T = WOLF_TYPES[type];
-  const G = wolfGeos(type);
+  const look = wolfLook(opts);
+  const G = wolfGeos(type, look);
   const mat = VC_MAT();
   const group = new THREE.Group();
   group.name = 'wolf';
@@ -926,11 +1116,12 @@ function createWolfModel(type) {
   group.add(rig);
 
   const body = new THREE.Mesh(G.body, mat); body.castShadow = true; rig.add(body);
+  // hell: the ember cracks (unlit, vertex coloured; the wolf pack instances it like the eyes)
+  if (G.glow) rig.add(new THREE.Mesh(G.glow, cmat('wolfGlow', () => new THREE.MeshBasicMaterial({ vertexColors: true }))));
   const head = new THREE.Group(); head.position.set(0.5, 0.8, 0); rig.add(head);
   const headMesh = new THREE.Mesh(G.head, mat); headMesh.castShadow = true; head.add(headMesh);
 
-  const accent = new THREE.Color(T.accent);
-  const eyeMat = new THREE.MeshBasicMaterial({ color: accent.clone() });
+  const eyeMat = new THREE.MeshBasicMaterial({ color: wolfEyeColor(T, look) });
   const eyes = new THREE.Mesh(G.eyes, eyeMat); head.add(eyes);
   const jaw = new THREE.Group(); jaw.position.set(0.08, -0.09, 0); head.add(jaw);
   jaw.add(new THREE.Mesh(G.jaw, mat));

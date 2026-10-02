@@ -20,6 +20,7 @@ const PATCH_NOTES = [
       'Skate only: wolves no longer wear skates, they trot across the ice on their own paws like on every other level',
       'The crown you wear is a little smaller',
       'Winning a level (finishing first) is now worth +20 on the scoreboard',
+      'Once you grab the crown you keep wearing it for the rest of the run, even after someone else grabs the next one',
       'New win rewards: from 2 wins your kitty leaves little paw prints in its own colour instead of dust, and its skate marks on the ice are in its colour too',
       'The aura now comes at 3 wins (was 2), and the flame trail at 4 (was 3)',
       'Your crown collects a gem for every win from 2 to 6: blue, yellow, red, purple and green',

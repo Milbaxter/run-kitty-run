@@ -739,7 +739,7 @@ function syncVisuals(dt, alpha) {
     k.model.update(dt, {
       speed01: gliding ? 0 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2)),
       moving: p.moving && !gliding, skates: !!sim.levelData.ice, boots: Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST), invuln: p.invuln, shield: p.shield, time: t,
-      crown: p.id === sim.lastWinner, crownStones: Math.max(0, Math.min(5, wins - 1)), aura: wins >= 3, auraColor: k.fx,
+      crown: !!p.crowned, crownStones: Math.max(0, Math.min(5, wins - 1)), aura: wins >= 3, auraColor: k.fx,
     });
     k.trail.update(dt, x, z, -k.model.group.rotation.y, gliding && speed > 0.5, paws ? k.fx : null);
     k.auraTrail.update(dt, x, k.climb, z, -k.model.group.rotation.y, wins >= 4 && speed > 1, k.fx);
@@ -782,7 +782,7 @@ function updateHUD() {
   feedback.setVisible(down);
   if (mode !== 'play') { ui.setScores(null); return; }
   // score: +1 per friend saved, -1 per time caught, +20 per win (finishing a level first)
-  ui.setScores(sim.players.map((p) => ({ name: p.name, color: p.color, score: p.rescues - p.deaths + 20 * (p.finishes || 0), crown: p.id === sim.lastWinner, me: online.playing ? p.id === online.me : true, you: online.playing && p.id === online.me })));
+  ui.setScores(sim.players.map((p) => ({ name: p.name, color: p.color, score: p.rescues - p.deaths + 20 * (p.finishes || 0), crown: !!p.crowned, me: online.playing ? p.id === online.me : true, you: online.playing && p.id === online.me })));
   ui.setHUD({
     level: sim.level,
     players: sim.players.map((p) => ({
@@ -1065,7 +1065,7 @@ function applySnapshot(m) {
   const seen = new Set();
   let rosterChanged = false;
   for (const a of m.p) {
-    const [id, x, z, vx, vz, heading, alive, inC, lives, speedMult, invuln, shield, deaths, rescues, margin, finishes = 0, waitRelease] = a;
+    const [id, x, z, vx, vz, heading, alive, inC, lives, speedMult, invuln, shield, deaths, rescues, margin, finishes = 0, waitRelease, crowned = 0] = a;
     seen.add(id);
     let p = sim.players.find((q) => q.id === id);
     const fresh = !p;
@@ -1078,7 +1078,7 @@ function applySnapshot(m) {
     }
     const wasAlive = p.alive;
     const oldX = p.x + (id === online.me ? online.errX : 0), oldZ = p.z + (id === online.me ? online.errZ : 0);
-    Object.assign(p, { vx, vz, heading, alive: !!alive, inCenter: !!inC, lives, speedMult, invuln, shield, deaths, rescues, finishes });
+    Object.assign(p, { vx, vz, heading, alive: !!alive, inCenter: !!inC, lives, speedMult, invuln, shield, deaths, rescues, finishes, crowned: !!crowned });
     p.moving = Math.hypot(vx, vz) > 0.5;
     if (id === online.me) {
       p.x = x; p.z = z;

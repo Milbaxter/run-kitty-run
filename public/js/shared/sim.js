@@ -104,7 +104,8 @@ function makePlayer(def) {
     inCenter: false,
     deaths: 0,
     rescues: 0,
-    finishes: 0,    // runs this kitty finished first (2+ = aura)
+    finishes: 0,    // levels this kitty finished first this run (run rewards, see main.js)
+    crowned: false, // grabbed the crown at least once this run (wears one from then on)
   };
 }
 
@@ -342,6 +343,7 @@ function stepSim(sim, inputs, dt) {
       if (!p.alive || cx * cx + cz * cz >= cr * cr) continue;
       sim.crownTaken = true;
       sim.lastWinner = p.id;
+      p.crowned = true; // keeps wearing a crown for the rest of the run
       events.push({ type: 'crown', playerId: p.id });
       break;
     }

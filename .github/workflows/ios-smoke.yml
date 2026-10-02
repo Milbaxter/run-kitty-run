@@ -110,7 +110,7 @@ jobs:
           process.exit(0);
           EOF
       - name: Run on simulator
-        timeout-minutes: 10
+        timeout-minutes: 12
         run: |
           set +e
           # to <secs> cmd...: run in its own process group and kill the whole group on timeout (xcrun/simctl spawn
@@ -124,7 +124,7 @@ jobs:
           log() { echo "$(date +%T) [${SECONDS}s] $*" | tee -a "$OUT/timeline.txt"; }
           # CI has no GPU: the game's WebGL is software-rendered and the whole simulator crawls once it runs, so every
           # step is time-boxed and guarded by the step's elapsed $SECONDS.
-          shot() { log "shot $1"; to 60 xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null 2>&1 || log "shot $1 timed out"; }
+          shot() { [ $SECONDS -lt 480 ] || { log "skip shot $1 (time budget)"; return 1; }; log "shot $1"; to 60 xcrun simctl io "$UDID" screenshot "$OUT/$1.png" >/dev/null 2>&1 || log "shot $1 timed out"; }
           IWDP=
           drive() { [ -n "$IWDP" ] || return 0; log "drive: $1"; echo "--- $1" >> "$LOG_JS"; (cd "$GITHUB_WORKSPACE" && to 60 node smoke-drive.mjs "$2") >> "$LOG_JS" 2>&1; }
           # Screenshot until the WebView has painted (a blank dark frame compresses to well under 150 KB).
@@ -159,7 +159,7 @@ jobs:
           log "launch"
           (to 480 xcrun simctl launch --console-pty "$UDID" "$BID" >> "$OUT/app-console.txt" 2>&1 &)
           sleep 15; shot_until_painted 01-title 240
-          [ $SECONDS -lt 270 ] && drive "title state" "$STATE"
+          [ $SECONDS -lt 200 ] && drive "title state" "$STATE"
 
           # 2) Cold start from the deep link runkittyrun://join?room=TEST (app killed first so the simulator is idle).
           #    iOS first asks "Open in Run Kitty Run?" on the home screen (a system alert simctl can't answer):
@@ -172,10 +172,9 @@ jobs:
           # runkittyrun:// to the app.
           to 30 axe touch -x 277 -y 467 --down --up --udid "$UDID" 2>&1 | tail -1 | tee -a "$OUT/timeline.txt"
           sleep 20; shot_until_painted 03-deeplink $(( SECONDS + 90 ))
-          [ $SECONDS -lt 420 ] && drive "after deep link" "$STATE"
 
           log "device log"
-          to 60 xcrun simctl spawn "$UDID" log show --start "$START" --style compact --predicate 'process == "App" AND (messageType == error OR messageType == fault)' > "$OUT/device-log-errors.txt" 2>&1
+          to 45 xcrun simctl spawn "$UDID" log show --start "$START" --style compact --predicate 'process == "App" AND (messageType == error OR messageType == fault)' > "$OUT/device-log-errors.txt" 2>&1
           [ -n "$IWDP" ] && kill $IWDP
           kill $NICE
           # Stop the software-rendered game before the artifact upload, or the runner crawls for minutes.

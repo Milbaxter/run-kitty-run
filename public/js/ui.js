@@ -991,6 +991,7 @@ function createUI(root) {
         <div class="rkr-stats">${rows.map((r) => `<div class="rkr-stat"><div class="rkr-ico" style="color:${r.color || '#fff'}">${r.icon}</div><span class="rkr-sl">${r.label}</span><span class="rkr-sv">${r.fmt(0)}</span></div>`).join('')}</div>
         <button class="rkr-btn">${esc(buttonLabel || 'TRY AGAIN')}</button>
         <div class="rkr-keyhint">press <span class="rkr-k rkr-wide">Enter</span></div>
+        <div class="rkr-goslot"></div>
       </div>`;
     // dead-cat eyes on the header cat
     const gcat = goEl.querySelector('.rkr-gcat');
@@ -1222,7 +1223,7 @@ function createUI(root) {
 
   return {
     showTitle, hideTitle, setHUD, updateMinimap, banner, toast, setScores,
-    showPause, hidePause, showGameOver, hideGameOver, setMutedIcon, isOverlayOpen, onMuteClick, onMenuClick,
+    showPause, hidePause, showGameOver, hideGameOver, gameOverSlot: () => (goEl ? goEl.querySelector('.rkr-goslot') : null), setMutedIcon, isOverlayOpen, onMuteClick, onMenuClick,
     showVictory, hideVictory, updateVictoryFish, isVictoryOpen: () => state.victory, navigate, hideHUD,
     showNotice, hideNotice, setBlocker, setVictoryHidden,
     isTitleOpen: () => state.title, isGameOverOpen: () => state.gameOver,

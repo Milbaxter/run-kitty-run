@@ -1236,6 +1236,7 @@ function updateHUD() {
     else down = sim.players.some((p) => !p.alive);
   }
   feedback.setVisible(down);
+  feedback.dock(ui.gameOverSlot()); // on the game-over card it sits under 'press Enter', not over it
   if (mode !== 'play') { if (!hudScoresOff) { hudScoresOff = true; ui.setScores(null); } return; }
   // score: +1 per friend saved, -1 per time caught, +20 per win (finishing a level first)
   // The row objects persist; ui.setScores (sort + DOM key) only runs when a score row actually changes.

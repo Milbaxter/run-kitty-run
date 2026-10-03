@@ -8,6 +8,7 @@ const CSS = `
   padding:9px 18px;border-radius:999px;border:0;background:linear-gradient(180deg,#fff3c4,#ffcf5a);box-shadow:0 4px 0 #3a1650,0 8px 18px rgba(0,0,0,.35);
   display:none;z-index:15;}
 .rkf-btn.rkf-on{display:block;}
+.rkf-btn.rkf-docked{position:static;transform:none;margin-top:2px;font-size:14px;padding:7px 16px;box-shadow:0 3px 0 #3a1650;}
 .rkf-btn:hover{filter:brightness(1.06);}
 .rkf-modal{z-index:40;}
 .rkf-box{max-width:520px;text-align:center;background:linear-gradient(160deg,rgba(52,30,96,.97),rgba(26,12,52,.97)) !important;}
@@ -97,7 +98,14 @@ function createFeedback(root, { getContext }) {
     setTimeout(() => ta.focus(), 30);
   }
 
-  return { open, close, setVisible, isOpen: () => !!modal };
+  // dock(slot): show the button inside a card (the game-over screen) instead of floating at the bottom; dock(null) undocks
+  function dock(slot) {
+    const parent = slot || root;
+    if (btn.parentNode === parent) return;
+    parent.appendChild(btn);
+    btn.classList.toggle('rkf-docked', !!slot);
+  }
+  return { open, close, setVisible, dock, isOpen: () => !!modal };
 }
 
 export { createFeedback };

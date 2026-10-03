@@ -118,6 +118,17 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
         }
       }
       ok(open5 === 0 && wall5 > 0 && door5 && doors5 > 0, `finale version 5: no wolf in the last two skate lanes turning round in the open (${wall5} in the lane before still run wall to wall), doorway wolves (${doors5} new) and junction crossers`);
+      // version 6: the last lane's purple wolves (but the goal room's) swapped for black chargers (wall to wall)
+      {
+        let ok6 = true, ch6 = 0;
+        for (const [L, s] of [[2, 1], [5, 4], [8, 5]]) {
+          const v6 = generateLevel(L, s, 'ice', 6), jc = v6.enemies.filter((e) => e.pattern === 'junction-charger');
+          ch6 += jc.length;
+          ok6 &&= !v6.enemies.some((e) => e.leg === v6.legs.length - 1 && (e.pattern === 'junction-crosser' || /^diagonal/.test(e.pattern)))
+            && jc.every((e) => e.type === 'charger' && e.route.every((q) => collideCircle(v6, at(e, q).x, at(e, q).z, CFG.WOLF_RADIUS + 0.3).hit));
+        }
+        ok(ok6 && ch6 >= 3, `finale version 6: no purple wolves in the last lane but the goal room's, ${ch6} more chargers in it`);
+      }
     }
     // version 3: Run + Skate's level 9 is both in a row (skate, a hallway, the run back to the goal room); Skate only keeps
     // the wide skate final run

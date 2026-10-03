@@ -112,6 +112,7 @@ const FINAL_MODES = ['mixed', 'ice'];
 //   7 = Run + Skate's level 9 is both final runs in a row (finale version 3, rf 3), its broken (medic) checkpoint
 //   8 = skate goal rooms without their three wolves behind the disc (finale version 4, rf 4)
 //   9 = no lane-before-last wolf turning round in the open at the skate levels' last junction (finale version 5, rf 5)
-const PROTOCOL_VERSION = 9;
+//  10 = at most 2 slanted crossers in the skate levels' last junction, black chargers across it instead (finale version 6, rf 6)
+const PROTOCOL_VERSION = 10;
 
 export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION };

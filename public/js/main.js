@@ -466,7 +466,7 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
 function startSim(players, startLevel, simMode = DEBUG_MODE) {
-  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 5 });
+  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 6 });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   accumulator = 0;
@@ -503,12 +503,14 @@ function buildView() {
   // one posable rig per wolf type (they all look alike within a type), a little state per wolf (its stride etc.)
   const wolves = new Map(), rigs = new Map();
   for (const e of sim.enemies) {
-    let r = rigs.get(e.type);
+    // the look goes by how it runs: crossers cutting across the last lanes' junction at a slant wear the diagonals' coat
+    const spec = ld.enemies[e.id], kind = spec && spec.pattern === 'junction-crosser' ? 'diagonal' : e.type;
+    let r = rigs.get(kind);
     if (!r) {
-      const rig = createWolfRig(e.type, { level: ld.level, theme: ld.theme, finale: !!ld.finale }); // scarier every level, dressed for the season
+      const rig = createWolfRig(kind, { level: ld.level, theme: ld.theme, finale: !!ld.finale }); // scarier every level, dressed for the season
       rig.group.scale.setScalar(CFG.WOLF_RADIUS / 0.55); // models are built for the original 0.55 radius
       r = { rig, n: 0 };
-      rigs.set(e.type, r);
+      rigs.set(kind, r);
     }
     r.n++;
     wolves.set(e.id, { rig: r.rig, st: newWolfState(), lastHeading: undefined });

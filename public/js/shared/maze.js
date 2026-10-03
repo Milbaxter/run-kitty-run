@@ -774,7 +774,8 @@ function placePatternEnemies(rng, lvl, p) {
   // the last lane's), taking turns. In the last lane's frame: the square is th len +- W/2, the lane before carries on
   // at r > W/2, the last lane at th < len - W/2.
   const junctionWolves = (T) => {
-    const leg = legs[door], m = CFG.WOLF_RADIUS + 0.15, n = 1 + Math.ceil(level / 2), e = leg.len - W / 2;
+    // (version 6+: none, purple wolves made the last lane too hard; junctionChargers instead)
+    const leg = legs[door], m = CFG.WOLF_RADIUS + 0.15, n = lvl.fv >= 6 ? 0 : 1 + Math.ceil(level / 2), e = leg.len - W / 2;
     const order = rng.shuffle([...Array(n).keys()]);
     return order.map((k, i) => {
       const u = (Math.floor(i / 2) + 0.5) / Math.ceil(n / 2), out = rng.range(0.6, 2.6);
@@ -789,6 +790,24 @@ function placePatternEnemies(rng, lvl, p) {
       w.cycle = buildPlan(w, NO_FRAME, w.speed).cycle;
       w.off = ((k + 0.3 * rng.next()) / n) * w.cycle;
       return { name: 'junction-crosser', wolves: [w], top: 0, bottom: 0 };
+    });
+  };
+  // finale version 6+: more black chargers in the last lane instead of its purple wolves (its diagonals and the
+  // junction's slanted crossers go): 1 (2 from level 3) on the last lane's free charger lanes (one always stays free), each the whole lane long, from the end wall
+  // past the door to the wall beyond it, at the lane's charger speed.
+  const junctionChargers = (pl) => {
+    const leg = legs[door], m = CFG.WOLF_RADIUS + 0.15, cs = pl.segs.find((sg) => sg.chargers);
+    const used = cs ? cs.wolves.map((w) => w.route[0].r) : [];
+    const free = rng.shuffle(PAT_LANES.filter((r) => used.every((u) => Math.abs(u - r) > 1)));
+    const k = Math.min(level >= 3 ? 2 : 1, free.length - 1), v = cs && cs.wolves.length ? cs.wolves[0].speed : 0.8 * PAT_VMAX;
+    return free.slice(0, Math.max(0, k)).map((r) => {
+      const route = [{ r, th: leg.len + W / 2 - m }, { r, th: -W / 2 + m }];
+      if (rng.chance(0.5)) route.reverse();
+      const w = { type: 'charger', route, loop: false, speed: v, offT: 0, offS: 0 };
+      finish(w, leg);
+      w.cycle = buildPlan(w, NO_FRAME, w.speed).cycle;
+      w.off = rng.next() * w.cycle;
+      return { name: 'junction-charger', wolves: [w], top: 0, bottom: 0 };
     });
   };
   const makeChargers = (li, D, lanes) => {
@@ -1081,6 +1100,10 @@ function placePatternEnemies(rng, lvl, p) {
   const beforePlan = plans.find((pl) => pl.leg === door - 1);
   if (beforePlan && doorPlan && lvl.fv >= 5 && !lvl.finale && nb === 1) beforePlan.segs.push(...fillCrossers(beforePlan));
   if (doorPlan && lvl.fv >= 5 && !lvl.finale && nb === 1) doorPlan.segs.push(...junctionWolves(doorPlan.beat));
+  if (doorPlan && lvl.fv >= 6 && !lvl.finale && nb === 1) {
+    doorPlan.segs = doorPlan.segs.filter((sg) => !/^diagonal/.test(sg.name || ''));   // (the goal room's own diagonal stays)
+    doorPlan.segs.push(...junctionChargers(doorPlan));
+  }
 
   // ---- specs (a drifting wolf keeps its phase in the beat: at level start it is exactly in step)
   for (const pl of plans) {

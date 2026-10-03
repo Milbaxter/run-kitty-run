@@ -313,6 +313,15 @@ function drawBlossom(g, x, y, r, petal, centre, rot = 0) {
   g.fillStyle = centre; g.beginPath(); g.arc(x, y, r * 0.3, 0, TAU); g.fill();
 }
 
+// spring look (safe squares, their flowers, hedge tops): 'daisy' (current), 'bluebell' (blue / lilac) or 'pink'
+// (the original cherry-blossom one)
+const SPRING_LOOK = 'daisy';
+const SPRING_CAPS = {
+  pink: null,
+  daisy: { base: 0x6fbf4f, flowers: [0xffffff, 0xffe066] },
+  bluebell: { base: 0x5fae4a, flowers: [0x8fa4f0, 0xb8a4f4, 0xffffff] },
+};
+
 function makeSeasonTileTexture(style, T) {
   const rng = createRng(hashSeed('safeTile', style));
   const S = 512, C = S / 2;
@@ -424,6 +433,53 @@ function makeSeasonTileTexture(style, T) {
         const a = rng.range(0, TAU), r = rng.range(110, 200), x = C + Math.cos(a) * r, y = C + Math.sin(a) * r;
         g.fillStyle = rng.pick(['rgba(255,150,60,0.9)', 'rgba(255,200,100,0.9)', 'rgba(230,90,40,0.8)']);
         g.beginPath(); g.arc(x, y, rng.range(1.5, 3), 0, TAU); g.fill();
+      }
+    } else if (SPRING_LOOK !== 'pink') {
+      const daisy = SPRING_LOOK === 'daisy';
+      // spring, daisy: pale limestone flags with mossy joints, a big daisy inlay behind a butter-yellow paw, daisies
+      //   and buttercups in the corners. bluebell: cool grey-blue flags, a bluebell-blue ring, a periwinkle paw.
+      g.fillStyle = '#8fbf62'; g.fillRect(0, 0, S, S);
+      const n = 4, cell = S / n;
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+        const alt = rng.chance(0.3);
+        const col = daisy
+          ? (alt ? [rng.int(236, 246), rng.int(226, 236), rng.int(186, 198)] : [rng.int(228, 238), rng.int(226, 234), rng.int(212, 222)])
+          : (alt ? [rng.int(206, 216), rng.int(214, 224), rng.int(232, 242)] : [rng.int(226, 236), rng.int(228, 236), rng.int(232, 240)]);
+        drawSlab(g, rng, i * cell + 6, j * cell + 6, cell - 12, cell - 12, 16, col, 50);
+      }
+      if (daisy) {
+        // the daisy: a ring of long white petals round a yellow heart, the paw on the heart
+        for (let k = 0; k < 20; k++) {
+          const a = k / 20 * TAU;
+          g.fillStyle = k % 2 ? 'rgb(255,255,252)' : 'rgb(246,246,238)';
+          g.beginPath(); g.ellipse(C + Math.cos(a) * 112, C + Math.sin(a) * 112, 44, 15, a, 0, TAU); g.fill();
+        }
+        g.fillStyle = 'rgb(255,214,72)'; g.beginPath(); g.arc(C, C, 98, 0, TAU); g.fill();
+        g.strokeStyle = 'rgb(236,170,40)'; g.lineWidth = 5; g.beginPath(); g.arc(C, C, 98, 0, TAU); g.stroke();
+        drawPaw(g, C, C + 4, 1.4, 'rgb(232,150,30)', 'rgba(255,250,220,0.95)', 5);
+      } else {
+        g.fillStyle = 'rgba(150,176,240,0.75)'; g.beginPath(); g.arc(C, C, 102, 0, TAU); g.fill();
+        g.strokeStyle = 'rgba(255,255,255,0.9)'; g.lineWidth = 5; g.beginPath(); g.arc(C, C, 102, 0, TAU); g.stroke();
+        drawPaw(g, C, C + 4, 1.45, 'rgb(96,112,214)', 'rgba(255,255,255,0.9)', 5);
+      }
+      const fl = daisy
+        ? [['rgb(255,255,255)', 'rgb(255,206,60)'], ['rgb(255,226,80)', 'rgb(240,160,40)'], ['rgb(255,255,255)', 'rgb(255,206,60)'], ['rgb(255,244,170)', 'rgb(236,170,50)']]
+        : [['rgb(120,140,230)', 'rgb(255,236,130)'], ['rgb(170,150,240)', 'rgb(255,236,130)'], ['rgb(255,255,255)', 'rgb(255,206,60)'], ['rgb(140,180,250)', 'rgb(255,255,255)']];
+      for (const [x0, y0] of [[0, 0], [S, 0], [0, S], [S, S]]) {
+        for (let k = 0; k < 9; k++) {
+          const x = x0 + (x0 ? -1 : 1) * rng.range(10, 70), y = y0 + (y0 ? -1 : 1) * rng.range(10, 70);
+          if (Math.hypot(x - x0, y - y0) > 80) continue;
+          const [p, c] = rng.pick(fl);
+          drawBlossom(g, x, y, rng.range(8, 13), p, c, rng.range(0, TAU));
+        }
+      }
+      // a few loose petals and clover leaves
+      for (let i = 0; i < 90; i++) {
+        const x = rng.range(8, S - 8), y = rng.range(8, S - 8);
+        if (nearPaw(x, y, 14)) continue;
+        if (rng.chance(0.35)) { drawBlossom(g, x, y, rng.range(4, 6), 'rgba(110,170,70,0.85)', 'rgba(110,170,70,0.85)', rng.range(0, TAU)); continue; }
+        g.fillStyle = rng.pick(daisy ? ['rgb(255,255,255)', 'rgb(255,236,140)', 'rgb(250,250,240)'] : ['rgb(150,170,240)', 'rgb(190,176,246)', 'rgb(255,255,255)']);
+        g.beginPath(); g.ellipse(x, y, rng.range(3.5, 6), rng.range(2.2, 3.5), rng.range(0, TAU), 0, TAU); g.fill();
       }
     } else {
       // spring: pale cream flags with mossy joints, a pink paw, blossom petals and little flowers in the corners
@@ -613,9 +669,15 @@ function buildSafeProps(levelData, style, T) {
       paint(place(new THREE.CylinderGeometry(0.075, 0.045, 0.13, 6), x, y + 0.05, z), col),
       paint(place(new THREE.ConeGeometry(0.05, 0.3, 3), x + 0.05, 0.13, z, 1, 1, 0.4, 0, 0.3, -0.35), 0x5fae45),
     ];
-    kinds.push([mergeGeos([...tulip(0, 0, 0.34, 0xff7fb4), ...tulip(0.14, 0.07, 0.28, 0xffd84a), ...tulip(-0.11, 0.1, 0.3, 0xff9ec8), ...tuft(0x6cc24f, 5, 0.12, 0.28)]), 2, [1.3, 1.7]]);
-    kinds.push([mergeGeos([...tulip(0.05, -0.04, 0.32, 0xc8a0ff), ...tulip(-0.1, 0.06, 0.27, 0xffffff), ...flower(0.14, 0.12, 0.2, 0xffb7d5, 0xfff07a, 0.06), ...tuft(0x6cc24f, 5, 0.12, 0.28)]), 2, [1.3, 1.7]]);
-    kinds.push([mergeGeos([...tuft(0x74c858, 6, 0.14, 0.3), ...flower(0, 0, 0.18, 0xffffff, 0xffd040, 0.06), ...flower(0.12, 0.08, 0.15, 0xffb7d5, 0xffd040, 0.055)]), 1, [1, 1.3]]);
+    // tulip / flower colours per SPRING_LOOK: [tulip 1, 2, 3, 4, 5, small flower, its centre, small flower 2]
+    const P = {
+      pink: [0xff7fb4, 0xffd84a, 0xff9ec8, 0xc8a0ff, 0xffffff, 0xffb7d5, 0xfff07a, 0xffb7d5],
+      daisy: [0xffd84a, 0xffffff, 0xffb83a, 0xfff0a0, 0xffffff, 0xffffff, 0xffd040, 0xfff07a],
+      bluebell: [0x8fa4f0, 0xffffff, 0xb8a4f4, 0x7088e0, 0xffffff, 0xb7c8ff, 0xfff07a, 0xd6c8ff],
+    }[SPRING_LOOK];
+    kinds.push([mergeGeos([...tulip(0, 0, 0.34, P[0]), ...tulip(0.14, 0.07, 0.28, P[1]), ...tulip(-0.11, 0.1, 0.3, P[2]), ...tuft(0x6cc24f, 5, 0.12, 0.28)]), 2, [1.3, 1.7]]);
+    kinds.push([mergeGeos([...tulip(0.05, -0.04, 0.32, P[3]), ...tulip(-0.1, 0.06, 0.27, P[4]), ...flower(0.14, 0.12, 0.2, P[5], P[6], 0.06), ...tuft(0x6cc24f, 5, 0.12, 0.28)]), 2, [1.3, 1.7]]);
+    kinds.push([mergeGeos([...tuft(0x74c858, 6, 0.14, 0.3), ...flower(0, 0, 0.18, 0xffffff, 0xffd040, 0.06), ...flower(0.12, 0.08, 0.15, P[7], 0xffd040, 0.055)]), 1, [1, 1.3]]);
   }
   if (style === 'hell') return buildHellStartProps(levelData, T, mat, h);
   if (!kinds.length) return [];
@@ -1106,11 +1168,18 @@ function buildWalls(levelData, theme, T) {
     const ao = 1 - aoStrength + aoStrength * Math.min(1, y / (H * 0.85));
     out.copy(roomC && inRoom(x, z) ? roomC : wallC).multiplyScalar(f * ao);
   };
+  // spring: a green hedge top dotted with clusters of little flowers (SPRING_CAPS)
+  const springCap = theme.safeStyle === 'spring' ? SPRING_CAPS[SPRING_LOOK] : null;
+  const capBase = springCap ? new THREE.Color(springCap.base) : null, capFlowers = springCap ? springCap.flowers.map((c) => new THREE.Color(c)) : null;
   const capColor = style === 'neon'
     ? (x, y, z, out) => {
       const a = Math.atan2(z, x), r = Math.hypot(x, z);
       const k = 0.5 + 0.5 * Math.sin(a * 2 + r * 0.25);
       out.copy(topC).lerp(accC, k);
+    }
+    : springCap ? (x, y, z, out) => {
+      const n = vnoise(x * 1.3 + 5.1, z * 1.3 - 2.7);
+      out.copy(capBase).multiplyScalar(0.84 + 0.2 * n);
     }
     : (x, y, z, out) => {
       const n = vnoise(x * 1.3 + 5.1, z * 1.3 - 2.7);
@@ -1142,7 +1211,23 @@ function buildWalls(levelData, theme, T) {
   const capMesh = new THREE.Mesh(T.g(bufToGeo(cb)), capMat);
   capMesh.castShadow = style !== 'neon';
   capMesh.receiveShadow = true;
-  return [bodyMesh, capMesh];
+  if (!springCap) return [bodyMesh, capMesh];
+  // the little flowers: tiny flat blooms sitting on the rounded hedge top, in drifts (denser where the noise is high)
+  const rng = createRng(hashSeed('capFlowers', levelData.seed || 0));
+  const hw = ht + 0.08, base = H - 0.12, capH = 0.3, items = [];
+  for (const w of levelData.walls) {
+    const L = Math.hypot(w.bx - w.ax, w.bz - w.az) || 1, tx = (w.bx - w.ax) / L, tz = (w.bz - w.az) / L;
+    for (let d = rng.range(0, 0.3); d < L; d += rng.range(0.12, 0.32)) {
+      const x0 = w.ax + tx * d, z0 = w.az + tz * d;
+      if (vnoise(x0 * 0.8 + 3.7, z0 * 0.8 - 1.9) < 0.42) continue;   // bare stretches between the drifts
+      const a = rng.range(-0.8, 0.8), c = Math.pow(Math.abs(a), 1 / 0.8), y = base + capH * Math.pow(Math.sqrt(1 - c * c), 0.7);
+      const col = rng.pick(capFlowers).clone().multiplyScalar(rng.range(0.92, 1.05));
+      items.push({ x: x0 - tz * a * hw, z: z0 + tx * a * hw, y: y + 0.01, s: rng.range(0.8, 1.25), ry: rng.range(0, TAU), color: col });
+    }
+  }
+  const bloomGeo = T.g(new THREE.IcosahedronGeometry(0.055, 0)); bloomGeo.scale(1, 0.45, 1);
+  const bloomMat = T.m(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, flatShading: true }));
+  return [bodyMesh, capMesh, ...makeInstancedChunks(bloomGeo, bloomMat, items, {}, 24)];
 }
 
 // ---------------------------------------------------------------- floors

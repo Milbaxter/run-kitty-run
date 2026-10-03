@@ -110,14 +110,14 @@ function canWalk(st, r0, th0, r1, th1) {
 // by far the safest way through. Instead most moves pick where across the lane to end up first: WALL_SHARE of them
 // right against a wall (and so sometimes along it), the rest evenly across the width; then go there with the
 // move's usual length. LATERAL_RANDOM of the moves keep a plain random direction (that's how wolves find the corner
-// crossings and the goal room).
+// crossings and the goal room). WALL_SHARE is the default: placeEnemies passes each level's own (spec.wallShare).
 const WALL_SHARE = 0.4, WALL_BAND = 0.05, LATERAL_RANDOM = 0.4;
 function lateralTarget(st, d) {
   const { rng, r, th } = st;
   const eb = inMain(st, r, th) ? null : extBox(st, r, th);
   const lo = eb ? eb.rLo : st.rIn, hi = eb ? eb.rHi : st.rOut;
   let tr;
-  if (rng.next() < WALL_SHARE) { const u = rng.next() * WALL_BAND; tr = rng.next() < 0.5 ? lo + u : hi - u; }
+  if (rng.next() < st.wallShare) { const u = rng.next() * WALL_BAND; tr = rng.next() < 0.5 ? lo + u : hi - u; }
   else tr = rng.range(lo, hi);
   const dr = tr - r;
   if (Math.abs(dr) > d) return null;
@@ -234,6 +234,8 @@ function createEnemy(spec) {
     avoid: spec.avoid && Number.isFinite(spec.avoid.R) ? spec.avoid : null,
     // spec.lateral (running levels): pick where across the lane to go first, often right against a wall
     lateral: !!spec.lateral,
+    // spec.wallShare: WALL_SHARE for this wolf's level (placeEnemies ramps it up with the level)
+    wallShare: Number.isFinite(spec.wallShare) ? spec.wallShare : WALL_SHARE,
   };
   const e = {
     id: spec.id, type: spec.type, spec,

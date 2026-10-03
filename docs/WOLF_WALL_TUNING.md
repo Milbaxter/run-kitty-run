@@ -20,12 +20,21 @@ In `public/js/shared/enemies.js`, wolves with `spec.lateral` (every wolf on a ru
 
 | Constant | Value | What it does | Turn it... |
 |---|---|---|---|
-| `WALL_SHARE` | 0.4 | share of those moves that end right against a wall (so wolves pause by the wall and walk along it) | **up** if walls still feel like the strongest play, down if the walls became the most dangerous spot |
+| `wallShare` in `placeEnemies` (maze.js; `WALL_SHARE` is only the default) | 0.4 on level 1 -> 0.6 on level 8 | share of those moves that end right against a wall (so wolves pause by the wall and walk along it) | **up** if walls still feel like the strongest play, down if the walls became the most dangerous spot |
 | `WALL_BAND` | 0.05 | how far from the wall (units) such a target may be; 0 = as close as a wolf can get | up spreads the wall wolves over the strip one step in (that strip was the hottest at 0.3) |
 | `LATERAL_RANDOM` | 0.4 | share of moves that keep the old random direction (how wolves find the corner crossings and the goal room) | down = flatter across the lane but fewer crossings (0.25 dropped level 1 goal-room visits 7 -> 0) |
 
 The rest of each move (pause length, walk length, speed) is unchanged, so this only moves danger around the lane, it
-doesn't add or remove it. After it: level 1 ~8% everywhere, level 8 wall ~6.5% vs middle ~11%.
+doesn't add or remove it.
+
+Sweep (Run only, wall / middle % touched): one value doesn't fit every level, so it ramps with the level.
+
+| wall share | 0.4 | 0.5 | 0.6 | 0.7 | 0.8 | 0.9 |
+|---|---|---|---|---|---|---|
+| level 1 wall / middle | 0.93 | 1.21 | 1.57 | 1.81 | 2.25 | 2.93 |
+| level 8 wall / middle | 0.61 | 0.78 | 1.01 | 1.29 | 1.56 | 1.97 |
+
+With the ramp: level 1 ~8% everywhere, level 8 ~9.3% at the wall vs ~9.2% in the middle.
 
 ## Other options if that's not enough
 

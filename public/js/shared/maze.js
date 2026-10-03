@@ -236,6 +236,9 @@ function placeEnemies(rng, lvl, p) {
   // often, so they're harder to predict). Territories grow with the max walk.
   const walk = runTuned ? RUN_WALKS[Math.min(level, RUN_WALKS.length) - 1] : null;
   const moveScale = walk ? walk[1] / 7 : 1;
+  // share of a wolf's moves that end against a wall (enemies.js WALL_SHARE): 0.4 on level 1 up to 0.6 on level 8, where
+  // the wall and the middle of a lane come out about as dangerous (docs/WOLF_WALL_TUNING.md)
+  const wallShare = 0.4 + 0.2 * (Math.min(level, RUN_PAUSES.length) - 1) / (RUN_PAUSES.length - 1);
   // share of original-behaviour wolves per lane: 1/3 on level 1 rising evenly to 3/4 on level 8 (and after) of the
   // usual count; Run only then adds extra tuned wolves on top (the original ones stay as many)
   const oldShare0 = 1 / 3 + (3 / 4 - 1 / 3) * (Math.min(level, RUN_PAUSES.length) - 1) / (RUN_PAUSES.length - 1);
@@ -359,7 +362,7 @@ function placeEnemies(rng, lvl, p) {
         seed: hashSeed(seed, level, 'wolf', id),
       };
       if (tuned) { spec.pauseRange = pauseRange; spec.walk = walk; }
-      if (pauseRange) spec.lateral = true;   // every wolf of a running level also covers the walls (enemies.js)
+      if (pauseRange) { spec.lateral = true; spec.wallShare = wallShare; }   // every wolf of a running level also covers the walls (enemies.js)
       const ext = extFor(li, lo, hi);
       if (ext) { spec.ext = ext.boxes; if (ext.avoid) spec.avoid = ext.avoid; }
       enemies.push(spec);
@@ -384,7 +387,7 @@ function placeEnemies(rng, lvl, p) {
         seed: hashSeed(seed, level, 'wolf', id),
       };
       if (tuned) { spec.pauseRange = pauseRange; spec.walk = walk; }
-      if (pauseRange) spec.lateral = true;   // every wolf of a running level also covers the walls (enemies.js)
+      if (pauseRange) { spec.lateral = true; spec.wallShare = wallShare; }   // every wolf of a running level also covers the walls (enemies.js)
       enemies.push(spec);
       placed++;
     }

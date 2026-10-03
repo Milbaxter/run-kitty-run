@@ -156,7 +156,7 @@ function runeTexture() {
     g.strokeStyle = '#fff'; g.fillStyle = '#fff'; g.lineCap = 'round'; g.lineJoin = 'round';
     const R = S / 2;
     const rO = R * 0.975, rI = R * 0.845, rM = (rO + rI) / 2;
-    g.lineWidth = 7; g.beginPath(); g.arc(0, 0, rO - 6, 0, TAU_); g.stroke();
+    g.lineWidth = 5.5; g.beginPath(); g.arc(0, 0, rO - 6, 0, TAU_); g.stroke();
     g.lineWidth = 4; g.beginPath(); g.arc(0, 0, rI + 6, 0, TAU_); g.stroke();
     const n = 28;
     for (let i = 0; i < n; i++) {
@@ -676,7 +676,7 @@ function createKittyModel(color) {
   const crown = new THREE.Mesh(chunkyCrownGeometry(false), new THREE.MeshStandardMaterial({ vertexColors: true, emissive: 0x7a4a00, emissiveIntensity: 0.6, metalness: 0.45, roughness: 0.35, flatShading: true }));
   crown.position.set(-0.02, 0.25, 0);
   crown.rotation.z = -0.12;
-  crown.scale.setScalar(1.76);
+  crown.scale.setScalar(1.32);   // smaller than it was (1.76), so the backpack's kittens show next to it
   crown.castShadow = true;
   crown.visible = false;
   head.add(crown);
@@ -709,6 +709,48 @@ function createKittyModel(color) {
       pack.add(m);
       packHeads.push(m);
     }
+  }
+  // revive rewards (rescues in this run): 10+ a medic cape, 60+ feathered angel wings (30+ is a heart trail, main.js)
+  // Cape: a cloth draped over the back from a red collar, billowing up and rippling with the stride (own geometry:
+  // its vertices move every frame).
+  const capeGeo = new THREE.PlaneGeometry(CAPE_LEN, CAPE_W, 8, 4);
+  capeGeo.rotateX(-Math.PI / 2);                     // lies flat (normal up), length along x, width along z
+  capeGeo.translate(CAPE_X0 - CAPE_LEN / 2, 0, 0);   // front edge at the neck
+  const capeBase = Float32Array.from(capeGeo.attributes.position.array);
+  const cape = new THREE.Group();
+  const capeCloth = new THREE.Mesh(capeGeo, cmat('capeMat', () => new THREE.MeshStandardMaterial({ map: capeTexture(), side: THREE.DoubleSide, roughness: 0.85, flatShading: true })));
+  capeCloth.castShadow = true;
+  const capeCollar = new THREE.Mesh(cgeo('capeCollar', () => new THREE.TorusGeometry(0.1, 0.022, 5, 14).rotateY(Math.PI / 2)), cmat('capeCollarMat', () => new THREE.MeshStandardMaterial({ color: 0xe2352f, roughness: 0.6, flatShading: true })));
+  capeCollar.position.set(0.17, 0.5, 0);
+  capeCollar.rotation.z = -0.5;
+  cape.add(capeCloth, capeCollar);
+  cape.visible = false;
+  rig.add(cape);
+  // Wings: jointed (shoulder -> elbow -> wrist, angelWingSegments), mirrored for the left side, rooted low on the
+  // kitty's sides. Each joint follows the one before a beat later, so a flap rolls out to the tip like a bird's.
+  const wings = [];
+  for (const sz of [1, -1]) {
+    const root = new THREE.Group();
+    root.position.set(0.13, 0.55, 0.19 * sz);   // at the shoulder, out on the kitty's side (clear of the cape)
+    root.scale.set(1.15, 1.15, 1.15 * sz);
+    root.visible = false;
+    rig.add(root);
+    const joints = [];
+    let parent = root;
+    angelWingSegments().forEach((geo, k) => {
+      const j = new THREE.Group();
+      if (k > 0) {
+        const a = WING_BONE(WING_JOINTS[k - 1]), b = WING_BONE(WING_JOINTS[k]);
+        j.position.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+      }
+      parent.add(j);
+      const m = new THREE.Mesh(geo, mat);
+      m.castShadow = true;
+      j.add(m);
+      joints.push(j);
+      parent = j;
+    });
+    wings.push({ root, joints });
   }
   // crown stones: a win from 2 to 6 sets one gem on a point (front first, then pairs toward the back), in place of its pearl
   const tips = [0, 1, 4, 2, 3].map((i, n) => {
@@ -752,6 +794,8 @@ function createKittyModel(color) {
   // munching (the final run's giant fish): head down into the food, bobbing, happy squinty eyes; every bite
   // (s.bites counts up) is a quick chomp
   let munchAmt = 0, munchPh = 0, chompT = 0, lastBites = 0;
+  let flowGo = 0, wingPh = Math.random() * 6;   // cape / wings: eased movement amount, wing breathing phase
+  let flSw = 0, flSwV = 0, flAc = 0, flAcV = 0, runPrev = 0;   // cape / wings springs: turn swing, speed-change throw
   function updateAll(dt, s) {
     baseUpdate(dt, s);
     s = s || {};
@@ -775,6 +819,60 @@ function createKittyModel(color) {
     crown.visible = !!s.crown && rig.visible;
     shades.visible = !!s.sunglasses && !ghost;
     pack.visible = !!s.backpack && !ghost;
+    // how much the kitty is moving (running or gliding), eased so cloth and wings don't snap
+    const goNow = Math.max(runAmt, Math.min(1, glideSp / CFG.KITTY_SPEED));
+    flowGo = smoothTo(flowGo, goNow, 3.5, mdt);
+    // Cape + wings hang off the body like the tail: floppy springs. Turning swings them out to the outside of the turn,
+    // speeding up throws them back, slowing down lets them swing forward. Substepped like the tail.
+    const swTgt = Math.max(-0.5, Math.min(0.5, -yawVel * 0.12)), acTgt = Math.max(-0.4, Math.min(0.4, -glideAcc * 0.03 - (runAmt - runPrev) / Math.max(mdt, 1e-3) * 0.05));
+    runPrev = runAmt;
+    for (let n = Math.max(1, Math.ceil(mdt / 0.008)), h = mdt / n; n > 0; n--) {
+      flSwV += ((swTgt - flSw) * 45 - flSwV * 5) * h; flSw += flSwV * h;
+      flAcV += ((acTgt - flAc) * 35 - flAcV * 4.5) * h; flAc += flAcV * h;
+    }
+    cape.visible = !!s.cape && !ghost;
+    if (cape.visible) {
+      // standing: draped over the back (sides hanging), stirring in a breeze. Moving: it streams out behind, lifts
+      // toward level, ripples in waves from the neck to the hem and swings out to the side on turns.
+      const go = flowGo, sway = flSw * 0.35, lift = Math.max(0, go + flAc * 0.8);
+      const pos = capeGeo.attributes.position, a = pos.array;
+      for (let i = 0; i < a.length; i += 3) {
+        const u = (CAPE_X0 - capeBase[i]) / CAPE_LEN, v = capeBase[i + 2] / (CAPE_W / 2), u2 = u * u;
+        const wave = Math.sin(t * (2 + 7 * go) - u * 5 + v * 0.8);
+        a[i] = capeBase[i] - u * 0.08 * lift;
+        a[i + 1] = CAPE_Y - u * 0.07 * (1 - go) - v * v * (0.17 + 0.05 * u) * (1 - 0.6 * go * u)
+          + Math.pow(u, 1.5) * 0.09 * lift + wave * u * (0.006 + 0.014 * go) + Math.sin(t * 1.7 + seedOff + u * 2) * 0.006 * u;
+        a[i + 2] = capeBase[i + 2] * (1 + 0.15 * u) + u2 * sway;
+      }
+      pos.needsUpdate = true;
+      capeGeo.computeVertexNormals();
+    }
+    const winged = !!s.wings && !ghost;
+    if (winged) {
+      // spread out to the kitty's sides; no flapping, they move with the body like the tail
+      wingPh += mdt * 0.5 * TAU_;
+      const breath = Math.sin(wingPh) * 0.05 * (1 - flowGo), stride = Math.sin(phase * 2) * 0.07 * runAmt;
+      for (let i = 0; i < wings.length; i++) {
+        const w = wings[i], sz = Math.sign(w.root.scale.z);   // the left wing is mirrored: its own (unmirrored) rotations flip
+        // open = how far the wings are spread: folded back along the body at rest, opening out to the sides as you run
+        // (more when speeding up). Open, they make an arch seen from the front: up from the shoulder, curving down to
+        // the tip. They breathe a little at rest, bob with the stride and swing with turns (both the same way, like the
+        // tail).
+        const open = Math.min(1, Math.max(0, 0.15 + 0.85 * flowGo + Math.max(0, flAc) * 0.4));
+        const fold = 1 - open;
+        w.root.rotation.x = sz * -(0.08 + 0.3 * open + breath + stride * 0.5);   // - = up: the arch rises from the shoulder
+        w.root.rotation.y = sz * -(0.15 + 0.55 * fold) + flSw * 0.45;           // - = back toward the tail (folding)
+        w.root.rotation.z = 0;
+        // the outer joints trail the shoulder (eased), so the movement flows out to the tip
+        for (let k = 1; k < 3; k++) {
+          const j = w.joints[k];
+          // folded: the outer wing tucks back along the body; open: it spreads out, curving down toward the tip (the arch)
+          j.rotation.y = smoothTo(j.rotation.y, -fold * (k === 1 ? 0.6 : 0.8) + sz * flSw * 0.15 * k, 10 - 3 * k, mdt);
+          j.rotation.x = smoothTo(j.rotation.x, open * (k === 1 ? 0.22 : 0.3) + fold * 0.12, 10 - 3 * k, mdt);   // + = down
+        }
+      }
+    }
+    for (const w of wings) w.root.visible = winged;
     if (pack.visible) {
       if (s.packColors !== packCols) setPackColors(s.packColors);
       // the passengers bounce with the stride (a beat behind the body) and look about when idle
@@ -870,9 +968,9 @@ const BONE = 0xdccdad, STEEL = 0xc2c8d0, FROST = 0xe9f5ff, SCAR = 0xc98585, IRON
 
 function wolfLook(o) {
   o = o || {};
-  if (o.finale) return { tier: 9, s: 1, season: 'hell', hell: true };
+  if (o.finale) return { tier: 9, s: 1, season: 'hell', hell: true, wild: !!o.wild };
   const tier = Math.max(1, Math.min(8, Math.round(o.level || 1)));
-  return { tier, s: (tier - 1) / 7, season: WOLF_SEASON[o.theme] || 'summer', hell: false };
+  return { tier, s: (tier - 1) / 7, season: WOLF_SEASON[o.theme] || 'summer', hell: false, wild: !!o.wild };   // wild: no collar (a ruff)
 }
 
 function wolfEyeColor(T, look) {
@@ -895,7 +993,7 @@ const norm3 = (v) => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l,
 
 function wolfGeos(type, look) {
   look = look || wolfLook();
-  return cgeo('wolf:' + type + ':' + look.tier + ':' + look.season, () => {
+  return cgeo('wolf:' + type + ':' + look.tier + ':' + look.season + (look.wild ? ':wild' : ''), () => {
     const T = WOLF_TYPES[type];
     const { tier, s, season, hell } = look;
     const winter = season === 'winter';
@@ -949,7 +1047,19 @@ function wolfGeos(type, look) {
     const NECK = [0.36, 0.68, 0];
     const ring = (a, r) => [NECK[0], NECK[1] + Math.cos(a) * r, Math.sin(a) * r];
     const band = T.scarf ? C(T.scarf) : null;
-    if (T.scarf || tier >= 2) {
+    if (look.wild) {
+      // wild (no collar): a shaggy ruff of fur round the neck, longer and messier every level; the skate wolves'
+      // type colour streaks the tips instead of a collar band
+      const n = 12 + Math.round(5 * s) + (hell ? 3 : 0), len = 0.14 + 0.1 * s + (hell ? 0.05 : 0);
+      for (let layer = 0; layer < 2; layer++) {   // an outer ring of long tufts and a shorter one behind it
+        for (let i = 0; i < n; i++) {
+          const a = -1.8 + 3.6 * (i + layer * 0.5) / (n - 1 + layer), j = ((i * 53 + layer * 17) % 11) / 11 - 0.5;
+          const o = ring(a, 0.16), d = norm3([-0.6 - 0.35 * layer + 0.25 * j, Math.cos(a) * 0.85, Math.sin(a) * 0.85]);
+          const col = band && (i + layer) % 2 ? band : (i + layer) % 3 === 0 ? light : layer ? dark : base;
+          spike(body, [o[0] - 0.05 * layer, o[1], o[2]], d, len * (0.75 + 0.45 * (((i * 29) % 7) / 7)) * (layer ? 0.75 : 1), 0.065, col);
+        }
+      }
+    } else if (T.scarf || tier >= 2) {
       const ringM = (sc, ry) => mtx(NECK, [0, Math.PI / 2 + (ry || 0), 0], sc);
       if (season === 'autumn') {
         // bramble: twisted thorny vines (over the band)
@@ -1541,6 +1651,87 @@ const PACK_SLOTS = [
   [[0.055, 0.15, 0, 0], [0.035, 0.16, 0.1, -0.45], [0.035, 0.16, -0.1, 0.45], [-0.055, 0.21, 0.06, -0.5], [-0.055, 0.21, -0.06, 0.5]],
 ];
 const PACK_KIT_S = 1.3;   // passenger head scale
+// medic cape (10+ revives): front edge at the neck, CAPE_LEN back along the body, CAPE_W wide, CAPE_Y above the feet
+const CAPE_LEN = 0.44, CAPE_W = 0.36, CAPE_X0 = 0.16, CAPE_Y = 0.62;
+function capeTexture() {
+  return ctex('capeTex4', () => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const g = c.getContext('2d');
+    const RED = '#e2352f', WHITE = '#f8f8f5';
+    // canvas x runs hem (0) -> neck (256) along the cape, canvas y across it; "up" on the symbol points at the neck (+x)
+    g.fillStyle = RED; g.fillRect(0, 0, 256, 256);
+    g.fillStyle = WHITE; g.fillRect(14, 16, 256 - 14 - 10, 256 - 32);   // white cloth inside a red border all round
+    // the star of life, as big as the cape allows (the cape is longer than wide: drawn stretched across so it isn't
+    // squashed on the cloth), a little toward the hem (the neck end hides under the head)
+    const cx = 124, cy = 128;
+    g.save(); g.translate(cx, cy); g.scale(1, CAPE_LEN / CAPE_W);
+    g.fillStyle = RED;
+    for (const a of [0, Math.PI / 3, -Math.PI / 3]) { g.save(); g.rotate(a); g.fillRect(-66, -19, 132, 38); g.restore(); }
+    // the white staff (pointing at the neck) with a snake wound round it
+    g.strokeStyle = WHITE; g.fillStyle = WHITE; g.lineCap = 'round';
+    g.lineWidth = 8; g.beginPath(); g.moveTo(-54, 0); g.lineTo(54, 0); g.stroke();
+    g.beginPath(); g.arc(57, 0, 6.5, 0, Math.PI * 2); g.fill();
+    g.lineWidth = 5.5; g.beginPath();
+    for (let x = -48; x <= 40; x += 2) { const y = Math.sin(x * 0.15) * 11; if (x === -48) g.moveTo(x, y); else g.lineTo(x, y); }
+    g.stroke();
+    g.beginPath(); g.ellipse(43, Math.sin(43 * 0.15) * 11, 7, 5.5, 0, 0, Math.PI * 2); g.fill();   // the snake's head
+    g.restore();
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  });
+}
+
+// feathered angel wing (60+ revives) for the +z side, jointed like a bird's: arm (shoulder -> elbow), forearm
+// (elbow -> wrist) and hand (wrist -> tip), one baked geometry each with its origin at its own joint, so the model can
+// bend them one after the other (movement flows out to the tip). Layers of white feathers hang down from the arch.
+// The arch of the wing (the leading edge), shoulder on the back -> elbow -> wrist (the top of the arch) -> wingtip:
+// up and out from the back, peaking at the wrist and dipping a little toward the tip, like a classic angel wing.
+// spread out flat to the side (seen from above: either side of the body, level with the shoulders), the leading edge
+// going straight out from the shoulder and curving back a little at the tip; the feathers fan back toward the tail
+const WING_PTS = [[0, 0, 0], [0.03, 0.03, 0.11], [0.02, 0.04, 0.22], [-0.03, 0.03, 0.32]];
+const WING_BONE = (t) => {   // t 0..1 along the arch (joint k at t = WING_JOINTS[k])
+  const s = Math.min(2.999, Math.max(0, t * 3)), k = Math.floor(s), f = s - k, a = WING_PTS[k], b = WING_PTS[k + 1];
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+};
+const WING_JOINTS = [0, 1 / 3, 2 / 3, 1];
+function angelWingSegments() {
+  return cgeo('angelWing7', () => {
+    // three layers of white feathers hanging down from the arch (back to front: long flight feathers, medium
+    // secondaries, short soft coverts), longest toward the tip where they flare out a little, a shade greyer behind
+    const ROWS = [[1, 0xdfe5ef, 0.05, 0.013, 0], [0.62, 0xf0f3f9, 0.05, 0.014, 0.012], [0.3, 0xfdfeff, 0.055, 0.018, 0.024]];
+    const V = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+    const segs = [];
+    for (let k = 0; k < 3; k++) {
+      const o = WING_PTS[k], e = WING_PTS[k + 1], boneDir = V(e).sub(V(o)).normalize();
+      // a broad flat feather from a to b: width along the arch, thin through the wing
+      const feather = (a, b, width, thick) => {
+        const dir = V(b).sub(V(a)), len = dir.length();
+        dir.normalize();
+        const n = new THREE.Vector3().crossVectors(dir, boneDir).normalize(), w = new THREE.Vector3().crossVectors(n, dir);
+        const m = new THREE.Matrix4().makeBasis(w.multiplyScalar(width), dir.multiplyScalar(len / 2), n.multiplyScalar(thick));
+        return m.setPosition((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
+      };
+      const rel = (p) => [p[0] - o[0], p[1] - o[1], p[2] - o[2]];
+      const parts = [[P.ico1, along(rel(o), rel(e), 0.028, 0.026), 0xfdfeff]];   // the plump leading edge
+      const n = 5;
+      for (const [share, col, width, thick, fwd] of ROWS) {
+        for (let i = 0; i < n; i++) {
+          const t = (k + (i + 0.5) / n) / 3, a0 = WING_BONE(t), a = rel([a0[0] + fwd, a0[1], a0[2]]);
+          const len = (0.22 + 0.16 * t) * share;
+          // hanging down and a touch back; toward the tip they flare outward
+          const d = [-1, -0.1, 0.08 + 0.22 * t], m = Math.hypot(...d);   // back toward the tail, the outer ones fanning outward
+          const b = [a[0] + d[0] / m * len, a[1] + d[1] / m * len, a[2] + d[2] / m * len];
+          parts.push([P.ico1, feather(a, b, width * (0.8 + 0.4 * t), thick), (i + k) % 2 ? col : new THREE.Color(col).multiplyScalar(0.97).getHex()]);
+        }
+      }
+      segs.push(shared(bake(parts)));
+    }
+    return segs;
+  });
+}
+
 function backpackGeometry() {
   return cgeo('backpack', () => {
     const CANVAS = 0xb9814a, CANVAS_L = 0xd3a066, LEATHER = 0x7b4b28, INSIDE = 0x2b1b12, BUCKLE = 0xffd34a, STRAP = 0x6a3f22;

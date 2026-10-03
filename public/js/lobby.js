@@ -13,6 +13,7 @@ const MODES = [
   { id: 'ice', label: 'Skate only', tip: 'Every level is ice; level 9 is the final boss run' },
 ];
 const modeLabel = (id) => (MODES.find((m) => m.id === id) || MODES[0]).label;
+const MAX_KITTIES = 32;   // a lobby's player cap (NET.MAX_PLAYERS)
 const PLAT = { ios: ['🍎', 'iPhone / iPad app'], android: ['🤖', 'Android app'], web: ['🌐', 'Browser'] };
 
 const CSS = `
@@ -111,6 +112,17 @@ const CSS = `
 .rkl-mode.rkl-on::before{background:#ffcf5a;border-color:#fff6d8;}
 .rkl-mode:focus:not(:focus-visible){outline:none;}
 .rkl-modetip{font-size:12px;font-weight:700;opacity:.7;line-height:1.3;min-height:31px;}
+.rkl-opt{display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px;min-height:36px;}
+.rkl-optlab{white-space:nowrap;}
+.rkl-step{width:32px;height:32px;padding:0;border-radius:10px;cursor:pointer;font:inherit;font-weight:900;font-size:18px;color:#fff;background:rgba(255,255,255,.1);border:2px solid rgba(255,255,255,.22);}
+.rkl-step:hover:not(:disabled){border-color:#ffcf5a;}
+.rkl-step:disabled{opacity:.35;cursor:default;}
+.rkl-num{min-width:26px;text-align:center;font-weight:900;font-size:17px;}
+.rkl-priv{cursor:pointer;}
+.rkl-priv input[type=checkbox]{width:18px;height:18px;accent-color:#ffcf5a;cursor:pointer;}
+.rkl-in.rkl-pass{width:120px;height:34px;box-sizing:border-box;padding:4px 10px;font-size:15px;}
+.rkl-coderow .rkl-in.rkl-pass{display:none;width:110px;height:40px;}
+.rkl-coderow .rkl-in.rkl-pass.rkl-show{display:block;}
 .rkr-btn.rkl-create{margin-top:auto;font-size:19px;padding:9px 18px 11px;border-radius:18px;}
 .rkr-glass.rkl-lbox{max-width:640px;}
 .rkl-localcol .rkl-modes{flex-direction:row;flex-wrap:wrap;}
@@ -165,6 +177,8 @@ function createLobbyUI(root, cb) {
   let br = null; // lobby browser refs
   let refreshT = 0;
 
+  // the last mode picked (single player, co-op or a new lobby: one memory for all three); the default (Run + Skate)
+  // until one is picked
   function savedMode() {
     try { const m = localStorage.getItem('rkr-mode'); return MODES.some((x) => x.id === m) ? m : 'mixed'; } catch { return 'mixed'; }
   }
@@ -197,10 +211,8 @@ function createLobbyUI(root, cb) {
     else cb.onBack();
   });
 
-  // The game mode as a list of radio buttons + a one-line tip (the choice is remembered, online and offline alike).
-  // remember: save the choice (the online browser's 'mode for a new lobby'); single player / co-op always start on
-  // the default mode instead
-  function modePicker(initial, remember = true) {
+  // The game mode as a list of radio buttons + a one-line tip; the choice is remembered (savedMode).
+  function modePicker(initial) {
     let mode = initial;
     const modes = el('div', 'rkl-modes');
     modes.setAttribute('role', 'radiogroup');
@@ -213,7 +225,7 @@ function createLobbyUI(root, cb) {
       }
       tip.textContent = tip.title = MODES.find((m) => m.id === mode).tip;
     };
-    const set = (id) => { mode = id; if (remember) saveMode(mode); paint(); };
+    const set = (id) => { mode = id; saveMode(mode); paint(); };
     for (const m of MODES) {
       const b = el('button', 'rkl-mode');
       b.type = 'button';
@@ -224,9 +236,7 @@ function createLobbyUI(root, cb) {
       modes.appendChild(b);
     }
     paint();
-    // step -1 / +1: the previous / next mode (gamepad)
-    const cycle = (step) => set(MODES[(MODES.findIndex((m) => m.id === mode) + step + MODES.length) % MODES.length].id);
-    return { modes, tip, get: () => mode, cycle };
+    return { modes, tip, get: () => mode };
   }
 
   // A kitty's row: its colour as a cat, name box (saved under nameKey as you type) + random name, colour swatches
@@ -295,7 +305,7 @@ function createLobbyUI(root, cb) {
       taken: n === 2 ? () => prefColor(P2_COLOR_KEY) : null, onColor: refreshAll }));
     if (n === 2) rows.push(youRow({ label: 'Player 2', nameKey: 'rkr-name2', id: 'rkl-lname2', colorKey: P2_COLOR_KEY,
       taken: () => prefColor(), onColor: refreshAll }));
-    const mp = modePicker(forced || 'mixed', false);   // always the default (Run + Skate) to start with
+    const mp = modePicker(forced || savedMode());   // the same memory as online: the last mode picked anywhere
     const start = el('button', 'rkr-btn rkl-create', '<span>START</span>');
     const go = () => { const names = rows.map((r) => r.getName()); hide(); onStart({ mode: mp.get(), names }); };
     start.addEventListener('click', go);
@@ -304,14 +314,7 @@ function createLobbyUI(root, cb) {
     mount([head, ...rows.map((r) => r.el), col], ' rkl-bbox rkl-lbox', ' rkl-ov');
     // Enter in a name box starts too (inputs keep their keys to themselves, see mount)
     node.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); e.stopPropagation(); go(); } });
-    localNav = { go, back: goBack, cycle: mp.cycle };
-  }
-  // gamepad (main.js): 'confirm' starts, 'prev' / 'next' switch the mode
-  function navigateLocal(cmd) {
-    if (view !== 'local' || !localNav) return;
-    if (cmd === 'confirm') localNav.go();
-    else if (cmd === 'prev') localNav.cycle(-1);
-    else if (cmd === 'next') localNav.cycle(1);
+    localNav = { go, back: goBack };   // (a controller moves through the screen like any menu: padnav.js)
   }
 
   function showBrowser() {
@@ -324,7 +327,7 @@ function createLobbyUI(root, cb) {
     back.setAttribute('aria-label', 'Back');
     back.addEventListener('click', () => cb.onBack());
     const h = el('h2', null, 'ONLINE');
-    const hsub = el('div', 'rkl-hsub', 'Up to 32 kitties per lobby');
+    const hsub = el('div', 'rkl-hsub', 'Up to 32 kitties per lobby, public or private');
     const head = el('div', 'rkl-head');
     head.append(back, h, hsub);
 
@@ -349,29 +352,73 @@ function createLobbyUI(root, cb) {
     const codeLab = el('label', 'rkl-codelab', 'Got a code?');
     codeLab.htmlFor = code.id;
     const codeJoin = el('button', 'rkr-btn rkr-alt rkl-mini', 'JOIN');
-    const doJoin = () => { if (code.value.trim()) { lastAct = 'join'; cb.onJoin(code.value.trim().toUpperCase(), getName()); } };
+    // a private lobby's password (shown once a private lobby is picked, or the server asks for it: askPassword)
+    const pass = el('input', 'rkl-in rkl-pass');
+    pass.id = 'rkl-pass';
+    pass.type = 'password';
+    pass.maxLength = 20;
+    pass.placeholder = '🔒 password';
+    pass.autocomplete = 'off';
+    const doJoin = () => { if (code.value.trim()) { lastAct = 'join'; cb.onJoin(code.value.trim().toUpperCase(), getName(), pass.value.trim()); } };
     codeJoin.addEventListener('click', doJoin);
     code.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doJoin(); } });
+    pass.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doJoin(); } });
     const codeRow = el('div', 'rkl-coderow');
-    codeRow.append(codeLab, code, codeJoin);
+    codeRow.append(codeLab, code, pass, codeJoin);
     const joinErr = el('div', 'rkl-err');
     const joinCol = el('div', 'rkl-col rkl-joincol');
     joinCol.append(jt, list, codeRow, joinErr);
 
     // right: start your own (mode remembered)
     const mp = modePicker(savedMode());
+    // how many kitties may join (2..MAX_KITTIES, remembered)
+    let max = MAX_KITTIES;
+    try { const v = parseInt(localStorage.getItem('rkr-max') || '', 10); if (v >= 2 && v <= MAX_KITTIES) max = v; } catch { /* ignore */ }
+    const sizeRow = el('div', 'rkl-opt');
+    const minus = el('button', 'rkl-step', '−'), plus = el('button', 'rkl-step', '+'), num = el('span', 'rkl-num');
+    minus.type = plus.type = 'button';
+    minus.setAttribute('aria-label', 'Fewer players'); plus.setAttribute('aria-label', 'More players');
+    const paintMax = () => {
+      num.textContent = String(max);
+      minus.disabled = max <= 2; plus.disabled = max >= MAX_KITTIES;
+      try { localStorage.setItem('rkr-max', String(max)); } catch { /* ignore */ }
+    };
+    // one at a time up to 8, then fours up to the cap
+    const step = (d) => { max = Math.max(2, Math.min(MAX_KITTIES, d > 0 ? (max < 8 ? max + 1 : max + 4) : (max <= 8 ? max - 1 : max - 4))); paintMax(); };
+    minus.addEventListener('click', () => step(-1)); plus.addEventListener('click', () => step(1));
+    paintMax();
+    sizeRow.append(el('span', 'rkl-optlab', 'Max players'), minus, num, plus);
+    // private: only people with the password get in (it's listed with a lock)
+    const privRow = el('label', 'rkl-opt rkl-priv');
+    const priv = el('input');
+    priv.type = 'checkbox';
+    const privPass = el('input', 'rkl-in rkl-pass');
+    privPass.type = 'text';
+    privPass.maxLength = 20;
+    privPass.placeholder = 'password';
+    privPass.autocomplete = 'off';
+    privPass.spellcheck = false;
+    const paintPriv = (focus) => { privPass.style.display = priv.checked ? '' : 'none'; if (priv.checked && focus) privPass.focus(); };
+    priv.addEventListener('change', () => paintPriv(true));
+    privRow.append(priv, el('span', 'rkl-optlab', '🔒 Private'), privPass);
+    paintPriv(false);
     const create = el('button', 'rkr-btn rkl-create', '<span>CREATE LOBBY</span>');
-    create.addEventListener('click', () => { lastAct = 'create'; cb.onCreate(getName(), mp.get()); });
     const createErr = el('div', 'rkl-err');
+    create.addEventListener('click', () => {
+      lastAct = 'create';
+      const password = priv.checked ? privPass.value.trim() : '';
+      if (priv.checked && !password) { createErr.textContent = 'Pick a password for your private lobby.'; privPass.focus(); return; }
+      cb.onCreate(getName(), mp.get(), { max, password });
+    });
     const newCol = el('div', 'rkl-col rkl-newcol');
-    newCol.append(el('div', 'rkl-ctitle', 'Start your own'), mp.modes, mp.tip, create, createErr);
+    newCol.append(el('div', 'rkl-ctitle', 'Start your own'), mp.modes, mp.tip, sizeRow, privRow, create, createErr);
 
     const cols = el('div', 'rkl-cols');
     cols.append(joinCol, newCol);
     let lastAct = 'join';
     errEl = null;
     mount([head, you, cols], ' rkl-bbox', ' rkl-ov');
-    br = { list, live, joinCol, newCol, create, getName, rows: new Map(), errFor: () => (lastAct === 'create' ? [createErr, joinErr] : [joinErr, createErr]) };
+    br = { list, live, joinCol, newCol, create, getName, code, pass, rows: new Map(), errFor: () => (lastAct === 'create' ? [createErr, joinErr] : [joinErr, createErr]) };
     emphasize(0);
     cb.onRefresh();
     clearInterval(refreshT);
@@ -405,7 +452,11 @@ function createLobbyUI(root, cb) {
         const btn = el('button', 'rkr-btn rkl-mini');
         btn.type = 'button';
         const code = l.code;
-        btn.addEventListener('click', () => { if (!btn.disabled) cb.onJoin(code, br.getName()); });
+        btn.addEventListener('click', () => {
+          if (btn.disabled) return;
+          if (br.rows.get(code).locked) askPassword(code);   // private: type its password, then JOIN
+          else cb.onJoin(code, br.getName());
+        });
         row.append(t, btn);
         row.addEventListener('animationend', () => row.classList.remove('rkl-new'), { once: true });
         r = { row, hh, sub, btn };
@@ -414,7 +465,8 @@ function createLobbyUI(root, cb) {
       const full = l.players >= l.max;
       const playing = l.phase !== 'lobby';
       const set = (e, v) => { if (e.textContent !== v) e.textContent = v; };
-      set(r.hh, `${l.host}'s lobby`);
+      r.locked = !!l.locked;
+      set(r.hh, `${l.locked ? '🔒 ' : ''}${l.host}'s lobby`);
       set(r.sub, playing ? `${modeLabel(l.mode)} · playing level ${l.level} · ${l.players}/${l.max}`
         : `${modeLabel(l.mode)} · waiting · ${l.players}/${l.max}`);
       set(r.btn, full ? 'FULL' : playing ? 'HOP IN' : 'JOIN');
@@ -461,7 +513,8 @@ function createLobbyUI(root, cb) {
       copy.addEventListener('click', async () => {
         if (!roomRefs) return;
         const c = roomRefs.code.textContent;
-        const res = await share({ title: 'Run Kitty Run', text: `Join my Run Kitty Run lobby! Code ${c}`, url: inviteUrl(c) });
+        // a private lobby's link carries its password, so friends get straight in
+        const res = await share({ title: 'Run Kitty Run', text: `Join my Run Kitty Run lobby! Code ${c}`, url: inviteUrl(c, roomRefs.pass) });
         if (res !== 'copied' && res !== 'failed') return;
         copy.firstChild.textContent = res === 'copied' ? 'LINK COPIED!' : 'COPY FAILED';
         clearTimeout(copyT);
@@ -483,8 +536,9 @@ function createLobbyUI(root, cb) {
     }
     const r = roomRefs;
     r.code.textContent = info.code;
-    r.roomMode.textContent = 'Mode: ' + modeLabel(info.mode);
-    r.link.textContent = inviteUrl(info.code);
+    r.roomMode.textContent = `Mode: ${modeLabel(info.mode)} · up to ${info.max || MAX_KITTIES} kitties` + (info.locked ? ` · 🔒 private, password: ${info.pass || '?'}` : '');
+    r.pass = info.locked ? info.pass || '' : '';
+    r.link.textContent = inviteUrl(info.code, r.pass);
     r.slots.textContent = '';
     // everyone in the lobby + one open slot (up to info.max)
     const max = info.max || 32;
@@ -515,6 +569,14 @@ function createLobbyUI(root, cb) {
         : `Waiting for ${host ? host.name : 'the host'} to start…`;
   }
 
+  // a private lobby: fill in its code and ask for the password in the "Got a code?" row
+  function askPassword(code) {
+    if (view !== 'browser' || !br) return;
+    br.code.value = code;
+    br.pass.classList.add('rkl-show');
+    br.pass.focus();
+  }
+
   function showError(msg) {
     let target = errEl;
     if (view === 'browser' && br) {
@@ -539,7 +601,7 @@ function createLobbyUI(root, cb) {
     localNav = null;
   }
 
-  return { showBrowser, setLobbies, showRoom, showLocal, navigateLocal, showError, hide, isOpen: () => !!node, view: () => view };
+  return { showBrowser, setLobbies, showRoom, showLocal, askPassword, showError, hide, isOpen: () => !!node, view: () => view, root: () => node };
 }
 
 export { createLobbyUI };

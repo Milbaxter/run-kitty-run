@@ -16,6 +16,7 @@ import { createAudio } from './audio.js';
 import { createUI } from './ui.js';
 import { createNet } from './net.js';
 import { createLobbyUI } from './lobby.js';
+import { createPadNav } from './padnav.js';
 import { prefColor, localSlots } from './kittycolor.js';
 import { createChat } from './chat.js';
 import { createFeedback } from './feedback.js';
@@ -31,6 +32,13 @@ const DEBUG_LEVEL = Math.max(1, parseInt(params.get('level') || '1', 10) || 1);
 const DEBUG_MODE = ['mixed', 'run', 'ice'].includes(params.get('mode')) ? params.get('mode') : undefined; // offline testing: ?mode=ice
 // local testing only (localhost): ?wins=7 starts every offline kitty with that many wins and a crown (all run rewards)
 const DEBUG_WINS = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? Math.max(0, parseInt(params.get('wins') || '0', 10) || 0) : 0;
+// local testing of the revive rewards: ?rescues=60 (localhost only, like ?wins=), and ?look=crown,pack to wear the
+// crown and a kitten backpack without the other win rewards (the aura hides the kitty)
+const DEBUG_RESCUES = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? Math.max(0, parseInt(params.get('rescues') || '0', 10) || 0) : 0;
+// the revive rewards (cape, heart trail, wings) are still being designed: only on a local test server for now
+const REVIVE_REWARDS = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+const DEBUG_LOOK = new Set(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? (params.get('look') || '').split(',') : []);
+const DEBUG_PACK = [PLAYER_COLORS[1], PLAYER_COLORS[2], PLAYER_COLORS[3]];
 
 // ---------- renderer / scene ----------
 const canvas = document.getElementById('game');
@@ -74,6 +82,26 @@ function playTrack() {
   if (!track.getAttribute('src')) track.src = PLAYLIST[trackIdx];
   track.play().catch(() => { /* needs a user gesture; retried on input */ });
 }
+// Which songs play (remembered): 'both' (one after the other) or the index of one song, played on a loop
+const MUSIC_CHOICES = ['both', '0', '1'];
+let musicChoice = 'both';
+try { const v = localStorage.getItem('rkr-music'); if (MUSIC_CHOICES.includes(v)) musicChoice = v; } catch { /* ignore */ }
+function musicLabel() { return musicChoice === 'both' ? 'MUSIC: BOTH SONGS' : `MUSIC: SONG ${+musicChoice + 1} ON LOOP`; }
+function applyMusicChoice() {
+  const one = musicChoice === 'both' ? -1 : +musicChoice;
+  track.loop = one >= 0;
+  if (one >= 0 && one !== trackIdx && !badTracks.has(one)) {
+    trackIdx = one;   // switch now (the new song starts from the top)
+    if (trackWanted && !audio.isMuted() && !inBackground && !trackFailed) { track.src = PLAYLIST[one]; playTrack(); }
+    else track.removeAttribute('src');
+  }
+}
+function cycleMusic() {
+  musicChoice = MUSIC_CHOICES[(MUSIC_CHOICES.indexOf(musicChoice) + 1) % MUSIC_CHOICES.length];
+  try { localStorage.setItem('rkr-music', musicChoice); } catch { /* ignore */ }
+  applyMusicChoice();
+  return musicLabel();
+}
 function nextTrack() {
   for (let k = 1; k <= PLAYLIST.length; k++) {
     const i = (trackIdx + k) % PLAYLIST.length;
@@ -84,7 +112,8 @@ function nextTrack() {
     return;
   }
 }
-track.addEventListener('ended', nextTrack);
+track.addEventListener('ended', nextTrack);   // (one song on a loop: track.loop, 'ended' never fires)
+applyMusicChoice();
 track.addEventListener('error', () => {
   badTracks.add(trackIdx);
   if (badTracks.size >= PLAYLIST.length) { trackFailed = true; if (trackWanted) audio.startMusic(musicLevel); return; }
@@ -157,6 +186,7 @@ function toggleSound() {
   syncTrack();
 }
 ui.onMuteClick(toggleSound);
+ui.setMusicControl({ label: musicLabel, cycle: cycleMusic });
 ui.onMenuClick(() => {
   if (mode !== 'play' || runOver()) return;
   if (online.playing) toggleOnlineMenu(); else togglePause();
@@ -415,6 +445,7 @@ function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 function startSim(players, startLevel, simMode = DEBUG_MODE) {
   sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
+  if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   accumulator = 0;
   gameOverShown = false;
   victory = null;
@@ -824,36 +855,65 @@ function updateIntro(dt) {
 // Gamepad on the overlays (victory / game over / pause): A or Start = confirm, d-pad / stick left-right = switch.
 // On the legends board: B or Start closes it, d-pad up/down (or the right stick) scrolls.
 const padNav = { confirm: false, prev: false, next: false, back: false, spPrev: false, spNext: false };
+// The menus (title, online lobby screens, single player / co-op setup, pause menu, notices) get a highlight moved
+// with the d-pad / left stick, A = press, B = back (padnav.js). Start pauses a run (offline) or opens the menu
+// (online), and closes the pause menu again.
+const menuPad = createPadNav();
+let padNavAt = performance.now();
 function pollPadNav() {
+  const now = performance.now(), dt = Math.min(0.1, (now - padNavAt) / 1000);
+  padNavAt = now;
   let confirm = false, prev = false, next = false, back = false, scroll = 0, spPrev = false, spNext = false;
+  let a = false, bBtn = false, start = false, select = false, up = false, down = false, left = false, right = false;
   for (const pad of framePads || []) {
     if (!pad || !pad.connected) continue;
     const b = (i) => !!(pad.buttons[i] && pad.buttons[i].pressed);
+    const ax = pad.axes[0] || 0, ay = pad.axes[1] || 0;
     spPrev = spPrev || b(4) || b(14); // LB / d-pad left
     spNext = spNext || b(5) || b(15); // RB / d-pad right
     confirm = confirm || b(0) || b(9);
-    prev = prev || b(14) || b(12) || (pad.axes[0] || 0) < -0.6;
-    next = next || b(15) || b(13) || (pad.axes[0] || 0) > 0.6;
+    prev = prev || b(14) || b(12) || ax < -0.6;
+    next = next || b(15) || b(13) || ax > 0.6;
     back = back || b(1) || b(9);
     scroll += (b(13) ? 1 : 0) - (b(12) ? 1 : 0) + (Math.abs(pad.axes[3] || 0) > 0.3 ? pad.axes[3] : 0);
+    a = a || b(0); bBtn = bBtn || b(1); start = start || b(9); select = select || b(8);
+    up = up || b(12) || ay < -0.55; down = down || b(13) || ay > 0.55;
+    left = left || b(14) || ax < -0.55; right = right || b(15) || ax > 0.55;
   }
+  const aEdge = a && !padNav.a, bEdge = bBtn && !padNav.b, startEdge = start && !padNav.start;
+  // Select / View / Share: sound on / off, anywhere (like M)
+  if (select && !padNav.select) { toggleSound(); ui.toast(audio.isMuted() ? 'Sound off' : 'Sound on', '#b9a4ff'); }
+  const dir = up ? 'up' : down ? 'down' : left ? 'left' : right ? 'right' : '';
+  const pauseEl = ui.pauseRoot();
+  const fbEl = feedback.isOpen() ? feedback.root() : null;
+  const menu = legends.isOpen() ? null
+    : fbEl || pauseEl || ui.noticeRoot() || ui.gameOverRoot() || (lobbyUI.isOpen() && !(online.playing && mode === 'play') ? lobbyUI.root() : null) || ui.titleRoot();
+  const res = menuPad.poll(menu, { dir, a: aEdge, b: bEdge }, dt);
   if (legends.isOpen()) {
     if (back && !padNav.back) legends.close();
     else if (scroll) legends.scrollBy(scroll * 14);
-  } else if (lobbyUI.view() === 'local') {   // single player / co-op setup: A starts, d-pad / stick switches mode
-    if (prev && !padNav.prev) lobbyUI.navigateLocal('prev');
-    if (next && !padNav.next) lobbyUI.navigateLocal('next');
-    if (confirm && !padNav.confirm) lobbyUI.navigateLocal('confirm');
+  } else if (fbEl) {
+    if (res === 'back') feedback.close();
+  } else if (pauseEl) {
+    if (res === 'back' || startEdge) ui.navigate('confirm');   // B / Start: back to the run
+  } else if (menu) {
+    // B: back (the lobby browser / setup go back to the title on Esc, lobby.js)
+    if (res === 'back' && lobbyUI.isOpen()) document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
   } else if (ui.isOverlayOpen()) {
     if (prev && !padNav.prev) ui.navigate('prev');
     if (next && !padNav.next) ui.navigate('next');
     if (confirm && !padNav.confirm) ui.navigate('confirm');
-  } else if (spectating()) {
-    if (spPrev && !padNav.spPrev) cycleWatch(-1);
-    if (spNext && !padNav.spNext) cycleWatch(1);
+  } else {
+    if (spectating()) {
+      if (spPrev && !padNav.spPrev) cycleWatch(-1);
+      if (spNext && !padNav.spNext) cycleWatch(1);
+    }
+    // Start in a run: pause (offline) / the online menu
+    if (startEdge && mode === 'play' && !runOver() && !chat.isOpen()) { if (online.playing) toggleOnlineMenu(); else togglePause(); }
   }
   padNav.confirm = confirm; padNav.prev = prev; padNav.next = next; padNav.back = back;
   padNav.spPrev = spPrev; padNav.spNext = spNext;
+  padNav.a = a; padNav.b = bBtn; padNav.start = start; padNav.select = select;
 }
 
 function levelSubtitle(level) {
@@ -1224,6 +1284,15 @@ function syncVisuals(dt, alpha) {
     ka.skates = !!sim.levelData.ice; ka.boots = Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST); ka.invuln = p.invuln; ka.shield = p.shield; ka.time = t;
     ka.crown = !!p.crowned; ka.crownStones = Math.max(0, Math.min(5, wins - 1)); ka.aura = wins >= 3; ka.auraColor = k.fx; ka.sunglasses = wins >= 5; ka.rainbowBoots = wins >= 7;
     ka.backpack = wins >= 8; ka.packColors = ka.backpack ? packColors(k, p) : null;
+    // revive rewards (rescues this run): 10+ medic cape, 30+ a trail of hearts, 60+ angel wings (they add up)
+    const saves = p.rescues || 0;
+    ka.cape = REVIVE_REWARDS && saves >= 10; ka.wings = REVIVE_REWARDS && saves >= 60;
+    if (DEBUG_LOOK.has('crown')) ka.crown = true;
+    if (DEBUG_LOOK.has('pack')) { ka.backpack = true; ka.packColors = DEBUG_PACK; }
+    if (REVIVE_REWARDS && saves >= 30 && p.alive && speed > 1) {
+      k.heartT = (k.heartT || 0) - dt;
+      if (k.heartT <= 0) { k.heartT = 0.11; effects.heartTrail(x - Math.cos(p.heading) * 0.35, k.climb || 0, z - Math.sin(p.heading) * 0.35, HEART_PINK); }
+    }
     k.model.update(dt, ka);
     k.trail.update(dt, x, z, -k.model.group.rotation.y, gliding && speed > 0.5, paws ? k.fx : null);
     k.auraTrail.update(dt, x, k.climb, z, -k.model.group.rotation.y, wins >= 4 && speed > 1, k.fx);
@@ -1242,6 +1311,8 @@ function syncVisuals(dt, alpha) {
   }
   world_update(dt, t);
 }
+
+const HEART_PINK = [1, 0.42, 0.62];   // the 30+ revives heart trail
 
 function world_update(dt, t) {
   view.world.update(dt, t);
@@ -1307,8 +1378,9 @@ function updateHUD() {
 //  - shows other kitties extrapolated from their last snapshot to the same "present" as the wolves.
 const net = createNet();
 const lobbyUI = createLobbyUI(document.getElementById('ui'), {
-  onCreate: (name, mode) => net.send({ t: 'create', name, mode, color: prefColor() }),
-  onJoin: (code, name) => net.send({ t: 'join', code, name, color: prefColor() }),
+  // opts: { max: how many kitties may join, password: '' = public } (lobby.js)
+  onCreate: (name, mode, opts = {}) => net.send({ t: 'create', name, mode, color: prefColor(), max: opts.max, password: opts.password || '' }),
+  onJoin: (code, name, password = '') => net.send({ t: 'join', code, name, color: prefColor(), password }),
   onLeave: () => net.send({ t: 'leave' }),
   onStart: () => net.send({ t: 'start' }),
   onRefresh: () => net.send({ t: 'list' }),
@@ -1376,10 +1448,19 @@ function leaveOnline() {
   ui.showTitle(onTitlePick);
 }
 
-function setRoomInUrl(code) {
+// pass: a private lobby's password, kept after '#' like in its invite link (platform.js inviteUrl)
+function setRoomInUrl(code, pass) {
   const u = new URL(location.href);
   if (code) u.searchParams.set('room', code); else u.searchParams.delete('room');
+  u.hash = code && pass ? 'pw=' + encodeURIComponent(pass) : '';
   history.replaceState(null, '', u);
+}
+
+// a private lobby's password from an invite link (…?room=ABCD#pw=secret), '' if none
+function passFromLink(url) {
+  const m = /[#&]pw=([^&#]*)/.exec(url || '');
+  if (!m) return '';
+  try { return decodeURIComponent(m[1]); } catch { return ''; }
 }
 
 function savedName() {
@@ -1393,7 +1474,7 @@ function termsAccepted() {
 }
 
 let opening = false;
-async function openOnline(joinCode) {
+async function openOnline(joinCode, joinPass) {
   goFullscreenLandscape(); // needs the user gesture: before any await
   if (opening) return;
   if (net.outdated) { showOutdated(); return; }
@@ -1404,8 +1485,9 @@ async function openOnline(joinCode) {
   if (!ok) { setRoomInUrl(null); if (!ui.isTitleOpen()) ui.showTitle(onTitlePick); return; }
   net.connect();
   const code = joinCode || new URLSearchParams(location.search).get('room');
+  const password = joinCode ? joinPass || '' : passFromLink(location.hash);
   lobbyUI.showBrowser();
-  if (code) net.send({ t: 'join', code, name: savedName(), color: prefColor() });
+  if (code) net.send({ t: 'join', code, name: savedName(), color: prefColor(), password });
 }
 
 // "Update the app" (native) / "Reload" (web) when the server says this build is too old.
@@ -1430,6 +1512,7 @@ net.on('outdated', (m) => showOutdated(m.msg));
 
 net.on('lobbies', (m) => lobbyUI.setLobbies(m.list));
 net.on('error', (m) => {
+  if (m.need === 'password' && lobbyUI.isOpen()) lobbyUI.askPassword(m.code); // a private lobby (list, code or invite link)
   if (lobbyUI.isOpen()) lobbyUI.showError(m.msg);
   else ui.toast(m.msg, 0xff8fa3);
   if (/code/.test(m.msg)) setRoomInUrl(null);
@@ -1438,10 +1521,11 @@ net.on('room', (m) => {
   if (!online.room || online.room.code !== m.code) chat.clear();
   online.room = m;
   online.me = m.you;
+  online.pass = m.pass || '';   // a private lobby's password: sent again when we rejoin after a dropped connection
   chat.setEnabled(true);
   if (devGod) net.send({ t: 'god', on: true }); // dev: keep playtest godmode across rooms/reconnects
   for (const mem of m.members) online.roster.set(mem.id, mem);
-  setRoomInUrl(m.code);
+  setRoomInUrl(m.code, m.locked ? m.pass : '');
   if (!online.playing || mode !== 'play') lobbyUI.showRoom(m);
   else if (m.phase === 'lobby' && victory) victory.lobbyAt = victory.t; // the party is over on the server: head back soon
 });
@@ -1450,7 +1534,7 @@ net.on('open', () => {
   // back after a dropped connection (or the app was in the background): rejoin the same lobby
   const code = online.rejoin;
   online.rejoin = null;
-  if (code && !online.room) net.send({ t: 'join', code, name: savedName(), color: prefColor() });
+  if (code && !online.room) net.send({ t: 'join', code, name: savedName(), color: prefColor(), password: online.pass || '' });
   net.send({ t: 'legends' }); // a winner still in its signing window (same tab, even after a reload) gets the board back
 });
 net.on('close', () => {
@@ -1779,7 +1863,9 @@ function tick(dt) {
         time: sim.time,
         // alone: nobody could revive you; nudge toward friends
         alone: sim.players.length === 1 ? (wasOnline ? 'online' : 'solo') : null,
-      }, () => { ui.hideGameOver(); if (wasOnline) backToLobby(); else startGame(playerCount); }, wasOnline ? 'BACK TO LOBBY' : null);
+      }, () => { ui.hideGameOver(); if (wasOnline) backToLobby(); else startGame(playerCount); }, wasOnline ? 'BACK TO LOBBY' : null,
+      // LEAVE GAME: offline back to the title, online out of the lobby (to the lobby list)
+      () => { if (wasOnline) net.send({ t: 'leave' }); else enterTitle(); });
     }, 1400);
   }
 
@@ -1848,8 +1934,8 @@ const App = plugin('App');
 if (App) {
   App.addListener('appStateChange', (st) => setBackground(!st.isActive));
   App.addListener('backButton', onBackButton);
-  App.addListener('appUrlOpen', (e) => joinFromLink(roomFromLink(e && e.url)));
-  call('App', 'getLaunchUrl').then((r) => { if (r && r.url) joinFromLink(roomFromLink(r.url)); });
+  App.addListener('appUrlOpen', (e) => joinFromLink(roomFromLink(e && e.url), passFromLink(e && e.url)));
+  call('App', 'getLaunchUrl').then((r) => { if (r && r.url) joinFromLink(roomFromLink(r.url), passFromLink(r.url)); });
 }
 
 // Android back: close the top-most thing; on the title screen, minimize the app.
@@ -1884,7 +1970,7 @@ function roomFromLink(url) {
   return m ? m[1].toUpperCase() : null;
 }
 let lastLink = '', lastLinkAt = 0;
-function joinFromLink(code) {
+function joinFromLink(code, pass = '') {
   if (!code) return;
   const now = performance.now();
   if (code === lastLink && now - lastLinkAt < 3000) return; // launch URL + appUrlOpen can both fire
@@ -1899,8 +1985,8 @@ function joinFromLink(code) {
   ui.hidePause();
   ui.hideGameOver();
   ui.hideTitle();
-  setRoomInUrl(code);
-  openOnline(code);
+  setRoomInUrl(code, pass);
+  openOnline(code, pass);
 }
 
 enterTitle();

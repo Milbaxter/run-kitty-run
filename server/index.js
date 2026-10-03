@@ -309,6 +309,11 @@ function cleanName(n, fallback) {
   return s || fallback;
 }
 
+// private lobbies: a short password (case-sensitive), '' = public
+function cleanPass(p) {
+  return String(p ?? '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 20);
+}
+
 function send(ws, msg) {
   if (ws.readyState !== 1) return;
   if (ws.bufferedAmount > MAX_BUFFERED) { ws.terminate(); return; }
@@ -322,7 +327,8 @@ function broadcast(room, msg) {
 
 function roomInfo(room) {
   return {
-    t: 'room', code: room.code, host: room.hostId, phase: room.phase, mode: room.mode, max: NET.MAX_PLAYERS,
+    t: 'room', code: room.code, host: room.hostId, phase: room.phase, mode: room.mode, max: room.max || NET.MAX_PLAYERS,
+    locked: !!room.pass, pass: room.pass || undefined,   // private lobby: its members see the password (to pass it on)
     members: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color, app: m.app })),
   };
 }
@@ -338,7 +344,7 @@ function lobbyList(client) {
     if (r.members.length === 0) continue;
     if (!modeOk(client, r.mode)) continue; // this client's build can't play that mode
     list.push({
-      code: r.code, players: r.members.length, max: NET.MAX_PLAYERS, phase: r.phase,
+      code: r.code, players: r.members.length, max: r.max || NET.MAX_PLAYERS, phase: r.phase, locked: !!r.pass,
       host: (r.members.find((m) => m.id === r.hostId) || r.members[0]).name,
       level: r.sim ? r.sim.level : 0, mode: r.mode,
     });
@@ -357,11 +363,16 @@ function colorSlot(room, pref) {
   return p >= 0 && !room.members.some((m) => m.slot === p) ? p : freeColorSlot(room);
 }
 
-function joinRoom(client, room, name, pref) {
+function joinRoom(client, room, name, pref, pass) {
   // Covers every way in: lobby list, code, invite deep link, reconnect rejoin, mid-game join.
   // 'code' in the text makes clients drop ?room= from the URL so they don't retry the link.
   if (!modeOk(client, room.mode)) return send(client.ws, { t: 'error', msg: `That lobby code is for ${MODE_NAMES[room.mode]}, which needs the latest version - ${updateHow(client)} to play it.` });
-  if (room.members.length >= NET.MAX_PLAYERS) return send(client.ws, { t: 'error', msg: `That lobby is full (${NET.MAX_PLAYERS}/${NET.MAX_PLAYERS}).` });
+  const max = room.max || NET.MAX_PLAYERS;
+  if (room.members.length >= max) return send(client.ws, { t: 'error', msg: `That lobby is full (${max}/${max}).` });
+  // private lobby: the password, unless this is a kitty coming back within the reconnect grace (room.left)
+  if (room.pass && cleanPass(pass) !== room.pass && !(client.tok && room.left && room.left.has(client.tok))) {
+    return send(client.ws, { t: 'error', need: 'password', code: room.code, msg: pass ? 'Wrong password for that lobby.' : 'That lobby is private: enter its password.' });
+  }
   leaveRoom(client);
   const slot = colorSlot(room, pref);
   client.room = room;
@@ -653,18 +664,21 @@ wss.on('connection', (ws, req) => {
         if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', msg: 'Server is full, try again later.' });
         const mode = GAME_MODES.includes(msg.mode) ? msg.mode : 'mixed';
         if (!modeOk(client, mode)) return send(ws, { t: 'error', msg: `${MODE_NAMES[mode]} needs the latest version - ${updateHow(client)} to play it. The other modes work as usual.` });
-        const r = { code: makeCode(), mode, members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0, victory: null,
+        // max: how many kitties may join (2..NET.MAX_PLAYERS); pass: private lobby's password ('' = public)
+        const maxReq = Number.isInteger(msg.max) ? msg.max : NET.MAX_PLAYERS;
+        const r = { code: makeCode(), mode, max: Math.max(2, Math.min(NET.MAX_PLAYERS, maxReq)), pass: cleanPass(msg.password),
+          members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0, victory: null,
           left: new Map() }; // tab token -> state of a kitty that left this game (reconnect grace)
         stats.lobbyCreated();
         rooms.set(r.code, r);
-        joinRoom(client, r, msg.name, msg.color);
+        joinRoom(client, r, msg.name, msg.color, r.pass);
         break;
       }
       case 'join': {
         const r = rooms.get(String(msg.code || '').toUpperCase().trim());
         if (!r) return send(ws, { t: 'error', msg: 'No lobby with that code.' });
         if (r === room) return;
-        joinRoom(client, r, msg.name, msg.color);
+        joinRoom(client, r, msg.name, msg.color, msg.password);
         break;
       }
       case 'leave':

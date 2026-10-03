@@ -223,6 +223,7 @@ function buildStraight(rng) {
 // balance (~0.8 s) but a wolf can still stand still for up to 6 s now and then.
 const RUN_PAUSES = [[6, 6, 1], [3, 6, 0.67], [2, 6, 1.35], [1.2, 6, 2], [0.7, 6, 3.1], [0.4, 6, 4.1], [0.2, 6, 5.4], [0.1, 6, 7.4]];
 // walk length per move, same form: level 1 ~2x the old walks; by level 8 back near the old average, with long walks still possible
+const ROOM_WOLVES = 3;   // running levels: the goal room's own wolves (+1 from level 5)
 const RUN_NEW_EXTRA = 1.5; // Run only: extra tuned wolves = (this - 1) x a level's usual tuned count, levels mirrored (placeEnemies)
 const RUN_WALKS = [[5, 17.5, 1], [4.6, 18.2, 1.35], [4.3, 18.9, 1.7], [3.9, 19.6, 2], [3.6, 20.4, 2.4], [3.2, 21.1, 2.7], [2.9, 21.8, 3.1], [2.5, 22.5, 3.4]];
 
@@ -392,6 +393,32 @@ function placeEnemies(rng, lvl, p) {
       placed++;
     }
   });
+  // Running levels: a few wolves of the goal room's own, roaming the half of it on the door's side all round the goal
+  // disc (never onto it), so no way into the disc is safe; until now only the final stretch's wolves came in, by the
+  // door, and the far side of the room was always empty.
+  if (pauseRange && !lvl.finale) {
+    const leg = legs[last], m = ROOM - WOLF_MARGIN;
+    const alongX = Math.abs(leg.ox) > Math.abs(leg.oz), sd = Math.sign(alongX ? leg.ox : leg.oz) || 1;
+    const corners = alongX ? [[0, -m], [sd * m, -m], [0, m], [sd * m, m]] : [[-m, 0], [m, 0], [-m, sd * m], [m, sd * m]];
+    const pts = corners.map(([x, z]) => toFrame(leg, x, z)), c = toFrame(leg, 0, 0);
+    const frame = { ox: leg.ox, oz: leg.oz, ux: leg.ux, uz: leg.uz, nx: leg.nx, nz: leg.nz };
+    const n = ROOM_WOLVES + (lv >= 5 ? 1 : 0);
+    for (let k = 0; k < n; k++) {
+      const id = enemies.length;
+      enemies.push({
+        id, type: 'wanderer', leg: last, frame,
+        rIn: Math.min(...pts.map((q) => q.r)), rOut: Math.max(...pts.map((q) => q.r)),
+        a0: Math.min(...pts.map((q) => q.th)), a1: Math.max(...pts.map((q) => q.th)),
+        speed: Math.min(CFG.KITTY_SPEED * 0.92, p.enemySpeed),
+        phase: (k + rng.next()) / n,
+        pauseScale: p.enemyPauseScale,
+        seed: hashSeed(seed, level, 'wolf', id),
+        pauseRange, walk,
+        avoid: { r: c.r, th: c.th, R: lvl.centerRadius + CFG.WOLF_RADIUS + 0.05 },
+        goalRoom: true,
+      });
+    }
+  }
   return enemies;
 }
 

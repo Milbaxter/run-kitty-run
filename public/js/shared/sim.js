@@ -9,8 +9,9 @@ import { createEnemies, updateEnemies } from './enemies.js';
 // Interpretations / extra fields (beyond CONTRACTS.md):
 // - sim.started (bool): false until the first stepSim, which emits levelStart.
 // - sim.enteredCenter: array of playerIds that already emitted enterCenter this level.
-// - Players already inCenter are clamped to stay inside the center disc. The disc only makes them safe: the level
-//   clears when a kitty touches the crown over its middle (so the first one home can wait for the others).
+// - inCenter = in the goal disc right now: safe from wolves while inside, free to run back out (only the final run's
+//   victory party is kept in it). The level clears when a kitty touches the crown over its middle (so the first one
+//   home can wait for the others, or run out again to help).
 // - On level transition, shield is reset to 0 silently (no shieldEnd event).
 // - Spawn index = player index modulo spawnPoints.length (small offset if more players than points).
 // - Pickup 'life' when lives are already at MAX_EXTRA_LIVES is left on the ground.
@@ -230,8 +231,8 @@ function movePlayer(sim, p, inp, dt) {
         }
       }
     }
-    if (wasInCenter) {
-      // stay inside the center disc
+    if (wasInCenter && sim.state === 'victory') {
+      // the final run's victory party stays inside the center disc (otherwise the disc is free to leave)
       const r = Math.sqrt(cx * cx + cz * cz);
       if (r > maxCenterR && r > 1e-6) {
         const ux = cx / r;
@@ -309,7 +310,7 @@ function stepSim(sim, inputs, dt) {
       continue;
     }
     movePlayer(sim, p, readInput(inputs, p.id), dt);
-    p.inCenter = p.inCenter || inCenter(ld, p.x, p.z);
+    p.inCenter = inCenterNow(sim, p);
     if (p.inCenter && sim.enteredCenter.indexOf(p.id) < 0) {
       sim.enteredCenter.push(p.id);
       events.push({ type: 'enterCenter', playerId: p.id });
@@ -575,11 +576,18 @@ function removePlayer(sim, id) {
   return true;
 }
 
+// In the goal disc right now (it makes you safe while you're in it; you can run back out). The final run's victory
+// party stays in it.
+function inCenterNow(sim, p) {
+  const now = inCenter(sim.levelData, p.x, p.z);
+  return sim.state === 'victory' ? p.inCenter || now : now;
+}
+
 // Client-side prediction: the movement + center part of stepSim for one player (no hits/pickups).
 function predictPlayer(sim, p, inp, dt) {
   if (!p.alive || sim.state === 'gameover') return;
   movePlayer(sim, p, readInput({ 0: inp }, 0), dt);
-  p.inCenter = p.inCenter || inCenter(sim.levelData, p.x, p.z);
+  p.inCenter = inCenterNow(sim, p);
 }
 
 // Client mirror: switch to a level the server already generated (same seed => same layout).

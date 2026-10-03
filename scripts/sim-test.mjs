@@ -162,6 +162,13 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     for (let t = 0; t < 60 * 3; t++) { a.invuln = 0; b.invuln = 99; ev.push(...stepSim(s, {}, CFG.TICK)); }
     ok(a.alive && a.inCenter && s.state === 'playing' && !ev.some((e) => e.type === 'levelClear') && !a.crowned,
       'the goal disc is safe but does not clear the level: the first one home can wait for the others');
+    {
+      // ... and can run back out (to help a friend): out of the disc it's not safe any more
+      const r = s.levelData.centerRadius;
+      a.x = r - 0.6; a.z = 0; a.vx = 0; a.vz = 0; a.invuln = 99;
+      for (let t = 0; t < 60 && a.x < r + 1; t++) stepSim(s, { 1: { x: 1, z: 0 } }, CFG.TICK);
+      ok(a.x > r + 0.5 && !a.inCenter, `a kitty can run back out of the goal disc (x ${a.x.toFixed(2)} vs radius ${r})`);
+    }
     a.x = s.levelData.crown.x; a.z = s.levelData.crown.z;
     ev = stepSim(s, {}, CFG.TICK);
     ok(ev.some((e) => e.type === 'levelClear' && e.by === 1) && ev.some((e) => e.type === 'crown' && e.playerId === 1) && a.crowned && s.lastWinner === 1 && a.finishes === 1,

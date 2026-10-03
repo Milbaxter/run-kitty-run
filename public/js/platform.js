@@ -40,9 +40,11 @@ function wsUrl() {
 }
 
 // Link that friends open: the web game (or the app, via universal / app links) straight into the lobby.
-function inviteUrl(code) {
+// pass: a private lobby's password, carried after '#' (stays on the device: never sent to the server with the page
+// request) so the link joins without typing it (main.js passFromLink)
+function inviteUrl(code, pass) {
   const base = NATIVE || location.protocol === 'file:' ? SERVER_ORIGIN + '/' : location.origin + location.pathname;
-  return base + '?room=' + encodeURIComponent(code);
+  return base + '?room=' + encodeURIComponent(code) + (pass ? '#pw=' + encodeURIComponent(pass) : '');
 }
 
 function plugin(name) {

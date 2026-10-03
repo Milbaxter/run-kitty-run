@@ -4,6 +4,13 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Music: pick which songs play with the 🎵 button on the title screen: both songs one after the other, or just one of them on a loop (remembered)',
+      'The victory circle: you can run back out of it again (to help a friend); you\'re only safe while you\'re inside',
+      'Running levels: the goal room has a few wolves of its own on the door side, so every way into the victory circle is risky',
+      'Game over: a LEAVE GAME button next to TRY AGAIN',
+      'The crown you wear is a little smaller, so the kittens in your backpack show',
+      'Controllers: every menu now works with a gamepad. Move the highlight with the d-pad or stick, A to pick, B to go back, press Start in a run to pause (or open the menu online), and Select / View / Share to turn the sound off or on. Typing names and passwords still needs a keyboard (or tap 🎲 for a random name)',
+      'Online: when you start a lobby you can now pick how many kitties may join (2 to 32), and make it private with a password. Private lobbies show a 🔒 in the list and anyone joining from the list or by code needs the password (everyone in the lobby can see it). Your INVITE FRIENDS link carries the password, so friends who open it get straight in',
       'Reaching the victory circle no longer ends the level straight away: inside it you\'re safe, so you can wait there and watch your friends make it. Grab the crown in the middle to clear the level',
       'Skate levels: the goal room\'s white wolves sweep left to right across the whole room, and wolves crossing the last lane right in front of the door carry on through it, up to the victory circle',
       'Skate levels: the last lane before the goal is a full wolf room now, and its black chargers no longer turn round at the walls: they run in from the lane before, round the corner and on through the door, right up to the edge of the victory circle',

@@ -862,7 +862,20 @@ function createUI(root) {
       o.querySelector('.rkr-p1').style.color = hexColor(PLAYER_COLORS[s[0]]);
       o.querySelector('.rkr-p2').style.color = hexColor(PLAYER_COLORS[s[1]]);
     };
-    o.querySelector('.rkr-btns').after(createColorPicker(paintPlayers));
+    // kitty colour + which songs play (main.js: both one after the other, or one on a loop), side by side
+    const prefs = el('div', 'rkr-prefs');
+    prefs.style.cssText = 'display:flex;gap:10px;justify-content:center;align-items:flex-start;flex-wrap:wrap;';
+    prefs.appendChild(createColorPicker(paintPlayers));
+    if (musicCtl) {
+      const mb = el('button', 'rkcp-btn rkr-musicbtn');
+      mb.type = 'button';
+      mb.title = 'Which songs play: both, or one on a loop';
+      mb.textContent = '🎵 ' + musicCtl.label();
+      mb.addEventListener('mousedown', (e) => e.preventDefault());   // keep Enter / gamepad on the menu buttons
+      mb.addEventListener('click', () => { mb.textContent = '🎵 ' + musicCtl.cycle(); });
+      prefs.appendChild(mb);
+    }
+    o.querySelector('.rkr-btns').after(prefs);
     paintPlayers();
     o.querySelectorAll('.rkr-legal a').forEach((a) => a.addEventListener('click', () => openExternal(`${SERVER_ORIGIN}/${a.dataset.page}.html`)));
     const credits = el('div', 'rkr-credits', 'made by <a href="https://www.instagram.com/ben.bhc/" target="_blank" rel="noopener">Benjamin</a> and <a href="https://x.com/milimithrandir" target="_blank" rel="noopener">Maximilian</a>');
@@ -978,7 +991,8 @@ function createUI(root) {
     'Every kitty deserves another try.',
     'So close to the glowing heart!',
   ];
-  function showGameOver(stats, onRestart, buttonLabel) {
+  // onLeave: a LEAVE GAME button next to TRY AGAIN / BACK TO LOBBY
+  function showGameOver(stats, onRestart, buttonLabel, onLeave) {
     stats = stats || {};
     onRestartCb = onRestart || null;
     hideGameOver();
@@ -996,7 +1010,7 @@ function createUI(root) {
         <div class="rkr-gsub">${esc(line)}</div>
         ${stats.alone ? `<div class="rkr-alone">${ICONS.revive}<span><b>Hint:</b> Alone, nobody can revive you when you're caught. Run Kitty Run is made to be beaten together. ${stats.alone === 'online' ? 'Invite some into your lobby!' : 'Play Multiplayer or Local co-op!'}</span></div>` : ''}
         <div class="rkr-stats">${rows.map((r) => `<div class="rkr-stat"><div class="rkr-ico" style="color:${r.color || '#fff'}">${r.icon}</div><span class="rkr-sl">${r.label}</span><span class="rkr-sv">${r.fmt(0)}</span></div>`).join('')}</div>
-        <button class="rkr-btn">${esc(buttonLabel || 'TRY AGAIN')}</button>
+        <div class="rkr-btns"><button class="rkr-btn rkr-gomain">${esc(buttonLabel || 'TRY AGAIN')}</button>${onLeave ? '<button class="rkr-btn rkr-alt rkr-goleave">LEAVE GAME</button>' : ''}</div>
         <div class="rkr-keyhint">press <span class="rkr-k rkr-wide">Enter</span></div>
         <div class="rkr-goslot"></div>
       </div>`;
@@ -1005,7 +1019,8 @@ function createUI(root) {
     gcat.querySelector('.rkr-eyes').style.display = 'none';
     gcat.querySelector('.rkr-xeyes').style.display = 'inline';
     gcat.style.animation = 'rkr-wiggle 2.4s ease-in-out infinite';
-    goEl.querySelector('.rkr-btn').addEventListener('click', restart);
+    goEl.querySelector('.rkr-gomain').addEventListener('click', restart);
+    if (onLeave) goEl.querySelector('.rkr-goleave').addEventListener('click', () => { if (!state.gameOver) return; hideGameOver(); onLeave(); });
     root.appendChild(goEl);
     state.gameOver = true;
     gameOverArmedAt = performance.now() + 700;
@@ -1195,6 +1210,9 @@ function createUI(root) {
   let muteHandler = null;
   muteEl.addEventListener('click', () => { if (muteHandler) muteHandler(); });
   function onMuteClick(fn) { muteHandler = fn; }
+  // the title screen's music button: { label() -> text, cycle() -> next choice's text } (main.js)
+  let musicCtl = null;
+  function setMusicControl(c) { musicCtl = c; }
   let feedbackHandler = null;
   function onFeedbackClick(fn) { feedbackHandler = fn; }
   function onMenuClick(fn) { menuHandler = fn; }
@@ -1232,11 +1250,14 @@ function createUI(root) {
 
   return {
     showTitle, hideTitle, setHUD, updateMinimap, banner, toast, setScores,
-    showPause, hidePause, showGameOver, hideGameOver, gameOverSlot: () => (goEl ? goEl.querySelector('.rkr-goslot') : null), setMutedIcon, isOverlayOpen, onMuteClick, onFeedbackClick, onMenuClick,
+    showPause, hidePause, showGameOver, hideGameOver, setMusicControl, gameOverSlot: () => (goEl ? goEl.querySelector('.rkr-goslot') : null), setMutedIcon, isOverlayOpen, onMuteClick, onFeedbackClick, onMenuClick,
     showVictory, hideVictory, updateVictoryFish, isVictoryOpen: () => state.victory, navigate, hideHUD,
     showNotice, hideNotice, setBlocker, setVictoryHidden,
     isTitleOpen: () => state.title, isGameOverOpen: () => state.gameOver,
     isNoticeOpen: () => !!noticeEl,
+    // the open title screen / pause menu / notice (controller navigation, padnav.js)
+    titleRoot: () => (state.title ? titleEl : null), pauseRoot: () => (state.pause ? pauseEl : null), noticeRoot: () => noticeEl,
+    gameOverRoot: () => (state.gameOver ? goEl : null),
   };
 }
 

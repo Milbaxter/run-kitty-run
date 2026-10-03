@@ -600,6 +600,14 @@ function createEffects(scene) {
     }
   }
 
+  // A little heart left behind a running kitty (30+ revives): drifts up and fades. pink: [r, g, b] 0..1
+  function heartTrail(x, y, z, pink) {
+    const p = emit(soft, x + rr(-0.12, 0.12), y + rr(0.2, 0.45), z + rr(-0.12, 0.12), rr(-0.15, 0.15), rr(0.35, 0.7), rr(-0.15, 0.15),
+      rr(1.0, 1.4), rr(0.34, 0.44), 0.1, pink[0], pink[1], pink[2], 1);
+    if (p < 0) return;
+    soft.data[p + DRAG] = 1.2; soft.data[p + SHAPE] = SHAPE_HEART; soft.data[p + SPIN] = rr(-1.5, 1.5);
+  }
+
   // ---------------------------------------------------------------- fireworks (the final run's victory party)
   // A rocket climbs from (x0, z0) to (x, y, z) leaving a sparkly trail, then bursts. opts:
   //   color, color2 (second burst colour), kind ('peony' | 'ring' | 'willow'), fuse (s), scale (particle count, 0..1),
@@ -781,7 +789,7 @@ function createEffects(scene) {
 
   return {
     burst, deathPoof, reviveBeam, pickup, teleport, shieldPop, dust, iceKick, confetti, firework, confettiRain, munch,
-    shake, getShakeOffset, floatText, update,
+    shake, getShakeOffset, floatText, update, heartTrail,
   };
 }
 

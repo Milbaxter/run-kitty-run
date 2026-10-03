@@ -105,7 +105,7 @@ function createFeedback(root, { getContext }) {
     parent.appendChild(btn);
     btn.classList.toggle('rkf-docked', !!slot);
   }
-  return { open, close, setVisible, dock, isOpen: () => !!modal };
+  return { open, close, setVisible, dock, isOpen: () => !!modal, root: () => modal };
 }
 
 export { createFeedback };

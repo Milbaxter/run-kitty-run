@@ -246,6 +246,14 @@ function createEnemy(spec) {
   };
   st.r = rng.range(rIn, rOut);
   st.th = a0 + phase * (a1 - a0);
+  if (st.avoid) {   // never start inside the keep-out disc (the goal room's wolves): out to its edge, straight away from it
+    const a = st.avoid, dr = st.r - a.r, dth = st.th - a.th, d = Math.hypot(dr, dth), R = a.R + 0.1;
+    if (d < R) {
+      const k = d > 1e-6 ? R / d : 0;
+      st.r = k ? a.r + dr * k : a.r + R * (rOut - a.r > a.r - rIn ? 1 : -1);
+      st.th = k ? a.th + dth * k : st.th;
+    }
+  }
   st.pauseDur = st.pauseRange ? phase * st.pauseRange[1] : 0.2 + phase * 0.7;   // first pause: spread out by phase
 
   planNext(e, true);

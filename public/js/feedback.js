@@ -88,7 +88,8 @@ function createFeedback(root, { getContext }) {
         if (!r.ok || !j.ok) throw new Error(j.msg || 'Could not send right now.');
         msg.className = 'rkf-msg rkf-ok'; msg.textContent = 'Thank you! Sent. 🐾';
         ta.value = '';
-        setTimeout(close, 1200);
+        const sent = modal;
+        setTimeout(() => { if (modal === sent) close(); }, 1200);
       } catch (err) {
         msg.className = 'rkf-msg rkf-err'; msg.textContent = err.message || 'Could not send right now.';
         send.disabled = false;

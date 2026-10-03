@@ -1,17 +1,18 @@
 import * as THREE from 'three';
 
 // Draws every wolf of a view with one InstancedMesh per wolf-part geometry (body, head, eyes, jaw, leg, tail x3;
-// per wolf type, since each type bakes its own geometry). The wolf models from createWolfModel stay invisible
-// proxy rigs that are never added to the scene: their update() animates the rig, add() copies each part's world
-// matrix (and the eye glow color) into the instanced meshes. ~11 draws per wolf become ~8 per wolf type.
+// per wolf type, since each type bakes its own geometry). The rigs (models.js createWolfRig, one per wolf type, shared
+// by all its wolves) stay invisible proxies that are never added to the scene: main.js poses a rig for one wolf, add()
+// copies each part's world matrix (and the eye glow color) into the instanced meshes. ~11 draws per wolf become ~8 per
+// wolf type. rigs: [[rig, number of wolves using it], ...]
 const _c = new THREE.Color();
 
-function createWolfPack(scene, models) {
-  const packs = new Map();          // geometry -> { mesh, n, eye }
+function createWolfPack(scene, rigs) {
+  const packs = new Map();          // geometry -> { mesh, n, eye, cap }
   const cap = new Map();
-  for (const m of models) m.group.traverse((o) => { if (o.isMesh) cap.set(o.geometry, (cap.get(o.geometry) || 0) + 1); });
-  const parts = new Map();          // model -> [[proxyMesh, pack], ...]
-  for (const m of models) {
+  for (const [m, n] of rigs) m.group.traverse((o) => { if (o.isMesh) cap.set(o.geometry, (cap.get(o.geometry) || 0) + n); });
+  const parts = new Map();          // rig -> [[proxyMesh, pack], ...]
+  for (const [m] of rigs) {
     const list = [];
     m.group.traverse((o) => {
       if (!o.isMesh) return;
@@ -31,7 +32,7 @@ function createWolfPack(scene, models) {
         mesh.count = 0;
         mesh.name = 'wolfPack';
         scene.add(mesh);
-        p = { mesh, n: 0, eye };
+        p = { mesh, n: 0, eye, cap: cap.get(o.geometry) };
         packs.set(o.geometry, p);
       }
       list.push([o, p]);
@@ -43,6 +44,7 @@ function createWolfPack(scene, models) {
   function add(m) {
     m.group.updateMatrixWorld(true);  // proxy has no parent: matrixWorld = its pose in the world
     for (const [o, p] of parts.get(m)) {
+      if (p.n >= p.cap) continue;
       p.mesh.setMatrixAt(p.n, o.matrixWorld);
       if (p.eye) p.mesh.setColorAt(p.n, _c.copy(o.material.color));
       p.n++;

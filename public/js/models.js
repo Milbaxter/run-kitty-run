@@ -32,9 +32,11 @@ function ctex(key, fn) { let t = TEX_CACHE.get(key); if (!t) { t = shared(fn());
 function disposeModel(root) {
   if (!root) return;
   root.removeFromParent();
+  if (root.userData.onDispose) root.userData.onDispose();
   const done = new Set();
   const free = (r) => { if (r && !done.has(r) && !r.userData.shared) { done.add(r); r.dispose(); } };
   root.traverse((o) => {
+    if (o.isInstancedMesh) o.dispose();   // its instance buffers (the wings)
     free(o.geometry);
     if (Array.isArray(o.material)) o.material.forEach(free); else free(o.material);
   });
@@ -695,11 +697,14 @@ function createKittyModel(color) {
       fur.push({ m, src: m.geometry, geo, role, u });
     }
   }
+  let furAt = -1;
   function updateFur(rainbow, t) {
     const on = !!rainbow && !ghost;
     if (on && !fur) buildFur();
-    if (on !== furOn && fur) { for (const p of fur) p.m.geometry = on ? p.geo : p.src; furOn = on; }
+    if (on !== furOn && fur) { for (const p of fur) p.m.geometry = on ? p.geo : p.src; furOn = on; furAt = -1; }
     if (!on) return;
+    if (furAt >= 0 && Math.abs(t - furAt) < 0.05) return;   // ~20 times a second is plenty for a slow hue drift
+    furAt = t;
     const h0 = (t * 0.45 + rainbowOff) % 1;
     for (const p of fur) {
       const col = p.geo.attributes.color.array;
@@ -957,6 +962,10 @@ function createKittyModel(color) {
   }
 
   updateAll(0, {});
+  group.userData.onDispose = () => {
+    if (fur) for (const p of fur) p.geo.dispose();
+    for (const mt of [capeGlowMat[0], capeGlowMat[1], collarGlowMat]) if (mt) mt.dispose();
+  };
   return { group, update: updateAll, setGhost };
 }
 
@@ -1251,7 +1260,19 @@ function wolfGeos(type, look) {
 }
 
 // opts: { level, theme, finale } pick the scare tier + season look (see wolfLook); without them: the tier-1 summer wolf
+// A wolf: createWolfRig builds the posable model (cached geometries, one rig per wolf type is enough) and
+// pose(state, dt, s) animates it from one wolf's own state (newWolfState: its stride phase, run amount, clock and a
+// random offset), so many wolves can share one rig (main.js poses it for each visible wolf, then wolfpack.js copies
+// the pose). createWolfModel = a rig with a state of its own.
+function newWolfState() {
+  return { seedOff: Math.random() * 100, phase: Math.random() * 6, runAmt: 0, clock: 0 };
+}
 function createWolfModel(type, opts) {
+  const rig = createWolfRig(type, opts), st = newWolfState();
+  rig.pose(st, 0, {});
+  return { group: rig.group, update: (dt, s) => rig.pose(st, dt, s) };
+}
+function createWolfRig(type, opts) {
   if (!WOLF_TYPES[type]) type = 'patroller';
   const T = WOLF_TYPES[type];
   const look = wolfLook(opts);
@@ -1292,18 +1313,16 @@ function createWolfModel(type, opts) {
     tail.push(seg); parent = seg;
   }
 
-  const seedOff = Math.random() * 100;
-  let phase = Math.random() * 6, runAmt = 0, clock = 0;
-
-  function update(dt, s) {
+  function pose(st, dt, s) {
     s = s || {};
     dt = Math.min(dt || 0, 0.1);
-    clock += dt;
-    const time = s.time !== undefined ? s.time : clock;
+    st.clock += dt;
+    const time = s.time !== undefined ? s.time : st.clock;
     const moving = !!s.moving;
     const sp = s.speed01 === undefined ? (moving ? 1 : 0) : Math.max(0, Math.min(1, s.speed01));
-    runAmt = smoothTo(runAmt, moving ? Math.max(0.45, sp) : 0, 9, dt);
-    phase += dt * (7 + 7 * sp) * (runAmt > 0.01 ? 1 : 0);
+    st.runAmt = smoothTo(st.runAmt, moving ? Math.max(0.45, sp) : 0, 9, dt);
+    st.phase += dt * (7 + 7 * sp) * (st.runAmt > 0.01 ? 1 : 0);
+    const { seedOff, phase, runAmt } = st;
     const sn = Math.sin(phase);
     const idle = 1 - Math.min(1, runAmt);
 
@@ -1330,8 +1349,7 @@ function createWolfModel(type, opts) {
     }
   }
 
-  update(0, {});
-  return { group, update };
+  return { group, pose };
 }
 
 // ---------------------------------------------------------------------------
@@ -1856,10 +1874,11 @@ function makeWingPose(mesh) {
   const d = V(), nrm = V(), w = V(), p = V(), m = new THREE.Matrix4();
   let oS = 0, oE = 0, oW = 0;
   // feather / bone matrix: a flat ellipsoid from a along dir (len), width across, thin through nrm
+  const n2 = V(), dl = V(), nOs = V(), ORIGIN = V();   // scratch (no allocations per frame)
   const put = (i, a, dir, len, width, thick, nr) => {
     w.crossVectors(nr, dir).normalize();
-    const n2 = V().crossVectors(dir, w).normalize();
-    m.makeBasis(w.multiplyScalar(width), V().copy(dir).multiplyScalar(len / 2), n2.multiplyScalar(thick));
+    n2.crossVectors(dir, w).normalize();
+    m.makeBasis(w.multiplyScalar(width), dl.copy(dir).multiplyScalar(len / 2), n2.multiplyScalar(thick));
     m.setPosition(a.x + dir.x * len / 2, a.y + dir.y * len / 2, a.z + dir.z * len / 2);
     mesh.setMatrixAt(i, m);
   };
@@ -1892,8 +1911,8 @@ function makeWingPose(mesh) {
           const a = os[k];
           dirF.set(-1, -0.45, 0).normalize(); dirO.set(-1, -0.12, (0.12 + 0.35 * t) * sz).normalize();
           d.lerpVectors(dirF, dirO, a).normalize();
-          nrm.set(nF.x, nF.y, nF.z * sz).lerp(V(nO.x, nO.y, nO.z * sz), a).normalize();
-          rotY(d, swing - throwBack * sz * t, V());
+          nrm.set(nF.x, nF.y, nF.z * sz).lerp(nOs.set(nO.x, nO.y, nO.z * sz), a).normalize();
+          rotY(d, swing - throwBack * sz * t, ORIGIN);
           if (fluff) { d.y += (j % 2 ? 0.12 : -0.1); d.normalize(); }   // tufts ruffled a little out of line
           const len = (0.12 + 0.24 * t) * share * (0.85 + 0.15 * a) * (fluff ? 0.9 + 0.2 * (j % 3) / 2 : 1);
           p.addScaledVector(nrm, layer * 0.008);   // rows stacked: coverts on top
@@ -2338,4 +2357,4 @@ function createGiantFishModel() {
   };
 }
 
-export { WOLF_TYPES, disposeModel, createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel };
+export { WOLF_TYPES, disposeModel, createKittyModel, createWolfModel, createWolfRig, newWolfState, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel };

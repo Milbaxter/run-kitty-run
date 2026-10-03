@@ -32,7 +32,10 @@ const MODE_MIN_PROTOCOL = { ice: 4, mixed: 4, run: 4 };
 // join it mid-game.
 const FINALE_PROTOCOL = [0, 5, 6, 7];   // 1 = Run only's level 9 final run, 2 = the wide skate final run, 3 = Run + Skate's both in a row
 const finalesOf = (members) => Math.min(...members.map((m) => FINALE_PROTOCOL.filter((p) => m.v >= p).length - 1));
-const runFinaleOk = (client, room) => !(room.phase === 'playing' && room.sim) || client.v >= FINALE_PROTOCOL[room.sim.finales | 0];
+// the newest finale version that changes this mode's level 9 (older ones build it the same): Run only 1, Skate only 2,
+// Run + Skate 2 and 3
+const finaleFor = (mode, f) => (mode === 'run' ? Math.min(f, 1) : mode === 'ice' ? (f >= 2 ? 2 : 0) : (f === 1 ? 0 : f));
+const runFinaleOk = (client, room) => !(room.phase === 'playing' && room.sim) || client.v >= FINALE_PROTOCOL[finaleFor(room.mode, room.sim.finales | 0)];
 const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
 const MODE_NAMES = { mixed: 'Default (Run + Skate)', run: 'Run only', ice: 'Skate only' };
 const updateHow = (client) => (client.app === 'web' ? 'reload the page' : 'update the app');
@@ -470,6 +473,7 @@ function startMsg(room, withWolves) {
     wolves: withWolves ? serializeEnemies(sim.enemies) : null,
     lh: levelHash(sim.levelData),   // level fingerprint: the client reports a mismatch (no fallback)
     it: sim.items.filter((i) => i.taken).map((i) => i.id), ct: sim.crownTaken ? 1 : 0, // mid-game joiners: already picked up
+    cp: sim.checkpointsHit.slice(),   // ...and the checkpoints already reached (a repaired medic checkpoint shows repaired)
   };
 }
 
@@ -574,6 +578,8 @@ setInterval(() => {
     if (room.phase === 'playing' && room.overAt && Date.now() >= room.overAt) {
       room.phase = 'lobby';
       room.sim = null;
+      room.left = new Map();   // their rejoin records hold the whole old sim
+      room.wolfMsg = null;
       room.victory = null;
       room.overAt = 0;
       sendRoom(room);
@@ -598,7 +604,12 @@ const wss = new WebSocketServer({
   perMessageDeflate: { threshold: 16384, zlibDeflateOptions: { level: 1 }, serverNoContextTakeover: true, clientNoContextTakeover: true },
 });
 
-const clients = new Map(); // id -> client (kept ~10 min after disconnect so late reports still work)
+const clients = new Map(); // id -> client (after disconnect: a small record for ~10 min, so late reports still work)
+const RESYNC_REUSE = 30;     // ticks a room's resync message is reused for (big levels: building it is ~20 ms)
+// new connections per IP: a token bucket (CONN_RATE / s, CONN_BURST at once), so nobody can churn thousands of sockets
+const CONN_RATE = 2, CONN_BURST = 60;
+const connRate = new Map();   // ip -> { tok, at }
+const CLOSED_WS = { readyState: 3 };
 const connsPerIp = new Map(); // ip -> open sockets
 
 // token bucket on client[key + 'Tok'] / [key + 'At']: true if a message may pass
@@ -612,6 +623,10 @@ function take(client, key, rate, burst, now) {
 
 wss.on('connection', (ws, req) => {
   const ip = clientIp(req);
+  const now0 = Date.now(), cr = connRate.get(ip) || { tok: CONN_BURST, at: now0 };
+  cr.tok = Math.min(CONN_BURST, cr.tok + (now0 - cr.at) / 1000 * CONN_RATE); cr.at = now0;
+  if (cr.tok < 1) { connRate.set(ip, cr); ws.close(1013, 'too many connections'); return; }
+  cr.tok -= 1; connRate.set(ip, cr);
   const n = (connsPerIp.get(ip) || 0) + 1;
   if (n > MAX_CONN_PER_IP) { ws.close(1013, 'too many connections'); return; }
   connsPerIp.set(ip, n);
@@ -740,7 +755,11 @@ wss.on('connection', (ws, req) => {
         const now = Date.now();
         if (!room || !room.sim || now - (client.resyncAt || 0) < 1000) return;
         client.resyncAt = now;
-        send(ws, { t: 'wolves', lvl: room.sim.level, lt: room.sim.enemyTicks, wolves: serializeEnemies(room.sim.enemies) });
+        const sim = room.sim, c = room.wolfMsg;
+        if (!c || c.sim !== sim || c.lvl !== sim.level || sim.enemyTicks - c.lt > RESYNC_REUSE) {
+          room.wolfMsg = { sim, lvl: sim.level, lt: sim.enemyTicks, s: JSON.stringify({ t: 'wolves', lvl: sim.level, lt: sim.enemyTicks, wolves: serializeEnemies(sim.enemies) }) };
+        }
+        send(ws, room.wolfMsg.s);
         break;
       }
     }
@@ -750,6 +769,8 @@ wss.on('connection', (ws, req) => {
     const left = (connsPerIp.get(ip) || 1) - 1;
     if (left > 0) connsPerIp.set(ip, left); else connsPerIp.delete(ip);
     leaveRoom(client);
+    // a late report only needs these (not the socket and the rest)
+    clients.set(client.id, { id: client.id, name: client.name, app: client.app, ver: client.ver, hi: client.hi, ip: client.ip, chatLog: client.chatLog, room: null, ws: CLOSED_WS });
     setTimeout(() => clients.delete(client.id), 10 * 60e3);
   });
   ws.on('error', () => {});
@@ -781,6 +802,12 @@ setInterval(() => {
   for (const c of clients.values()) if (c.ws.readyState === 1) n[c.hi ? c.app : 'old']++;
   if (n.web + n.ios + n.android + n.old) console.log(`clients: web ${n.web}, ios ${n.ios}, android ${n.android}, no-hi ${n.old}; rooms ${rooms.size}`);
 }, 5 * 60e3).unref();
+
+// Forget connection-rate buckets that are full again.
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, cr] of connRate) if (cr.tok + (now - cr.at) / 1000 * CONN_RATE >= CONN_BURST) connRate.delete(ip);
+}, 60e3).unref();
 
 // Drop dead connections.
 setInterval(() => {

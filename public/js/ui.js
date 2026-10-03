@@ -683,6 +683,7 @@ function createUI(root) {
   }
 
   const ENEMY_COL = { wanderer: '#ff7a33' };   // pattern wolves: the default red
+  const MAP_KIND_COLS = [...new Set([...Object.values(ENEMY_COL), '#ff4b4b'])], mapKinds = () => MAP_KIND_COLS;   // one path per colour
   const ITEM_COL = { boots: '#33e0ff', life: '#ff6fa8', shield: '#5aaaff' };
 
   // the final run hides the minimap (and timer / hint): no telling how far is left
@@ -753,12 +754,16 @@ function createUI(root) {
 
     // enemies
     const en = sim.enemies || [];
-    for (let i = 0; i < en.length; i++) {
-      const e = en[i];
-      const x = cx + e.x * sc, y = cy + e.z * sc;
-      g.beginPath(); g.arc(x, y, 2.6, 0, Math.PI * 2);
-      g.fillStyle = ENEMY_COL[e.type] || '#ff4b4b'; g.fill();
-      g.lineWidth = 0.8; g.strokeStyle = 'rgba(40,0,0,.8)'; g.stroke();
+    g.lineWidth = 0.8; g.strokeStyle = 'rgba(40,0,0,.8)';
+    for (const col of mapKinds(en)) {
+      g.beginPath();
+      for (let i = 0; i < en.length; i++) {
+        const e = en[i];
+        if ((ENEMY_COL[e.type] || '#ff4b4b') !== col) continue;
+        const x = cx + e.x * sc, y = cy + e.z * sc;
+        g.moveTo(x + 2.6, y); g.arc(x, y, 2.6, 0, Math.PI * 2);
+      }
+      g.fillStyle = col; g.fill(); g.stroke();
     }
 
     // players

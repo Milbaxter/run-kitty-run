@@ -1414,7 +1414,7 @@ function buildLanterns(levelData, theme, T, rng) {
       for (let x = x0 + off; x < -rh - 4; x += step) spots.push({ x: D * x, z: w.az });
     }
     for (const w of levelData.walls.slice(3)) {
-      const L = Math.hypot(w.bx - w.ax, w.bz - w.az), n = Math.max(1, Math.floor(L / 8));
+      const L = Math.hypot(w.bx - w.ax, w.bz - w.az), n = Math.max(1, Math.floor(L / (L > 40 ? 12 : 8)));   // (long corridor walls: as far apart as the run's)
       for (let k = 1; k < n; k++) spots.push({ x: w.ax + (w.bx - w.ax) * k / n, z: w.az + (w.bz - w.az) * k / n });
     }
   } else {
@@ -2116,8 +2116,8 @@ function buildMedicCheckpoint(levelData, cp, T, { ringParts, poleGeo, flagGeo })
   flag.position.set(px, 2.55, pz); flag.rotation.y = px < cp.x ? 0 : Math.PI; flag.scale.setScalar(1.2);
   fixed.add(ring, pole, flag);
 
-  // a field hospital round it: two medical tents along the far side (-z: the camera looks that way, so they hide no
-  // one) and two field beds along the near side (low), all clear of the middle where the team gathers.
+  // a field hospital round it: two medical tents along the back wall (clear of the hallway coming in on the -z side)
+  // and two field beds along the near side (low), all clear of the middle where the team gathers.
   // Broken: the tents collapsed (flat grimy canvas, a snapped pole), the beds tipped over, mattresses on the floor.
   const CANVAS = 0xe8e2d4, GRIME = 0x8a837a, RED = 0xd8342e, RED_DIM = 0x6e3a38, IRON = 0x5a5458, SHEET = 0xf2f0ea;
   // a triangular prism along x with its ridge up (a 3-sided cylinder turned on its side, a corner to the top)
@@ -2161,8 +2161,8 @@ function buildMedicCheckpoint(levelData, cp, T, { ringParts, poleGeo, flagGeo })
     return T.g(mergeGeos(parts));
   };
   const propMat = T.m(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: true }));
-  const spots = [   // [x, z, ry, kind] around the square (its own frame is the world's: x along, z across)
-    [cp.x - 3.6, cp.z - 5.7, 0.08, 'tent'], [cp.x + 2.4, cp.z - 5.9, -0.06, 'tent'],
+  const spots = [   // [x, z, ry, kind] around the square; the tents along its back wall, clear of the hallway's way in
+    [cp.x + 5.4, cp.z - 2.6, -Math.PI / 2 + 0.06, 'tent'], [cp.x + 5.5, cp.z + 2.0, -Math.PI / 2 - 0.05, 'tent'],   // (crosses facing into the room)
     [cp.x - 4.2, cp.z + 5.6, 0.1, 'bed'], [cp.x + 3.0, cp.z + 5.8, -0.12, 'bed'],
   ];
   for (const [x, z, ry, kind] of spots) {

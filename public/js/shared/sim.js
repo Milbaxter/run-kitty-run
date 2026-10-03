@@ -99,7 +99,9 @@ function placeAtSpawn(sim, p, index) {
 // Ice levels: after a spawn or a checkpoint gather the kitty ignores input until it is let go once, so a key or
 // joystick still held from before (or a stale click target) can't shoot it off the safe square onto the ice.
 function holdUntilRelease(sim, p) {
-  p.waitRelease = !!(sim.levelData && sim.levelData.ice);
+  const ld = sim.levelData;
+  // (Run + Skate's level 9: not in its run half, solid ground above iceZMax)
+  p.waitRelease = !!(ld && ld.ice) && !(ld.iceZMax != null && p.z > ld.iceZMax);
 }
 
 function makePlayer(def) {
@@ -267,6 +269,10 @@ function nextLevel(sim, events) {
   events.push({ type: 'levelStart', level: sim.level });
 }
 
+// the hit check's wolf grid (stepSim): used above HIT_GRID_MIN wolves; cells HIT_CELL wide (more than a hit's reach,
+// so a kitty's own cell and its 8 neighbours hold every wolf that can touch it)
+const HIT_GRID_MIN = 64, HIT_CELL = 2;
+const hitCell = (x, z) => (Math.floor(x / HIT_CELL) + 32768) * 65536 + (Math.floor(z / HIT_CELL) + 32768);
 function stepSim(sim, inputs, dt) {
   const events = [];
   if (!(dt > 0)) dt = 0;
@@ -452,16 +458,43 @@ function stepSim(sim, inputs, dt) {
   const hitR = CFG.KITTY_RADIUS * CFG.KITTY_HIT_SCALE + CFG.WOLF_RADIUS * CFG.WOLF_HIT_SCALE;
   const hitR2 = hitR * hitR;
   const enemies = sim.enemies || [];
+  // with many wolves: a coarse grid of them (built once, the first time a kitty needs it), so each kitty only tests
+  // the wolves around it. The wolf that catches is the same as with the plain scan: the first in the list that touches.
+  let grid = null;
+  const big = enemies.length > HIT_GRID_MIN;
   for (let i = 0; i < players.length; i++) {
     const p = players[i];
     if (sim.state !== 'playing') break; // no deaths during the level-clear celebration
     if (!p.alive || p.inCenter || p.invuln > 0 || p.shield > 0) continue;
     if (inTree(ld, p.x, p.z)) continue; // up a tree: safe
-    for (let e = 0; e < enemies.length; e++) {
-      const en = enemies[e];
-      const dx = p.x - en.x;
-      const dz = p.z - en.z;
-      if (dx * dx + dz * dz >= hitR2) continue;
+    let hit = -1;
+    if (big) {
+      if (!grid) {
+        grid = new Map();
+        for (let e = 0; e < enemies.length; e++) {
+          const k = hitCell(enemies[e].x, enemies[e].z), a = grid.get(k);
+          if (a) a.push(e); else grid.set(k, [e]);
+        }
+      }
+      const cx = Math.floor(p.x / HIT_CELL), cz = Math.floor(p.z / HIT_CELL);
+      for (let gx = cx - 1; gx <= cx + 1; gx++) for (let gz = cz - 1; gz <= cz + 1; gz++) {
+        const a = grid.get((gx + 32768) * 65536 + (gz + 32768));
+        if (!a) continue;
+        for (let q = 0; q < a.length; q++) {
+          const e = a[q];
+          if (hit >= 0 && e >= hit) continue;
+          const dx = p.x - enemies[e].x, dz = p.z - enemies[e].z;
+          if (dx * dx + dz * dz < hitR2) hit = e;
+        }
+      }
+    } else {
+      for (let e = 0; e < enemies.length; e++) {
+        const dx = p.x - enemies[e].x, dz = p.z - enemies[e].z;
+        if (dx * dx + dz * dz < hitR2) { hit = e; break; }
+      }
+    }
+    if (hit >= 0) {
+      const en = enemies[hit];
       if (p.lives > 0) {
         p.lives--;
         p.invuln = CFG.SPAWN_INVULN;
@@ -479,7 +512,6 @@ function stepSim(sim, inputs, dt) {
         sim.circles.push({ playerId: p.id, x: p.x, z: p.z, t: 0 });
         events.push({ type: 'death', playerId: p.id, x: p.x, z: p.z, enemyId: en.id });
       }
-      break;
     }
   }
 

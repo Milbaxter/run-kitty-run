@@ -129,7 +129,8 @@ function openStatsPage(root) {
   const box = el('div', 'rkr-glass rks-box');
   const close = el('button', 'rkr-btn rkr-alt rkl-small', 'CLOSE');
   const shut = () => { modal.remove(); window.removeEventListener('keydown', onKey, true); };
-  const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); shut(); } };
+  // every key stays in the window (the title screen underneath would start a game on Enter)
+  const onKey = (e) => { e.stopPropagation(); if (e.key === 'Escape') shut(); };
   close.addEventListener('click', shut);
   modal.addEventListener('click', (e) => { if (e.target === modal) shut(); });
   window.addEventListener('keydown', onKey, true);

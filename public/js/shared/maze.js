@@ -1132,7 +1132,7 @@ function generateCombo(L, seed) {
     theme: sk.theme,
     ice: true, iceZMax: dz + h,   // ice only in the skate corridor (below its near wall)
     finale: true, finaleSide: 0, combo: true,
-    trees: [...sk.trees.map((t) => ({ ...mv(t), leg: t.leg, snowy: true })), ...rn.trees.map((t) => ({ ...t, leg: t.leg + nS }))],
+    trees: [...sk.trees.map((t) => ({ ...mv(t), leg: t.leg, snowy: true })), ...rn.trees.map((t) => ({ ...t, leg: t.leg + nS, snowy: false }))],
     runLength: sk.runLength + rn.runLength,
     outerRadius: Math.max(rn.outerRadius, Math.abs(sk.corners[0].x + dx) + h, Math.abs(dz) + h) + 2,
     // the run half's start room: a broken checkpoint that only a kitty with MEDIC_RESCUES+ revives this run can repair
@@ -1504,8 +1504,11 @@ function mazeSelfTest(levels = 12, modes = ['mixed', 'ice']) {
 // Cheap fingerprint of a generated level (wolf specs without their shared leg frames, and items): the server sends
 // it with each level so clients can report a level they generated differently (e.g. a float op that differs between
 // JS engines). JSON number formatting is exact and engine independent.
+const levelHashes = new WeakMap();   // levelData -> its hash (computed once: it stringifies every wolf)
 function levelHash(ld) {
-  return hashSeed(JSON.stringify([(ld.enemies || []).map(({ frame, ...s }) => s), ld.items || []]));
+  let h = levelHashes.get(ld);
+  if (h === undefined) { h = hashSeed(JSON.stringify([(ld.enemies || []).map(({ frame, ...s }) => s), ld.items || []])); levelHashes.set(ld, h); }
+  return h;
 }
 
 export { generateLevel, collideCircle, locate, inCenter, onIce, inTree, mazeSelfTest, levelHash };

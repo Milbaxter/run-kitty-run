@@ -5,7 +5,7 @@ import { collideCircle, onIce, inTree, levelHash } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
 import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
 import { pregenNext } from './levelpregen.js';
-import { disposeModel, createKittyModel, createWolfModel, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel } from './models.js';
+import { disposeModel, createKittyModel, createWolfRig, newWolfState, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel } from './models.js';
 import { createWolfPack } from './wolfpack.js';
 import { buildWorld, setupLighting } from './world.js';
 import { createEffects } from './effects.js';
@@ -213,6 +213,7 @@ const SOLO_KEYMAP = { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left
 const SPECTATE_KEYS = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1, Tab: 1 };
 
 window.addEventListener('keydown', (e) => {
+  if (!e.code) return;   // a synthetic event (the controller's B in the lobby): not a key to hold
   if (e.key === 'Enter' && online.room && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input')) {
     e.preventDefault();
     chat.open();
@@ -244,8 +245,13 @@ window.addEventListener('keydown', (e) => {
     else togglePause();
   }
 });
-window.addEventListener('keyup', (e) => keys.delete(e.code));
-window.addEventListener('blur', () => { keys.clear(); if (mode === 'play' && !online.playing && !paused && sim.state === 'playing') togglePause(); });
+window.addEventListener('keyup', (e) => {
+  keys.delete(e.code);
+  if (e.key === 'Meta') keys.clear();   // macOS sends no keyup for keys let go while Cmd was held
+});
+// lose focus (alt-tab etc.): let go of everything, the mouse button and a pinch too (their release never arrives)
+function releaseAllInput() { keys.clear(); mouse.held = false; mouse.target = null; pinch.id = null; }
+window.addEventListener('blur', () => { releaseAllInput(); if (mode === 'play' && !online.playing && !paused && sim.state === 'playing') togglePause(); });
 window.addEventListener('pointerdown', () => { audio.unlock(); syncTrack(); });
 
 // navigator.getGamepads() snapshot, taken once per tick() and shared by readInput / padActive / pollPadNav
@@ -262,7 +268,8 @@ function readInput(index, playerCount) {
     if (anyKey(map.down)) z += 1;
   }
   // Gamepads: pad i drives player i (if present).
-  const pad = framePads && framePads[index];
+  // (one kitty on this device: the first connected controller, whatever slot the browser put it in)
+  const pad = framePads && (playerCount === 1 ? Array.prototype.find.call(framePads, (q) => q && q.connected) : framePads[index]);
   if (pad && pad.connected) {
     let gx = pad.axes[0] || 0, gz = pad.axes[1] || 0;
     if (pad.buttons[14]?.pressed) gx = -1;
@@ -354,6 +361,7 @@ canvas.addEventListener('pointerdown', (e) => {
     touchId = e.pointerId;
     try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     joy.on = true; joy.ox = joy.x = e.clientX; joy.oy = joy.y = e.clientY;
+    if (pinch.id !== null) pinch.d = fingerGap();   // a pinch still going: measure from here (no jump)
     mouse.target = null; mouse.iceDir = null;
     drawJoy();
     return;
@@ -492,15 +500,20 @@ function buildView() {
   const crown = createCrownPickupModel();
   crown.group.position.set(ld.crown.x, 0, ld.crown.z);
   scene.add(crown.group);
-  const wolves = new Map();
+  // one posable rig per wolf type (they all look alike within a type), a little state per wolf (its stride etc.)
+  const wolves = new Map(), rigs = new Map();
   for (const e of sim.enemies) {
-    const m = createWolfModel(e.type, { level: ld.level, theme: ld.theme, finale: !!ld.finale }); // scarier every level, dressed for the season
-    m.group.scale.setScalar(CFG.WOLF_RADIUS / 0.55); // models are built for the original 0.55 radius
-    m.group.position.set(e.x, 0, e.z);
-    m.group.rotation.y = -e.heading;
-    wolves.set(e.id, m);
+    let r = rigs.get(e.type);
+    if (!r) {
+      const rig = createWolfRig(e.type, { level: ld.level, theme: ld.theme, finale: !!ld.finale }); // scarier every level, dressed for the season
+      rig.group.scale.setScalar(CFG.WOLF_RADIUS / 0.55); // models are built for the original 0.55 radius
+      r = { rig, n: 0 };
+      rigs.set(e.type, r);
+    }
+    r.n++;
+    wolves.set(e.id, { rig: r.rig, st: newWolfState(), lastHeading: undefined });
   }
-  const wolfPack = createWolfPack(scene, [...wolves.values()]); // draws all wolves instanced
+  const wolfPack = createWolfPack(scene, [...rigs.values()].map((r) => [r.rig, r.n])); // draws all wolves instanced
   const items = new Map();
   for (const it of sim.items) {
     if (it.taken) continue;
@@ -548,6 +561,7 @@ function removeKitties() {
 
 // ---------- flow ----------
 function enterTitle(showTitleScreen = true) {
+  if (online.menu) { online.menu = false; ui.hidePause(); }
   if (mode === 'play' && sim) analytics.runEnd(runSummary());
   mode = 'title';
   paused = false;
@@ -904,14 +918,17 @@ function pollPadNav() {
   const dir = up ? 'up' : down ? 'down' : left ? 'left' : right ? 'right' : '';
   const pauseEl = ui.pauseRoot();
   const fbEl = feedback.isOpen() ? feedback.root() : null;
+  const statsEl = document.querySelector('.rks-modal');   // the STATS window (analytics.js)
   const menu = legends.isOpen() ? null
-    : fbEl || pauseEl || ui.noticeRoot() || ui.gameOverRoot() || (lobbyUI.isOpen() && !(online.playing && mode === 'play') ? lobbyUI.root() : null) || ui.titleRoot();
+    : fbEl || statsEl || pauseEl || ui.noticeRoot() || ui.gameOverRoot() || (lobbyUI.isOpen() && !(online.playing && mode === 'play') ? lobbyUI.root() : null) || ui.titleRoot();
   const res = menuPad.poll(menu, { dir, a: aEdge, b: bEdge }, dt);
   if (legends.isOpen()) {
     if (back && !padNav.back) legends.close();
     else if (scroll) legends.scrollBy(scroll * 14);
   } else if (fbEl) {
     if (res === 'back') feedback.close();
+  } else if (statsEl) {
+    if (res === 'back') { const b = statsEl.querySelector('button'); if (b) b.click(); }
   } else if (pauseEl) {
     if (res === 'back' || startEdge) ui.navigate('confirm');   // B / Start: back to the run
   } else if (menu) {
@@ -1113,11 +1130,8 @@ function snapshotPrev() {
     if (!o) { o = { x: 0, z: 0 }; prevPos.set(k, o); }
     o.x = p.x; o.z = p.z;
   }
-  for (const e of sim.enemies) {
-    const k = 'e' + e.id; let o = prevPos.get(k);
-    if (!o) { o = { x: 0, z: 0 }; prevPos.set(k, o); }
-    o.x = e.x; o.z = e.z;
-  }
+  // wolves: on the wolf object itself (thousands of them: no string keys / map lookups every tick)
+  for (const e of sim.enemies) { e.px = e.x; e.pz = e.z; }
 }
 
 // 6+ finishes: smoothly blend through all the cat colours, ~1 s each
@@ -1224,26 +1238,29 @@ function packColors(k, p) {
   if (!same) k.packCols = _packTmp.slice();
   return k.packCols;
 }
+const WOLF_CULL_PAD = 3;   // how far outside the view a wolf still counts (its body and shadow reach in)
+const _cullFrustum = new THREE.Frustum(), _cullM = new THREE.Matrix4(), _cullS = new THREE.Sphere(), _cullP = new THREE.Vector3();
+const _wolfArgs = { moving: false, speed01: 0, time: 0 };
 function syncVisuals(dt, alpha) {
   if (!view) return;
   if (view.levelData !== sim.levelData) buildView();
   const t = simTime;
-  // wolves
-  // With 100-200 wolves, only show/animate those near the camera (view + shadow range).
-  const cullR = camDist * 1.35 + 12;
-  const cullR2 = cullR * cullR;
+  // wolves: only those the camera can see (its view, widened by WOLF_CULL_PAD for their shadows; last frame's
+  // camera, a frame behind at most) are posed and drawn. Each is posed on its type's shared rig from its own state.
+  camera.updateMatrixWorld();
+  _cullFrustum.setFromProjectionMatrix(_cullM.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
   view.wolfPack.begin();
   for (const e of sim.enemies) {
     const m = view.wolves.get(e.id);
     if (!m) continue;
-    const near = (e.x - camTarget.x) ** 2 + (e.z - camTarget.z) ** 2 < cullR2;
-    m.group.visible = near;
-    if (!near) { m.lastHeading = undefined; continue; }
-    const lp = lerpPos('e' + e.id, e.x, e.z, alpha), x = lp.x, z = lp.z;
-    m.group.position.set(x, 0, z);
-    m.group.rotation.y = -e.heading;
-    m.update(dt, { moving: e.moving, speed01: Math.min(1, (e.speedNow || 0) / 4), time: t });
-    view.wolfPack.add(m);
+    const x = e.px === undefined ? e.x : e.px + (e.x - e.px) * alpha, z = e.pz === undefined ? e.z : e.pz + (e.z - e.pz) * alpha;
+    if (!_cullFrustum.intersectsSphere(_cullS.set(_cullP.set(x, 0.5, z), WOLF_CULL_PAD))) { m.lastHeading = undefined; continue; }
+    const g = m.rig.group;
+    g.position.set(x, 0, z);
+    g.rotation.y = -e.heading;
+    _wolfArgs.moving = e.moving; _wolfArgs.speed01 = Math.min(1, (e.speedNow || 0) / 4); _wolfArgs.time = t;
+    m.rig.pose(m.st, dt, _wolfArgs);
+    view.wolfPack.add(m.rig);
     if (e.pattern) {
       // push-off: shavings the moment a wolf turns round at the end of a run (its heading changes once per run)
       if (m.lastHeading !== undefined && e.heading !== m.lastHeading) effects.iceKick(x, z, e.heading);
@@ -1306,7 +1323,7 @@ function syncVisuals(dt, alpha) {
     const ka = _kitArgs;
     ka.speed01 = gliding ? 0 : eat && eat.walking ? 0.45 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2));
     ka.moving = (p.moving && !gliding) || !!(eat && eat.walking); ka.munch = !!(eat && eat.munch); ka.bites = k.bites | 0;
-    ka.skates = !!sim.levelData.ice; ka.boots = Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST); ka.invuln = p.invuln; ka.shield = p.shield; ka.time = t;
+    ka.skates = !!sim.levelData.ice && !(sim.levelData.iceZMax != null && z > sim.levelData.iceZMax);   // (not on Run + Skate level 9's run half) ka.boots = Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST); ka.invuln = p.invuln; ka.shield = p.shield; ka.time = t;
     ka.crown = !!p.crowned; ka.crownStones = Math.max(0, Math.min(5, wins - 1)); ka.aura = wins >= 3; ka.auraColor = k.fx; ka.sunglasses = wins >= 5; ka.rainbowBoots = wins >= 7; ka.auraCycle = wins >= 6;
     ka.backpack = wins >= 8; ka.packColors = ka.backpack ? packColors(k, p) : null;
     // revive rewards (rescues this run): 10+ medic cape, 30+ a trail of little stars of life, 60+ angel wings (they add up)
@@ -1631,6 +1648,11 @@ function beginOnlineGame(m) {
   online.shownLevel = sim.level;
   checkLevelHash(sim.level, m.lh);
   handleEvents([{ type: 'levelStart', level: sim.level }]);
+  // joined mid-game: checkpoints already reached (a repaired medic checkpoint shows repaired)
+  if (Array.isArray(m.cp)) {
+    sim.checkpointsHit = m.cp.slice();
+    for (const i of m.cp) if (sim.levelData.checkpoints && sim.levelData.checkpoints[i] && sim.levelData.checkpoints[i].medic && view) view.world.repairCheckpoint(i);
+  }
   // joined (or reconnected) after the final run was won: the stored victory event won't come again
   if (m.st === 'victory') {
     sim.state = 'victory';
@@ -1640,6 +1662,7 @@ function beginOnlineGame(m) {
 }
 
 function backToLobby() {
+  if (online.menu) { online.menu = false; ui.hidePause(); }
   online.playing = false;
   enterTitle(false);
   if (online.room) lobbyUI.showRoom(online.room);
@@ -1656,9 +1679,17 @@ function toggleOnlineMenu() {
   audio.play('click');
 }
 
-// Step local wolves up to the level tick matching our current tick, remembering recent positions.
+// Step local wolves up to the level tick matching our current tick, remembering recent positions. Far behind (back
+// from the background, a late level change): don't replay it all (seconds of frozen game on a big level), ask the
+// server for its wolves instead; they wait where they are until the reply ('wolves') catches them up.
+const WOLF_CATCHUP_MAX = 300;   // ticks (5 s)
 function catchUpWolves() {
   const target = online.tick - online.levelStartTick;
+  if (target - sim.enemyTicks > WOLF_CATCHUP_MAX) {
+    const now = performance.now();
+    if (net.connected && now > online.resyncAt) { online.resyncAt = now + 2000; net.send({ t: 'resync' }); }
+    return;
+  }
   let guard = 0;
   while (sim.enemyTicks < target && guard++ < 7200) {
     updateEnemies(sim.enemies, sim.levelData, CFG.TICK);
@@ -1685,7 +1716,7 @@ function checkWolves(lt, checks) {
   const n = sim.enemies.length;
   const base = slot * n * 2;
   for (const [id, x, z] of checks) {
-    const i = sim.enemies.findIndex((e) => e.id === id);
+    const i = sim.enemies[id] && sim.enemies[id].id === id ? id : sim.enemies.findIndex((e) => e.id === id);
     if (i < 0) continue;
     const dx = online.wolfPos[base + i * 2] - x, dz = online.wolfPos[base + i * 2 + 1] - z;
     if (dx * dx + dz * dz > 0.05 * 0.05) {
@@ -1877,6 +1908,7 @@ function tick(dt) {
     const runSim = sim;
     setTimeout(() => {
       if (sim !== runSim) return; // a new run already started
+      if (online.menu) { online.menu = false; ui.hidePause(); }   // the game-over card replaces the online menu
       ui.showGameOver({
         level: sim.level, deaths: sim.stats.deaths, rescues: sim.stats.rescues,
         time: sim.time,
@@ -1934,9 +1966,10 @@ function setBackground(bg) {
   if (bg === inBackground) return;
   inBackground = bg;
   if (bg) {
-    keys.clear();
+    releaseAllInput();
     touchId = null; joy.on = false; drawJoy();
     track.pause();
+    victorySong.pause();   // (syncTrack starts it again on return)
     audio.setBackground(true);
     if (NATIVE && mode === 'play' && !online.playing && !paused && sim.state === 'playing') togglePause();
   } else {

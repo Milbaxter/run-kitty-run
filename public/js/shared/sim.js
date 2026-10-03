@@ -128,7 +128,7 @@ function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales
   const sim = {
     seed: seed == null ? 0 : seed,
     mode: GAME_MODES.includes(mode) ? mode : 'mixed',
-    finales: Math.max(0, Math.min(2, finales | 0)),
+    finales: Math.max(0, Math.min(3, finales | 0)),
     level: lvl,
     time: 0,
     levelTime: 0,
@@ -418,16 +418,21 @@ function stepSim(sim, inputs, dt) {
   for (let c = 0; c < cps.length; c++) {
     if (sim.state !== 'playing' || sim.checkpointsHit.indexOf(c) >= 0) continue;
     const cp = cps[c];
-    const h = ld.corridorWidth / 2 - CFG.WALL_THICKNESS / 2;
-    const by = players.find((p) => p.alive && !p.inCenter && Math.abs(p.x - cp.x) < h && Math.abs(p.z - cp.z) < h);
+    const h = (ld.safeSize || ld.corridorWidth) / 2 - CFG.WALL_THICKNESS / 2;
+    // a broken (medic) checkpoint: only a kitty with cp.minRescues revives this run can repair it
+    const by = players.find((p) => p.alive && !p.inCenter && Math.abs(p.x - cp.x) < h && Math.abs(p.z - cp.z) < h && (p.rescues || 0) >= (cp.minRescues || 0));
     if (!by) continue;
     sim.checkpointsHit.push(c);
-    const revived = [];
+    const revived = [], moved = [];
     let slot = 0;
     for (let i = 0; i < players.length; i++) {
       const p = players[i];
       if (p.inCenter || p === by) continue;
+      // the broken (medic) checkpoint: a kitty still alive that is already past it (in the run half, beyond the square in
+      // the run direction) stays where it is; only the downed and those behind (skate half, hallway, the square) gather
+      if (cp.medic && p.alive && (ld.iceZMax == null || p.z > ld.iceZMax) && ((p.x - cp.x) * Math.cos(cp.heading) + (p.z - cp.z) * Math.sin(cp.heading)) > h) continue;
       if (!p.alive) { p.alive = true; p.shield = 0; revived.push(p.id); }
+      moved.push(p.id);
       // a grid filling the square from the middle out (room for 36)
       let sp = squareSlot(cp.x, cp.z, cp.heading, slot);
       for (let g = 0; g < 36 && Math.hypot(sp.x - by.x, sp.z - by.z) < 1; g++) sp = squareSlot(cp.x, cp.z, cp.heading, ++slot);
@@ -440,7 +445,7 @@ function stepSim(sim, inputs, dt) {
       slot++;
     }
     sim.circles = sim.circles.filter((circ) => { const q = findPlayer(sim, circ.playerId); return q && !q.alive; });
-    events.push({ type: 'checkpoint', index: c, by: by.id, x: cp.x, z: cp.z, revived });
+    events.push({ type: 'checkpoint', index: c, by: by.id, x: cp.x, z: cp.z, revived, moved, ...(cp.medic ? { medic: true } : {}) });
   }
 
   // --- hits ---

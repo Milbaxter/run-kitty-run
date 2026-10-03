@@ -30,7 +30,7 @@ const MODE_MIN_PROTOCOL = { ice: 4, mixed: 4, run: 4 };
 // Finale versions (sim.finales, see maze.js generateLevel): the protocol each needs. A room plays the newest version
 // every member has (older clients would build the older level 9 and desync); once it plays one, older clients can't
 // join it mid-game.
-const FINALE_PROTOCOL = [0, 5, 6];   // 1 = Run only's level 9 final run, 2 = the wide skate final run
+const FINALE_PROTOCOL = [0, 5, 6, 7];   // 1 = Run only's level 9 final run, 2 = the wide skate final run, 3 = Run + Skate's both in a row
 const finalesOf = (members) => Math.min(...members.map((m) => FINALE_PROTOCOL.filter((p) => m.v >= p).length - 1));
 const runFinaleOk = (client, room) => !(room.phase === 'playing' && room.sim) || client.v >= FINALE_PROTOCOL[room.sim.finales | 0];
 const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);

@@ -1073,10 +1073,84 @@ function inTree(levelData, x, z) {
 // true = the old Run + Skate winter levels (ice + wandering wolves) instead of Skate only's pattern wolves
 const CLASSIC_RUN_SKATE_ICE = false;
 
+// ---------------------------------------------------------------- Run + Skate's level 9 (finale version 3)
+//
+// The two final runs in one level, as a U: first the wide skate final run (its own coordinates moved down and to the
+// right: it runs left to right below the other), then, where its goal room would be, a short hallway up into Run
+// only's start room, and the run on foot back right to left to the goal room (cat heaven, at the origin as always).
+// Each half is generated exactly as on its own (seeds of their own); the skate half loses its goal room.
+// levelData.sections keeps both halves as built (with their offset) for the set dressing (world.js).
+const COMBO_GAP = 6;   // between the two corridors' walls (room for the braziers outside them)
+const MEDIC_RESCUES = 60;   // revives this run that repair the broken checkpoint (= the wings)
+const COMBO_RUN_SPEED0 = 0.7;   // the run half's wolf speed at its start (of their usual), rising to 1 at the goal room
+function generateCombo(L, seed) {
+  const sk = generateLevel(L, hashSeed(seed, L, 'combo-skate'), 'mixed', 2);
+  const rn = generateLevel(L, hashSeed(seed, L, 'combo-run'), 'run', 1);
+  const W = rn.corridorWidth, h = W / 2, sH = rn.safeSize / 2;
+  const rs = rn.corners[0], xr0 = rs.x - sH, xr1 = rs.x + sH;   // the run's start room: its opening / back wall
+  const dx = xr1 + ROOM, dz = -(2 * h + COMBO_GAP);              // skate -> combo: its corridor ends at the room's back
+  const mv = (o) => ({ ...o, x: o.x + dx, z: o.z + dz });
+  const mvW = (w) => ({ ax: w.ax + dx, az: w.az + dz, bx: w.bx + dx, bz: w.bz + dz });
+  // skate walls without its goal room (3-7); its near wall (1) stops at the hallway
+  const skW = sk.walls.filter((_, i) => i < 3 || i > 7).map(mvW);
+  skW[1].ax = xr0;
+  // run walls without its start room's bottom side (the hallway comes in there)
+  // (only the start room's: the goal room's back wall is at the same z, both rooms being ROOM wide)
+  const rnW = rn.walls.filter((w) => !(Math.abs(w.az + sH) < 1e-6 && Math.abs(w.bz + sH) < 1e-6 && Math.min(w.ax, w.bx) >= xr0 - 1e-6));
+  const walls = [...rnW, ...skW,
+    { ax: xr1, az: dz - h, bx: xr1, bz: -sH },   // the skate corridor's end and the hallway's right side
+    { ax: xr0, az: -h, bx: xr0, bz: dz + h },    // the hallway's left side
+  ];
+  const nS = sk.legs.length;
+  const legs = [
+    ...sk.legs.map((l, i) => ({ ...l, ox: l.ox + dx, oz: l.oz + dz, ice: true, startRoom: i === 0 ? sH : 0, endLeg: i === nS - 1 })),
+    ...rn.legs.map((l, i) => ({ ...l, startRoom: i === 0 ? sH : 0 })),
+  ];
+  const enemies = [
+    ...sk.enemies.map((e) => ({ ...e, frame: { ...e.frame, ox: e.frame.ox + dx, oz: e.frame.oz + dz } })),
+    // the run half's wolves start as slow as the skate half's run wolves (COMBO_RUN_SPEED0 of their speed, right after
+    // the hallway) and get evenly faster all the way to the goal room, where they're back at full speed
+    ...rn.enemies.map((e) => {
+      const x = e.frame.ox + e.frame.ux * (e.a0 + e.a1) / 2, k = Math.max(0, Math.min(1, (rs.x - x) / (rs.x - ROOM)));
+      return { ...e, leg: e.leg + nS, speed: e.speed * (COMBO_RUN_SPEED0 + (1 - COMBO_RUN_SPEED0) * k) };
+    }),
+  ];
+  enemies.forEach((e, i) => { e.id = i; e.seed = hashSeed(seed, L, 'wolf', i); });
+  const items = [...sk.items.map(mv), ...rn.items];
+  items.forEach((it, i) => { it.id = i; });
+  const skPath = sk.path.filter((q) => q.x <= -ROOM).map(mv);
+  const lvl = {
+    ...rn,
+    seed, level: L, mode: 'mixed',
+    walls, wallSegments: walls, legs,
+    corners: [...sk.corners.map(mv), ...rn.corners],
+    safeCorners: [mv(sk.safeCorners[0]), rn.safeCorners[0]],
+    startAngle: sk.startAngle,
+    spawnPoints: sk.spawnPoints.map(mv),
+    enemies, items,
+    path: [...skPath, { x: rs.x, z: dz + h }, { x: rs.x, z: 0 }, ...rn.path],
+    theme: sk.theme,
+    ice: true, iceZMax: dz + h,   // ice only in the skate corridor (below its near wall)
+    finale: true, finaleSide: 0, combo: true,
+    trees: [...sk.trees.map((t) => ({ ...mv(t), leg: t.leg, snowy: true })), ...rn.trees.map((t) => ({ ...t, leg: t.leg + nS }))],
+    runLength: sk.runLength + rn.runLength,
+    outerRadius: Math.max(rn.outerRadius, Math.abs(sk.corners[0].x + dx) + h, Math.abs(dz) + h) + 2,
+    // the run half's start room: a broken checkpoint that only a kitty with MEDIC_RESCUES+ revives this run can repair
+    // (then it works like any checkpoint: everyone back on their paws, gathered there)
+    checkpoints: [{ corner: sk.corners.length, x: rs.x, z: rs.z, heading: Math.atan2(-rn.legs[0].uz, -rn.legs[0].ux), medic: true, minRescues: MEDIC_RESCUES }],
+    patternPlan: sk.patternPlan,
+    extraFloors: [{ x0: xr0, x1: xr1, z0: dz + h, z1: -sH }],   // the hallway
+    sections: [{ dx, dz, ld: { ...sk, noReward: true, endTrim: 2 * sH + 2 } }, { dx: 0, dz: 0, ld: rn }],
+  };
+  return lvl;
+}
+
 // fv: the finale version the game plays (sim.finales): 0 = the original levels, 1 = + Run only's level 9 final run,
-// 2 = + the wide skate final run (Skate only / Run + Skate level 9). Online rooms use the newest every member has.
+// 2 = + the wide skate final run (Skate only / Run + Skate level 9), 3 = + Run + Skate's level 9 is both final runs in a row
+// (generateCombo). Online rooms use the newest every member has.
 function generateLevel(level, seed, mode = 'mixed', fv = 0) {
   const v = fv === true ? 1 : +fv || 0;
+  if (v >= 3 && mode === 'mixed' && (Math.max(1, level | 0)) === SKATE_FINAL_LEVEL) return generateCombo(SKATE_FINAL_LEVEL, seed);
   const L = Math.max(1, level | 0);
   const p = levelParams(L);
   const rng = createRng(hashSeed(seed, L));
@@ -1238,6 +1312,7 @@ function locate(levelData, x, z) {
 // run's goal room (the warm reward room) isn't.
 function onIce(levelData, x, z) {
   if (!levelData.ice) return false;
+  if (levelData.iceZMax != null && z > levelData.iceZMax) return false;   // Run + Skate's level 9: the run half is solid ground
   if (levelData.finale && inTree(levelData, x, z)) return false;   // the final run's tree: up there you can sit still
   const rh = levelData.roomHalf;
   if (Math.abs(x) < rh && Math.abs(z) < rh) return !levelData.finale && Math.hypot(x, z) >= levelData.centerRadius;

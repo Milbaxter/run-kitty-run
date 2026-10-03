@@ -190,6 +190,18 @@ ui.onMenuClick(() => {
   if (online.playing) toggleOnlineMenu(); else togglePause();
 });
 
+// ---------- camera zoom (on your kitty): mouse wheel, + / -, a two-finger pinch, a controller's right stick ----------
+// camZoom scales the camera's distance while playing: 1 = the usual view, down to ZOOM_MIN (closer). Remembered.
+const ZOOM_MIN = 0.45;
+let camZoom = 1;
+try { camZoom = Math.max(ZOOM_MIN, Math.min(1, +localStorage.getItem('rkr-zoom') || 1)); } catch { /* ignore */ }
+let zoomSaveT = 0;
+function zoomBy(f) {
+  camZoom = Math.max(ZOOM_MIN, Math.min(1, camZoom * f));
+  clearTimeout(zoomSaveT);
+  zoomSaveT = setTimeout(() => { try { localStorage.setItem('rkr-zoom', String(Math.round(camZoom * 1000) / 1000)); } catch { /* ignore */ } }, 400);
+}
+
 // ---------- input ----------
 const keys = new Set();
 // Co-op: P1 is mouse-driven (see below); P2 moves with WASD or the arrows.
@@ -221,6 +233,13 @@ window.addEventListener('keydown', (e) => {
   if (SPECTATE_KEYS[e.code] && spectating() && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input, textarea')) {
     e.preventDefault();
     if (!e.repeat) cycleWatch(e.code === 'Tab' && e.shiftKey ? -1 : SPECTATE_KEYS[e.code]);
+    return;
+  }
+  // zoom: + / - (also the number pad), not while typing
+  if ((e.code === 'Equal' || e.code === 'NumpadAdd' || e.code === 'Minus' || e.code === 'NumpadSubtract') && mode === 'play'
+    && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input, textarea')) {
+    e.preventDefault();
+    zoomBy(e.code === 'Equal' || e.code === 'NumpadAdd' ? 0.9 : 1 / 0.9);
     return;
   }
   if (e.repeat) { keys.add(e.code); return; }
@@ -314,15 +333,31 @@ function mouseGround() {
   raycaster.setFromCamera(mouse.ndc, camera);
   return raycaster.ray.intersectPlane(groundPlane, mouseHit) ? { x: mouseHit.x, z: mouseHit.z } : null;
 }
+// a second finger pinches (zoom) while the first keeps steering
+const pinch = { id: null, x: 0, y: 0, d: 0 };
+const fingerGap = () => Math.hypot(pinch.x - joy.x, pinch.y - joy.y);
+canvas.addEventListener('wheel', (e) => {
+  if (mode !== 'play') return;
+  e.preventDefault();
+  zoomBy(Math.exp(Math.max(-60, Math.min(60, e.deltaY)) * 0.004));
+}, { passive: false });
 canvas.addEventListener('pointermove', (e) => {
-  if (e.pointerType === 'touch') { if (e.pointerId === touchId) joyMove(e); return; } // only the first finger steers
+  if (e.pointerType === 'touch') {
+    if (e.pointerId === touchId) joyMove(e); // only the first finger steers
+    else if (e.pointerId === pinch.id) { pinch.x = e.clientX; pinch.y = e.clientY; }
+    if (pinch.id !== null && touchId !== null) { const d = fingerGap(); if (pinch.d > 20 && d > 20) zoomBy(pinch.d / d); pinch.d = d; }
+    return;
+  }
   setMouseNdc(e);
 });
 canvas.addEventListener('pointerdown', (e) => {
   audio.unlock();
   if (mode !== 'play' || paused || (e.button !== 0 && e.button !== 2)) return;
   if (e.pointerType === 'touch') {
-    if (touchId !== null) return;
+    if (touchId !== null) {   // a second finger: pinch to zoom
+      if (pinch.id === null) { pinch.id = e.pointerId; pinch.x = e.clientX; pinch.y = e.clientY; pinch.d = fingerGap(); try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ } }
+      return;
+    }
     touchId = e.pointerId;
     try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     joy.on = true; joy.ox = joy.x = e.clientX; joy.oy = joy.y = e.clientY;
@@ -350,6 +385,7 @@ function devTeleport(g) {
 }
 function pointerEnd(e) {
   if (e.pointerType === 'touch') {
+    if (e.pointerId === pinch.id) { pinch.id = null; return; }
     if (e.pointerId !== touchId) return;
     touchId = null;
     joy.on = false;
@@ -441,7 +477,7 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
 function startSim(players, startLevel, simMode = DEBUG_MODE) {
-  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 2 });
+  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 3 });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   accumulator = 0;
@@ -666,12 +702,15 @@ function handleEvents(events) {
       case 'checkpoint': {
         const by = playerById(ev.by);
         haptic('medium');
-        // everyone but the kitty that reached it was moved: drop the old heading unless we're that kitty
+        // the kitties gathered there (ev.moved; older servers: everyone but the one that reached it) drop their old heading
         const mp = sim.players[mousePlayerIndex()];
-        if (!mp || mp.id !== ev.by) { mouse.target = null; mouse.iceDir = null; }
-        ui.banner('CHECKPOINT!', ev.revived.length ? 'Everyone is back on their paws' : (by && sim.players.length > 1 ? `${by.name} gathered the team` : 'Progress saved'), 1600);
+        if (!mp || (ev.moved ? ev.moved.includes(mp.id) : mp.id !== ev.by)) { mouse.target = null; mouse.iceDir = null; }
+        if (ev.medic) {   // the broken checkpoint, repaired by a kitty with 60+ revives
+          ui.banner('MEDICAT TO THE RESCUE!!!', ev.revived.length ? `${by ? by.name : 'A medicat'} fixed the checkpoint: everyone is back on their paws` : `${by ? by.name : 'A medicat'} fixed the checkpoint`, 2600);
+          if (view && view.world.repairCheckpoint) view.world.repairCheckpoint(ev.index);
+        } else ui.banner('CHECKPOINT!', ev.revived.length ? 'Everyone is back on their paws' : (by && sim.players.length > 1 ? `${by.name} gathered the team` : 'Progress saved'), 1600);
         effects.teleport(ev.x, ev.z, by ? by.color : 0x8fdcff);
-        effects.reviveBeam(ev.x, ev.z, 0x8fdcff);
+        effects.reviveBeam(ev.x, ev.z, ev.medic ? 0xff5a6a : 0x8fdcff);
         audio.play('revive');
         break;
       }
@@ -1044,8 +1083,16 @@ function updateCamera(dt, alpha) {
   let flyover = false;
   if (intro && mode === 'play') {
     // never show how long it is: the camera stays on the start square where you spawn, slowly pushing in from higher up
-    tx = sim.levelData.corners[0].x; tz = 0; want = 30 - 12 * smooth01(intro.t / 4.5);
+    tx = sim.levelData.corners[0].x; tz = sim.levelData.corners[0].z; want = 30 - 12 * smooth01(intro.t / 4.5);
     flyover = true;
+  }
+  if (mode === 'play' && !flyover && !victory) {
+    // a controller's right stick (up = closer) zooms too
+    for (const pad of framePads || []) {
+      const ry = pad && pad.connected ? pad.axes[3] || 0 : 0;
+      if (Math.abs(ry) > 0.3) { zoomBy(Math.exp(ry * dt * 1.4)); break; }
+    }
+    want *= camZoom;
   }
   const k = cameraSnap || flyover ? 1 : 1 - Math.exp(-dt * 5);
   camTarget.x += (tx - camTarget.x) * k;

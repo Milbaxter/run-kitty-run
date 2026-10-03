@@ -66,10 +66,17 @@ async function victory() {
     old.send({ t: 'join', code: a.last.room.code, name: 'Old' }); await sleep(150);
     a.send({ t: 'start', level: F }); b.send({ t: 'start', level: F }); await sleep(300);
     ok(old.last.start && old.last.start.rf === 0 && a.last.start.rf === 0, 'Run only room with a protocol-4 kitty: no level 9 ending (rf 0)');
-    ok(b.last.start && b.last.start.rf === 2, 'Run only room of current kitties plays the newest level 9 (rf 2)');
+    ok(b.last.start && b.last.start.rf === 3, 'Run only room of current kitties plays the newest level 9 (rf 3)');
     old2.send({ t: 'join', code: b.last.room.code, name: 'Old2' }); await sleep(150);
     ok(old2.last.error && /new level 9/.test(old2.last.error.msg) && !old2.last.start, `protocol-4 kitty can't join it mid-game: "${old2.last.error && old2.last.error.msg}"`);
     for (const x of [a, old, b, old2]) x.ws.close();
+    // Run + Skate (protocol 7): level 9 is both final runs in a row; a client builds the very same level from 'start'
+    const c = bot(NEW); await c.ready;
+    c.send({ t: 'create', name: 'C', mode: 'mixed' }); await sleep(150);
+    c.send({ t: 'start', level: F }); await sleep(400);
+    const cs = c.last.start, cm = cs && createSim({ seed: cs.seed, players: cs.players, startLevel: cs.level, mode: cs.mode, finales: +cs.rf || 0 });
+    ok(cs && cs.rf === 3 && cm.levelData.combo && levelHash(cm.levelData) === cs.lh, `Run + Skate level 9 online: both final runs (rf ${cs && cs.rf}), same level on the client`);
+    c.ws.close();
   }
   noHi.send({ t: 'create', name: 'Old', mode: 'ice' }); await sleep(150);
   ok(noHi.last.error && /Skate only/.test(noHi.last.error.msg) && !noHi.last.room, `no-hi client can't create a Skate only lobby: "${noHi.last.error && noHi.last.error.msg}"`);
@@ -159,8 +166,8 @@ async function victory() {
 
   // ---- stats + a new game
   const stats = await (await fetch(`http://127.0.0.1:${PORT}/api/stats`)).json();
-  // onlineGames: this game + the two Run only level 9 rooms
-  ok(stats.totals.onlineWins === 1 && stats.onlineWinsByMode.ice === 1 && stats.totals.onlineGames === 3, `stats: onlineWins ${stats.totals.onlineWins}, ice ${stats.onlineWinsByMode.ice}`);
+  // onlineGames: this game + the two Run only level 9 rooms + the Run + Skate one
+  ok(stats.totals.onlineWins === 1 && stats.onlineWinsByMode.ice === 1 && stats.totals.onlineGames === 4, `stats: onlineWins ${stats.totals.onlineWins}, ice ${stats.onlineWinsByMode.ice}`);
   const prevStart = guest.last.start;
   host.send({ t: 'start' });
   for (let i = 0; i < 30 && !(guest.last.start !== prevStart && guest.last.snap.st === 'playing'); i++) await sleep(100); // can lag on a busy machine

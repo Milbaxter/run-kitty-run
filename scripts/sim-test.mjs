@@ -2,7 +2,7 @@
 // Exit code 1 if any check fails.
 import { createSim, stepSim } from '../public/js/shared/sim.js';
 import { CFG, SKATE_FINAL_LEVEL, FINAL_MODES, PLAYER_NAMES } from '../public/js/shared/config.js';
-import { generateLevel, mazeSelfTest } from '../public/js/shared/maze.js';
+import { generateLevel, mazeSelfTest, collideCircle, onIce } from '../public/js/shared/maze.js';
 import { filterChat, filterName } from '../public/js/shared/filter.js';
 const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process.exitCode = 1; };
 
@@ -86,6 +86,20 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const runWolves = sk2.enemies.filter((e) => e.type === 'wanderer'), skate = sk2.enemies.filter((e) => e.pattern);
     ok(sk2.finale && sk2.ice && sk2.corridorWidth > CFG.RING_WIDTH && skate.length > 1000 && runWolves.length > 100 && sk2.enemies.every((e, i) => e.id === i),
       `finale version 2: wide skate final run, ${skate.length} skate wolves and ${runWolves.length} run wolves at the end`);
+    // version 3: Run + Skate's level 9 is both in a row (skate, a hallway, the run back to the goal room); Skate only keeps
+    // the wide skate final run
+    const cb = generateLevel(SKATE_FINAL_LEVEL, 7, 'mixed', 3), ice3 = generateLevel(SKATE_FINAL_LEVEL, 7, 'ice', 3);
+    const [a, b] = cb.safeCorners, hall = cb.extraFloors[0];
+    const route = [[cb.spawnPoints[0].x, cb.spawnPoints[0].z], [cb.spawnPoints[0].x, a.z], [b.x, a.z], [b.x, 0], [0, 0]];
+    let blocked = 0;
+    for (let i = 1; i < route.length; i++) for (let k = 0; k <= 400; k++) {
+      const x = route[i - 1][0] + (route[i][0] - route[i - 1][0]) * k / 400, z = route[i - 1][1] + (route[i][1] - route[i - 1][1]) * k / 400;
+      if (collideCircle(cb, x, z, CFG.KITTY_RADIUS).hit) blocked++;
+    }
+    ok(cb.combo && a.x < b.x && a.z < hall.z0 && blocked === 0 && onIce(cb, b.x - 100, a.z) && !onIce(cb, b.x - 100, 0) && !onIce(cb, (hall.x0 + hall.x1) / 2, (hall.z0 + hall.z1) / 2)
+      && cb.enemies.every((e, i) => e.id === i) && cb.trees.length === 2 && !ice3.combo && ice3.corridorWidth > CFG.RING_WIDTH
+      && collideCircle(cb, 0, -cb.roomHalf, CFG.KITTY_RADIUS).hit,   // the goal room keeps its back wall (the fish side)
+      `finale version 3: Run + Skate level 9 = skate half, hallway, run half (${cb.enemies.length} wolves, a clear way through, ice only on the skate half)`);
   }
   {
     // no wolf ever steps onto a safe square's tiles (they're W - WALL_THICKNESS wide; wolves may walk right up to
@@ -114,6 +128,29 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     for (; t < 120 && revivedAt < 0; t++) { p1.invuln = 99; if (stepSim(s, {}, CFG.TICK).some((e) => e.type === 'revive')) revivedAt = t; }
     const secs = (revivedAt + 1) * CFG.TICK;
     ok(revivedAt >= 0 && secs >= CFG.REVIVE_DELAY - 1e-9 && secs < CFG.REVIVE_DELAY + 0.05, `revive only after the ${CFG.REVIVE_DELAY}s cooldown (${secs.toFixed(2)}s)`);
+  }
+
+  // Run + Skate level 9: the broken checkpoint (the run half's start room) only works for a kitty with 60+ revives,
+  // and then revives the team like any checkpoint (a 'checkpoint' event with medic)
+  {
+    const s = createSim({ seed: 9, players: [1, 2, 3, 4].map((id) => ({ id, name: 'k' + id })), startLevel: SKATE_FINAL_LEVEL, mode: 'mixed', finales: 3 });
+    stepSim(s, {}, CFG.TICK);
+    const cp = s.levelData.checkpoints[0], [p1, p2, p3, p4] = s.players;
+    const ahead = { x: cp.x - 60, z: 3 }, skating = { x: p4.x + 40, z: p4.z };   // p3 in the run half past it, p4 still skating
+    const onCp = () => {
+      p1.x = cp.x; p1.z = cp.z; p1.vx = p1.vz = 0;
+      Object.assign(p3, ahead, { vx: 0, vz: 0 }); Object.assign(p4, skating, { vx: 0, vz: 0 });
+      for (const p of s.players) p.invuln = 99;
+      return stepSim(s, {}, CFG.TICK).filter((e) => e.type === 'checkpoint');
+    };
+    p2.alive = false;
+    p1.rescues = 59; const before = onCp();
+    p1.rescues = 60; const after = onCp();
+    const near = (p, c) => Math.abs(p.x - c.x) < 9 && Math.abs(p.z - c.z) < 9;
+    ok(cp && cp.medic && before.length === 0 && after.length === 1 && after[0].medic && after[0].revived.includes(2) && p2.alive,
+      'Run + Skate level 9: the broken checkpoint needs 60 revives, then revives the team (medic)');
+    ok(Math.abs(p3.x - ahead.x) < 0.5 && !after[0].moved.includes(3) && near(p4, cp) && near(p2, cp) && after[0].moved.includes(4),
+      'the broken checkpoint leaves living kitties already past it where they are, gathers the downed and the skaters');
   }
 
   // dev godmode: a wolf's touch never catches, but shows the extra-life effect (once per SPAWN_INVULN)

@@ -1260,14 +1260,20 @@ function buildFloors(levelData, theme, T) {
   const edge = [0.62, 0.78, 1, 1, 0.78, 0.62];
   // a start room narrower than the corridor (Run only's level 9): the corridor's floor stops at its opening and the
   // room gets its own, edged like the goal room's
-  const sh = levelData.safeSize && levelData.safeSize < W ? levelData.safeSize / 2 : 0;
+  // (Run + Skate's level 9: both corridors' first legs have one, leg.startRoom; their last legs own their ends, leg.endLeg)
+  const sh0 = levelData.safeSize && levelData.safeSize < W ? levelData.safeSize / 2 : 0;
   legs.forEach((l, i) => {
     // each leg owns the corner square at its far end (s = len); the innermost leg also owns its start
-    const s0 = i === legs.length - 1 ? -h : h;
+    const sh = l.startRoom ?? (i === 0 ? sh0 : 0);
+    const s0 = i === legs.length - 1 || l.endLeg ? -h : h;
     const color = l.loop % 2 ? theme.groundAlt : theme.ground;
-    addStrip(l.ox, l.oz, l.ux, l.uz, l.nx, l.nz, s0, i === 0 && sh ? l.len - sh : l.len + h, across, edge, color);
-    if (i === 0 && sh) addStrip(l.ox, l.oz, l.ux, l.uz, l.nx, l.nz, l.len - sh, l.len + sh, [-sh, -sh + 0.25, -sh + 0.9, sh - 0.9, sh - 0.25, sh], edge, color);
+    addStrip(l.ox, l.oz, l.ux, l.uz, l.nx, l.nz, s0, sh ? l.len - sh : l.len + h, across, edge, color);
+    if (sh) addStrip(l.ox, l.oz, l.ux, l.uz, l.nx, l.nz, l.len - sh, l.len + sh, [-sh, -sh + 0.25, -sh + 0.9, sh - 0.9, sh - 0.25, sh], edge, color);
   });
+  for (const r of levelData.extraFloors || []) {   // Run + Skate's level 9: the hallway between its two halves
+    const hw = (r.x1 - r.x0) / 2;
+    addStrip((r.x0 + r.x1) / 2, r.z0, 0, 1, 1, 0, 0, r.z1 - r.z0, [-hw, -hw + 0.25, -hw + 0.9, hw - 0.9, hw - 0.25, hw], edge, theme.ground);
+  }
   // goal room
   addStrip(0, 0, 1, 0, 0, 1, -rh, rh, [-rh, -rh + 0.25, -rh + 0.9, rh - 0.9, rh - 0.25, rh], edge, theme.roomGround ?? theme.ground);
   // the outside: a big ground plane slightly below the corridors
@@ -1357,11 +1363,12 @@ function buildIce(levelData, T, theme) {
   const W = levelData.corridorWidth, h = W / 2 - CFG.WALL_THICKNESS / 2, UVS = 1 / 9;
   const pos = [], uv = [], idx = [];
   levelData.legs.forEach((l, i) => {
+    if (levelData.combo && !l.ice) return;   // Run + Skate's level 9: its run half is solid ground
     // leg i runs from corner i+1 (s=0) to corner i (s=len). Butt up against safe tiles instead of running under
     // them (no flicker); an unsafe corner at s=len is iced by this leg, and the last leg also ices its s=0 door corner.
-    const endSafe = i < levelData.safeCorners.length;
+    const endSafe = l.startRoom != null ? !!l.startRoom : i < levelData.safeCorners.length;
     const eh = levelData.safeSize ? levelData.safeSize / 2 - CFG.WALL_THICKNESS / 2 : h;   // a safe square (or start room) edge
-    const s0 = i === levelData.legs.length - 1 ? -h : h, s1 = endSafe ? l.len - eh : l.len + h;
+    const s0 = i === levelData.legs.length - 1 || l.endLeg ? -h : h, s1 = endSafe ? l.len - eh : l.len + h;
     const b = pos.length / 3;
     for (const [sv, v] of [[s0, -h], [s0, h], [s1, -h], [s1, h]]) {
       const x = l.ox + l.ux * sv + l.nx * v, z = l.oz + l.uz * sv + l.nz * v;
@@ -1401,8 +1408,8 @@ function buildLanterns(levelData, theme, T, rng) {
     // the final run: a steady rhythm of lanterns down both corridor walls (staggered), plus the goal room and start cap
     // (from just past the start square to just before the goal room's door)
     // (laid out for a corridor in from the left; Run only's runs in from the right: mirrored, D = -1)
-    const D = levelData.finaleSide > 0 ? -1 : 1;
-    const rh = levelData.roomHalf, step = 12, x0 = D * levelData.corners[0].x + levelData.corridorWidth / 2 + 5;
+    const D = levelData.finaleSide > 0 || levelData.combo ? -1 : 1;   // (Run + Skate's level 9: its run half; the skate half's walls get theirs below)
+    const rh = levelData.roomHalf, step = 12, x0 = D * (levelData.combo ? levelData.safeCorners[1].x : levelData.corners[0].x) + levelData.corridorWidth / 2 + 5;
     for (const [w, off] of [[levelData.walls[0], 0], [levelData.walls[1], step / 2]]) {
       for (let x = x0 + off; x < -rh - 4; x += step) spots.push({ x: D * x, z: w.az });
     }
@@ -1739,7 +1746,9 @@ function buildDecor(levelData, theme, ti, T, rng) {
 function buildHellDecor(levelData, theme, T, rng, { inst, sampleOuter, sampleCorridor, outerArea, corridorArea, jitterColor }) {
   const meshes = [];
   const zWall = levelData.corridorWidth / 2 + CFG.WALL_THICKNESS / 2;
-  const nearOk = (p, clear) => p.z < 0 || p.z - zWall > clear;   // far side: anything; near side: `clear` units back
+  // (Run + Skate's level 9: nothing in the gap between its two corridors either, the near side of the skate one)
+  const between = (p) => levelData.combo && p.z > levelData.iceZMax - 0.5 && p.z < -zWall + 0.5;
+  const nearOk = (p, clear) => !between(p) && (p.z < 0 || p.z - zWall > clear);   // far side: anything; near side: `clear` units back
   const outer = (lo, hi, clear) => {
     for (let k = 0; k < 6; k++) { const p = sampleOuter(lo, hi); if (nearOk(p, clear)) return p; }
     return null;
@@ -1953,9 +1962,9 @@ function buildClimbTrees(levelData, theme, T) {
   // the final run's tree: smouldering. A charred canopy with glowing coals on the pad and round its rim, and glowing
   // cracks up the trunk (unlit, so it stands out in the dark). On the ice (the skate final run) it's snowed on: snow
   // caps on the pad and the rim puffs, the coals glowing out round their edges
-  const snowy = !!levelData.ice;
   const coals = [], cracks = [], caps = [];
   trees.forEach((t, i) => {
+    const snowy = t.snowy ?? !!levelData.ice;   // Run + Skate's level 9: per tree (its skate half's)
     for (let k = 0; k < per; k++) blobs.setColorAt(i * per + k, c.set(k % 2 ? 0x2e1f1c : 0x3c2622));
     if (snowy) {
       caps.push({ x: t.x, z: t.z, y: CLIMB_Y - 0.06, sx: R * 0.6, sy: 0.16, sz: R * 0.55, ry: rng.range(0, TAU) });
@@ -2020,13 +2029,15 @@ function buildCheckpoints(levelData, T) {
   const flagShape = new THREE.Shape();
   flagShape.moveTo(0, 0); flagShape.lineTo(1.1, -0.32); flagShape.lineTo(0, -0.7); flagShape.closePath();
   const flagGeo = T.g(new THREE.ShapeGeometry(flagShape));
+  const medic = [];
   for (const cp of levelData.checkpoints || []) {
+    if (cp.medic) { medic.push(buildMedicCheckpoint(levelData, cp, T, { ringParts, poleGeo, flagGeo })); continue; }
     const ring = new THREE.Mesh(ringGeo, ringMat);
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(cp.x, 0.02, cp.z);
     out.push(ring);
     // back corner of the square (behind the run direction, on the left), clear of the 3x3 arrival block
-    const fx = Math.cos(cp.heading), fz = Math.sin(cp.heading), off = levelData.corridorWidth / 2 - 1;
+    const fx = Math.cos(cp.heading), fz = Math.sin(cp.heading), off = (levelData.safeSize || levelData.corridorWidth) / 2 - 1;
     const x = cp.x - fx * off - fz * off, z = cp.z - fz * off + fx * off;
     const pole = new THREE.Mesh(poleGeo, poleMat);
     pole.position.set(x, 1.3, z);
@@ -2038,6 +2049,207 @@ function buildCheckpoints(levelData, T) {
     flag.scale.setScalar(1.2);
     out.push(pole, flag);
   }
+  for (const m of medic) out.push(m.group);
+  out.medic = medic;
+  return out;
+}
+
+// The medic checkpoint (Run + Skate's level 9, the run half's start room): broken until a kitty with 60+ revives this
+// run steps on it. Broken: a cracked ring in a few dim pieces that flickers like a dying neon sign, one cat ear left,
+// the pole snapped (its top lying beside the stump) and the torn medic pennant on the floor. Repaired: the whole ring
+// glowing medic red, both ears, the pole standing and a white pennant with the red star of life.
+function buildMedicCheckpoint(levelData, cp, T, { ringParts, poleGeo, flagGeo }) {
+  const group = new THREE.Group(), broken = new THREE.Group(), fixed = new THREE.Group();
+  group.add(broken, fixed);
+  fixed.visible = false;
+  const fx = Math.cos(cp.heading), fz = Math.sin(cp.heading), off = (levelData.safeSize || levelData.corridorWidth) / 2 - 1;
+  const px = cp.x - fx * off - fz * off, pz = cp.z - fz * off + fx * off;
+  const medicTex = (faded) => textTexture(T, 256, 256, (g, S) => {
+    g.fillStyle = faded ? '#9a9496' : '#f8f8f5'; g.fillRect(0, 0, S, S);
+    g.save(); g.translate(S * 0.34, S * 0.5); g.scale(0.7 / 1.1, 1);
+    g.fillStyle = faded ? '#7a3a3e' : '#e2352f';
+    for (const a of [0, Math.PI / 3, -Math.PI / 3]) { g.save(); g.rotate(a); g.fillRect(-46, -13, 92, 26); g.restore(); }
+    g.fillStyle = faded ? '#9a9496' : '#f8f8f5'; g.fillRect(-4, -40, 8, 80);   // the staff
+    g.restore();
+    if (faded) {   // scorch marks
+      for (let i = 0; i < 14; i++) { g.fillStyle = `rgba(30,20,20,${0.2 + 0.3 * Math.random()})`; g.beginPath(); g.arc(Math.random() * S, Math.random() * S, 6 + Math.random() * 18, 0, TAU); g.fill(); }
+    }
+  });
+  const flagMat = (faded) => {
+    const t = medicTex(faded); t.repeat.set(1 / 1.1, 1 / 0.7); t.offset.set(0, 1);
+    return T.m(new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: faded ? 0x000000 : 0xff6a6a, emissiveIntensity: faded ? 0 : 0.35, roughness: 0.8, side: THREE.DoubleSide }));
+  };
+  const poleMat = T.m(new THREE.MeshStandardMaterial({ color: 0xdfe6f0, roughness: 0.6, metalness: 0.3 }));
+  const rustMat = T.m(new THREE.MeshStandardMaterial({ color: 0x8a8078, roughness: 0.85, metalness: 0.2 }));
+
+  // ---- broken
+  const dimMat = T.m(new THREE.MeshBasicMaterial({ color: 0x9fb4c4, transparent: true, opacity: 0.32, depthWrite: false }));
+  const arcs = [[0.25, 1.35, 0], [1.95, 1.05, 0.06], [3.35, 1.6, -0.05], [5.3, 0.55, 0.1]];
+  for (const [a0, len, shift] of arcs) {
+    const arc = new THREE.Mesh(T.g(new THREE.RingGeometry(2.6, 3.0, 16, 1, a0, len)), dimMat);
+    arc.rotation.x = -Math.PI / 2; arc.rotation.z = shift;
+    arc.position.set(cp.x + shift * 2, 0.02, cp.z - shift * 1.5);
+    broken.add(arc);
+  }
+  const ear = new THREE.Mesh(T.g(ringParts[1].clone()), dimMat);   // one ear left
+  ear.rotation.x = -Math.PI / 2; ear.rotation.z = 0.12;
+  ear.position.set(cp.x, 0.02, cp.z);
+  broken.add(ear);
+  const stump = new THREE.Mesh(poleGeo, rustMat);   // the pole snapped low, leaning
+  stump.scale.set(1, 0.38, 1); stump.position.set(px, 0.45, pz); stump.rotation.z = 0.25; stump.castShadow = true;
+  const top = new THREE.Mesh(poleGeo, rustMat);     // its top lying on the floor
+  top.scale.set(1, 0.6, 1); top.rotation.z = Math.PI / 2 - 0.1; top.rotation.y = 0.5;
+  const ix = Math.sign(cp.x - px), iz = Math.sign(cp.z - pz);   // toward the middle of the square
+  top.position.set(px + ix * 0.9, 0.08, pz + iz * 0.6); top.castShadow = true;
+  const torn = new THREE.Mesh(flagGeo, flagMat(true));   // the torn pennant on the floor
+  torn.rotation.x = -Math.PI / 2; torn.rotation.z = 0.8; torn.scale.set(1.1, 0.8, 1);
+  torn.position.set(px + ix * 1.6, 0.04, pz + iz * 1.4);
+  broken.add(stump, top, torn);
+
+  // ---- repaired
+  const redMat = T.m(new THREE.MeshBasicMaterial({ color: 0xff5a6a, transparent: true, opacity: 0.72, depthWrite: false }));
+  const ring = new THREE.Mesh(T.g(mergeGeos(ringParts.map((g) => g.clone()))), redMat);
+  ring.rotation.x = -Math.PI / 2; ring.position.set(cp.x, 0.02, cp.z);
+  const pole = new THREE.Mesh(poleGeo, poleMat);
+  pole.position.set(px, 1.3, pz); pole.castShadow = true;
+  const flag = new THREE.Mesh(flagGeo, flagMat(false));
+  flag.position.set(px, 2.55, pz); flag.rotation.y = px < cp.x ? 0 : Math.PI; flag.scale.setScalar(1.2);
+  fixed.add(ring, pole, flag);
+
+  // a field hospital round it: two medical tents along the far side (-z: the camera looks that way, so they hide no
+  // one) and two field beds along the near side (low), all clear of the middle where the team gathers.
+  // Broken: the tents collapsed (flat grimy canvas, a snapped pole), the beds tipped over, mattresses on the floor.
+  const CANVAS = 0xe8e2d4, GRIME = 0x8a837a, RED = 0xd8342e, RED_DIM = 0x6e3a38, IRON = 0x5a5458, SHEET = 0xf2f0ea;
+  // a triangular prism along x with its ridge up (a 3-sided cylinder turned on its side, a corner to the top)
+  const prism = (r0, r1, len) => place(new THREE.CylinderGeometry(r0, r1, len, 3), 0, 0, 0, 1, 1, 1, -Math.PI / 2, 0, Math.PI / 2);
+  const tentGeo = (ok) => {
+    const parts = [];
+    if (ok) {
+      // a ridge tent: a triangular prism (apex up), red crosses on the end facing the camera and on the near slope
+      parts.push(paint(place(prism(1.1, 1.1, 2.6), 0, 0.55, 0), CANVAS));
+      parts.push(paint(place(new THREE.BoxGeometry(0.5, 0.14, 0.02), 0, 0.64, 0.62, 1, 1, 1, -0.52, 0, 0), RED));
+      parts.push(paint(place(new THREE.BoxGeometry(0.14, 0.5, 0.02), 0, 0.64, 0.62, 1, 1, 1, -0.52, 0, 0), RED));
+      parts.push(paint(place(new THREE.CylinderGeometry(0.04, 0.04, 1.75, 5), 1.32, 0.87, 0), IRON));
+      parts.push(paint(place(new THREE.CylinderGeometry(0.04, 0.04, 1.75, 5), -1.32, 0.87, 0), IRON));
+    } else {
+      // collapsed: the canvas flat and crumpled, one pole snapped and lying across it
+      parts.push(paint(place(place(prism(1.15, 1.25, 2.7), 0, 0, 0, 1, 0.28, 1), 0, 0.12, 0.1, 1, 1, 1, 0, 0.25, 0.08), GRIME));
+      parts.push(paint(place(new THREE.BoxGeometry(0.5, 0.02, 0.14), 0.3, 0.3, 0.3, 1, 1, 1, 0, 0.3, 0.05), RED_DIM));
+      parts.push(paint(place(new THREE.CylinderGeometry(0.04, 0.04, 0.8, 5), 1.35, 0.4, 0, 1, 1, 1, 0, 0, 0.35), IRON));
+      parts.push(paint(place(new THREE.CylinderGeometry(0.04, 0.04, 0.9, 5), -0.2, 0.32, 0.55, 1, 1, 1, 0, 0.6, Math.PI / 2), IRON));
+    }
+    return T.g(mergeGeos(parts));
+  };
+  const bedGeo = (ok) => {
+    const parts = [];
+    if (ok) {
+      parts.push(paint(place(new THREE.BoxGeometry(2, 0.08, 0.8), 0, 0.42, 0), IRON));
+      for (const [lx, lz] of [[-0.9, -0.34], [0.9, -0.34], [-0.9, 0.34], [0.9, 0.34]]) parts.push(paint(place(new THREE.CylinderGeometry(0.035, 0.035, 0.42, 5), lx, 0.21, lz), IRON));
+      parts.push(paint(place(new THREE.BoxGeometry(1.9, 0.12, 0.74), 0, 0.52, 0), SHEET));
+      parts.push(paint(place(new THREE.BoxGeometry(0.4, 0.12, 0.55), -0.7, 0.62, 0), 0xffffff));                // the pillow
+      parts.push(paint(place(new THREE.BoxGeometry(1.1, 0.04, 0.78), 0.35, 0.6, 0), RED));                     // the blanket
+      parts.push(paint(place(new THREE.BoxGeometry(0.3, 0.01, 0.08), 0.35, 0.625, 0), 0xffffff));              // its cross
+      parts.push(paint(place(new THREE.BoxGeometry(0.08, 0.01, 0.3), 0.35, 0.625, 0), 0xffffff));
+    } else {
+      // tipped over on its side, a leg snapped off, the mattress and pillow on the floor
+      parts.push(paint(place(new THREE.BoxGeometry(2, 0.08, 0.8), 0, 0.4, -0.2, 1, 1, 1, 1.35, 0, 0.08), IRON));
+      for (const [lx, ly] of [[-0.9, 0.7], [0.9, 0.62]]) parts.push(paint(place(new THREE.CylinderGeometry(0.035, 0.035, 0.42, 5), lx, ly, -0.1, 1, 1, 1, Math.PI / 2 - 0.2, 0, 0), IRON));
+      parts.push(paint(place(new THREE.CylinderGeometry(0.035, 0.035, 0.42, 5), 1.3, 0.04, 0.6, 1, 1, 1, 0, 0.8, Math.PI / 2), IRON));
+      parts.push(paint(place(new THREE.BoxGeometry(1.8, 0.1, 0.72), 0.15, 0.05, 0.55, 1, 1, 1, 0, 0.18, 0), 0x9c968c));
+      parts.push(paint(place(new THREE.BoxGeometry(0.4, 0.1, 0.5), -1.1, 0.05, 1.0, 1, 1, 1, 0, -0.5, 0), 0xb4aea4));
+    }
+    return T.g(mergeGeos(parts));
+  };
+  const propMat = T.m(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: true }));
+  const spots = [   // [x, z, ry, kind] around the square (its own frame is the world's: x along, z across)
+    [cp.x - 3.6, cp.z - 5.7, 0.08, 'tent'], [cp.x + 2.4, cp.z - 5.9, -0.06, 'tent'],
+    [cp.x - 4.2, cp.z + 5.6, 0.1, 'bed'], [cp.x + 3.0, cp.z + 5.8, -0.12, 'bed'],
+  ];
+  for (const [x, z, ry, kind] of spots) {
+    for (const [ok, grp] of [[false, broken], [true, fixed]]) {
+      const m = new THREE.Mesh(kind === 'tent' ? tentGeo(ok) : bedGeo(ok), propMat);
+      m.position.set(x, 0, z); m.rotation.y = ry; m.castShadow = true; m.receiveShadow = true;
+      grp.add(m);
+    }
+  }
+
+  // the broken ring flickers: mostly dim, now and then a stutter of light
+  const update = (time) => {
+    if (!broken.visible) return;
+    const t = time * 7.3, f = Math.sin(t) * Math.sin(t * 2.71) * Math.sin(t * 0.37);
+    dimMat.opacity = f > 0.55 ? 0.6 : f > 0.4 ? 0.12 : 0.3;
+  };
+  const repair = () => { broken.visible = false; fixed.visible = true; };
+  return { group, update, repair };
+}
+
+// Run + Skate's level 9: the hallway from the skate half up into the broken checkpoint (levelData.extraFloors[0]). A
+// worn red runner up the middle, torches on both walls lighting it, and a couple of medkit crates by the walls (a
+// hint of what the checkpoint wants): smashed open, their lids off and bandages spilled, until the checkpoint is
+// repaired (out.repair), then whole again with their red crosses glowing.
+function buildHallway(levelData, T, rng) {
+  const out = [], r = levelData.extraFloors && levelData.extraFloors[0];
+  if (!r) return out;
+  const cx = (r.x0 + r.x1) / 2, L = r.z1 - r.z0, cz = (r.z0 + r.z1) / 2, ht = CFG.WALL_THICKNESS / 2;
+  // the runner
+  const rugTex = textTexture(T, 64, 256, (g, W, H) => {
+    g.fillStyle = '#5e1418'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#c99a3a'; g.fillRect(3, 0, 3, H); g.fillRect(W - 6, 0, 3, H);
+    for (let y = 10; y < H; y += 26) { g.fillStyle = '#7e2228'; g.fillRect(14, y, W - 28, 12); }
+    for (let i = 0; i < 30; i++) { g.fillStyle = `rgba(20,8,8,${0.15 + 0.25 * Math.random()})`; g.fillRect(Math.random() * W, Math.random() * H, 2 + Math.random() * 8, 2 + Math.random() * 6); }
+  });
+  const rugGeo = T.g(new THREE.PlaneGeometry(3.6, L + 1)); rugGeo.rotateX(-Math.PI / 2);
+  const rug = new THREE.Mesh(rugGeo, T.m(new THREE.MeshStandardMaterial({ map: rugTex, roughness: 0.95 })));
+  rug.position.set(cx, 0.012, cz); rug.receiveShadow = true;
+  out.push(rug);
+  // torches on both walls: an iron bracket, a flame and a warm pool of light on the floor
+  const bracketGeo = T.g(new THREE.BoxGeometry(0.16, 0.5, 0.16));
+  const ironMat = T.m(new THREE.MeshStandardMaterial({ color: 0x2a2224, roughness: 0.7, metalness: 0.4 }));
+  const flameGeo = T.g(new THREE.ConeGeometry(0.17, 0.5, 6));
+  const flameMat = T.m(new THREE.MeshBasicMaterial({ color: 0xffa040 }));
+  const glowGeo = T.g(new THREE.PlaneGeometry(1, 1)); glowGeo.rotateX(-Math.PI / 2);
+  const glowMat = T.m(new THREE.MeshBasicMaterial({ map: makeGlowTexture(T), color: new THREE.Color(0xff7a2a).multiplyScalar(0.45), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  for (const [x, side] of [[r.x0 + ht + 0.1, 1], [r.x1 - ht - 0.1, -1]]) {
+    for (const t of [0.3, 0.75]) {
+      const z = r.z0 + L * t;
+      const b = new THREE.Mesh(bracketGeo, ironMat); b.position.set(x, 1.35, z);
+      const fl = new THREE.Mesh(flameGeo, flameMat); fl.position.set(x + side * 0.05, 1.85, z);
+      const gl = new THREE.Mesh(glowGeo, glowMat); gl.position.set(x + side * 0.6, 0.03, z); gl.scale.setScalar(4); gl.renderOrder = 1;   // right under the torch
+      out.push(b, fl, gl);
+    }
+  }
+  // medkit crates against the walls: whole (after the repair) and smashed (before)
+  const crateGeo = T.g(mergeGeos([
+    paint(place(new THREE.BoxGeometry(1, 0.6, 0.7), 0, 0.3, 0), 0xe8e4dc),
+    paint(place(new THREE.BoxGeometry(0.5, 0.02, 0.14), 0, 0.61, 0), 0xff3a34),
+    paint(place(new THREE.BoxGeometry(0.14, 0.02, 0.5), 0, 0.61, 0), 0xff3a34),
+    paint(place(new THREE.BoxGeometry(0.62, 0.14, 0.02), 0, 0.32, 0.36), 0xff3a34),
+    paint(place(new THREE.BoxGeometry(0.14, 0.42, 0.02), 0, 0.32, 0.36), 0xff3a34),
+  ]));
+  const brokenGeo = T.g(mergeGeos([
+    // the open box, dented and grimy (a lower body, no lid), its front cross faded
+    paint(place(new THREE.BoxGeometry(1, 0.42, 0.7), 0, 0.21, 0, 1, 1, 1, 0, 0, 0.06), 0x8e8880),
+    paint(place(new THREE.BoxGeometry(0.88, 0.04, 0.58), 0, 0.4, 0), 0x2a2224),                        // the dark inside
+    paint(place(new THREE.BoxGeometry(0.62, 0.12, 0.02), 0, 0.22, 0.36), 0x6e3a38),
+    paint(place(new THREE.BoxGeometry(0.14, 0.32, 0.02), 0, 0.22, 0.36), 0x6e3a38),
+    // the lid, knocked off and lying askew beside it
+    paint(place(new THREE.BoxGeometry(1, 0.08, 0.7), 0.95, 0.12, 0.35, 1, 1, 1, 0.5, 0.6, 0.25), 0x8e8880),
+    // spilled bandage rolls
+    paint(place(new THREE.CylinderGeometry(0.1, 0.1, 0.26, 8), -0.7, 0.1, 0.45, 1, 1, 1, Math.PI / 2, 0.4, 0), 0xcfc8bc),
+    paint(place(new THREE.CylinderGeometry(0.09, 0.09, 0.24, 8), -0.45, 0.09, 0.75, 1, 1, 1, Math.PI / 2, -0.7, 0), 0xcfc8bc),
+    paint(place(new THREE.BoxGeometry(0.7, 0.01, 0.12), -0.95, 0.01, 0.2, 1, 1, 1, 0, 0.9, 0), 0xbdb5a8),   // an unrolled strip
+  ]));
+  const crateMat = T.m(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, flatShading: true, emissive: 0x3a0606, emissiveIntensity: 0.6 }));
+  const brokenMat = T.m(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true }));
+  const whole = [], smashed = [];
+  for (const [x, z, ry] of [[r.x0 + 1.3, r.z0 + L * 0.18, 0.3], [r.x1 - 1.4, r.z0 + L * 0.55, -0.4], [r.x1 - 1.1, r.z0 + L * 0.62, 0.9]]) {
+    const c = new THREE.Mesh(crateGeo, crateMat); c.position.set(x, 0, z); c.rotation.y = ry; c.castShadow = true; c.visible = false;
+    const b = new THREE.Mesh(brokenGeo, brokenMat); b.position.set(x, 0, z); b.rotation.y = ry; b.castShadow = true;
+    whole.push(c); smashed.push(b);
+    out.push(c, b);
+  }
+  out.repair = () => { for (const c of whole) c.visible = true; for (const b of smashed) b.visible = false; };
+  void rng;
   return out;
 }
 
@@ -2075,7 +2287,7 @@ function buildFinale(levelData, theme, T, rng) {
   const W = levelData.corridorWidth, h = W / 2, rh = levelData.roomHalf, R = CFG.TREE_RADIUS;
   // the corridor starts at the start square's edge (Run only's level 9: its start room, narrower than the corridor)
   const sq = Math.min(h, (levelData.safeSize || W) / 2);
-  const xs = levelData.corners[0].x, xStart = xs + sq + 0.4, xEnd = -rh - 1;
+  const xs = levelData.corners[0].x, xStart = xs + sq + 0.4, xEnd = -rh - 1 - (levelData.endTrim || 0);   // endTrim: Run + Skate's skate half stops before the hallway
   const xHi = -rh;                               // the corridor's ice ends at the goal room's door
 
   // ---- fire braziers outside both walls (staggered); evenly spaced, so they don't tell how far is left
@@ -2169,7 +2381,7 @@ function buildFinale(levelData, theme, T, rng) {
     }
   }
 
-  const room = buildRewardRoom(levelData, T, rng, glowGeo, glowMat);
+  const room = levelData.noReward ? { meshes: [], update() {} } : buildRewardRoom(levelData, T, rng, glowGeo, glowMat);
   meshes.push(...room.meshes);
 
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), s = new THREE.Vector3();
@@ -2279,14 +2491,29 @@ function buildWorld(scene, levelData) {
   group.name = 'world';
 
   for (const m of buildFloors(levelData, theme, T)) group.add(m);
-  for (const m of buildCheckpoints(levelData, T)) group.add(m);
+  const checkpoints = buildCheckpoints(levelData, T);
+  for (const m of checkpoints) group.add(m);
+  const hallway = buildHallway(levelData, T, rng);
+  for (const m of hallway) group.add(m);
   for (const m of buildClimbTrees(levelData, base, T)) group.add(m);   // the halfway tree: smouldering in hell (buildClimbTrees), the one refuge
   for (const m of buildWalls(levelData, theme, T)) group.add(m);
   const lanterns = buildLanterns(levelData, theme, T, rng);
   for (const m of lanterns.meshes) group.add(m);
   for (const m of buildDecor(levelData, theme, ti, T, rng)) group.add(m);
-  const finale = levelData.finale ? buildFinale(levelData, theme, T, rng) : null;
-  if (finale) for (const m of finale.meshes) group.add(m);
+  let finale = null;
+  if (levelData.sections) {   // Run + Skate's level 9: each half dressed as on its own, moved into place
+    const parts = levelData.sections.map((sec) => {
+      const out = buildFinale(sec.ld, theme, T, rng), g = new THREE.Group();
+      g.position.set(sec.dx, 0, sec.dz);
+      g.add(...out.meshes);
+      group.add(g);
+      return out;
+    });
+    finale = { update: (time) => { for (const p of parts) p.update(time); } };
+  } else if (levelData.finale) {
+    finale = buildFinale(levelData, theme, T, rng);
+    for (const m of finale.meshes) group.add(m);
+  }
   const parts = buildParticles(theme, rng, levelData.outerRadius + 14, T, levelData.finale ? { w: 96, d: 80 } : null);
   group.add(parts.points);
 
@@ -2300,6 +2527,13 @@ function buildWorld(scene, levelData) {
       lanterns.update(time);
       if (finale) finale.update(time);
       parts.update(time);
+      for (const m of checkpoints.medic) m.update(time);
+    },
+    // Run + Skate's level 9: the broken (medic) checkpoint with this index was repaired
+    repairCheckpoint(index) {
+      const k = (levelData.checkpoints || []).slice(0, index + 1).filter((cp) => cp.medic).length - 1;
+      if (k >= 0 && checkpoints.medic[k]) checkpoints.medic[k].repair();
+      if (hallway.repair) hallway.repair();   // its medkit crates are whole again
     },
     dispose() {
       if (disposed) return;
@@ -2364,8 +2598,9 @@ function setupLighting(scene) {
   // levelData (optional): the final run's lighting follows the camera (see update)
   function setTheme(theme, levelData = null) {
     scene.fog = fog; scene.background = bg;
-    const D = levelData && levelData.finaleSide > 0 ? -1 : 1;   // Run only's level 9: the corridor comes in from the right
-    blend = levelData && levelData.finale ? { x0: D * (-levelData.roomHalf - 34), x1: D * (-levelData.roomHalf + 2) } : null;
+    // Run only's level 9 and Run + Skate's (its run half) come in from the right
+    const D = levelData && (levelData.finaleSide > 0 || levelData.combo) ? -1 : 1;
+    blend = levelData && levelData.finale ? { x0: D * (-levelData.roomHalf - 34), x1: D * (-levelData.roomHalf + 2), zMin: levelData.combo ? levelData.iceZMax : -Infinity } : null;
     blendK = -1;
     if (blend) { mixLight(0); return; }
     apply(THEMES[(((theme | 0) % THEMES.length) + THEMES.length) % THEMES.length]);
@@ -2374,7 +2609,7 @@ function setupLighting(scene) {
 
   function update(dt, time, focusX = 0, focusZ = 0) {
     if (blend) {
-      const u = clamp((focusX - blend.x0) / (blend.x1 - blend.x0), 0, 1), k = u * u * (3 - 2 * u);
+      const u = focusZ < blend.zMin ? 0 : clamp((focusX - blend.x0) / (blend.x1 - blend.x0), 0, 1), k = u * u * (3 - 2 * u);
       if (Math.abs(k - blendK) > 0.002) { blendK = k; mixLight(k); }
     }
     F.set(focusX, 0, focusZ);

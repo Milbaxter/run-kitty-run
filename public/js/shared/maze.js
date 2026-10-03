@@ -677,8 +677,11 @@ function placePatternEnemies(rng, lvl, p) {
     const leg = legs[door];
     const c = { r: -leg.ox * leg.nx - leg.oz * leg.nz, th: -leg.ox * leg.ux - leg.oz * leg.uz };   // goal disc centre
     const R = lvl.centerRadius + CFG.WOLF_RADIUS + 0.1;
+    // (finale version 5+: one beside the disc, not in line with it, runs on level with its middle; before, its end came
+    // out NaN and it stopped halfway)
+    const edge = (th) => (lvl.fv >= 5 && Math.abs(th - c.th) >= R ? 0 : Math.sqrt(R * R - (th - c.th) ** 2));
     const route = w.route.map((q) => (Math.sign(q.r) === Math.sign(c.r) && Math.abs(q.th) <= vOut
-      ? { r: c.r - Math.sign(c.r) * Math.sqrt(R * R - (q.th - c.th) ** 2), th: q.th } : q));
+      ? { r: c.r - Math.sign(c.r) * edge(q.th), th: q.th } : q));
     if (route.every((q, k) => q === w.route[k])) return;
     for (let k = 1; k < route.length; k++) {
       const A = route[k - 1], B = route[k], n = Math.ceil(Math.hypot(B.r - A.r, B.th - A.th) / 0.25);
@@ -709,6 +712,83 @@ function placePatternEnemies(rng, lvl, p) {
       w.cycle = buildPlan(w, NO_FRAME, w.speed).cycle;
       w.off = rng.next() * w.cycle;
       return { name, wolves: [w] };
+    });
+  };
+  // finale version 5+: white crossers in the doorway, 2 + 0.6 per level after the first side by side across the door counting the lane's own
+  // (its rows already cross the doorway: the new ones only fill the gaps), each from the last lane's outer wall straight
+  // through the door to the edge of the victory circle (or level with its middle, past its side). The door is the last
+  // lane's first W, around its corner (th 0).
+  const doorWolves = (T, segs) => {
+    const leg = legs[door], n = 2 + Math.round(0.6 * (level - 1)), m = CFG.WOLF_RADIUS + 0.15;
+    const c = { r: -(leg.ox * leg.nx + leg.oz * leg.nz), th: -(leg.ox * leg.ux + leg.oz * leg.uz) }, R = lvl.centerRadius + CFG.WOLF_RADIUS + 0.1;
+    const lo = -W / 2 + m, hi = W / 2 - m;
+    let slots = [...Array(n).keys()].map((i) => lo + (hi - lo) * (i + 0.5) / n);
+    for (const sg of segs) if (!/^room-/.test(sg.name || '')) for (const w of sg.wolves) {
+      if (w.type !== 'crosser' || w.thMin > hi + 0.5 || w.thMax < lo - 0.5) continue;
+      const th = (w.thMin + w.thMax) / 2, near = slots.reduce((b, x) => (b === null || Math.abs(x - th) < Math.abs(b - th) ? x : b), null);
+      if (near !== null) slots = slots.filter((x) => x !== near);
+    }
+    const order = rng.shuffle([...Array(slots.length).keys()]), k0 = slots.length;
+    return order.map((k, i) => {
+      const th = slots[i], dth = th - c.th;
+      const end = Math.abs(dth) < R ? c.r - Math.sqrt(R * R - dth * dth) : c.r;
+      const route = [{ r: -W / 2 + m, th }, { r: end, th }];
+      if (i % 2) route.reverse();   // every other one starts at the victory circle
+      const w = { type: 'crosser', route, loop: false, offT: 0, offS: 0 };
+      finish(w, leg);
+      if (!patFit(w, T)) patFit(w, 2 * T);
+      if (!(w.speed > 0 && w.speed <= PAT_VMAX)) w.speed = PAT_VMAX * 0.8;
+      w.cycle = buildPlan(w, NO_FRAME, w.speed).cycle;
+      w.off = ((k + 0.3 * rng.next()) / k0) * w.cycle;   // taking turns, not all at once
+      return { name: 'door-crosser', wolves: [w] };
+    });
+  };
+  // finale version 5+: the lane before the last one kept too few side-to-side wolves (its rows at the junction end turn
+  // round in the open and go, the rest are often sparse designs). Wherever its crossers leave a gap longer than FILL_GAP
+  // (shrinking every level), single white crossers are added in it, wall to wall, taking turns.
+  const fillCrossers = (pl) => {
+    const leg = legs[pl.leg], m = CFG.WOLF_RADIUS + 0.15, gap = Math.max(3, 5.5 - 0.35 * (level - 1));
+    const a = W / 2 + 1, b = leg.len - W / 2 - 1;
+    const at = pl.segs.flatMap((sg) => sg.wolves.filter((w) => w.type === 'crosser').map((w) => (w.thMin + w.thMax) / 2)).filter((t) => t > a - gap / 2 && t < b + gap / 2);
+    const cuts = [a - gap / 2, ...at.sort((x, y) => x - y), b + gap / 2], ths = [];
+    for (let i = 1; i < cuts.length; i++) {
+      const k = Math.floor((cuts[i] - cuts[i - 1]) / gap);
+      for (let j = 1; j <= k; j++) ths.push(cuts[i - 1] + (cuts[i] - cuts[i - 1]) * j / (k + 1));
+    }
+    const order = rng.shuffle([...Array(ths.length).keys()]);
+    return ths.map((th, i) => {
+      const route = [{ r: -W / 2 + m, th }, { r: W / 2 - m, th }];
+      if (rng.chance(0.5)) route.reverse();
+      const w = { type: 'crosser', route, loop: false, offT: 0, offS: 0 };
+      finish(w, leg);
+      if (!patFit(w, pl.beat)) patFit(w, 2 * pl.beat);
+      if (!(w.speed > 0 && w.speed <= PAT_VMAX)) w.speed = PAT_VMAX * 0.8;
+      w.cycle = buildPlan(w, NO_FRAME, w.speed).cycle;
+      w.off = ((order[i] + 0.3 * rng.next()) / ths.length) * w.cycle;
+      return { name: 'fill-crosser', wolves: [w], top: 0, bottom: 0 };
+    });
+  };
+  // finale version 5+: the square where the last two lanes meet (the last lane's far end) lost its crossers (they turned
+  // round in the open), so only chargers passed through. White crossers cut across it at a slant instead, 1 + level / 2
+  // (rounded up), each from one of its two outer walls (not too near the inner corner: they'd graze it) to the inner wall just round the corner (the lane before's, or
+  // the last lane's), taking turns. In the last lane's frame: the square is th len +- W/2, the lane before carries on
+  // at r > W/2, the last lane at th < len - W/2.
+  const junctionWolves = (T) => {
+    const leg = legs[door], m = CFG.WOLF_RADIUS + 0.15, n = 1 + Math.ceil(level / 2), e = leg.len - W / 2;
+    const order = rng.shuffle([...Array(n).keys()]);
+    return order.map((k, i) => {
+      const u = (Math.floor(i / 2) + 0.5) / Math.ceil(n / 2), out = rng.range(0.6, 2.6);
+      const route = i % 2
+        ? [{ r: -W / 2 + m, th: e + 2.5 + u * (W - 2.5 - m) }, { r: W / 2 + out, th: e + m }]    // outer wall -> the lane before's inner wall
+        : [{ r: -W / 2 + m + u * (W - 2.5 - m), th: leg.len + W / 2 - m }, { r: W / 2 - m, th: e - out }];   // end wall -> the last lane's inner wall
+      if (rng.chance(0.5)) route.reverse();
+      const w = { type: 'crosser', route, loop: false, offT: 0, offS: 0 };
+      finish(w, leg);
+      if (!patFit(w, T)) patFit(w, 2 * T);
+      if (!(w.speed > 0 && w.speed <= PAT_VMAX)) w.speed = PAT_VMAX * 0.8;
+      w.cycle = buildPlan(w, NO_FRAME, w.speed).cycle;
+      w.off = ((k + 0.3 * rng.next()) / n) * w.cycle;
+      return { name: 'junction-crosser', wolves: [w], top: 0, bottom: 0 };
     });
   };
   const makeChargers = (li, D, lanes) => {
@@ -835,14 +915,19 @@ function placePatternEnemies(rng, lvl, p) {
   // carries on: they ran up and turned round in mid-air in the middle of the junction. (Wolves that end at a wall or
   // run on into the goal room are fine.) Dropped after everything's made, so the rest of the level stays the same.
   const endsInOpen = (w) => {
-    // (only the last lane's: those run up and down across the junction; the lane before's run left to right into the last
-    // lane, which plays fine)
-    if (!(lvl.fv >= 4) || lvl.finale || w.leg !== door || (w.type !== 'crosser' && w.type !== 'diagonal') || /^room-/.test(w.pattern || '')) return false;
-    const leg = legs[w.leg];
-    for (const q of [w.route[0], w.route[w.route.length - 1]]) {
-      const { x, z } = legPoint(leg, q.r, q.th);
+    // (only the last two lanes', which meet there: the last lane's run up and down across the junction. Version 5+ the lane
+    // before's too: from its outer wall to where its inner wall stops, turning round in the last lane. Its ones that end
+    // at a wall stay)
+    if (!(lvl.fv >= 4) || lvl.finale || (w.leg !== door && !(lvl.fv >= 5 && w.leg === door - 1)) || (w.type !== 'crosser' && w.type !== 'diagonal') || /^(room|junction)-/.test(w.pattern || '')) return false;
+    const leg = legs[w.leg], ends = [w.route[0], w.route[w.route.length - 1]].map((q) => legPoint(leg, q.r, q.th));
+    for (let i = 0; i < 2; i++) {
+      const { x, z } = ends[i], o = ends[1 - i];
       if (Math.abs(x) < ROOM + 1 && Math.abs(z) < ROOM + 1) continue;   // into the goal room (through its door)
-      if (!collideCircle(lvl, x, z, CFG.WOLF_RADIUS + 0.6).hit) return true;
+      if (lvl.fv >= 5) {
+        // version 5+: the wall has to be ahead of it (one it runs alongside, like the outer wall at the corner, doesn't count)
+        const dx = x - o.x, dz = z - o.z, n = Math.hypot(dx, dz) || 1, a = CFG.WOLF_RADIUS + 0.6;
+        if (!collideCircle(lvl, x + dx / n * a, z + dz / n * a, 0.3).hit) return true;
+      } else if (!collideCircle(lvl, x, z, CFG.WOLF_RADIUS + 0.6).hit) return true;
     }
     return false;
   };
@@ -883,13 +968,15 @@ function placePatternEnemies(rng, lvl, p) {
     return hits / samples;
   };
   const tuned = [];   // [plan, risk to aim at]
-  const pickNearest = (make, target) => {
+  // (trim: it gets trimmed later, so the least risky at or over the target, else the riskiest; otherwise the nearest)
+  const pickNearest = (make, target, trim, fill) => {
     let best = null, bestRisk = 0;
     for (let k = 0; k < LAST_LANE_TRIES; k++) {
       const pl = make();
       if (!pl) continue;
-      const rk = laneRisk(pl);   // (only trimmed later: the least risky at or over the target, else the riskiest)
-      if (!best || (rk >= target ? bestRisk < target || rk < bestRisk : rk > bestRisk)) { best = pl; bestRisk = rk; }
+      const rk = laneRisk(fill ? { ...pl, segs: [...pl.segs, ...fillCrossers(pl)] } : pl);   // (fill: as it'll be, with fillCrossers)
+      const better = trim ? (rk >= target ? bestRisk < target || rk < bestRisk : rk > bestRisk) : Math.abs(rk - target) < Math.abs(bestRisk - target);
+      if (!best || better) { best = pl; bestRisk = rk; }
     }
     return best;
   };
@@ -903,7 +990,7 @@ function placePatternEnemies(rng, lvl, p) {
       // everywhere else), plus the goal room's crossers and diagonals (roomWolves). On top of the level's wolf count.
       const prev = plans.length && plans[plans.length - 1].leg === li - 1 ? plans[plans.length - 1] : null;
       const makeDoor = () => placeLeg(li, legDesign(li, D, prev ? prev.beat : 0), makeChargers(li, D, chargerLanes(li, D)), false);
-      const pl = tuneLast ? pickNearest(makeDoor, LAST_LANE_RISK(level, true)) : makeDoor();
+      const pl = tuneLast ? pickNearest(makeDoor, LAST_LANE_RISK(level, true), true) : makeDoor();
       if (pl) {
         // (finale version 4+: not the three on the far side of the disc, behind it from the door, which is always on the
         // near side: they guarded nothing. Still made first, so the rest of the level comes out the same.)
@@ -916,8 +1003,8 @@ function placePatternEnemies(rng, lvl, p) {
       continue;
     }
     if (tuneLast && li === last - 1) {   // the lane before the final stretch (see pickNearest)
-      const pl = pickNearest(() => placeLeg(li, legDesign(li, D, 0), makeChargers(li, D, chargerLanes(li, D)), lesson), LAST_LANE_RISK(level, false));
-      if (pl) { plans.push(pl); tuned.push([pl, LAST_LANE_RISK(level, false)]); }
+      const pl = pickNearest(() => placeLeg(li, legDesign(li, D, 0), makeChargers(li, D, chargerLanes(li, D)), lesson), LAST_LANE_RISK(level, false), lvl.fv < 5, lvl.fv >= 5);
+      if (pl) { plans.push(pl); if (lvl.fv < 5) tuned.push([pl, LAST_LANE_RISK(level, false)]); }   // (version 5+: not trimmed, that only took its crossers)
       continue;
     }
     for (const off of bands) {
@@ -987,6 +1074,13 @@ function placePatternEnemies(rng, lvl, p) {
       else rk = nr;
     }
   }
+
+  // the doorway's white crossers (doorWolves), once the last lane's own are settled
+  const doorPlan = plans.find((pl) => pl.finale && pl.leg === door);
+  if (doorPlan && lvl.fv >= 5 && !lvl.finale) for (const sg of doorWolves(doorPlan.beat, doorPlan.segs)) doorPlan.segs.push({ ...sg, top: 0, bottom: 0 });
+  const beforePlan = plans.find((pl) => pl.leg === door - 1);
+  if (beforePlan && doorPlan && lvl.fv >= 5 && !lvl.finale && nb === 1) beforePlan.segs.push(...fillCrossers(beforePlan));
+  if (doorPlan && lvl.fv >= 5 && !lvl.finale && nb === 1) doorPlan.segs.push(...junctionWolves(doorPlan.beat));
 
   // ---- specs (a drifting wolf keeps its phase in the beat: at level start it is exactly in step)
   for (const pl of plans) {

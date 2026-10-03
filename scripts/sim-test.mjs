@@ -99,6 +99,25 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
       ok(room(v3).length === 6 && room(v4).length === 3 && inOpen.length === 0 && v4.enemies.filter(early).filter((e) => !was.has(key(e))).length <= 3   // (the level's count trim may take a different row end)
         && room(v4).every((e) => e.route.every((q) => at(e, q).x * dc.x + at(e, q).z * dc.z > 0)),
         `finale version 4: skate goal rooms without the three wolves behind the disc, no last-lane wolf turning round in the open (${v3.enemies.length} -> ${v4.enemies.length} wolves)`);
+      // version 5: the lane before's neither (those ending at a wall stay); checked on a few levels
+      // ...and level + 1 white wolves in the doorway, from the outer wall to the victory circle's edge (never inside it)
+      let open5 = 0, wall5 = 0, door5 = true, doors5 = 0;
+      for (const [L, s] of [[3, 1], [4, 21], [6, 2], [8, 5]]) {
+        const v5 = generateLevel(L, s, 'ice', 5), d = v5.legs.length - 1;
+        const dw = v5.enemies.filter((e) => e.pattern === 'door-crosser');
+        doors5 += dw.length;
+        door5 &&= v5.enemies.every((e) => e.route.every((q) => Number.isFinite(q.r) && Number.isFinite(q.th)));
+        const jw = v5.enemies.filter((e) => e.pattern === 'junction-crosser');   // (the junction square's slanted crossers: wall to wall)
+        door5 &&= jw.length === 1 + Math.ceil(L / 2) && jw.every((e) => e.route.every((q) => collideCircle(v5, at(e, q).x, at(e, q).z, CFG.WOLF_RADIUS + 0.3).hit));   // (rows through the door beside the disc: their end came out NaN)
+        door5 &&= dw.length <= L + 1 && dw.every((e) => [e.route[0], e.route[1]].sort((p, q) => p.r - q.r).every((q, j) => (j ? Math.hypot(at(e, q).x, at(e, q).z) >= v5.centerRadius + CFG.WOLF_RADIUS : collideCircle(v5, at(e, q).x, at(e, q).z, CFG.WOLF_RADIUS + 0.3).hit)));
+        for (const e of v5.enemies) if ((e.leg === d || e.leg === d - 1) && (e.type === 'crosser' || e.type === 'diagonal') && !/^room-/.test(e.pattern)) {
+          // (turning round with a wall ahead: one it only runs alongside doesn't count)
+          const [A, B] = [e.route[0], e.route.at(-1)].map((q) => at(e, q)), k = CFG.WOLF_RADIUS + 0.6;
+          const ahead = (p, o) => (Math.abs(p.x) < 9 && Math.abs(p.z) < 9) || collideCircle(v5, p.x + (p.x - o.x) / Math.hypot(p.x - o.x, p.z - o.z) * k, p.z + (p.z - o.z) / Math.hypot(p.x - o.x, p.z - o.z) * k, 0.3).hit;
+          if (!ahead(A, B) || !ahead(B, A)) open5++; else if (e.leg === d - 1) wall5++;
+        }
+      }
+      ok(open5 === 0 && wall5 > 0 && door5 && doors5 > 0, `finale version 5: no wolf in the last two skate lanes turning round in the open (${wall5} in the lane before still run wall to wall), doorway wolves (${doors5} new) and junction crossers`);
     }
     // version 3: Run + Skate's level 9 is both in a row (skate, a hallway, the run back to the goal room); Skate only keeps
     // the wide skate final run

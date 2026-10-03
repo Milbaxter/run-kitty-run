@@ -466,7 +466,7 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
 function startSim(players, startLevel, simMode = DEBUG_MODE) {
-  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 4 });
+  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 5 });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   accumulator = 0;
@@ -694,7 +694,7 @@ function handleEvents(events) {
         effects.shake(0.55);
         audio.play('death', { pan: panFor(ev.x) });
         const alive = sim.players.filter((q) => q.alive).length;
-        if (p && alive > 0) ui.toast(`${p.name} is down! Touch their circle to revive`, hexCss(p.color));
+        if (p && alive > 0) downToast(p);
         break;
       }
       case 'extraLife': {
@@ -713,7 +713,8 @@ function handleEvents(events) {
         effects.reviveBeam(ev.x, ev.z, p ? p.color : 0xffffff);
         effects.floatText(ev.x, 1.6, ev.z, 'SAVED!', p ? hexCss(p.color) : '#fff');
         audio.play('revive', { pan: panFor(ev.x) });
-        if (p && by) ui.toast(`${by.name} saved ${p.name}!`, hexCss(by.color));
+        // (only to the two of them: everyone sees SAVED! over the kitty; with 8 kitties these toasts never stopped)
+        if (p && by && (mine(ev.playerId) || mine(ev.by))) ui.toast(`${by.name} saved ${p.name}!`, hexCss(by.color));
         break;
       }
       case 'crown': {
@@ -795,6 +796,13 @@ function handleEvents(events) {
 
 // haptics: only for your own kitty online; every kitty on this device offline
 function mine(id) { return !online.playing || id === online.me; }
+// one 'down' toast for everyone who's down, updated as more go down (not one per kitty)
+function downToast(p) {
+  const down = sim.players.filter((q) => !q.alive), others = down.filter((q) => q.id !== p.id);
+  const text = !others.length ? `${p.name} is down! Touch their circle to revive`
+    : down.length === 2 ? `${p.name} and ${others[0].name} are down!` : `${down.length} kitties are down!`;
+  ui.toast(text, hexCss(p.color), 'down');
+}
 
 // ---------- the final run: opening fly-over and the victory party ----------
 const FW_COLORS = [0xff5c8a, 0xffd23f, 0x3ee08f, 0x4cc9ff, 0xb388ff, 0xff8c42, 0xffffff];

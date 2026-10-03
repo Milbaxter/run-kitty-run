@@ -799,15 +799,22 @@ function createUI(root) {
     }, Math.max(400, ms)));
   }
 
-  function toast(text, color) {
+  // key: a toast with the same key still showing is updated in place (and stays up longer) instead of stacking a new
+  // one. Phones show at most 2 at a time (a big game's toasts covered the screen), computers 5.
+  const TOAST_MAX = TOUCH ? 2 : 5;
+  function toast(text, color, key) {
     const c = color == null ? '#ffffff' : hexColor(color);
-    const t = el('div', 'rkr-toast');
+    let t = key ? [...toastsEl.children].find((x) => x.dataset.key === key && !x.classList.contains('rkr-bye')) : null;
+    if (t) { clearTimeout(t._bye); t.textContent = ''; } else {
+      t = el('div', 'rkr-toast');
+      if (key) t.dataset.key = key;
+      toastsEl.appendChild(t);
+    }
     t.style.setProperty('--tc', c);
     t.style.setProperty('--tc-glow', rgba(c, 0.35));
     t.append(el('i'), document.createTextNode(text));
-    toastsEl.appendChild(t);
-    while (toastsEl.children.length > 5) toastsEl.firstChild.remove();
-    setTimeout(() => {
+    while (toastsEl.children.length > TOAST_MAX) toastsEl.firstChild.remove();
+    t._bye = setTimeout(() => {
       t.classList.add('rkr-bye');
       setTimeout(() => t.remove(), 420);
     }, 2600);

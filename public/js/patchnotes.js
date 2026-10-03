@@ -4,6 +4,9 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Skate levels, the last stretch: white wolves now run up and down through the goal room\'s door to the edge of the victory circle (more every level), the corner where the last two lanes meet has white wolves cutting across it, and the lane before the last one has more side-to-side wolves. No more wolves stopping in mid-air at the corner or halfway up a lane. Online, everyone in the lobby needs the latest version for these',
+      'Big games are calmer: one "down" message for everyone who\'s down instead of one per kitty, "saved" messages only for the two kitties involved, and phones show at most two messages at a time',
+      'No more arrows on the floor in the corners',
       'Smoother: fewer small hitches mid-level (everything the game draws is prepared before the level starts)',
       'Skate levels: the last two lanes before the goal now get a little harder every level instead of being luck of the draw (no more very hard level followed by an easy one), the wolves behind the victory circle that guarded nothing are gone, and white wolves no longer run up and turn round in the middle of a junction. Online, everyone in the lobby needs the latest version for these',
       'Smoother and lighter: the big level 9s load faster and use far less memory (only the wolves on screen are drawn), coming back to an online game after switching apps no longer freezes it, and the server handles busy lobbies better',

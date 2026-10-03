@@ -25,9 +25,9 @@ const THEMES = [
     sky: 0x9fd8ff, fog: 0xbfe3f5, fogNear: 48, fogFar: 125,
     ground: 0x86c95f, groundAlt: 0x97d26c, outerGround: 0x7cbf58, plaza: 0xeee2c6,
     wall: 0x3f8e3d, wallTop: 0x8ed86f, accent: 0xfff2a0, lamp: 0xffd27a,
-    pillar: 0xe0d6bd, trunk: 0x8a5a3a, rock: 0xa3a39a, tuft: 0x5fae45, chevron: 0xffffff,
+    pillar: 0xe0d6bd, trunk: 0x8a5a3a, rock: 0xa3a39a, tuft: 0x5fae45,
     hemiSky: 0xd8f0ff, hemiGround: 0x5d7a3c, hemiIntensity: 1.2,
-    sunColor: 0xfff0d8, sunIntensity: 2.3, glowK: 0.22, chevronOpacity: 0.32,
+    sunColor: 0xfff0d8, sunIntensity: 2.3, glowK: 0.22,
     floorStyle: 'grass', wallStyle: 'hedge', particles: 'pollen', crownEmissive: 0,
     crowns: [0x5cb84a, 0x4aa63f, 0x78c850, 0x3f9a45, 0x8fd35a],
     smalls: [0xffffff, 0xff8fc8, 0xffe14d, 0xb48cff, 0xff6b6b],
@@ -38,9 +38,9 @@ const THEMES = [
     sky: 0xffd9a8, fog: 0xf2cfa4, fogNear: 48, fogFar: 120,
     ground: 0xb9a457, groundAlt: 0xc4ae60, outerGround: 0xab9649, plaza: 0xe3d1b0,
     wall: 0xa8432a, wallTop: 0xf08c3c, accent: 0xffc04a, lamp: 0xffa040,
-    pillar: 0xcdb89c, trunk: 0x6b4430, rock: 0x948a7c, tuft: 0xb08d3c, chevron: 0xfff2cc,
+    pillar: 0xcdb89c, trunk: 0x6b4430, rock: 0x948a7c, tuft: 0xb08d3c,
     hemiSky: 0xffe4c4, hemiGround: 0x6e4a2c, hemiIntensity: 1.1,
-    sunColor: 0xffc890, sunIntensity: 2.2, glowK: 0.28, chevronOpacity: 0.32,
+    sunColor: 0xffc890, sunIntensity: 2.2, glowK: 0.28,
     floorStyle: 'autumn', wallStyle: 'hedge', particles: 'leaves', crownEmissive: 0,
     crowns: [0xe8642c, 0xd83f2a, 0xf2a03a, 0xf5c542, 0xb8462e],
     smalls: [0xe8642c, 0xd83f2a, 0xf2a03a, 0xf5c542, 0x9c3b22],
@@ -51,9 +51,9 @@ const THEMES = [
     sky: 0xcfe4f7, fog: 0xdbe9f6, fogNear: 44, fogFar: 115,
     ground: 0xdfe7f3, groundAlt: 0xd2ddee, outerGround: 0xdbe4f1, plaza: 0xbcc8da,
     wall: 0x7f90ab, wallTop: 0xf6f9ff, accent: 0x8fdcff, lamp: 0xffc878,
-    pillar: 0x9aa6ba, trunk: 0x5a4636, rock: 0x8d9bb0, tuft: 0xffffff, chevron: 0x5aa8f0,
+    pillar: 0x9aa6ba, trunk: 0x5a4636, rock: 0x8d9bb0, tuft: 0xffffff,
     hemiSky: 0xe4eeff, hemiGround: 0x5f7fc0, hemiIntensity: 1.15,
-    sunColor: 0xfff4e6, sunIntensity: 1.6, glowK: 0.3, chevronOpacity: 0.38,
+    sunColor: 0xfff4e6, sunIntensity: 1.6, glowK: 0.3,
     floorStyle: 'snow', wallStyle: 'stone', particles: 'snow', crownEmissive: 0,
     crowns: [0x2f6b52, 0x3a7a5e, 0x2a5e4a, 0x497f68, 0xbfd8dc],
     smalls: [0xffffff, 0xd8ecff, 0x9fd8ff],
@@ -64,9 +64,9 @@ const THEMES = [
     sky: 0x150a2e, fog: 0x1e0f40, fogNear: 30, fogFar: 90,
     ground: 0x2c2650, groundAlt: 0x342c5c, outerGround: 0x221c40, plaza: 0x4a4280,
     wall: 0x352c66, wallTop: 0xff4fd8, accent: 0x3ff6ff, lamp: 0x7cf8ff,
-    pillar: 0x40367a, trunk: 0x2a2040, rock: 0x3e3570, tuft: 0x3b2f7a, chevron: 0x3ff6ff,
+    pillar: 0x40367a, trunk: 0x2a2040, rock: 0x3e3570, tuft: 0x3b2f7a,
     hemiSky: 0x9a84ff, hemiGround: 0x2a1a48, hemiIntensity: 1.2,
-    sunColor: 0xb8a8ff, sunIntensity: 1.1, glowK: 0.35, chevronOpacity: 0.6,
+    sunColor: 0xb8a8ff, sunIntensity: 1.1, glowK: 0.35,
     floorStyle: 'neon', wallStyle: 'neon', particles: 'motes', crownEmissive: 0.12,
     crowns: [0x5b2fa0, 0x47288a, 0x6a35b0, 0x3a2470, 0x2f6fa0],
     smalls: [0x3ff6ff, 0xff4fd8, 0xb6ff4f, 0xffd24f],
@@ -76,9 +76,9 @@ const THEMES = [
     sky: 0xbfe6ff, fog: 0xd8eefa, fogNear: 48, fogFar: 125,
     ground: 0x9edb73, groundAlt: 0xaae27f, outerGround: 0x92d468, plaza: 0xf3e6d8,
     wall: 0x4f9a48, wallTop: 0xf6b8d4, accent: 0xffd0e6, lamp: 0xffd6a0,
-    pillar: 0xeadfd0, trunk: 0x6e4a3a, rock: 0xa8a8a0, tuft: 0x6cc24f, chevron: 0xffffff,
+    pillar: 0xeadfd0, trunk: 0x6e4a3a, rock: 0xa8a8a0, tuft: 0x6cc24f,
     hemiSky: 0xf0f4ff, hemiGround: 0x6a8a4a, hemiIntensity: 1.2,
-    sunColor: 0xfff4ec, sunIntensity: 2.2, glowK: 0.22, chevronOpacity: 0.32,
+    sunColor: 0xfff4ec, sunIntensity: 2.2, glowK: 0.22,
     floorStyle: 'grass', wallStyle: 'hedge', particles: 'leaves', crownEmissive: 0,
     crowns: [0xffb7d5, 0xff9ec7, 0xffc9df, 0xf7a8c8, 0xfff0f6],   // cherry blossom trees (and falling petals)
     smalls: [0xffffff, 0xffb7d5, 0xfff07a, 0xb7e4ff, 0xd6b8ff],
@@ -945,18 +945,6 @@ function makeGlowTexture(T) {
   }, { repeat: false }));
 }
 
-function makeChevronTexture(T) {
-  return T.t(canvasTex(128, (g, S) => {
-    g.clearRect(0, 0, S, S);
-    g.strokeStyle = '#fff'; g.lineCap = 'round'; g.lineJoin = 'round'; g.lineWidth = 13;
-    for (const ox of [30, 66]) {
-      g.globalAlpha = ox === 30 ? 0.6 : 1;
-      g.beginPath(); g.moveTo(ox, 28); g.lineTo(ox + 30, 64); g.lineTo(ox, 100); g.stroke();
-    }
-    g.globalAlpha = 1;
-  }, { repeat: false }));
-}
-
 function makeSpriteTexture(kind, T) {
   return T.t(canvasTex(64, (g, S) => {
     if (kind === 'leaf') {
@@ -1399,7 +1387,7 @@ function buildIce(levelData, T, theme) {
   return ice;
 }
 
-// ---------------------------------------------------------------- lanterns + chevrons
+// ---------------------------------------------------------------- lanterns
 
 function buildLanterns(levelData, theme, T, rng) {
   const H = CFG.WALL_HEIGHT;
@@ -1471,23 +1459,7 @@ function buildLanterns(levelData, theme, T, rng) {
   };
   update(0);
 
-  // chevrons: in each corridor corner, pointing the way on (not on the final run: no hints along the way)
-  const chevGeo = T.g(new THREE.PlaneGeometry(1.5, 1.5)); chevGeo.rotateX(-Math.PI / 2);
-  const chevItems = [];
-  const cs = levelData.corners;
-  for (let k = 1; !levelData.finale && k < cs.length - 1; k++) {
-    const dx = cs[k + 1].x - cs[k].x, dz = cs[k + 1].z - cs[k].z;
-    chevItems.push({ x: cs[k].x, z: cs[k].z, y: 0.02, ry: -Math.atan2(dz, dx) });
-  }
-  const chevMat = T.m(new THREE.MeshBasicMaterial({
-    map: makeChevronTexture(T), color: theme.chevron,
-    transparent: true, opacity: theme.chevronOpacity, depthWrite: false, fog: true,
-  }));
-  const chevrons = makeInstanced(chevGeo, chevMat, chevItems);
-  chevrons.renderOrder = 1;
-  const chevUpdate = (time) => { chevMat.opacity = theme.chevronOpacity * (0.75 + 0.25 * Math.sin(time * 2.4)); };
-
-  return { meshes: [pillars, orbs, glows, chevrons], update: (time) => { update(time); chevUpdate(time); } };
+  return { meshes: [pillars, orbs, glows], update };
 }
 
 // ---------------------------------------------------------------- decor

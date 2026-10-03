@@ -484,13 +484,13 @@ function createUI(root) {
   const toastsEl = el('div', 'rkr-toasts');
 
   // the rainbow the cat icon wears with every reward (8+ wins and 60+ revives): one shared gradient, sliding across
-  // the face like the rainbow fur in the game
+  // the face like the rainbow fur in the game (one loop slides it exactly one repeat along its own direction: seamless)
   const rainbowDefs = el('div', 'rkr-defs', `<svg width="0" height="0" aria-hidden="true"><defs>
     <linearGradient id="rkr-rainbow-fur" x1="0" y1="0" x2="1" y2="0.6" spreadMethod="repeat">
       <stop offset="0" stop-color="#ff5a5a"/><stop offset=".17" stop-color="#ffb84a"/><stop offset=".33" stop-color="#f4f05a"/>
       <stop offset=".5" stop-color="#6ef08a"/><stop offset=".67" stop-color="#5ac8ff"/><stop offset=".83" stop-color="#b47cff"/>
       <stop offset="1" stop-color="#ff5a5a"/>
-      <animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="-1 0" dur="2.2s" repeatCount="indefinite"/>
+      <animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="-1 -0.6" dur="2.2s" repeatCount="indefinite"/>
     </linearGradient></defs></svg>`);
   root.append(hud, bannerEl, toastsEl, rainbowDefs);
 

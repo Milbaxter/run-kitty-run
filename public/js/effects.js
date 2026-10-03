@@ -13,7 +13,7 @@ const PX = 0, PY = 1, PZ = 2, VX = 3, VY = 4, VZ = 5, AGE = 6, LIFE = 7, S0 = 8,
   GRAV = 10, DRAG = 11, CR = 12, CG = 13, CB = 14, A0 = 15, ROT = 16, SPIN = 17, PH = 18, FREQ = 19,
   SHAPE = 20, OX = 21, OZ = 22, OMEGA = 23;
 const S = 24;
-const SHAPE_ROUND = 0, SHAPE_TWINKLE = 1, SHAPE_RECT = 2, SHAPE_HEART = 3, SHAPE_FISH = 4;
+const SHAPE_ROUND = 0, SHAPE_TWINKLE = 1, SHAPE_RECT = 2, SHAPE_HEART = 3, SHAPE_FISH = 4, SHAPE_STAR = 5;
 
 const TAU = Math.PI * 2;
 const rand = Math.random;
@@ -48,7 +48,18 @@ void main() {
   vec2 p = gl_PointCoord - 0.5;
   float a;
   vec3 c;
-  if (vSquash < 0.0) {
+  if (vSquash < -1.5) {
+    // star of life (SHAPE_STAR): three crossed bars in the colour, a white staff up the middle, turning slowly
+    vec2 q = vec2(vRot.x * p.x - vRot.y * p.y, vRot.y * p.x + vRot.x * p.y);
+    a = 0.0;
+    for (int k = 0; k < 3; k++) {
+      float an = float(k) * 1.0472;
+      vec2 r = vec2(cos(an) * q.x - sin(an) * q.y, sin(an) * q.x + cos(an) * q.y);
+      a = max(a, (1.0 - smoothstep(0.40, 0.45, abs(r.y))) * (1.0 - smoothstep(0.10, 0.135, abs(r.x))));
+    }
+    float staff = (1.0 - smoothstep(0.025, 0.045, abs(q.x))) * (1.0 - smoothstep(0.30, 0.33, abs(q.y)));
+    c = mix(vColor, vec3(1.0), staff);
+  } else if (vSquash < 0.0) {
     // heart (SHAPE_HEART): (x^2 + y^2 - 1)^3 - x^2 y^3 <= 0, point-sprite y runs down
     vec2 q = vec2(p.x, 0.08 - p.y) * 2.7;
     float h = pow(q.x * q.x + q.y * q.y - 1.0, 3.0) - q.x * q.x * q.y * q.y * q.y;
@@ -249,6 +260,9 @@ function createEffects(scene) {
         squash = 1.1 + 0.9 * Math.abs(Math.sin(ph));
       } else if (shape === SHAPE_HEART) {
         squash = -1;
+      } else if (shape === SHAPE_STAR) {
+        rot = d[o + ROT] + d[o + SPIN] * dt; d[o + ROT] = rot;
+        squash = -2;
       }
       const i3 = i * 3, i4 = i * 4;
       pos[i3] = px; pos[i3 + 1] = py; pos[i3 + 2] = pz;
@@ -600,12 +614,15 @@ function createEffects(scene) {
     }
   }
 
-  // A little heart left behind a running kitty (30+ revives): drifts up and fades. pink: [r, g, b] 0..1
-  function heartTrail(x, y, z, pink) {
+  // A little star of life (the medic cape's symbol) left behind a running kitty (30+ revives), in the kitty's colour:
+  // drifts up, turning slowly, and fades. color: a THREE.Color or hex
+  const _trailCol = new THREE.Color();
+  function medicTrail(x, y, z, color) {
+    _trailCol.set(color);
     const p = emit(soft, x + rr(-0.12, 0.12), y + rr(0.2, 0.45), z + rr(-0.12, 0.12), rr(-0.15, 0.15), rr(0.35, 0.7), rr(-0.15, 0.15),
-      rr(1.0, 1.4), rr(0.34, 0.44), 0.1, pink[0], pink[1], pink[2], 1);
+      rr(1.0, 1.4), rr(0.36, 0.46), 0.1, _trailCol.r, _trailCol.g, _trailCol.b, 1);
     if (p < 0) return;
-    soft.data[p + DRAG] = 1.2; soft.data[p + SHAPE] = SHAPE_HEART; soft.data[p + SPIN] = rr(-1.5, 1.5);
+    soft.data[p + DRAG] = 1.2; soft.data[p + SHAPE] = SHAPE_STAR; soft.data[p + ROT] = rr(0, TAU); soft.data[p + SPIN] = rr(-1.2, 1.2);
   }
 
   // ---------------------------------------------------------------- fireworks (the final run's victory party)
@@ -789,7 +806,7 @@ function createEffects(scene) {
 
   return {
     burst, deathPoof, reviveBeam, pickup, teleport, shieldPop, dust, iceKick, confetti, firework, confettiRain, munch,
-    shake, getShakeOffset, floatText, update, heartTrail,
+    shake, getShakeOffset, floatText, update, medicTrail,
   };
 }
 

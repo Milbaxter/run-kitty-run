@@ -710,48 +710,36 @@ function createKittyModel(color) {
       packHeads.push(m);
     }
   }
-  // revive rewards (rescues in this run): 10+ a medic cape, 60+ feathered angel wings (30+ is a heart trail, main.js)
-  // Cape: a cloth draped over the back from a red collar, billowing up and rippling with the stride (own geometry:
-  // its vertices move every frame).
-  const capeGeo = new THREE.PlaneGeometry(CAPE_LEN, CAPE_W, 8, 4);
+  // revive rewards (rescues in this run): 10+ a medic cape, 60+ feathered wings (30+ is a heart trail, main.js)
+  // Cape: a little cloth simulation. The cape's grid points are particles (verlet, in world space) pinned along the
+  // collar; gravity, the body's real movement and drag do the rest, so it drapes over the back, trails behind when you
+  // run, swings out on turns and settles when you stop. Kept outside a body-shaped ellipsoid; springs to its draped
+  // rest shape keep it from crumpling.
+  const capeGeo = new THREE.PlaneGeometry(CAPE_LEN, CAPE_W, CAPE_NX - 1, CAPE_NZ - 1);
   capeGeo.rotateX(-Math.PI / 2);                     // lies flat (normal up), length along x, width along z
   capeGeo.translate(CAPE_X0 - CAPE_LEN / 2, 0, 0);   // front edge at the neck
-  const capeBase = Float32Array.from(capeGeo.attributes.position.array);
+  const cloth = makeCapeCloth(capeGeo);
   const cape = new THREE.Group();
-  const capeCloth = new THREE.Mesh(capeGeo, cmat('capeMat', () => new THREE.MeshStandardMaterial({ map: capeTexture(), side: THREE.DoubleSide, roughness: 0.85, flatShading: true })));
+  const capeCloth = new THREE.Mesh(capeGeo, cmat('capeMat:' + new THREE.Color(color).getHexString(), () => new THREE.MeshStandardMaterial({ map: capeTexture(color), side: THREE.DoubleSide, roughness: 0.85, flatShading: true })));
   capeCloth.castShadow = true;
-  const capeCollar = new THREE.Mesh(cgeo('capeCollar', () => new THREE.TorusGeometry(0.1, 0.022, 5, 14).rotateY(Math.PI / 2)), cmat('capeCollarMat', () => new THREE.MeshStandardMaterial({ color: 0xe2352f, roughness: 0.6, flatShading: true })));
+  const capeCollar = new THREE.Mesh(cgeo('capeCollar', () => new THREE.TorusGeometry(0.1, 0.022, 5, 14).rotateY(Math.PI / 2)), cmat('capeCollarMat:' + new THREE.Color(color).getHexString(), () => new THREE.MeshStandardMaterial({ color: new THREE.Color(color), roughness: 0.6, flatShading: true })));
   capeCollar.position.set(0.17, 0.5, 0);
   capeCollar.rotation.z = -0.5;
   cape.add(capeCloth, capeCollar);
   cape.visible = false;
   rig.add(cape);
-  // Wings: jointed (shoulder -> elbow -> wrist, angelWingSegments), mirrored for the left side, rooted low on the
-  // kitty's sides. Each joint follows the one before a beat later, so a flap rolls out to the tip like a bird's.
-  const wings = [];
-  for (const sz of [1, -1]) {
-    const root = new THREE.Group();
-    root.position.set(0.13, 0.55, 0.19 * sz);   // at the shoulder, out on the kitty's side (clear of the cape)
-    root.scale.set(1.15, 1.15, 1.15 * sz);
-    root.visible = false;
-    rig.add(root);
-    const joints = [];
-    let parent = root;
-    angelWingSegments().forEach((geo, k) => {
-      const j = new THREE.Group();
-      if (k > 0) {
-        const a = WING_BONE(WING_JOINTS[k - 1]), b = WING_BONE(WING_JOINTS[k]);
-        j.position.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-      }
-      parent.add(j);
-      const m = new THREE.Mesh(geo, mat);
-      m.castShadow = true;
-      j.add(m);
-      joints.push(j);
-      parent = j;
-    });
-    wings.push({ root, joints });
-  }
+  // Wings: both wings' bones and feathers are instances of one flat feather shape (one draw call), placed every frame
+  // from two poses blended by how open the wings are (makeWingPose): folded like a resting bird's / a skyscale's (a Z:
+  // wrist up by the shoulder, the wing draped back along the flank) and open (spread to the sides in an arch).
+  const wingMesh = new THREE.InstancedMesh(cgeo('wingFeather', () => new THREE.IcosahedronGeometry(1, 0)),
+    cmat('wingFeatherMat', () => new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.75, flatShading: true })), 2 * WING_INST);
+  wingMesh.castShadow = true;
+  wingMesh.frustumCulled = false;
+  wingMesh.visible = false;
+  const wingCols = wingColors(color);
+  for (let i = 0; i < 2 * WING_INST; i++) wingMesh.setColorAt(i, wingCols[i % WING_INST]);
+  rig.add(wingMesh);
+  const wingPose = makeWingPose(wingMesh);
   // crown stones: a win from 2 to 6 sets one gem on a point (front first, then pairs toward the back), in place of its pearl
   const tips = [0, 1, 4, 2, 3].map((i, n) => {
     const a = (i / 5) * TAU_, pearl = new THREE.Mesh(P.ico1, pearlMat());
@@ -831,48 +819,17 @@ function createKittyModel(color) {
       flAcV += ((acTgt - flAc) * 35 - flAcV * 4.5) * h; flAc += flAcV * h;
     }
     cape.visible = !!s.cape && !ghost;
-    if (cape.visible) {
-      // standing: draped over the back (sides hanging), stirring in a breeze. Moving: it streams out behind, lifts
-      // toward level, ripples in waves from the neck to the hem and swings out to the side on turns.
-      const go = flowGo, sway = flSw * 0.35, lift = Math.max(0, go + flAc * 0.8);
-      const pos = capeGeo.attributes.position, a = pos.array;
-      for (let i = 0; i < a.length; i += 3) {
-        const u = (CAPE_X0 - capeBase[i]) / CAPE_LEN, v = capeBase[i + 2] / (CAPE_W / 2), u2 = u * u;
-        const wave = Math.sin(t * (2 + 7 * go) - u * 5 + v * 0.8);
-        a[i] = capeBase[i] - u * 0.08 * lift;
-        a[i + 1] = CAPE_Y - u * 0.07 * (1 - go) - v * v * (0.17 + 0.05 * u) * (1 - 0.6 * go * u)
-          + Math.pow(u, 1.5) * 0.09 * lift + wave * u * (0.006 + 0.014 * go) + Math.sin(t * 1.7 + seedOff + u * 2) * 0.006 * u;
-        a[i + 2] = capeBase[i + 2] * (1 + 0.15 * u) + u2 * sway;
-      }
-      pos.needsUpdate = true;
-      capeGeo.computeVertexNormals();
-    }
+    if (cape.visible) cloth.step(rig, mdt, t, flowGo);
+    else cloth.reset();
     const winged = !!s.wings && !ghost;
+    wingMesh.visible = winged;
     if (winged) {
-      // spread out to the kitty's sides; no flapping, they move with the body like the tail
-      wingPh += mdt * 0.5 * TAU_;
-      const breath = Math.sin(wingPh) * 0.05 * (1 - flowGo), stride = Math.sin(phase * 2) * 0.07 * runAmt;
-      for (let i = 0; i < wings.length; i++) {
-        const w = wings[i], sz = Math.sign(w.root.scale.z);   // the left wing is mirrored: its own (unmirrored) rotations flip
-        // open = how far the wings are spread: folded back along the body at rest, opening out to the sides as you run
-        // (more when speeding up). Open, they make an arch seen from the front: up from the shoulder, curving down to
-        // the tip. They breathe a little at rest, bob with the stride and swing with turns (both the same way, like the
-        // tail).
-        const open = Math.min(1, Math.max(0, 0.15 + 0.85 * flowGo + Math.max(0, flAc) * 0.4));
-        const fold = 1 - open;
-        w.root.rotation.x = sz * -(0.08 + 0.3 * open + breath + stride * 0.5);   // - = up: the arch rises from the shoulder
-        w.root.rotation.y = sz * -(0.15 + 0.55 * fold) + flSw * 0.45;           // - = back toward the tail (folding)
-        w.root.rotation.z = 0;
-        // the outer joints trail the shoulder (eased), so the movement flows out to the tip
-        for (let k = 1; k < 3; k++) {
-          const j = w.joints[k];
-          // folded: the outer wing tucks back along the body; open: it spreads out, curving down toward the tip (the arch)
-          j.rotation.y = smoothTo(j.rotation.y, -fold * (k === 1 ? 0.6 : 0.8) + sz * flSw * 0.15 * k, 10 - 3 * k, mdt);
-          j.rotation.x = smoothTo(j.rotation.x, open * (k === 1 ? 0.22 : 0.3) + fold * 0.12, 10 - 3 * k, mdt);   // + = down
-        }
-      }
+      // open: folded at rest, spreading as you run (more when speeding up); breath at rest, bob with the stride,
+      // swing with turns and sweep back when speeding up (the springs above, like the tail)
+      wingPh += mdt * 0.45 * TAU_;
+      const open = Math.min(1, Math.max(0, 0.05 + 0.95 * flowGo + Math.max(0, flAc) * 0.4));
+      wingPose.update(mdt, open, flSw * 0.45, Math.max(-0.3, flAc * 0.5), Math.sin(wingPh) * 0.012 * (1 - flowGo) + Math.sin(phase * 2) * 0.014 * runAmt);
     }
-    for (const w of wings) w.root.visible = winged;
     if (pack.visible) {
       if (s.packColors !== packCols) setPackColors(s.packColors);
       // the passengers bounce with the stride (a beat behind the body) and look about when idle
@@ -1653,20 +1610,21 @@ const PACK_SLOTS = [
 const PACK_KIT_S = 1.3;   // passenger head scale
 // medic cape (10+ revives): front edge at the neck, CAPE_LEN back along the body, CAPE_W wide, CAPE_Y above the feet
 const CAPE_LEN = 0.44, CAPE_W = 0.36, CAPE_X0 = 0.16, CAPE_Y = 0.62;
-function capeTexture() {
-  return ctex('capeTex4', () => {
+function capeTexture(color) {
+  const star = '#' + new THREE.Color(color).getHexString();   // the symbol and the border in the kitty's own colour
+  return ctex('capeTex7:' + star, () => {
     const c = document.createElement('canvas');
     c.width = c.height = 256;
     const g = c.getContext('2d');
-    const RED = '#e2352f', WHITE = '#f8f8f5';
+    const WHITE = '#f8f8f5';
     // canvas x runs hem (0) -> neck (256) along the cape, canvas y across it; "up" on the symbol points at the neck (+x)
-    g.fillStyle = RED; g.fillRect(0, 0, 256, 256);
-    g.fillStyle = WHITE; g.fillRect(14, 16, 256 - 14 - 10, 256 - 32);   // white cloth inside a red border all round
+    g.fillStyle = star; g.fillRect(0, 0, 256, 256);
+    g.fillStyle = WHITE; g.fillRect(14, 16, 256 - 14 - 10, 256 - 32);   // white cloth inside a kitty-coloured border all round
     // the star of life, as big as the cape allows (the cape is longer than wide: drawn stretched across so it isn't
     // squashed on the cloth), a little toward the hem (the neck end hides under the head)
     const cx = 124, cy = 128;
-    g.save(); g.translate(cx, cy); g.scale(1, CAPE_LEN / CAPE_W);
-    g.fillStyle = RED;
+    g.save(); g.translate(cx, cy); g.scale(1.34, 1.34 * CAPE_LEN / CAPE_W);   // fills the white cloth edge to edge
+    g.fillStyle = star;
     for (const a of [0, Math.PI / 3, -Math.PI / 3]) { g.save(); g.rotate(a); g.fillRect(-66, -19, 132, 38); g.restore(); }
     // the white staff (pointing at the neck) with a snake wound round it
     g.strokeStyle = WHITE; g.fillStyle = WHITE; g.lineCap = 'round';
@@ -1683,53 +1641,186 @@ function capeTexture() {
   });
 }
 
-// feathered angel wing (60+ revives) for the +z side, jointed like a bird's: arm (shoulder -> elbow), forearm
-// (elbow -> wrist) and hand (wrist -> tip), one baked geometry each with its origin at its own joint, so the model can
-// bend them one after the other (movement flows out to the tip). Layers of white feathers hang down from the arch.
-// The arch of the wing (the leading edge), shoulder on the back -> elbow -> wrist (the top of the arch) -> wingtip:
-// up and out from the back, peaking at the wrist and dipping a little toward the tip, like a classic angel wing.
-// spread out flat to the side (seen from above: either side of the body, level with the shoulders), the leading edge
-// going straight out from the shoulder and curving back a little at the tip; the feathers fan back toward the tail
-const WING_PTS = [[0, 0, 0], [0.03, 0.03, 0.11], [0.02, 0.04, 0.22], [-0.03, 0.03, 0.32]];
-const WING_BONE = (t) => {   // t 0..1 along the arch (joint k at t = WING_JOINTS[k])
-  const s = Math.min(2.999, Math.max(0, t * 3)), k = Math.floor(s), f = s - k, a = WING_PTS[k], b = WING_PTS[k + 1];
-  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
-};
-const WING_JOINTS = [0, 1 / 3, 2 / 3, 1];
-function angelWingSegments() {
-  return cgeo('angelWing7', () => {
-    // three layers of white feathers hanging down from the arch (back to front: long flight feathers, medium
-    // secondaries, short soft coverts), longest toward the tip where they flare out a little, a shade greyer behind
-    const ROWS = [[1, 0xdfe5ef, 0.05, 0.013, 0], [0.62, 0xf0f3f9, 0.05, 0.014, 0.012], [0.3, 0xfdfeff, 0.055, 0.018, 0.024]];
-    const V = (a) => new THREE.Vector3(a[0], a[1], a[2]);
-    const segs = [];
-    for (let k = 0; k < 3; k++) {
-      const o = WING_PTS[k], e = WING_PTS[k + 1], boneDir = V(e).sub(V(o)).normalize();
-      // a broad flat feather from a to b: width along the arch, thin through the wing
-      const feather = (a, b, width, thick) => {
-        const dir = V(b).sub(V(a)), len = dir.length();
-        dir.normalize();
-        const n = new THREE.Vector3().crossVectors(dir, boneDir).normalize(), w = new THREE.Vector3().crossVectors(n, dir);
-        const m = new THREE.Matrix4().makeBasis(w.multiplyScalar(width), dir.multiplyScalar(len / 2), n.multiplyScalar(thick));
-        return m.setPosition((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
-      };
-      const rel = (p) => [p[0] - o[0], p[1] - o[1], p[2] - o[2]];
-      const parts = [[P.ico1, along(rel(o), rel(e), 0.028, 0.026), 0xfdfeff]];   // the plump leading edge
-      const n = 5;
-      for (const [share, col, width, thick, fwd] of ROWS) {
-        for (let i = 0; i < n; i++) {
-          const t = (k + (i + 0.5) / n) / 3, a0 = WING_BONE(t), a = rel([a0[0] + fwd, a0[1], a0[2]]);
-          const len = (0.22 + 0.16 * t) * share;
-          // hanging down and a touch back; toward the tip they flare outward
-          const d = [-1, -0.1, 0.08 + 0.22 * t], m = Math.hypot(...d);   // back toward the tail, the outer ones fanning outward
-          const b = [a[0] + d[0] / m * len, a[1] + d[1] / m * len, a[2] + d[2] / m * len];
-          parts.push([P.ico1, feather(a, b, width * (0.8 + 0.4 * t), thick), (i + k) % 2 ? col : new THREE.Color(col).multiplyScalar(0.97).getHex()]);
+// ---- medic cape cloth (10+ revives): verlet particles on the cape's grid (CAPE_NX along it, CAPE_NZ across), in
+// world space so the body's real movement drives it. The collar edge is pinned to the body; every particle has
+// distance springs to its neighbours (along, across, diagonals and two apart, for some stiffness) at their lengths in
+// the draped rest shape, gravity and air drag, and is pushed out of a body-shaped ellipsoid. Written back into the
+// cape geometry in the rig's space every frame.
+const CAPE_NX = 7, CAPE_NZ = 5;
+const CAPE_G = 7, CAPE_DRAG = 0.965, CAPE_ITER = 4;
+const CAPE_BODY = { c: [-0.05, 0.41, 0], r: [0.34, 0.205, 0.195] };   // the kitty's body (rig space) the cape lies on
+function makeCapeCloth(geo) {
+  const pos = geo.attributes.position, b = pos.array, n = pos.count;
+  const idx = (ix, iz) => iz * CAPE_NX + ix;   // PlaneGeometry: rows across the width, columns along the length
+  // draped rest shape (rig space): over the back, the sides hanging, a little longer toward the hem
+  const rest = new Float32Array(n * 3), pinned = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = b[i * 3], z = b[i * 3 + 2], u = (CAPE_X0 - x) / CAPE_LEN, v = z / (CAPE_W / 2);
+    rest[i * 3] = x; rest[i * 3 + 1] = CAPE_Y - u * 0.07 - v * v * (0.17 + 0.05 * u); rest[i * 3 + 2] = z * (1 + 0.15 * u);
+    pinned[i] = u < 1e-4 ? 1 : 0;
+  }
+  const links = [];
+  const link = (a, c) => links.push([a, c, Math.hypot(rest[a * 3] - rest[c * 3], rest[a * 3 + 1] - rest[c * 3 + 1], rest[a * 3 + 2] - rest[c * 3 + 2])]);
+  for (let iz = 0; iz < CAPE_NZ; iz++) for (let ix = 0; ix < CAPE_NX; ix++) {
+    if (ix + 1 < CAPE_NX) link(idx(ix, iz), idx(ix + 1, iz));
+    if (iz + 1 < CAPE_NZ) link(idx(ix, iz), idx(ix, iz + 1));
+    if (ix + 1 < CAPE_NX && iz + 1 < CAPE_NZ) { link(idx(ix, iz), idx(ix + 1, iz + 1)); link(idx(ix + 1, iz), idx(ix, iz + 1)); }
+    if (ix + 2 < CAPE_NX) link(idx(ix, iz), idx(ix + 2, iz));
+    if (iz + 2 < CAPE_NZ) link(idx(ix, iz), idx(ix, iz + 2));
+  }
+  const P = new Float32Array(n * 3), Q = new Float32Array(n * 3);   // world positions now / a step ago
+  const M = new THREE.Matrix4(), Mi = new THREE.Matrix4(), M0 = new THREE.Matrix4(), v3 = new THREE.Vector3(), w3 = new THREE.Vector3();
+  let live = false;
+  const pin = (i, out) => { v3.set(rest[i * 3], rest[i * 3 + 1], rest[i * 3 + 2]).applyMatrix4(M); out[i * 3] = v3.x; out[i * 3 + 1] = v3.y; out[i * 3 + 2] = v3.z; };
+  // the collar slides from where it was last frame to where it is now over the substeps (not in one yank)
+  const pinAt = (i, f) => {
+    v3.set(rest[i * 3], rest[i * 3 + 1], rest[i * 3 + 2]); w3.copy(v3).applyMatrix4(M0); v3.applyMatrix4(M).lerp(w3, 1 - f);
+    P[i * 3] = v3.x; P[i * 3 + 1] = v3.y; P[i * 3 + 2] = v3.z;
+  };
+  function reset() { live = false; }
+  function step(rig, dt, t, go) {
+    rig.updateWorldMatrix(true, false);
+    M.copy(rig.matrixWorld); Mi.copy(M).invert();
+    // first frame, or the kitty jumped (respawn, new level): start from the draped rest shape
+    v3.set(rest[0], rest[1], rest[2]).applyMatrix4(M);
+    if (!live || dt > 0.1 || Math.hypot(v3.x - P[0], v3.y - P[1], v3.z - P[2]) > 1) {
+      for (let i = 0; i < n; i++) { pin(i, P); pin(i, Q); }
+      live = true; M0.copy(M);
+    }
+    const steps = Math.max(1, Math.ceil(dt / 0.012)), h = dt / steps;
+    for (let s = 0; s < steps; s++) {
+      for (let i = 0; i < n; i++) {
+        const k = i * 3;
+        if (pinned[i]) { pinAt(i, (s + 1) / steps); Q[k] = P[k]; Q[k + 1] = P[k + 1]; Q[k + 2] = P[k + 2]; continue; }
+        // a faint breeze ripple (stronger with speed) so it never looks frozen
+        const wob = Math.sin(t * (3 + 5 * go) + i * 1.7) * (0.15 + 0.6 * go);
+        for (let a = 0; a < 3; a++) {
+          const x = P[k + a], vx = (x - Q[k + a]) * CAPE_DRAG;
+          Q[k + a] = x;
+          P[k + a] = x + vx + (a === 1 ? -CAPE_G + wob : 0) * h * h;
         }
       }
-      segs.push(shared(bake(parts)));
+      for (let it = 0; it < CAPE_ITER; it++) {
+        for (const [a, c, L] of links) {
+          const ka = a * 3, kc = c * 3;
+          const dx = P[kc] - P[ka], dy = P[kc + 1] - P[ka + 1], dz = P[kc + 2] - P[ka + 2], d = Math.hypot(dx, dy, dz) || 1e-6;
+          const f = (d - L) / d, wa = pinned[a] ? 0 : pinned[c] ? 1 : 0.5, wc = pinned[c] ? 0 : pinned[a] ? 1 : 0.5;
+          P[ka] += dx * f * wa; P[ka + 1] += dy * f * wa; P[ka + 2] += dz * f * wa;
+          P[kc] -= dx * f * wc; P[kc + 1] -= dy * f * wc; P[kc + 2] -= dz * f * wc;
+        }
+        // keep the cloth on the outside of the body, behind the neck (it never flips forward over the head: once there,
+        // running would just push it along in front of the chest) and off the ground
+        for (let i = 0; i < n; i++) {
+          if (pinned[i]) continue;
+          const k = i * 3;
+          v3.set(P[k], P[k + 1], P[k + 2]).applyMatrix4(Mi);
+          let moved = false;
+          if (v3.x > CAPE_X0 - 0.02) { v3.x = CAPE_X0 - 0.02; moved = true; }
+          if (v3.y < 0.12) { v3.y = 0.12; moved = true; }
+          const ex = (v3.x - CAPE_BODY.c[0]) / CAPE_BODY.r[0], ey = (v3.y - CAPE_BODY.c[1]) / CAPE_BODY.r[1], ez = (v3.z - CAPE_BODY.c[2]) / CAPE_BODY.r[2];
+          const e = Math.hypot(ex, ey, ez);
+          if (e < 1 && e > 1e-6) { v3.set(CAPE_BODY.c[0] + ex / e * CAPE_BODY.r[0], CAPE_BODY.c[1] + ey / e * CAPE_BODY.r[1], CAPE_BODY.c[2] + ez / e * CAPE_BODY.r[2]); moved = true; }
+          if (!moved) continue;
+          v3.applyMatrix4(M);
+          P[k] = v3.x; P[k + 1] = v3.y; P[k + 2] = v3.z;
+        }
+      }
     }
-    return segs;
-  });
+    for (let i = 0; i < n; i++) {
+      v3.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]).applyMatrix4(Mi);
+      b[i * 3] = v3.x; b[i * 3 + 1] = v3.y; b[i * 3 + 2] = v3.z;
+    }
+    M0.copy(M);
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+    geo.computeBoundingSphere();
+  }
+  return { step, reset };
+}
+
+// ---- feathered wings (60+ revives). Each wing is a chain shoulder -> elbow -> wrist -> tip with feathers rooted along
+// it in three rows (long flight feathers at the back, then secondaries, then short coverts on top), and two poses:
+//   folded (WING_FOLD): like a resting bird's or a skyscale's, a Z: the arm up and a little back, the forearm forward so
+//     the wrist sits high by the shoulder, the hand back along the flank; the feathers lie flat against the side,
+//     hanging back and down.
+//   open (WING_OPEN): spread out to the side in an arch (up from the shoulder, curving down to the tip), the feathers
+//     fanning out behind, flat and facing up.
+// The pose blends between them with the shoulder leading and the elbow and wrist following a beat later. Offsets are
+// for the right (+z) wing in rig space (the kitty faces +x); the left wing is its mirror image.
+const WING_ROOT = [0.12, 0.55, 0.17];
+const WING_FOLD = [[-0.07, 0.13, 0.02], [0.08, 0.05, 0.0], [-0.36, -0.1, 0.02]];   // shoulder->elbow, elbow->wrist, wrist->tip
+const WING_OPEN = [[0.0, 0.08, 0.13], [-0.01, 0.03, 0.13], [-0.05, -0.06, 0.12]];
+const WING_N = 12;   // feathers per row
+// [length share, fur shade (0 = the kitty's colour, 1 = its light belly colour), width, layer, where along the wing the
+// row starts]; the last row is short puffy fluff over the outer half
+const WING_ROWS = [[1, 0, 0.05, 0, 0], [0.6, 0.25, 0.05, 1, 0], [0.3, 0.6, 0.055, 2, 0], [0.42, 0.85, 0.075, 3, 0.45]];
+const WING_INST = 3 + WING_ROWS.length * WING_N;   // 3 bones + the feathers
+// in the kitty's own fur: darker leading edge, the flight feathers with a few tabby bands, lighter toward the top
+function wingColors(color) {
+  const { base, light, dark } = kittyPalette(color);
+  const c = [];
+  for (let k = 0; k < 3; k++) c.push(base.clone().lerp(dark, 0.5));
+  for (const [, shade, , layer] of WING_ROWS) for (let i = 0; i < WING_N; i++) {
+    const col = base.clone().lerp(light, shade);
+    if (layer === 0 && i % 3 === 1) col.lerp(dark, 0.55);
+    c.push(col.multiplyScalar(i % 2 ? 1 : 0.95));
+  }
+  return c;
+}
+function makeWingPose(mesh) {
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const pts = [V(), V(), V(), V()], dirF = V(), dirO = V(), nF = V(0, 0, 1), nO = V(0, 1, 0.12).normalize();
+  const d = V(), nrm = V(), w = V(), p = V(), m = new THREE.Matrix4();
+  let oS = 0, oE = 0, oW = 0;
+  // feather / bone matrix: a flat ellipsoid from a along dir (len), width across, thin through nrm
+  const put = (i, a, dir, len, width, thick, nr) => {
+    w.crossVectors(nr, dir).normalize();
+    const n2 = V().crossVectors(dir, w).normalize();
+    m.makeBasis(w.multiplyScalar(width), V().copy(dir).multiplyScalar(len / 2), n2.multiplyScalar(thick));
+    m.setPosition(a.x + dir.x * len / 2, a.y + dir.y * len / 2, a.z + dir.z * len / 2);
+    mesh.setMatrixAt(i, m);
+  };
+  const rotY = (v, ang, o) => { const x = v.x - o.x, z = v.z - o.z, c = Math.cos(ang), s = Math.sin(ang); v.x = o.x + x * c + z * s; v.z = o.z - x * s + z * c; };
+  function update(dt, open, swing, throwBack, bob) {
+    // the shoulder leads, the elbow and wrist follow
+    oS = smoothTo(oS, open, 7, dt); oE = smoothTo(oE, oS, 5, dt); oW = smoothTo(oW, oE, 4, dt);
+    const os = [oS, oE, oW];
+    for (let side = 0; side < 2; side++) {
+      const sz = side ? -1 : 1, base = side * WING_INST;
+      // the chain: blended joint offsets, then mirrored for the left wing and swung round the shoulder (turns: both
+      // wings the same way; speeding up: both back toward the tail)
+      pts[0].set(WING_ROOT[0], WING_ROOT[1], WING_ROOT[2] * sz);
+      for (let k = 0; k < 3; k++) {
+        const f = WING_FOLD[k], o = WING_OPEN[k], a = os[k];
+        pts[k + 1].set(pts[k].x + f[0] + (o[0] - f[0]) * a, pts[k].y + f[1] + (o[1] - f[1]) * a + (k ? bob : 0), pts[k].z + (f[2] + (o[2] - f[2]) * a) * sz);
+      }
+      for (let k = 1; k < 4; k++) rotY(pts[k], swing - throwBack * sz * k / 3, pts[0]);
+      for (let k = 0; k < 3; k++) {   // the bones (the wing's leading edge)
+        d.subVectors(pts[k + 1], pts[k]);
+        const len = d.length();
+        put(base + k, pts[k], d.normalize(), len, 0.028 - 0.005 * k, 0.024, nrm.set(0, 1, 0));
+      }
+      let i = base + 3;
+      for (const [share, , width, layer, t0] of WING_ROWS) {
+        const fluff = t0 > 0;
+        for (let j = 0; j < WING_N; j++) {
+          const t = t0 + (1 - t0) * (j + 0.5) / WING_N, s3 = Math.min(2.999, t * 3), k = Math.floor(s3), fk = s3 - k;
+          p.lerpVectors(pts[k], pts[k + 1], fk);
+          const a = os[k];
+          dirF.set(-1, -0.45, 0).normalize(); dirO.set(-1, -0.12, (0.12 + 0.35 * t) * sz).normalize();
+          d.lerpVectors(dirF, dirO, a).normalize();
+          nrm.set(nF.x, nF.y, nF.z * sz).lerp(V(nO.x, nO.y, nO.z * sz), a).normalize();
+          rotY(d, swing - throwBack * sz * t, V());
+          if (fluff) { d.y += (j % 2 ? 0.12 : -0.1); d.normalize(); }   // tufts ruffled a little out of line
+          const len = (0.12 + 0.24 * t) * share * (0.85 + 0.15 * a) * (fluff ? 0.9 + 0.2 * (j % 3) / 2 : 1);
+          p.addScaledVector(nrm, layer * 0.008);   // rows stacked: coverts on top
+          put(i++, p, d, len, width * (0.85 + 0.3 * t), fluff ? 0.022 : 0.011, nrm);
+        }
+      }
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+  return { update };
 }
 
 function backpackGeometry() {

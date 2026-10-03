@@ -35,8 +35,6 @@ const DEBUG_WINS = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) 
 // local testing of the revive rewards: ?rescues=60 (localhost only, like ?wins=), and ?look=crown,pack to wear the
 // crown and a kitten backpack without the other win rewards (the aura hides the kitty)
 const DEBUG_RESCUES = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? Math.max(0, parseInt(params.get('rescues') || '0', 10) || 0) : 0;
-// the revive rewards (cape, heart trail, wings) are still being designed: only on a local test server for now
-const REVIVE_REWARDS = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
 const DEBUG_LOOK = new Set(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? (params.get('look') || '').split(',') : []);
 const DEBUG_PACK = [PLAYER_COLORS[1], PLAYER_COLORS[2], PLAYER_COLORS[3]];
 
@@ -1284,14 +1282,14 @@ function syncVisuals(dt, alpha) {
     ka.skates = !!sim.levelData.ice; ka.boots = Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST); ka.invuln = p.invuln; ka.shield = p.shield; ka.time = t;
     ka.crown = !!p.crowned; ka.crownStones = Math.max(0, Math.min(5, wins - 1)); ka.aura = wins >= 3; ka.auraColor = k.fx; ka.sunglasses = wins >= 5; ka.rainbowBoots = wins >= 7;
     ka.backpack = wins >= 8; ka.packColors = ka.backpack ? packColors(k, p) : null;
-    // revive rewards (rescues this run): 10+ medic cape, 30+ a trail of hearts, 60+ angel wings (they add up)
+    // revive rewards (rescues this run): 10+ medic cape, 30+ a trail of little stars of life, 60+ angel wings (they add up)
     const saves = p.rescues || 0;
-    ka.cape = REVIVE_REWARDS && saves >= 10; ka.wings = REVIVE_REWARDS && saves >= 60;
+    ka.cape = saves >= 10; ka.wings = saves >= 60;
     if (DEBUG_LOOK.has('crown')) ka.crown = true;
     if (DEBUG_LOOK.has('pack')) { ka.backpack = true; ka.packColors = DEBUG_PACK; }
-    if (REVIVE_REWARDS && saves >= 30 && p.alive && speed > 1) {
+    if (saves >= 30 && p.alive && speed > 1) {
       k.heartT = (k.heartT || 0) - dt;
-      if (k.heartT <= 0) { k.heartT = 0.11; effects.heartTrail(x - Math.cos(p.heading) * 0.35, k.climb || 0, z - Math.sin(p.heading) * 0.35, HEART_PINK); }
+      if (k.heartT <= 0) { k.heartT = 0.11; effects.medicTrail(x - Math.cos(p.heading) * 0.35, k.climb || 0, z - Math.sin(p.heading) * 0.35, p.color); }
     }
     k.model.update(dt, ka);
     k.trail.update(dt, x, z, -k.model.group.rotation.y, gliding && speed > 0.5, paws ? k.fx : null);
@@ -1312,7 +1310,6 @@ function syncVisuals(dt, alpha) {
   world_update(dt, t);
 }
 
-const HEART_PINK = [1, 0.42, 0.62];   // the 30+ revives heart trail
 
 function world_update(dt, t) {
   view.world.update(dt, t);

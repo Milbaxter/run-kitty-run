@@ -115,6 +115,8 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-card.rkr-cool:not(.rkr-down) .rkr-shades{display:block !important;}
 .rkr-card.rkr-cool.rkr-down .rkr-shades-broken{display:block !important;}
 .rkr-card.rkr-cool.rkr-down .rkr-xeyes{display:none;}
+.rkr-card.rkr-rainbow .rkr-cat > path:first-child{fill:url(#rkr-rainbow-fur);}
+.rkr-defs{position:absolute;width:0;height:0;overflow:hidden;}
 .rkr-xeyes{display:none;}
 .rkr-card.rkr-down .rkr-eyes{display:none;}
 .rkr-card.rkr-down .rkr-xeyes{display:inline;}
@@ -481,7 +483,16 @@ function createUI(root) {
   const bannerS = bannerEl.querySelector('.rkr-bs');
   const toastsEl = el('div', 'rkr-toasts');
 
-  root.append(hud, bannerEl, toastsEl);
+  // the rainbow the cat icon wears with every reward (8+ wins and 60+ revives): one shared gradient, sliding across
+  // the face like the rainbow fur in the game
+  const rainbowDefs = el('div', 'rkr-defs', `<svg width="0" height="0" aria-hidden="true"><defs>
+    <linearGradient id="rkr-rainbow-fur" x1="0" y1="0" x2="1" y2="0.6" spreadMethod="repeat">
+      <stop offset="0" stop-color="#ff5a5a"/><stop offset=".17" stop-color="#ffb84a"/><stop offset=".33" stop-color="#f4f05a"/>
+      <stop offset=".5" stop-color="#6ef08a"/><stop offset=".67" stop-color="#5ac8ff"/><stop offset=".83" stop-color="#b47cff"/>
+      <stop offset="1" stop-color="#ff5a5a"/>
+      <animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="-1 0" dur="2.2s" repeatCount="indefinite"/>
+    </linearGradient></defs></svg>`);
+  root.append(hud, bannerEl, toastsEl, rainbowDefs);
 
   // ---- HUD state cache ----
   const H = {
@@ -517,6 +528,7 @@ function createUI(root) {
     if (p.name !== v.name) { v.name = p.name; card.name.textContent = p.name; }
     if (p.color !== v.color) { v.color = p.color; card.root.style.setProperty('--pc', hexColor(p.color)); }
     if (!!p.cool !== v.cool) { v.cool = !!p.cool; card.root.classList.toggle('rkr-cool', v.cool); }   // 5+ wins: sunglasses
+    if (!!p.rainbow !== v.rainbow) { v.rainbow = !!p.rainbow; card.root.classList.toggle('rkr-rainbow', v.rainbow); }   // every reward
     const alive = !!p.alive;
     if (alive !== v.alive) {
       v.alive = alive;

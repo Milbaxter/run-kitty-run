@@ -28,7 +28,7 @@ const VICTORY_TO_LOBBY_MS = 12000;
 //   4 = slim wolf resync format, used by every mode (with MIN_PROTOCOL 4 this only still matters for clients without 'hi')
 const MODE_MIN_PROTOCOL = { ice: 4, mixed: 4, run: 4 };
 const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
-const MODE_NAMES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
+const MODE_NAMES = { mixed: 'Default (Run + Skate)', run: 'Run only', ice: 'Skate only' };
 const updateHow = (client) => (client.app === 'web' ? 'reload the page' : 'update the app');
 const APPS = ['web', 'ios', 'android'];
 // Test hooks (scripts/server-test.mjs): 'start' may pick a level and 'dbg' can drop a kitty in the goal.

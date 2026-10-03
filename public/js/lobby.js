@@ -8,7 +8,7 @@ const CAT = `<svg viewBox="0 0 40 40"><path d="M5 4 L15 12 Q20 10.5 25 12 L35 4 
 const CROWN = `<svg viewBox="0 0 40 30"><path d="M3 26 L6 7 L14 16 L20 3 L26 16 L34 7 L37 26 Z" fill="#ffcf5a" stroke="#7a4b00" stroke-width="2.4" stroke-linejoin="round"/></svg>`;
 
 const MODES = [
-  { id: 'mixed', label: 'Run + Skate', tip: 'Summer, fall, winter (ice); level 9 is the final boss run' },
+  { id: 'mixed', label: 'Default (Run + Skate)', tip: 'Summer, fall, winter (ice); level 9 is the final boss run' },
   { id: 'run', label: 'Run only', tip: 'No ice' },
   { id: 'ice', label: 'Skate only', tip: 'Every level is ice; level 9 is the final boss run' },
 ];

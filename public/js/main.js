@@ -1742,6 +1742,8 @@ function tick(dt) {
       ui.showGameOver({
         level: sim.level, deaths: sim.stats.deaths, rescues: sim.stats.rescues,
         time: sim.time,
+        // alone: nobody could revive you; nudge toward friends
+        alone: sim.players.length === 1 ? (wasOnline ? 'online' : 'solo') : null,
       }, () => { ui.hideGameOver(); if (wasOnline) backToLobby(); else startGame(playerCount); }, wasOnline ? 'BACK TO LOBBY' : null);
     }, 1400);
   }

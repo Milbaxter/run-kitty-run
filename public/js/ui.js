@@ -268,6 +268,11 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-glass .rkr-gcat{width:74px;height:74px;color:#ffb347;margin-bottom:-6px;animation:rkr-wiggle 2.4s ease-in-out infinite;}
 .rkr-gameover h2{color:#ffd6e3;text-shadow:0 5px 0 #3a1650,0 0 30px rgba(255,80,120,.55);}
 .rkr-gsub{font-weight:700;font-size:16px;color:#efe7ff;opacity:.9;}
+.rkr-alone{display:flex;gap:10px;align-items:center;text-align:left;max-width:420px;padding:10px 14px;border-radius:16px;font-weight:700;font-size:14px;line-height:1.35;color:#fff6d8;
+  background:rgba(255,207,90,.14);border:2px solid rgba(255,207,90,.55);}
+.rkr-alone svg{width:30px;height:30px;flex:none;}
+.rkr-alone b{color:#ffcf5a;}
+@media (max-height:500px){ .rkr-alone{font-size:12px;padding:6px 10px;} .rkr-alone svg{width:22px;height:22px;} }
 .rkr-stats{width:100%;display:flex;flex-direction:column;gap:7px;}
 .rkr-stat{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:14px;background:rgba(0,0,0,.22);font-weight:800;font-size:16px;
   opacity:0;transform:translateX(-14px);transition:opacity .35s,transform .35s cubic-bezier(.2,1.5,.4,1);}
@@ -982,6 +987,7 @@ function createUI(root) {
         <div class="rkr-gcat">${ICONS.cat}</div>
         <h2>GAME OVER</h2>
         <div class="rkr-gsub">${esc(line)}</div>
+        ${stats.alone ? `<div class="rkr-alone">${ICONS.revive}<span><b>Kitties need friends.</b> Alone, nobody can revive you when you're caught. Run Kitty Run is made to be beaten together. ${stats.alone === 'online' ? 'Invite some into your lobby!' : 'Play Multiplayer or Local co-op!'}</span></div>` : ''}
         <div class="rkr-stats">${rows.map((r) => `<div class="rkr-stat"><div class="rkr-ico" style="color:${r.color || '#fff'}">${r.icon}</div><span class="rkr-sl">${r.label}</span><span class="rkr-sv">${r.fmt(0)}</span></div>`).join('')}</div>
         <button class="rkr-btn">${esc(buttonLabel || 'TRY AGAIN')}</button>
         <div class="rkr-keyhint">press <span class="rkr-k rkr-wide">Enter</span></div>

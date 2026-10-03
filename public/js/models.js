@@ -858,6 +858,13 @@ const WOLF_TYPES = {
 const WOLF_SEASON = { 0: 'summer', 1: 'autumn', 2: 'winter', 3: 'summer', 4: 'spring' };
 const WOLF_GRIM = { summer: 0x29231e, autumn: 0x3a1d12, winter: 0x1e2537, spring: 0x272c1b };
 const WOLF_HELL = { base: 0x30251f, light: 0x63504a, dark: 0x140d0b };
+// the final run's hellhounds still wear a coat per type, so the three kinds read apart in the dim red light:
+// chargers sooty black, crossers ash white, diagonals smouldering purple (others: WOLF_HELL)
+const WOLF_HELL_TYPES = {
+  charger: { base: 0x1d1917, light: 0x403835, dark: 0x090706 },
+  crosser: { base: 0xd2d4dc, light: 0xf8f9ff, dark: 0x60626e },   // cool ash white (the red light warms it up)
+  diagonal: { base: 0x5a2e66, light: 0x9a62aa, dark: 0x23102a },
+};
 const WOLF_RED_EYE = 0xff2a12, WOLF_EMBER = 0xff5a1e, WOLF_EMBER_HOT = 0xffa23a;
 const BONE = 0xdccdad, STEEL = 0xc2c8d0, FROST = 0xe9f5ff, SCAR = 0xc98585, IRON = 0x2b2f37, LEATHER = 0x3c291c;
 
@@ -894,7 +901,7 @@ function wolfGeos(type, look) {
     const winter = season === 'winter';
     const C = (h) => new THREE.Color(h);
     let base, light, dark;
-    if (hell) { base = C(WOLF_HELL.base); light = C(WOLF_HELL.light); dark = C(WOLF_HELL.dark); }
+    if (hell) { const H = WOLF_HELL_TYPES[type] || WOLF_HELL; base = C(H.base); light = C(H.light); dark = C(H.dark); }
     else {
       const g = C(WOLF_GRIM[season]);
       base = C(T.base).lerp(g, 0.5 * s); light = C(T.light).lerp(g, 0.36 * s); dark = C(T.dark).lerp(g, 0.42 * s);

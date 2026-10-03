@@ -1322,7 +1322,8 @@ function buildFloors(levelData, theme, T) {
   return out;
 }
 
-// Glossy ice sheet over every corridor (under the safe tiles; the goal room stays snow).
+// Glossy ice sheet over every corridor and the goal room (under the safe tiles and the goal disc; the final run's
+// reward room stays as it is).
 function buildIce(levelData, T, theme) {
   const rng = createRng(777);
   const S = 512;
@@ -1362,6 +1363,12 @@ function buildIce(levelData, T, theme) {
     }
     if (l.ux * l.nz - l.uz * l.nx > 0) idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2); else idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);
   });
+  // the goal room is iced too (the goal disc draws on top of it; maze.js onIce), except the final run's reward room
+  if (!levelData.finale) {
+    const rh = levelData.roomHalf - CFG.WALL_THICKNESS / 2, b = pos.length / 3;
+    for (const [x, z] of [[-rh, -rh], [rh, -rh], [-rh, rh], [rh, rh]]) { pos.push(x, 0.004, z); uv.push(x * UVS, z * UVS); }
+    idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(pos.map((_, k) => (k % 3 === 1 ? 1 : 0)), 3));

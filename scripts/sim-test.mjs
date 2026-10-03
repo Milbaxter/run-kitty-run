@@ -63,12 +63,16 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const ice = generateLevel(winter, sim.levelData.seed, 'mixed'), skate = generateLevel(winter, sim.levelData.seed, 'ice');
     ok(ice.ice && ice.enemies.every((e) => e.pattern) && JSON.stringify(ice.enemies) === JSON.stringify(skate.enemies) && ld.enemies.every((e) => !e.pattern),
       `Run + Skate winter level ${winter} has Skate only level ${winter}'s ${skate.enemies.length} pattern wolves; running levels keep wanderers`);
+    // skate levels' final stretch: a full room on top of the count, its chargers running on into the goal room
+    const fs = skate.enemies.filter((e) => e.finalStretch), lastLeg = skate.legs.length - 1;
+    ok(fs.length >= 8 && fs.every((e) => e.leg === lastLeg) && fs.some((e) => e.type === 'charger' && e.route.length === 4),
+      `Skate only level ${winter}: ${fs.length} wolves on the final stretch, chargers running on into the goal room`);
   }
   ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG.RING_WIDTH / 2), 'the goal-door corner is not a safe square');
   {
     // no wolf ever steps onto a safe square's tiles (they're W - WALL_THICKNESS wide; wolves may walk right up to
     // their edge); the final stretch's first corner is not marked safe
-    for (const mode of ['mixed', 'run']) {
+    for (const mode of ['mixed', 'run', 'ice']) {
     const s2 = createSim({ seed: 11, players: [], mode });
     const half = (s2.levelData.corridorWidth - CFG.WALL_THICKNESS) / 2 - 1e-6;
     let touched = 0;

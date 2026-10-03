@@ -198,7 +198,9 @@ function createLobbyUI(root, cb) {
   });
 
   // The game mode as a list of radio buttons + a one-line tip (the choice is remembered, online and offline alike).
-  function modePicker(initial) {
+  // remember: save the choice (the online browser's 'mode for a new lobby'); single player / co-op always start on
+  // the default mode instead
+  function modePicker(initial, remember = true) {
     let mode = initial;
     const modes = el('div', 'rkl-modes');
     modes.setAttribute('role', 'radiogroup');
@@ -211,7 +213,7 @@ function createLobbyUI(root, cb) {
       }
       tip.textContent = tip.title = MODES.find((m) => m.id === mode).tip;
     };
-    const set = (id) => { mode = id; saveMode(mode); paint(); };
+    const set = (id) => { mode = id; if (remember) saveMode(mode); paint(); };
     for (const m of MODES) {
       const b = el('button', 'rkl-mode');
       b.type = 'button';
@@ -293,7 +295,7 @@ function createLobbyUI(root, cb) {
       taken: n === 2 ? () => prefColor(P2_COLOR_KEY) : null, onColor: refreshAll }));
     if (n === 2) rows.push(youRow({ label: 'Player 2', nameKey: 'rkr-name2', id: 'rkl-lname2', colorKey: P2_COLOR_KEY,
       taken: () => prefColor(), onColor: refreshAll }));
-    const mp = modePicker(forced || savedMode());
+    const mp = modePicker(forced || 'mixed', false);   // always the default (Run + Skate) to start with
     const start = el('button', 'rkr-btn rkl-create', '<span>START</span>');
     const go = () => { const names = rows.map((r) => r.getName()); hide(); onStart({ mode: mp.get(), names }); };
     start.addEventListener('click', go);

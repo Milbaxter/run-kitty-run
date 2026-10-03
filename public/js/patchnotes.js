@@ -4,6 +4,10 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Skate levels: the last lane before the goal is a full wolf room now, and its black chargers no longer turn round at the walls: they run in from the lane before, round the corner and on through the door, right up to the edge of the victory circle',
+      'Skate levels: the goal room is ice too (only the victory circle isn\'t), and the first safe square no longer has a bigger wolf-free area than the others',
+      'Skate levels: every black charger runs alone in its lane (no more trains of two or three), like in the final run',
+      'The final run: no more wolf-free gaps between its rooms, and its wolves wear a coat per kind again: black chargers, ash-white crossers, purple diagonals',
       'Single player and local co-op now open a setup screen like online: pick your name, kitty colour and mode (Run + Skate, Run only or Skate only). In co-op both players choose their own name and colour',
       'Run only and the running levels of Run + Skate: new wolves. Every wolf runs at the same speed. Most of them now stand still for a while, then walk off in a new direction, and the mix changes as you go: early levels have more long, slow walkers, later levels more restless wolves that stop and turn all the time',
       'Running levels: hugging the wall is no longer the safe way through. Wolves now often head for the walls, stop there and walk along them, and cut across the middle less (more so on later levels, so the wall and the middle are about equally risky)',

@@ -146,9 +146,9 @@ function buildPath(corners, legs) {
 // One long straight corridor from the start pocket (far left) to the goal room (right; the room keeps its
 // usual place around the origin, so everything that knows where the goal is still does). The path is exactly as
 // long as the spiral's. There are no safe squares besides the start pocket: the corridor is cut into invisible
-// "rooms" (collinear legs, each solved by the pattern-wolf generator like a spiral leg), and between two rooms is
-// only a short wolf-free gap of ice (FINALE_GAP) where a good skater can carve a tight circle to wait for the
-// next opening. Halfway along, one gap is wider and holds a climbable tree: under its canopy is snow, not ice
+// "rooms" (collinear legs, each solved by the pattern-wolf generator like a spiral leg) that run right into each
+// other (FINALE_GAP: no wolf-free ice between them). Halfway along, a gap just the size of its canopy holds a
+// climbable tree: under its canopy is snow, not ice
 // (onIce), and wolves can't reach you (inTree), the only real breather of the run.
 // Its rooms get their wolves exactly like Skate only's spiral legs (legDesign / placeLeg, see the pattern-wolf
 // section): charger lanes, tight rows that open up through drifting wolves, no pauses and no launch-window solver,
@@ -158,8 +158,9 @@ function buildPath(corners, legs) {
 // i + 1 (s = 0); u points back toward the start (run direction is -u). leg.padHi / leg.padLo = wolf-free
 // half-gap at the entry / exit end (usableRanges).
 
-const FINALE_GAP = 6.5;          // wolf-free ice between two rooms (wolf bodies), enough for a tight skating circle
-const FINALE_TREE_GAP = 13;      // ...around the halfway tree
+const FINALE_GAP = 0;            // wolf-free ice between two rooms: none, the wolves of one room run right up to the next
+const FINALE_TREE_GAP = 2 * (CFG.TREE_RADIUS + 0.4);   // ...around the halfway tree: just its canopy (no wolf runs through it)
+const FINALE_START_GAP = CFG.RING_WIDTH + 2 * CORNER_REST;   // ...at the start square: its tiles + the usual edge, like any safe square
 const FINALE_ROOM = [34, 52];    // room lengths
 const FINALE_WOLVES = 385;       // the run's wolf count (the spiral's level-7+ count would be 412)
 
@@ -192,7 +193,7 @@ function buildStraight(rng) {
   };
   const xsCorners = [xs, ...split(xs, xTree), xTree, ...split(xTree, xd), xd];
   const corners = xsCorners.map((x) => ({ x, z: 0 }));
-  const gapAt = (i) => (corners[i].x === xTree ? FINALE_TREE_GAP : FINALE_GAP);
+  const gapAt = (i) => (i === 0 ? FINALE_START_GAP : corners[i].x === xTree ? FINALE_TREE_GAP : FINALE_GAP);
   const legs = [];
   for (let i = 0; i < corners.length - 1; i++) {
     legs.push({
@@ -222,7 +223,7 @@ function buildStraight(rng) {
 // balance (~0.8 s) but a wolf can still stand still for up to 6 s now and then.
 const RUN_PAUSES = [[6, 6, 1], [3, 6, 0.67], [2, 6, 1.35], [1.2, 6, 2], [0.7, 6, 3.1], [0.4, 6, 4.1], [0.2, 6, 5.4], [0.1, 6, 7.4]];
 // walk length per move, same form: level 1 ~2x the old walks; by level 8 back near the old average, with long walks still possible
-const RUN_NEW_EXTRA = 1.5;   // Run only: extra tuned wolves = (this - 1) x a level's usual tuned count, levels mirrored (placeEnemies)
+const RUN_NEW_EXTRA = 1.5; // Run only: extra tuned wolves = (this - 1) x a level's usual tuned count, levels mirrored (placeEnemies)
 const RUN_WALKS = [[5, 17.5, 1], [4.6, 18.2, 1.35], [4.3, 18.9, 1.7], [3.9, 19.6, 2], [3.6, 20.4, 2.4], [3.2, 21.1, 2.7], [2.9, 21.8, 3.1], [2.5, 22.5, 3.4]];
 
 function placeEnemies(rng, lvl, p) {
@@ -286,8 +287,7 @@ function placeEnemies(rng, lvl, p) {
   const fracs = lens.map((L, i) => ({ i, f: L / total * shared - quota[i] })).sort((a, b) => b.f - a.f);
   let left = shared - quota.reduce((a, b) => a + b, 0);
   for (let k = 0; left > 0; k++, left--) quota[fracs[k % fracs.length].i]++;
-  if (pauseRange) legs.forEach((_, li) => { quota[li] = Math.max(0, quota[li] - guardsAt(li)); });
-  const spanScale = 1 + Math.min(1, 0.1 * (level - 1));   // territories grow with level
+  if (pauseRange) legs.forEach((_, li) => { quota[li] = Math.max(0, quota[li] - guardsAt(li)); });  const spanScale = 1 + Math.min(1, 0.1 * (level - 1));   // territories grow with level
   // Run only: at an unsafe corner shared with another lane, wolves whose territory reaches the corner may also walk
   // into the neighbouring lane (an extra box in this leg's frame: the corner's band of th, and r reaching into the
   // other lane; enemies.js canWalk keeps every walk inside one box, so nobody cuts through the corner's walls).
@@ -438,25 +438,29 @@ const PAT_ROW_SP = [1.35, 1.6];               // spacing within a row (units): u
 const PAT_ROW_GAP = 1.69;                     // a staggered row's neighbours stay closer than this (< 2 * PAT_HIT)
 const patRowNeed = (k) => (k >= 3 ? Math.ceil(k / 4) : 0);   // wolves of a row of k that run at a speed of their own
 const PAT_TYPES = ['charger', 'crosser', 'diagonal'];
-// How many wolves a level has: level 1 ~2x the 116 of the first pattern design, +10% per level up to level 8.
-// Rooms are packed by density G (shorter spacers, longer rows, wider fans); the count is then made exact with
-// charger packs (followers in a charger's own lane) or, if a level came out over, by shortening its longest rows,
-// then leaving out lone crossers.
+// How many wolves a level has, at most: level 1 ~2x the 116 of the first pattern design, +10% per level up to
+// level 8. Rooms are packed by density G (shorter spacers, longer rows, wider fans); a level that came out over is
+// trimmed by shortening its longest rows, then leaving out lone crossers. One that came out under could be topped
+// up with charger packs (followers in a charger's own lane, up to PAT_PACK_MAX per lane), but trains of chargers
+// don't play well: every charger runs alone in its lane, as in the final run.
 const PAT_WOLVES_L1 = 232.6, PAT_WOLVES_GROWTH = 1.1, PAT_WOLVES_TOP = 8;
-const PAT_PACK_MAX = 5;                       // wolves per charger lane, at most (lanes fill evenly: 4-5 only at level 6+)
-const PAT_PACK_GAP = 2.2;                     // distance between pack members (units): 1-2x this, at random
+const PAT_PACK_MAX = 1;                       // wolves per charger lane, at most (1: no followers)
+const DOOR_REACH = 6;                         // how far the final stretch's chargers run into the lane before (units)
+const PAT_PACK_GAP = 2.2;                    // distance between pack members (units): 1-2x this, at random
 const patWolfTarget = (level, finale) => finale ? FINALE_WOLVES : Math.round(PAT_WOLVES_L1 * ipow(PAT_WOLVES_GROWTH, Math.min(level, PAT_WOLVES_TOP) - 1));
 const patDensity = (level) => Math.min(2.2, 1.2 + 0.14 * (Math.min(level, PAT_WOLVES_TOP) - 1));
 const NO_FRAME = { ox: 0, oz: 0, ux: 1, uz: 0, nx: 0, nz: 1 };
 
-function usableRanges(legs) {
+// finale: the final run (its start square is like any safe square too: FINALE_START_GAP)
+function usableRanges(legs, finale = false) {
   const W = CFG.RING_WIDTH, last = legs.length - 1;
   return legs.map((leg, li) => {
     let lo = (leg.padLo ?? W / 2 + CORNER_REST) + CFG.WOLF_RADIUS;
     let hi = leg.len - (leg.padHi ?? W / 2 + CORNER_REST) - CFG.WOLF_RADIUS;
     // the spiral's final stretch: neither corner is safe; the final run's last room keeps its entry gap (padHi)
     if (li === last) { lo = -W / 2 + WOLF_MARGIN; if (leg.padHi == null) hi = leg.len + W / 2 - WOLF_MARGIN; }
-    if (li === 0) hi = leg.len - W / 2 - CFG.START_SAFE_ARC - CFG.WOLF_RADIUS;
+    // the spiral's lane before it: its first corner (the final stretch's) isn't safe either, wolves run into it
+    else if (li === last - 1 && !finale) lo = -W / 2 + WOLF_MARGIN;
     return { lo, hi: Math.max(lo, hi) };
   });
 }
@@ -554,7 +558,7 @@ function placePatternEnemies(rng, lvl, p) {
   const { legs, seed, level } = lvl;
   const W = CFG.RING_WIDTH;
   const vOut = W / 2 - WOLF_MARGIN;
-  const ranges = usableRanges(legs);
+  const ranges = usableRanges(legs, !!lvl.finale);
   const last = legs.length - 1;
   const door = lvl.finale ? -1 : last;   // the spiral's final stretch (door before the goal); the final run has none
   const enemies = [];
@@ -572,16 +576,33 @@ function placePatternEnemies(rng, lvl, p) {
   // own their lane all the time, so they don't need the room's beat. A leg's chargers share one speed and take
   // turns: their laps (5-35 s) would need speeds up to 60% apart to come back into step within PAT_DRIFT_PERIOD.
   const chargerLanes = (li, D) => {
-    if (li === door) return [];
-    const lesson = level === 1 ? PAT_LESSONS[li] : null;
+    const lesson = level === 1 && li !== door ? PAT_LESSONS[li] : null;
     if (lesson) return lesson[0];
-    const n = D < 0.25 ? (rng.chance(0.6) ? 1 : 0) : D < 0.6 ? 1 + (rng.chance(0.6) ? 1 : 0) : D < 1 ? 2 + (rng.chance(D - 0.4) ? 1 : 0) : 3;
+    let n = D < 0.25 ? (rng.chance(0.6) ? 1 : 0) : D < 0.6 ? 1 + (rng.chance(0.6) ? 1 : 0) : D < 1 ? 2 + (rng.chance(D - 0.4) ? 1 : 0) : 3;
+    if (li === door) n = Math.max(2, n);   // the final stretch always has chargers running into the goal room
     const sets = {
       0: [[]], 1: [[0], [-1.8], [1.8], [-3.6], [3.6]],
       2: [[-1.8, 1.8], [-3.6, 3.6], [-3.6, 0], [0, 3.6], [-1.8, 3.6], [-3.6, 1.8]],
       3: [[-3.6, 0, 3.6], [-1.8, 1.8, -3.6], [-1.8, 1.8, 3.6], [-3.6, -1.8, 1.8]],
     };
     return rng.pick(sets[n]);
+  };
+  // The final stretch's chargers don't turn round at its ends (neither corner is a safe square): from DOOR_REACH
+  // units inside the lane before, round the corner, down the stretch, round the door corner and through the door
+  // into the goal room, up to the goal disc's edge (never onto it), then all the way back. Lane r keeps its offset
+  // across every lane it runs in (in the lane before / the door it is the same offset, along the other axis).
+  const doorRoute = (r) => {
+    const leg = legs[door], prev = legs[door - 1];
+    const side = Math.sign(prev.ux * leg.nx + prev.uz * leg.nz) || 1;   // the lane before lies this way across the stretch
+    const c = { r: (0 - leg.ox) * leg.nx + (0 - leg.oz) * leg.nz, th: (0 - leg.ox) * leg.ux + (0 - leg.oz) * leg.uz };   // goal disc centre
+    const R = lvl.centerRadius + CFG.WOLF_RADIUS + 0.1, b = r;
+    const rEnd = c.r - Math.sign(c.r) * Math.sqrt(R * R - (b - c.th) * (b - c.th));
+    return [
+      { r: side * (W / 2 + DOOR_REACH), th: leg.len + r },   // in the lane before
+      { r, th: leg.len + r },                                // its corner
+      { r, th: b },                                          // the door corner
+      { r: rEnd, th: b },                                    // in the goal room, at the goal disc's edge
+    ];
   };
   const makeChargers = (li, D, lanes) => {
     const leg = legs[li], { lo, hi } = ranges[li];
@@ -591,7 +612,7 @@ function placePatternEnemies(rng, lvl, p) {
     // (P <= PAT_DRIFT_PERIOD), so the lanes come back into step every P seconds
     const ms = [];
     return lanes.map((r, i) => {
-      const w = { type: 'charger', route: [{ r, th: lo }, { r, th: hi }], loop: false, speed: v };
+      const w = { type: 'charger', route: li === door ? doorRoute(r) : [{ r, th: lo }, { r, th: hi }], loop: false, speed: v };
       finish(w, leg);
       const lap = buildPlan(w, NO_FRAME, v).cycle, n = Math.floor(PAT_DRIFT_PERIOD / lap + 1e-9);
       if (n >= 3) {
@@ -607,7 +628,7 @@ function placePatternEnemies(rng, lvl, p) {
     });
   };
 
-  const legDesign = (li, D, T0, doorK = 0) => {
+  const legDesign = (li, D, T0) => {
     const leg = legs[li];
     const { lo, hi } = ranges[li];
     const lesson = level === 1 ? PAT_LESSONS[li] : null;
@@ -620,13 +641,12 @@ function placePatternEnemies(rng, lvl, p) {
     const T = T0 || Math.round(Math.max(5, 7.5 - 2 * D) * 4) / 4;
     const fit = (w) => patFit(w, T);
     const segs = [];
-    let cursor = li === door ? Math.min(hi, leg.len - W / 2 - 2.0) : hi - rng.range(0, 1.2);
+    let cursor = hi - rng.range(0, 1.2);
     for (let n = 0; n < 30; n++) {
       let made = null;
       for (let tries = 0; tries < 5 && !made; tries++) {
         let fam = 'crosswalk', opt = {};
         if (lesson) [fam, opt] = lesson[1][n % lesson[1].length];
-        else if (li === door) opt = doorK ? { k: 1 } : { k: D < 0.5 ? 1 : 2, variant: 'comb' };     // the final door
         else if (D >= 0.3 && rng.chance(0.3)) fam = 'diagonal';
         if (tries > 2) { fam = 'crosswalk'; opt = { k: 1 }; }
         const sd = PAT_FAMILIES[fam](c, { room: cursor - lo, ...opt });
@@ -644,7 +664,6 @@ function placePatternEnemies(rng, lvl, p) {
       }
       if (!made) break;
       segs.push(made);
-      if (li === door) break;
       cursor = made.base - spacer();
       if (cursor < lo) break;
     }
@@ -696,7 +715,8 @@ function placePatternEnemies(rng, lvl, p) {
         for (const w of spread(ws, need + Math.floor(rng.next() * (most - need + 1)))) drift(w, sign());
       } else if (!calm && rng.chance(ws.length === 1 ? 0.4 : 0.5)) drift(rng.pick(ws), sign());
     });
-    const open = PAT_LANES.map((r) => chargers.every((w) => Math.abs(w.route[0].r - r) >= PAT_SAFE + 0.3));
+    // (a final-stretch charger's lane: its second waypoint, see doorRoute)
+    const open = PAT_LANES.map((r) => chargers.every((w) => Math.abs(w.route[w.route.length > 2 ? 1 : 0].r - r) >= PAT_SAFE + 0.3));
     const kept = segs.slice();
     if (chargers.length) kept.unshift({ name: 'chargers', top: ranges[li].hi + PAT_SAFE, bottom: ranges[li].lo - PAT_SAFE, wolves: chargers, chargers: true });
     if (!kept.length) return null;
@@ -709,9 +729,11 @@ function placePatternEnemies(rng, lvl, p) {
     const lesson = level === 1 && li < PAT_LESSONS.length;
     const D = lesson ? 0.1 * li : Math.min(dTop, heat + 0.5 * li / Math.max(1, last));
     if (li === door) {
-      // final stretch: the door before the goal, on the beat of the room before it
+      // final stretch: a full room on the beat of the room before it, its chargers running from the lane before into
+      // the goal room (doorRoute). On top of the level's wolf count.
       const prev = plans.length && plans[plans.length - 1].leg === li - 1 ? plans[plans.length - 1] : null;
-      const pl = placeLeg(li, legDesign(li, D, prev ? prev.beat : 0), [], true);
+      const chargers = makeChargers(li, D, chargerLanes(li, D));
+      const pl = placeLeg(li, legDesign(li, D, prev ? prev.beat : 0), chargers, false);
       if (pl) plans.push({ ...pl, finale: true });
       continue;
     }
@@ -720,9 +742,9 @@ function placePatternEnemies(rng, lvl, p) {
     if (pl) plans.push(pl);
   }
 
-  // ---- wolf count: exactly `target` where the rooms allow it (see PAT_WOLVES_L1). Not in level 1's lessons.
+  // ---- wolf count: at most `target` (see PAT_WOLVES_L1; under it only through PAT_PACK_MAX). Not in level 1's lessons.
   const tamed = (pl) => pl.finale || (level === 1 && pl.leg < PAT_LESSONS.length);
-  let count = plans.reduce((a, pl) => a + pl.segs.reduce((b, sg) => b + sg.wolves.length, 0), 0);
+  let count = plans.filter((pl) => !pl.finale).reduce((a, pl) => a + pl.segs.reduce((b, sg) => b + sg.wolves.length, 0), 0);
   const packs = [];
   for (const pl of plans) {
     const cs = tamed(pl) ? null : pl.segs.find((sg) => sg.chargers);
@@ -767,6 +789,7 @@ function placePatternEnemies(rng, lvl, p) {
         seed: hashSeed(seed, level, 'wolf', id),
         route: w.route, loop: !!w.loop,
         pattern: seg.name,
+        ...(pl.finale ? { finalStretch: true } : {}),   // the final stretch: on top of the level's count, may leave its leg
       });
     }
   }
@@ -1005,12 +1028,13 @@ function locate(levelData, x, z) {
   return { leg: -2, s: 0, v: 0 };
 }
 
-// Ice level: everything except the goal room and the safe corner squares is ice.
+// Ice level: everything except the safe corner squares is ice, the goal room too (all but the goal disc). The final
+// run's goal room (the warm reward room) isn't.
 function onIce(levelData, x, z) {
   if (!levelData.ice) return false;
   if (levelData.finale && inTree(levelData, x, z)) return false;   // the final run's tree: up there you can sit still
   const rh = levelData.roomHalf;
-  if (Math.abs(x) < rh && Math.abs(z) < rh) return false;
+  if (Math.abs(x) < rh && Math.abs(z) < rh) return !levelData.finale && Math.hypot(x, z) >= levelData.centerRadius;
   const h = levelData.corridorWidth / 2;
   const sc = levelData.safeCorners;
   for (let i = 0; i < sc.length; i++) if (Math.abs(x - sc[i].x) < h && Math.abs(z - sc[i].z) < h) return false;
@@ -1024,11 +1048,13 @@ function inCenter(levelData, x, z) {
 // ---------------------------------------------------------------- self test
 
 function checkPatternWolves(ld, P, stats) {
-  const ranges = usableRanges(ld.legs);
+  // the final stretch's roaming wolves (generateLevel) are running-level wanderers, checked in mazeSelfTest
+  ld = { ...ld, enemies: ld.enemies.filter((e) => !e.finalStretch) };
+  const ranges = usableRanges(ld.legs, !!ld.finale);
   const vOut = CFG.RING_WIDTH / 2 - WOLF_MARGIN, eps = 1e-6;
   if (ld.enemies.length < 40) P(`few pattern wolves ${ld.enemies.length}`);
   const target = patWolfTarget(ld.level, ld.finale);
-  if (ld.enemies.length !== target) P(`${ld.enemies.length} pattern wolves, not ${target}`);
+  if (ld.enemies.length > target) P(`${ld.enemies.length} pattern wolves, over ${target}`);
   if (!ld.patternPlan || ld.patternPlan.length < ld.legs.length - 3) P(`rooms missing: ${ld.patternPlan ? ld.patternPlan.length : 0} planned legs`);
   const beat = new Map((ld.patternPlan || []).map((pl) => [pl.leg, pl.beat]));
   const period = new Map((ld.patternPlan || []).map((pl) => [pl.leg, pl.period]));
@@ -1070,18 +1096,16 @@ function checkPatternWolves(ld, P, stats) {
       }
     }
     const f = e.frame, pts = e.route;
-    let clip = 0, unsafe = 0;
+    let clip = 0;
     for (let k = 1; k < pts.length; k++) {
       const A = pts[k - 1], B = pts[k], n = Math.max(1, Math.ceil(Math.hypot(B.r - A.r, B.th - A.th) / 0.25));
       for (let t = 0; t <= n; t++) {
         const r = A.r + (B.r - A.r) * t / n, th = A.th + (B.th - A.th) * t / n;
         const { x, z } = legPoint(f, r, th);
         if (collideCircle(ld, x, z, CFG.WOLF_RADIUS).hit) clip++;
-        for (const sp of ld.spawnPoints) if (Math.hypot(sp.x - x, sp.z - z) < CFG.START_SAFE_ARC) unsafe++;
       }
     }
     if (clip) P(`${tag}: route clips walls (${clip})`);
-    if (unsafe) P(`${tag}: route enters the start safe area`);
   }
   // a leg's charger lanes may run at different speeds, but come back into step within PAT_DRIFT_PERIOD
   for (const [leg, laps] of chargerLaps) {
@@ -1107,7 +1131,31 @@ function mazeSelfTest(levels = 12, modes = ['mixed', 'ice']) {
       const ld = generateLevel(l, s, mode);
       const p = levelParams(l);
       const pattern = ld.ice || ld.finale;
-      if (pattern !== ld.enemies.every((e) => e.pattern)) P(s, l, `ice ${ld.ice}: pattern wolves ${!pattern ? 'on a non-ice level' : 'missing'}`);
+      if (pattern !== ld.enemies.filter((e) => !e.finalStretch).every((e) => e.pattern)) P(s, l, `ice ${ld.ice}: pattern wolves ${!pattern ? 'on a non-ice level' : 'missing'}`);
+      // skate levels (not the final run): the final stretch's room (on top of the count); its chargers run from the
+      // lane before into the goal room, clear of the walls and never onto the goal disc
+      const fs = ld.enemies.filter((e) => e.finalStretch), lastLeg = ld.legs.length - 1;
+      if (pattern && !ld.finale && fs.length < 8) P(s, l, `only ${fs.length} wolves on the final stretch`);
+      if ((!pattern || ld.finale) && fs.length) P(s, l, 'final-stretch wolves on a level without a skate final stretch');
+      let inRoom = false, inPrev = false;
+      for (const e of fs) {
+        if (e.leg !== lastLeg || !e.pattern) P(s, l, `final-stretch wolf ${e.id}: leg ${e.leg}, ${e.type}/${e.pattern}`);
+        let clip = 0, disc = 0;
+        for (let k = 1; k < e.route.length; k++) {
+          const A = e.route[k - 1], B = e.route[k], n = Math.max(1, Math.ceil(Math.hypot(B.r - A.r, B.th - A.th) / 0.25));
+          for (let t = 0; t <= n; t++) {
+            const { x, z } = legPoint(e.frame, A.r + (B.r - A.r) * t / n, A.th + (B.th - A.th) * t / n);
+            if (collideCircle(ld, x, z, CFG.WOLF_RADIUS).hit) clip++;
+            if (Math.hypot(x, z) < ld.centerRadius + CFG.WOLF_RADIUS) disc++;
+            const w = locate(ld, x, z);
+            if (w.leg === -1) inRoom = true;
+            if (w.leg === lastLeg - 1 && w.s > ld.corridorWidth / 2 + 1) inPrev = true;
+          }
+        }
+        if (clip) P(s, l, `final-stretch wolf ${e.id} (${e.type}): route clips walls (${clip})`);
+        if (disc) P(s, l, `final-stretch wolf ${e.id} (${e.type}): route enters the goal disc`);
+      }
+      if (fs.length && (!inRoom || !inPrev)) P(s, l, `final-stretch chargers: into the goal room ${inRoom}, into the lane before ${inPrev}`);
       stats.levels++;
       if (JSON.stringify(ld) !== JSON.stringify(generateLevel(l, s, mode))) P(s, l, 'not deterministic');
       // path: starts at start, ends in center, never inside walls

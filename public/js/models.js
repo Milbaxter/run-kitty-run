@@ -999,8 +999,8 @@ const WOLF_HELL = { base: 0x30251f, light: 0x63504a, dark: 0x140d0b };
 // chargers sooty black, crossers ash white, diagonals smouldering purple (others: WOLF_HELL)
 const WOLF_HELL_TYPES = {
   charger: { base: 0x1d1917, light: 0x403835, dark: 0x090706 },
-  crosser: { base: 0xd2d4dc, light: 0xf8f9ff, dark: 0x60626e },   // cool ash white (the red light warms it up)
-  diagonal: { base: 0x5a2e66, light: 0x9a62aa, dark: 0x23102a },
+  crosser: { base: 0xa4a8b2, light: 0xc6c9d1, dark: 0x4c4f58 },   // ash grey (was ash white: in a ruff it read as white)
+  diagonal: { base: 0x5a2e66, light: 0x7e4a8e, dark: 0x23102a },   // (light toned down: the ruff showed it as a brighter purple)
 };
 const WOLF_RED_EYE = 0xff2a12, WOLF_EMBER = 0xff5a1e, WOLF_EMBER_HOT = 0xffa23a;
 const BONE = 0xdccdad, STEEL = 0xc2c8d0, FROST = 0xe9f5ff, SCAR = 0xc98585, IRON = 0x2b2f37, LEATHER = 0x3c291c;
@@ -1087,14 +1087,15 @@ function wolfGeos(type, look) {
     const ring = (a, r) => [NECK[0], NECK[1] + Math.cos(a) * r, Math.sin(a) * r];
     const band = T.scarf ? C(T.scarf) : null;
     if (look.wild) {
-      // wild (no collar): a shaggy ruff of fur round the neck, longer and messier every level; the skate wolves'
-      // type colour streaks the tips instead of a collar band
+      // wild (no collar): a shaggy ruff of fur round the neck, longer and messier every level, in the wolf's own fur
+      // colours (the skate wolves' coats tell them apart, no type colour needed)
       const n = 12 + Math.round(5 * s) + (hell ? 3 : 0), len = 0.14 + 0.1 * s + (hell ? 0.05 : 0);
       for (let layer = 0; layer < 2; layer++) {   // an outer ring of long tufts and a shorter one behind it
         for (let i = 0; i < n; i++) {
           const a = -1.8 + 3.6 * (i + layer * 0.5) / (n - 1 + layer), j = ((i * 53 + layer * 17) % 11) / 11 - 0.5;
           const o = ring(a, 0.16), d = norm3([-0.6 - 0.35 * layer + 0.25 * j, Math.cos(a) * 0.85, Math.sin(a) * 0.85]);
-          const col = band && (i + layer) % 2 ? band : (i + layer) % 3 === 0 ? light : layer ? dark : base;
+          // (hellhounds: their coat colour instead of the light tufts, which turned the ash grey white and the purple bright)
+          const col = (i + layer) % 3 === 0 ? (hell ? base : light) : layer ? dark : base;
           spike(body, [o[0] - 0.05 * layer, o[1], o[2]], d, len * (0.75 + 0.45 * (((i * 29) % 7) / 7)) * (layer ? 0.75 : 1), 0.065, col);
         }
       }

@@ -4,6 +4,8 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Wolves look wilder: a shaggy ruff of fur round the neck instead of a collar, longer and messier every level, in each wolf\'s own fur colours (the final run\'s hellhounds keep their black, ash grey and purple coats)',
+      'Running levels: the later lanes now get busier steadily every level too (a little quieter on the early levels, the same on level 8)',
       'Running levels: the long first lanes now fill up with more wolves every level, up to nearly twice as many on level 8, so the start of a run is no longer the quiet part',
       'Skate levels: every lane gets busier every level (levels 7 and 8 used to be about as busy as each other), wolves on the last levels are a little slower, and no wolf runs much faster than the others of its colour in its lane',
       'Online, everyone in the lobby needs the latest version for these (otherwise the levels are built as before)',

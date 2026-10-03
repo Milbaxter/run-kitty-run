@@ -267,6 +267,9 @@ function buildStraight(rng, side = -1, W = CFG.RING_WIDTH, sH = 0, extra = 0) {
 // finale version 8+: running levels' first six lanes (the long ones) had too few wolves for their length: wolves in each
 // (guards included) on level 1 (as before) and level 8, evenly in between; the other lanes as before
 const RUN_LANES_L1 = [17, 19, 19, 21, 20, 22], RUN_LANES_L8 = [37, 38, 34, 35, 31, 32];
+// finale version 9+: the other lanes (7-15) keep their level 8 count (as in version 8) and have RUN_TAIL_GROWTH fewer
+// every level before it, so they rise steadily too (they used to stay flat for a level or two)
+const RUN_TAIL_L8 = [23, 25, 22, 24, 19, 21, 16, 16, 14], RUN_TAIL_GROWTH = 1.05;
 const RUN_PAUSES = [[6, 6, 1], [3, 6, 0.67], [2, 6, 1.35], [1.2, 6, 2], [0.7, 6, 3.1], [0.4, 6, 4.1], [0.2, 6, 5.4], [0.1, 6, 7.4]];
 // walk length per move, same form: level 1 ~2x the old walks; by level 8 back near the old average, with long walks still possible
 const ROOM_WOLVES = 3;   // running levels: the goal room's own wolves (+1 from level 5)
@@ -345,6 +348,11 @@ function placeEnemies(rng, lvl, p) {
   if (pauseRange && !lvl.finale && lvl.fv >= 8) RUN_LANES_L8.forEach((top, li) => {
     const want = Math.round(RUN_LANES_L1[li] + (top - RUN_LANES_L1[li]) * (lv - 1) / (RUN_PAUSES.length - 1));
     quota[li] = Math.max(quota[li], want - guardsAt(li));
+  });
+  if (pauseRange && !lvl.finale && lvl.fv >= 9) RUN_TAIL_L8.forEach((top, k) => {
+    const li = RUN_LANES_L8.length + k;
+    const room = li === last ? ROOM_WOLVES + (lv >= 5 ? 1 : 0) : 0;   // (the last lane's count includes the goal room's wolves)
+    if (li < legs.length) quota[li] = Math.max(0, Math.round(top / Math.pow(RUN_TAIL_GROWTH, RUN_PAUSES.length - lv)) - guardsAt(li) - room);
   });
   const spanScale = 1 + Math.min(1, 0.1 * (level - 1));   // territories grow with level
   // Run only: at an unsafe corner shared with another lane, wolves whose territory reaches the corner may also walk

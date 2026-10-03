@@ -466,7 +466,7 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
 function startSim(players, startLevel, simMode = DEBUG_MODE) {
-  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 8 });
+  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 9 });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   accumulator = 0;
@@ -507,7 +507,8 @@ function buildView() {
     const spec = ld.enemies[e.id], kind = spec && spec.pattern === 'junction-crosser' ? 'diagonal' : e.type;
     let r = rigs.get(kind);
     if (!r) {
-      const rig = createWolfRig(kind, { level: ld.level, theme: ld.theme, finale: !!ld.finale }); // scarier every level, dressed for the season
+      // scarier every level, dressed for the season; wild: a shaggy ruff of fur round the neck instead of a collar
+      const rig = createWolfRig(kind, { level: ld.level, theme: ld.theme, finale: !!ld.finale, wild: true });
       rig.group.scale.setScalar(CFG.WOLF_RADIUS / 0.55); // models are built for the original 0.55 radius
       r = { rig, n: 0 };
       rigs.set(kind, r);

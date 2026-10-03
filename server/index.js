@@ -30,11 +30,11 @@ const MODE_MIN_PROTOCOL = { ice: 4, mixed: 4, run: 4 };
 // Finale versions (sim.finales, see maze.js generateLevel): the protocol each needs. A room plays the newest version
 // every member has (older clients would build the older level 9 and desync); once it plays one, older clients can't
 // join it mid-game.
-const FINALE_PROTOCOL = [0, 5, 6, 7, 8, 9, 10, 11, 12];   // 1 = Run only's level 9 final run, 2 = the wide skate final run, 3 = Run + Skate's both in a row, 4 = skate goal rooms without their back wolves, 5 = no lane-before-last wolf turning in the open, 6 = junction chargers, 7 = wolves per lane, 8 = running levels' long lanes
+const FINALE_PROTOCOL = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13];   // 1 = Run only's level 9 final run, 2 = the wide skate final run, 3 = Run + Skate's both in a row, 4 = skate goal rooms without their back wolves, 5 = no lane-before-last wolf turning in the open, 6 = junction chargers, 7 = wolves per lane, 8 = running levels' long lanes, 9 = their other lanes
 const finalesOf = (members) => Math.min(...members.map((m) => FINALE_PROTOCOL.filter((p) => m.v >= p).length - 1));
-// the newest finale version that changes this mode's levels (older ones build them the same): Run only 1 and 8, Skate
-// only 2 and 4 to 7, Run + Skate 2 to 8
-const finaleFor = (mode, f) => (mode === 'run' ? (f >= 8 ? 8 : Math.min(f, 1)) : mode === 'ice' ? (f >= 4 ? Math.min(f, 7) : f >= 2 ? 2 : 0) : (f === 1 ? 0 : f));
+// the newest finale version that changes this mode's levels (older ones build them the same): Run only 1, 8 and 9,
+// Skate only 2 and 4 to 7, Run + Skate 2 to 9
+const finaleFor = (mode, f) => (mode === 'run' ? (f >= 8 ? f : Math.min(f, 1)) : mode === 'ice' ? (f >= 4 ? Math.min(f, 7) : f >= 2 ? 2 : 0) : (f === 1 ? 0 : f));
 const runFinaleOk = (client, room) => !(room.phase === 'playing' && room.sim) || client.v >= FINALE_PROTOCOL[finaleFor(room.mode, room.sim.finales | 0)];
 const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
 const MODE_NAMES = { mixed: 'Default (Run + Skate)', run: 'Run only', ice: 'Skate only' };

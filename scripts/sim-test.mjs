@@ -142,6 +142,13 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
         ok(r8.slice(0, 6).join() === '37,38,34,35,31,32' && r8.slice(6).join() === r7.slice(6).join() && r1.join() === lanes(generateLevel(1, 11, 'run', 7)).join(),
           `finale version 8: running level 8's long lanes ${r8.slice(0, 6).join('/')} (was ${r7.slice(0, 6).join('/')}), level 1 as before`);
       }
+      // version 9: running levels' lanes 7-15 rise 5% a level up to their level 8 count (level 8 as in version 8)
+      {
+        const lanes = (ld) => ld.legs.map((_, i) => ld.enemies.filter((e) => e.leg === i).length);
+        const r = [1, 4, 8].map((L) => lanes(generateLevel(L, 11, 'run', 9)));
+        ok(r[0].slice(6).join() === '16,18,16,17,14,15,11,11,10' && r[2].join() === lanes(generateLevel(8, 11, 'run', 8)).join(),
+          `finale version 9: running lanes 7-15 ${r.map((c) => c.slice(6).join('/')).join(' -> ')} (levels 1, 4, 8)`);
+      }
     }
     // version 3: Run + Skate's level 9 is both in a row (skate, a hallway, the run back to the goal room); Skate only keeps
     // the wide skate final run

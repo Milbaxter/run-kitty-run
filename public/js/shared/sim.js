@@ -457,18 +457,12 @@ function stepSim(sim, inputs, dt) {
     if (sim.state !== 'playing') break; // no deaths during the level-clear celebration
     if (!p.alive || p.inCenter || p.invuln > 0 || p.shield > 0) continue;
     if (inTree(ld, p.x, p.z)) continue; // up a tree: safe
-    // p.god: dev playtest godmode. Never caught, but a touch shows the extra-life effect (at most once per
-    // SPAWN_INVULN) so the tester can tell they'd have been hit
-    if (p.god && p.godHitT > 0) { p.godHitT -= dt; continue; }
     for (let e = 0; e < enemies.length; e++) {
       const en = enemies[e];
       const dx = p.x - en.x;
       const dz = p.z - en.z;
       if (dx * dx + dz * dz >= hitR2) continue;
-      if (p.god) {
-        p.godHitT = CFG.SPAWN_INVULN;
-        events.push({ type: 'extraLife', playerId: p.id, x: p.x, z: p.z, god: true });
-      } else if (p.lives > 0) {
+      if (p.lives > 0) {
         p.lives--;
         p.invuln = CFG.SPAWN_INVULN;
         events.push({ type: 'extraLife', playerId: p.id, x: p.x, z: p.z });

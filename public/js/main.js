@@ -218,13 +218,6 @@ window.addEventListener('keydown', (e) => {
     chat.open();
     return;
   }
-  // dev: offline, Enter opens the (otherwise hidden) chat box as a command line
-  if (e.key === 'Enter' && !online.room && !online.playing && mode === 'play' && !paused && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input')) {
-    e.preventDefault();
-    chat.setEnabled(true);
-    chat.open();
-    return;
-  }
   audio.unlock();
   if (e.code !== 'KeyM') syncTrack(); // browsers only start media after a user gesture
   if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
@@ -366,23 +359,11 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
   setMouseNdc(e);
-  if (e.button === 2 && devGod) { devTeleport(mouseGround()); return; }   // dev: godmode right-click teleport
   mouse.held = true;
   mouse.iceDir = null;
   mouse.target = mouseGround();
   if (mouse.target) targetPulse = 1;
 });
-// dev: godmode right-click teleport (your kitty, anywhere that isn't inside a wall). Online the server does it too
-// (it only listens while your godmode is on); the local copy just moves at once.
-function devTeleport(g) {
-  const i = mousePlayerIndex(), p = i >= 0 ? sim.players[i] : null;
-  if (!g || !p || !p.alive || collideCircle(sim.levelData, g.x, g.z, CFG.KITTY_RADIUS).hit) return;
-  p.x = g.x; p.z = g.z; p.vx = 0; p.vz = 0;
-  prevPos.delete('p' + p.id);
-  mouse.target = null; mouse.iceDir = null;
-  effects.teleport(g.x, g.z, p.color);
-  if (online.playing) net.send({ t: 'tp', x: g.x, z: g.z });
-}
 function pointerEnd(e) {
   if (e.pointerType === 'touch') {
     if (e.pointerId === pinch.id) { pinch.id = null; return; }
@@ -675,7 +656,7 @@ function handleEvents(events) {
         const p = playerById(ev.playerId);
         if (mine(ev.playerId)) haptic('medium');
         effects.reviveBeam(ev.x, ev.z, p ? p.color : 0xffffff);
-        effects.floatText(ev.x, 1.6, ev.z, ev.god ? 'HIT!' : 'EXTRA LIFE!', '#ff8fb8');   // ev.god: a touch in dev godmode
+        effects.floatText(ev.x, 1.6, ev.z, 'EXTRA LIFE!', '#ff8fb8');
         effects.shake(0.3);
         audio.play('extraLife');
         break;
@@ -1436,22 +1417,13 @@ const lobbyUI = createLobbyUI(document.getElementById('ui'), {
   onBack: () => leaveOnline(),
 });
 
-// dev: playtest godmode, toggled by a chat command (never sent as a chat message)
-let devGod = false;
-function toggleDevGod() {
-  devGod = !devGod;
-  if (online.room) net.send({ t: 'god', on: devGod });
-  ui.toast(devGod ? 'godmode on' : 'godmode off', devGod ? '#ffcf5a' : '#b9a4ff');
-}
 const chat = createChat(document.getElementById('ui'), {
   touch: TOUCH,
   onSend: (text) => {
-    if (text.toLowerCase() === '/catnip') { toggleDevGod(); return; }
     if (online.room) net.send({ t: 'chat', text });
   },
   onOpen: () => keys.clear(), // don't keep running while typing
   onReport: NATIVE ? (id, reason) => net.send({ t: 'report', id, reason }) : null, // Report only in the store apps
-  onClose: () => { if (!online.room) chat.setEnabled(false); }, // offline the box is only a command line
 });
 // Legends board (legends.js): online winners get it over ws and may sign; offline winners read it over HTTP.
 const legends = createLegends(document.getElementById('ui'), {
@@ -1572,7 +1544,6 @@ net.on('room', (m) => {
   online.me = m.you;
   online.pass = m.pass || '';   // a private lobby's password: sent again when we rejoin after a dropped connection
   chat.setEnabled(true);
-  if (devGod) net.send({ t: 'god', on: true }); // dev: keep playtest godmode across rooms/reconnects
   for (const mem of m.members) online.roster.set(mem.id, mem);
   setRoomInUrl(m.code, m.locked ? m.pass : '');
   if (!online.playing || mode !== 'play') lobbyUI.showRoom(m);
@@ -1890,7 +1861,6 @@ function tick(dt) {
         });
         if (window.__bot) Object.assign(inputs, window.__bot(sim));
       }
-      for (const p of sim.players) p.god = devGod && mode === 'play'; // dev: playtest godmode (local players)
       const events = stepSim(sim, inputs, CFG.TICK);
       if (mode === 'play') handleEvents(events);
       else if (events.some((e) => e.type === 'levelStart')) { pregenNext(sim); buildView(); }

@@ -9,7 +9,7 @@ import { CFG, NET, PLAYER_COLORS, PLAYER_NAMES, SKATE_FINAL_LEVEL } from '../pub
 import { hashSeed } from '../public/js/shared/rng.js';
 import { GAME_MODES, createSim, stepSim, addPlayer, removePlayer } from '../public/js/shared/sim.js';
 import { serializeEnemies } from '../public/js/shared/enemies.js';
-import { levelHash, collideCircle } from '../public/js/shared/maze.js';
+import { levelHash } from '../public/js/shared/maze.js';
 import { createStats } from './stats.js';
 import { createLegends } from './legends.js';
 import { pregenNext } from './levelgen.js';
@@ -501,7 +501,6 @@ function stepRoom(room) {
     if (inp) m.lastInput = inp;
     inputs[m.id] = m.lastInput;
     for (const key of m.inputs.keys()) if (key <= k) m.inputs.delete(key);
-    if (m.god !== undefined) { const p = sim.players.find((q) => q.id === m.id); if (p) p.god = m.god; } // dev: playtest godmode
   }
   const events = stepSim(sim, inputs, CFG.TICK);
   room.tick = k;
@@ -731,19 +730,6 @@ wss.on('connection', (ws, req) => {
         client.chatLog.push({ at: new Date(now).toISOString(), room: room.code, text: raw });
         if (client.chatLog.length > CHAT_HISTORY) client.chatLog.shift();
         broadcast(room, { t: 'chat', id: client.id, name: client.name, color: client.color, text: raw }); // unfiltered (the apps mask on their side)
-        break;
-      }
-      case 'god':
-        // dev: playtest godmode for the sender's kitty (applied every tick in stepRoom)
-        client.god = !!msg.on;
-        break;
-      case 'tp': {
-        // dev: godmode right-click teleport of the sender's own kitty (never into a wall)
-        if (!client.god || !room || room.phase !== 'playing' || !room.sim) return;
-        const x = Number(msg.x), z = Number(msg.z);
-        const p = room.sim.players.find((q) => q.id === client.id);
-        if (!p || !p.alive || !Number.isFinite(x) || !Number.isFinite(z) || collideCircle(room.sim.levelData, x, z, CFG.KITTY_RADIUS).hit) return;
-        p.x = x; p.z = z; p.vx = 0; p.vz = 0;
         break;
       }
       case 'ping':

@@ -153,20 +153,6 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
       'the broken checkpoint leaves living kitties already past it where they are, gathers the downed and the skaters');
   }
 
-  // dev godmode: a wolf's touch never catches, but shows the extra-life effect (once per SPAWN_INVULN)
-  {
-    const s = createSim({ seed: 8, players: [{ id: 1, name: 'a' }] });
-    stepSim(s, {}, CFG.TICK);
-    const p = s.players[0], w = s.enemies[0], lives = p.lives;
-    p.invuln = 0; p.shield = 0;
-    let hits = 0;
-    for (let t = 0; t < Math.round(CFG.SPAWN_INVULN / CFG.TICK) * 2 + 5; t++) {
-      p.god = true; p.invuln = 0; p.x = w.x; p.z = w.z;
-      hits += stepSim(s, {}, CFG.TICK).filter((e) => e.type === 'extraLife' && e.god).length;
-    }
-    ok(p.alive && p.lives === lives && hits >= 2 && hits <= 3, `godmode: never caught, a touch shows the extra-life effect (${hits} in ~2 cooldowns)`);
-  }
-
   // speed boots: 4 pairs max, lost when caught (an extra life keeps them)
   {
     const s = createSim({ seed: 21, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] });

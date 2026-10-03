@@ -1,6 +1,7 @@
 // Preferred kitty colour (an index into PLAYER_COLORS, or -1 for no preference), remembered in localStorage.
 // Online it goes with 'create' / 'join' (the server gives it unless someone in the lobby already has it);
-// offline player 1 uses it. The picker is a small cat button that opens a row of swatches.
+// offline player 1 uses it. createColorPicker is a small cat button that opens a row of swatches (title screen);
+// createColorRow shows the swatches inline (online lobby browser).
 import { PLAYER_COLORS } from './shared/config.js';
 
 const KEY = 'rkr-color';
@@ -47,17 +48,33 @@ const CSS = `
 .rkcp-sw.rkcp-on{border-color:#fff;box-shadow:0 0 0 2px #ffcf5a;}
 .rkcp-none{width:auto;border-radius:14px;padding:0 9px;font:inherit;font-weight:900;font-size:11px;letter-spacing:.05em;color:#fff;background:rgba(255,255,255,.1);border:2px dashed rgba(255,255,255,.45);box-shadow:none;}
 .rkcp-none.rkcp-on{border-style:solid;}
+/* inline row: 40px tap targets around a smaller dot */
+.rkcr{display:flex;flex-wrap:wrap;align-items:center;gap:0;min-width:0;}
+.rkcr-b{font:inherit;width:34px;height:40px;padding:0;border:0;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;border-radius:12px;}
+.rkcr-b:focus:not(:focus-visible){outline:none;}
+.rkcr-b:focus-visible{outline:2px solid #fff;outline-offset:-2px;}
+.rkcr-b .rkcp-sw{pointer-events:none;width:24px;height:24px;display:block;}
+.rkcr-b:hover .rkcp-sw{transform:scale(1.15);}
+.rkcr-b .rkcp-none{width:auto;height:24px;line-height:19px;padding:0 6px;}
+.rkcr-any,.rkcr-more{width:auto;padding:0 3px;}
+.rkcr-more span{font-weight:900;font-size:12px;color:#fff;opacity:.8;padding:3px 7px;border-radius:10px;border:2px solid rgba(255,255,255,.3);white-space:nowrap;}
+.rkcr-more:hover span{opacity:1;border-color:#ffcf5a;}
+.rkcr-x{display:none;}
+.rkcr.rkcr-open .rkcr-x{display:flex;}
 @media (max-height:500px){.rkcp-sw{width:22px;height:22px;}.rkcp-cat{width:22px;height:22px;}.rkcp-btn{font-size:12px;}}
 `;
 
 // onChange(index) is called after the choice is saved (index -1 = no preference).
+function injectCss() {
+  if (document.getElementById('rkcp-style')) return;
+  const s = document.createElement('style');
+  s.id = 'rkcp-style';
+  s.textContent = CSS;
+  document.head.appendChild(s);
+}
+
 function createColorPicker(onChange) {
-  if (!document.getElementById('rkcp-style')) {
-    const s = document.createElement('style');
-    s.id = 'rkcp-style';
-    s.textContent = CSS;
-    document.head.appendChild(s);
-  }
+  injectCss();
   const wrap = document.createElement('div');
   wrap.className = 'rkcp';
   const btn = document.createElement('button');
@@ -105,4 +122,54 @@ function createColorPicker(onChange) {
   return wrap;
 }
 
-export { prefColor, savePrefColor, localSlots, createColorPicker };
+// Inline swatches: ANY + the first `few` colours (+ the chosen one if it's further down) and a "more" toggle that
+// expands the whole palette in place. onChange(index) is called after the choice is saved.
+function createColorRow(onChange, few = 8) {
+  injectCss();
+  const wrap = document.createElement('div');
+  wrap.className = 'rkcr';
+  const items = [];
+  const add = (i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'rkcr-b' + (i < 0 ? ' rkcr-any' : '');
+    const dot = document.createElement('span');
+    dot.className = 'rkcp-sw' + (i < 0 ? ' rkcp-none' : '');
+    if (i < 0) dot.textContent = 'ANY';
+    else dot.style.background = hex(PLAYER_COLORS[i]);
+    b.title = i < 0 ? 'Any colour' : 'Kitty colour ' + (i + 1);
+    b.setAttribute('aria-label', b.title);
+    b.appendChild(dot);
+    b.addEventListener('click', () => {
+      savePrefColor(i);
+      wrap.classList.remove('rkcr-open'); // the pick stays visible in the short row
+      paint();
+      if (onChange) onChange(i);
+    });
+    items.push([i, b, dot]);
+    wrap.appendChild(b);
+  };
+  add(-1);
+  for (let i = 0; i < PLAYER_COLORS.length; i++) add(i);
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'rkcr-b rkcr-more';
+  more.innerHTML = '<span></span>';
+  more.addEventListener('click', () => { wrap.classList.toggle('rkcr-open'); paint(); });
+  wrap.appendChild(more);
+  function paint() {
+    const p = prefColor();
+    const open = wrap.classList.contains('rkcr-open');
+    for (const [i, b, dot] of items) {
+      dot.classList.toggle('rkcp-on', i === p);
+      b.setAttribute('aria-pressed', String(i === p));
+      b.classList.toggle('rkcr-x', i >= few && i !== p); // hidden while collapsed
+    }
+    more.firstChild.textContent = open ? 'less' : `+${PLAYER_COLORS.length - few - (p >= few ? 1 : 0)}`;
+    more.title = open ? 'Fewer colours' : 'More colours';
+  }
+  paint();
+  return wrap;
+}
+
+export { prefColor, savePrefColor, localSlots, createColorPicker, createColorRow };

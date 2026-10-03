@@ -79,8 +79,13 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(rf.finale && rf.finaleSide === 1 && !rf.ice && rf.corners[0].x > 0 && rf.corridorWidth > CFG.RING_WIDTH && rf.enemies.length > 1500 && rf.enemies.every((e) => !e.pattern),
       `Run only level 9 final run: from the right, ${rf.corridorWidth.toFixed(1)} wide, ${rf.enemies.length} wandering wolves`);
     ok(!old.finale && old.corridorWidth === CFG.RING_WIDTH, 'Run only level 9 without runFinale is the old spiral');
-    const s = createSim({ seed: 7, players: [{ id: 1, name: 'a' }], startLevel: SKATE_FINAL_LEVEL, mode: 'run', runFinale: true });
-    ok(s.levelData.finale && createSim({ seed: 7, players: [], startLevel: SKATE_FINAL_LEVEL, mode: 'ice', runFinale: true }).levelData.finaleSide === -1, 'the sim passes runFinale on (Skate only unchanged)');
+    const s = createSim({ seed: 7, players: [{ id: 1, name: 'a' }], startLevel: SKATE_FINAL_LEVEL, mode: 'run', finales: 1 });
+    const sk1 = createSim({ seed: 7, players: [], startLevel: SKATE_FINAL_LEVEL, mode: 'ice', finales: 1 }).levelData;
+    ok(s.levelData.finale && sk1.finaleSide === -1 && sk1.corridorWidth === CFG.RING_WIDTH, 'finale version 1: Run only level 9 final run, the skate final run still narrow');
+    const sk2 = createSim({ seed: 7, players: [], startLevel: SKATE_FINAL_LEVEL, mode: 'ice', finales: 2 }).levelData;
+    const runWolves = sk2.enemies.filter((e) => e.type === 'wanderer'), skate = sk2.enemies.filter((e) => e.pattern);
+    ok(sk2.finale && sk2.ice && sk2.corridorWidth > CFG.RING_WIDTH && skate.length > 1000 && runWolves.length > 100 && sk2.enemies.every((e, i) => e.id === i),
+      `finale version 2: wide skate final run, ${skate.length} skate wolves and ${runWolves.length} run wolves at the end`);
   }
   {
     // no wolf ever steps onto a safe square's tiles (they're W - WALL_THICKNESS wide; wolves may walk right up to

@@ -30,7 +30,7 @@ const MAX_SUBSTEPS = 64;
 // off-thread and hand it over in sim.pregen = { level, seed, mode, ld }: makeLevel takes it when it matches
 // (same inputs => the very same deterministic layout), otherwise generates synchronously.
 function pregenParams(sim, level = sim.level + 1) {
-  return { level, seed: hashSeed(sim.seed, level), mode: sim.mode, rf: !!sim.runFinale };
+  return { level, seed: hashSeed(sim.seed, level), mode: sim.mode, rf: sim.finales };
 }
 
 function makeLevel(sim, level) {
@@ -38,7 +38,7 @@ function makeLevel(sim, level) {
   const pg = sim.pregen;
   sim.pregen = null;
   sim.level = level;
-  sim.levelData = pg && pg.ld && pg.level === level && pg.seed === seed && pg.mode === mode && !!pg.rf === rf ? pg.ld : generateLevel(level, seed, mode, rf);
+  sim.levelData = pg && pg.ld && pg.level === level && pg.seed === seed && pg.mode === mode && (pg.rf | 0) === rf ? pg.ld : generateLevel(level, seed, mode, rf);
   sim.enemies = createEnemies(sim.levelData);
   sim.enemyTicks = 0;          // updateEnemies calls since this level's wolves were created (netcode)
   const src = sim.levelData.items || [];
@@ -121,14 +121,14 @@ function makePlayer(def) {
   };
 }
 
-// runFinale: Run only's level 9 is its final run (see maze.js); off = the old endless spiral (online rooms with an
-// older client)
-function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', runFinale = false } = {}) {
+// finales: the finale version (maze.js generateLevel fv): 0 original, 1 + Run only's level 9 final run, 2 + the wide
+// skate final run. Online rooms with an older client play an older version.
+function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales = 0 } = {}) {
   const lvl = Math.max(1, startLevel | 0);
   const sim = {
     seed: seed == null ? 0 : seed,
     mode: GAME_MODES.includes(mode) ? mode : 'mixed',
-    runFinale: !!runFinale,
+    finales: Math.max(0, Math.min(2, finales | 0)),
     level: lvl,
     time: 0,
     levelTime: 0,

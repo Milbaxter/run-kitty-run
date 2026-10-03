@@ -93,8 +93,9 @@ const NET = {
 
 // The boss level (Run + Skate and Skate only): instead of the spiral it is one long icy straight run (as long as
 // the whole spiral) packed with pattern wolves, no safe squares and no checkpoints, one climbable tree halfway.
-// Clearing it wins the game (sim state 'victory'). Run only's level 9 is a final run on foot (maze.js runFinale; online
-// only when everyone in the room has protocol 5+, otherwise it goes on forever like before).
+// Clearing it wins the game (sim state 'victory'). Finale version 2 makes it three lanes wide, ending in a stretch of
+// running-level wolves; Run only's level 9 is a final run on foot (version 1+). See maze.js generateLevel (fv): online
+// rooms play the newest version every member has (protocol 5 / 6), otherwise the older levels.
 const SKATE_FINAL_LEVEL = 9;
 const FINAL_MODES = ['mixed', 'ice'];
 
@@ -106,6 +107,7 @@ const FINAL_MODES = ['mixed', 'ice'];
 //   4 = slim wolf resync format ([id, time] / [id, heading, rng, ...]) and ipow in level generation (level 9 boss
 //       run differed on iOS); start messages carry a level hash (lh)
 //   5 = Run only's level 9 final run (start messages carry rf; a room uses it only when every member has 5+)
-const PROTOCOL_VERSION = 5;
+//   6 = the wide skate final run (finale version 2: start messages carry rf 2 when every member has 6+)
+const PROTOCOL_VERSION = 6;
 
 export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION };

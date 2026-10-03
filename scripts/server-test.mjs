@@ -66,9 +66,9 @@ async function victory() {
     old.send({ t: 'join', code: a.last.room.code, name: 'Old' }); await sleep(150);
     a.send({ t: 'start', level: F }); b.send({ t: 'start', level: F }); await sleep(300);
     ok(old.last.start && old.last.start.rf === 0 && a.last.start.rf === 0, 'Run only room with a protocol-4 kitty: no level 9 ending (rf 0)');
-    ok(b.last.start && b.last.start.rf === 1, 'Run only room of protocol-5 kitties plays the level 9 ending (rf 1)');
+    ok(b.last.start && b.last.start.rf === 2, 'Run only room of current kitties plays the newest level 9 (rf 2)');
     old2.send({ t: 'join', code: b.last.room.code, name: 'Old2' }); await sleep(150);
-    ok(old2.last.error && /Run only ending/.test(old2.last.error.msg) && !old2.last.start, `protocol-4 kitty can't join it mid-game: "${old2.last.error && old2.last.error.msg}"`);
+    ok(old2.last.error && /new level 9/.test(old2.last.error.msg) && !old2.last.start, `protocol-4 kitty can't join it mid-game: "${old2.last.error && old2.last.error.msg}"`);
     for (const x of [a, old, b, old2]) x.ws.close();
   }
   noHi.send({ t: 'create', name: 'Old', mode: 'ice' }); await sleep(150);
@@ -90,7 +90,7 @@ async function victory() {
   const st = guest.last.start;
   ok(st && st.level === F && st.mode === 'ice' && st.st === 'playing' && st.vic === null, `start message: level ${st && st.level}, mode ${st && st.mode}, st ${st && st.st}`);
   // the client path: build the level from the start message and mirror the wolves; compare with the server's wolf checks
-  const mirror = createSim({ seed: st.seed, players: st.players, startLevel: st.level, mode: st.mode });
+  const mirror = createSim({ seed: st.seed, players: st.players, startLevel: st.level, mode: st.mode, finales: +st.rf || 0 });
   await sleep(500);
   const snap = guest.snaps.at(-1);
   for (let t = 0; t < snap.lt; t++) updateEnemies(mirror.enemies, mirror.levelData, CFG.TICK);

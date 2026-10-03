@@ -441,7 +441,7 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
 function startSim(players, startLevel, simMode = DEBUG_MODE) {
-  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, runFinale: true });
+  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 2 });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   accumulator = 0;
@@ -1587,7 +1587,7 @@ function beginOnlineGame(m) {
   for (const p of m.players) online.roster.set(p.id, p);
   playerCount = m.players.length;
   removeKitties();
-  sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode, runFinale: !!m.rf });
+  sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode, finales: +m.rf || 0 });
   analytics.runStart('online', m.mode || 'mixed');
   sim.started = true;
   if (m.it) { const taken = new Set(m.it); for (const it of sim.items) it.taken = taken.has(it.id); } // joined mid-level

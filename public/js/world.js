@@ -1360,7 +1360,8 @@ function buildIce(levelData, T, theme) {
     // leg i runs from corner i+1 (s=0) to corner i (s=len). Butt up against safe tiles instead of running under
     // them (no flicker); an unsafe corner at s=len is iced by this leg, and the last leg also ices its s=0 door corner.
     const endSafe = i < levelData.safeCorners.length;
-    const s0 = i === levelData.legs.length - 1 ? -h : h, s1 = endSafe ? l.len - h : l.len + h;
+    const eh = levelData.safeSize ? levelData.safeSize / 2 - CFG.WALL_THICKNESS / 2 : h;   // a safe square (or start room) edge
+    const s0 = i === levelData.legs.length - 1 ? -h : h, s1 = endSafe ? l.len - eh : l.len + h;
     const b = pos.length / 3;
     for (const [sv, v] of [[s0, -h], [s0, h], [s1, -h], [s1, h]]) {
       const x = l.ox + l.ux * sv + l.nx * v, z = l.oz + l.uz * sv + l.nz * v;
@@ -1950,12 +1951,21 @@ function buildClimbTrees(levelData, theme, T) {
   blobs.receiveShadow = true;
   if (!levelData.finale) return [trunks, blobs];
   // the final run's tree: smouldering. A charred canopy with glowing coals on the pad and round its rim, and glowing
-  // cracks up the trunk (unlit, so it stands out in the dark)
-  const coals = [], cracks = [];
+  // cracks up the trunk (unlit, so it stands out in the dark). On the ice (the skate final run) it's snowed on: snow
+  // caps on the pad and the rim puffs, the coals glowing out round their edges
+  const snowy = !!levelData.ice;
+  const coals = [], cracks = [], caps = [];
   trees.forEach((t, i) => {
     for (let k = 0; k < per; k++) blobs.setColorAt(i * per + k, c.set(k % 2 ? 0x2e1f1c : 0x3c2622));
-    for (let k = 0; k < 9; k++) {   // on the pad
-      const a = rng.range(0, TAU), d = rng.range(0, R * 0.7);
+    if (snowy) {
+      caps.push({ x: t.x, z: t.z, y: CLIMB_Y - 0.06, sx: R * 0.6, sy: 0.16, sz: R * 0.55, ry: rng.range(0, TAU) });
+      for (let k = 1; k < per; k++) {
+        blobs.getMatrixAt(i * per + k, m); m.decompose(pos, q, sc);
+        caps.push({ x: pos.x, z: pos.z, y: pos.y + sc.y * 0.92, sx: sc.x * 0.55, sy: 0.15, sz: sc.z * 0.55, ry: rng.range(0, TAU) });
+      }
+    }
+    for (let k = 0; k < 9; k++) {   // on the pad (snowy: round the edge of the snow cap)
+      const a = rng.range(0, TAU), d = snowy ? rng.range(R * 0.62, R * 0.8) : rng.range(0, R * 0.7);
       coals.push({ x: t.x + Math.cos(a) * d, z: t.z + Math.sin(a) * d, y: CLIMB_Y - 0.02, sx: rng.range(0.18, 0.34), sy: 0.07, sz: rng.range(0.18, 0.34), ry: rng.range(0, TAU), color: new THREE.Color(k % 3 ? 0xff5a1a : 0xffa040) });
     }
     for (let k = 1; k < per; k++) {   // on the rim puffs
@@ -1972,9 +1982,11 @@ function buildClimbTrees(levelData, theme, T) {
   });
   blobs.instanceColor.needsUpdate = true;
   const emberMat = T.m(new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  return [trunks, blobs,
+  const out = [trunks, blobs,
     makeInstanced(T.g(new THREE.IcosahedronGeometry(1, 1)), emberMat, coals),
     makeInstanced(T.g(new THREE.BoxGeometry(1, 1, 1)), emberMat, cracks)];
+  if (caps.length) out.push(makeInstanced(T.g(new THREE.IcosahedronGeometry(1, 1)), T.m(new THREE.MeshStandardMaterial({ color: 0xf6faff, roughness: 0.7, flatShading: true })), caps, { cast: true, receive: true }));
+  return out;
 }
 
 // Checkpoint squares (every level but the final run): a glowing ring with cat ears on the tile (a cat's head
@@ -2132,16 +2144,24 @@ function buildFinale(levelData, theme, T, rng) {
   aurora.frustumCulled = false;
   meshes.push(aurora);
 
-  // ---- the halfway tree: a disc of warm ash round the smouldering tree (on the ice: here you can stand still)
+  // ---- the halfway tree: a disc of snow over the ice (the skate final run: here you can stand still), or of warm
+  // ash round the smouldering tree (on foot)
   if (levelData.trees && levelData.trees.length) {
-    const snowTex = textTexture(T, 128, 128, (g, S) => {
+    const snowTex = levelData.ice ? textTexture(T, 128, 128, (g, S) => {
+      const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+      gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.78, 'rgba(250,252,255,1)'); gr.addColorStop(1, 'rgba(240,246,255,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, S, S);
+      for (let i = 0; i < 120; i++) { g.fillStyle = `rgba(170,195,235,${0.08 + 0.1 * Math.random()})`; g.beginPath(); g.arc(S / 2 + (Math.random() - 0.5) * S * 0.8, S / 2 + (Math.random() - 0.5) * S * 0.8, 1 + Math.random() * 2, 0, TAU); g.fill(); }
+    }) : textTexture(T, 128, 128, (g, S) => {
       const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
       gr.addColorStop(0, 'rgba(70,52,48,1)'); gr.addColorStop(0.62, 'rgba(84,56,46,1)'); gr.addColorStop(0.82, 'rgba(230,96,40,0.9)'); gr.addColorStop(1, 'rgba(200,60,20,0)');
       g.fillStyle = gr; g.fillRect(0, 0, S, S);
       for (let i = 0; i < 90; i++) { g.fillStyle = `rgba(255,${90 + (Math.random() * 80) | 0},30,${0.25 + 0.4 * Math.random()})`; g.beginPath(); g.arc(S / 2 + (Math.random() - 0.5) * S * 0.75, S / 2 + (Math.random() - 0.5) * S * 0.75, 0.6 + Math.random() * 1.4, 0, TAU); g.fill(); }
     });
     const snowGeo = T.g(new THREE.PlaneGeometry(2 * R + 1.4, 2 * R + 1.4)); snowGeo.rotateX(-Math.PI / 2);
-    const snowMat = T.m(new THREE.MeshStandardMaterial({ map: snowTex, transparent: true, roughness: 0.95, depthWrite: false, emissive: 0xff5a1e, emissiveIntensity: 0.18, emissiveMap: snowTex }));
+    const snowMat = T.m(levelData.ice
+      ? new THREE.MeshStandardMaterial({ map: snowTex, transparent: true, roughness: 0.85, depthWrite: false, emissive: 0x9fb8e0, emissiveIntensity: 0.15 })
+      : new THREE.MeshStandardMaterial({ map: snowTex, transparent: true, roughness: 0.95, depthWrite: false, emissive: 0xff5a1e, emissiveIntensity: 0.18, emissiveMap: snowTex }));
     for (const t of levelData.trees) {
       const snow = new THREE.Mesh(snowGeo, snowMat);
       snow.position.set(t.x, 0.011, t.z); snow.renderOrder = 1; snow.receiveShadow = true;

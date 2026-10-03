@@ -170,8 +170,14 @@ const FINALE_WOLVES = 385;       // the run's wolf count (the spiral's level-7+ 
 // wall to wall. Measured with docs/WOLF_WALL_TUNING.md's method across 17 points and along the corridor.
 const RUN_FINALE_W = 3 * CFG.RING_WIDTH, RUN_FINALE_WOLVES = 2100, RUN_FINALE_WALL = 0.45;
 const RUN_FINALE_START = 0.6;   // wolves in the first section (outside the start room) relative to the rest
-// Run only's level 9 (generateLevel's runFinale; the sim's runFinale: always offline, online only when every kitty in
-// the room has protocol 5+, older clients build the endless spiral's level 9): the final run's corridor the other way
+// Finale version 2 (generateLevel's fv): the skate final run as wide as Run only's level 9, with the same start room.
+// Its rooms get normal-width pattern layouts side by side (one per lane, each as hard as the narrow final run), the
+// crossers and diagonals stretched wall to wall, at least one crosser in every wolf-width slot along it.
+// its last WIDE_RUN_S seconds of skating (at full speed) have Run only's wolves instead; the level is WIDE_RUN_EXTRA longer
+// than usual for them (the stretch used to be 6 s, taken out of the usual length)
+const WIDE_RUN_S = 18, WIDE_RUN_EXTRA = (WIDE_RUN_S - 6) * CFG.KITTY_SPEED;
+// Run only's level 9 (finale version 1+, see generateLevel; offline always, online only when every kitty in the room
+// has protocol 5+, older clients build the endless spiral's level 9): the final run's corridor the other way
 // round, start on the right and the goal room at its left end, on solid ground with the running levels' wandering
 // wolves. Later it becomes the first half of Run + Skate's level 9 (this run, then the skate run). Its corridor is three
 // lanes wide (wider than the goal room, whose whole door side opens onto it) and it has RUN_FINALE_WOLVES wolves.
@@ -190,9 +196,10 @@ function spiralLength() {
 // same corridor mirrored (x -> -x), so the run direction along it is +x / -x.
 // sH: the start square's half-size when the corridor is wider than it (Run only's level 9): the start is then a room
 // like the goal room, centred across the corridor with its open side toward it (short walls close off the rest)
-function buildStraight(rng, side = -1, W = CFG.RING_WIDTH, sH = 0) {
+// extra: units added to the usual length (the wide skate test: its run-wolf stretch at the end is longer than it took away)
+function buildStraight(rng, side = -1, W = CFG.RING_WIDTH, sH = 0, extra = 0) {
   const h = W / 2;
-  const total = Math.round(spiralLength());
+  const total = Math.round(spiralLength() + extra);
   const xs = -total;                 // start square center: the path start -> goal center is `total` long
   const xd = -ROOM - h;              // the last corner: the ice square in front of the goal room's door
   const xTree = Math.round(xs + total / 2);
@@ -209,7 +216,8 @@ function buildStraight(rng, side = -1, W = CFG.RING_WIDTH, sH = 0) {
   };
   const xsCorners = [xs, ...split(xs, xTree), xTree, ...split(xTree, xd), xd];
   const corners = xsCorners.map((x) => ({ x, z: 0 }));
-  const gapAt = (i) => (i === 0 ? FINALE_START_GAP : corners[i].x === xTree ? FINALE_TREE_GAP : FINALE_GAP);
+  const startGap = sH > 0 && sH < h ? 2 * sH + 2 * CORNER_REST : FINALE_START_GAP;   // a start room: its width
+  const gapAt = (i) => (i === 0 ? startGap : corners[i].x === xTree ? FINALE_TREE_GAP : FINALE_GAP);
   const legs = [];
   for (let i = 0; i < corners.length - 1; i++) {
     legs.push({
@@ -514,8 +522,8 @@ const patDensity = (level) => Math.min(2.2, 1.2 + 0.14 * (Math.min(level, PAT_WO
 const NO_FRAME = { ox: 0, oz: 0, ux: 1, uz: 0, nx: 0, nz: 1 };
 
 // finale: the final run (its start square is like any safe square too: FINALE_START_GAP)
-function usableRanges(legs, finale = false) {
-  const W = CFG.RING_WIDTH, last = legs.length - 1;
+function usableRanges(legs, finale = false, W = CFG.RING_WIDTH) {
+  const last = legs.length - 1;
   return legs.map((leg, li) => {
     let lo = (leg.padLo ?? W / 2 + CORNER_REST) + CFG.WOLF_RADIUS;
     let hi = leg.len - (leg.padHi ?? W / 2 + CORNER_REST) - CFG.WOLF_RADIUS;
@@ -620,13 +628,16 @@ function placePatternEnemies(rng, lvl, p) {
   const { legs, seed, level } = lvl;
   const W = CFG.RING_WIDTH;
   const vOut = W / 2 - WOLF_MARGIN;
-  const ranges = usableRanges(legs, !!lvl.finale);
+  const ranges = usableRanges(legs, !!lvl.finale, lvl.corridorWidth);
   const last = legs.length - 1;
   const door = lvl.finale ? -1 : last;   // the spiral's final stretch (door before the goal); the final run has none
+  // a corridor several lanes wide (the wide skate final run test): one normal-width layout per band, side by side
+  const nb = Math.max(1, Math.round(lvl.corridorWidth / W)), bands = [...Array(nb).keys()].map((k) => (k - (nb - 1) / 2) * W);
+  const wideOut = lvl.corridorWidth / 2 - WOLF_MARGIN;   // wall to wall across all of them
   const enemies = [];
   const plans = [];
   const G0 = lvl.finale ? 2 : patDensity(level);   // the final run keeps its own tuning (density 2)
-  const target = patWolfTarget(level, lvl.finale);
+  const target = patWolfTarget(level, lvl.finale) * nb;
   const frameOf = (leg) => ({ ox: leg.ox, oz: leg.oz, ux: leg.ux, uz: leg.uz, nx: leg.nx, nz: leg.nz });
   const finish = (w, leg) => {
     w.rMin = Math.min(...w.route.map((q) => q.r)); w.rMax = Math.max(...w.route.map((q) => q.r));
@@ -831,9 +842,18 @@ function placePatternEnemies(rng, lvl, p) {
       }
       continue;
     }
-    const chargers = makeChargers(li, D, chargerLanes(li, D));
-    const pl = placeLeg(li, legDesign(li, D, 0), chargers, lesson);
-    if (pl) plans.push(pl);
+    for (const off of bands) {
+      const chargers = makeChargers(li, D, chargerLanes(li, D));
+      const pl = placeLeg(li, legDesign(li, D, 0), chargers, lesson);
+      if (!pl) continue;
+      // chargers keep to their band's lanes; crossers and diagonals run wall to wall across every band (their routes
+      // stretched across the whole width, at their own speed: a crossing takes nb times as long)
+      if (nb > 1) for (const sg of pl.segs) for (const w of sg.wolves) {
+        w.route = w.route.map((q) => ({ r: w.type === 'charger' ? q.r + off : q.r * wideOut / vOut, th: q.th }));
+        finish(w, legs[li]);
+      }
+      plans.push(pl);
+    }
   }
 
   // ---- wolf count: at most `target` (see PAT_WOLVES_L1; under it only through PAT_PACK_MAX). Not in level 1's lessons.
@@ -886,6 +906,90 @@ function placePatternEnemies(rng, lvl, p) {
         ...(pl.finale ? { finalStretch: true } : {}),   // the final stretch: on top of the level's count, may leave its leg
       });
     }
+  }
+  // the wide corridor: at least one crosser in every slot along the corridor (WIDE_ROW apart: a wolf's width). A slot
+  // without one gets a lone crosser, wall to wall at about the usual crosser speed of its room, each starting
+  // somewhere random along its crossing (so they never line up)
+  if (nb > 1) {
+    const WIDE_ROW = 2 * CFG.WOLF_RADIUS, WIDE_EXTRA = 0.15;
+    legs.forEach((leg, li) => {
+      const mine = enemies.filter((e) => e.leg === li && e.type === 'crosser');
+      const speeds = mine.map((e) => e.speed).sort((a, b) => a - b);
+      const v0 = speeds.length ? speeds[speeds.length >> 1] : 3.5;
+      const { lo, hi } = ranges[li];
+      // every gap between neighbouring crossers (and the room's ends) wider than a wolf gets evenly spaced new ones
+      const at = [lo - WIDE_ROW / 2, ...mine.map((e) => e.route[0].th).sort((a, b) => a - b), hi + WIDE_ROW / 2], fill = [];
+      for (let i = 1; i < at.length; i++) {
+        const g = at[i] - at[i - 1], n = Math.ceil(g / WIDE_ROW - 1e-6) - 1;
+        for (let k = 1; k <= n; k++) fill.push(at[i - 1] + g * k / (n + 1));
+      }
+      // ...and WIDE_EXTRA more on top, anywhere in the room
+      const extra = Math.round(WIDE_EXTRA * (mine.length + fill.length));
+      for (let k = 0; k < extra; k++) fill.push(rng.range(lo, hi));
+      for (const th of fill) {
+        const s = rng.chance(0.5) ? 1 : -1, id = enemies.length;
+        const route = [{ r: -s * wideOut, th }, { r: s * wideOut, th }];
+        enemies.push({
+          id, type: 'crosser', leg: li, frame: frameOf(leg),
+          rIn: -wideOut, rOut: wideOut, a0: th, a1: th,
+          speed: Math.min(PAT_VMAX, v0 * rng.range(0.85, 1.15)),
+          phase: Math.round(rng.next() * 1e9) / 1e9,
+          seed: hashSeed(seed, level, 'wolf', id),
+          route, loop: false,
+          pattern: 'crosswalk-single',
+        });
+      }
+    });
+  }
+  // the wide corridor's last WIDE_RUN_S seconds of skating before the goal room: Run only's wolves instead (like Run
+  // only's level 9, at WIDE_RUN_DENSITY of its density). Skate wolves stay out: crossers / diagonals in it go, a charger
+  // running into it stops at its edge.
+  if (nb > 1 && lvl.finale) {
+    const WIDE_RUN_DENSITY = 0.8, WIDE_RUN_CLEAR = 2 * CFG.WOLF_RADIUS + 0.5;
+    const WIDE_RUN_SPEED = 0.7;   // of a running level's wolf speed: slower, you're on skates
+    const dir = -Math.sign(legs[0].ux), xDoor = -dir * ROOM;   // the way the run heads along x; the goal room's door
+    const xB = xDoor - dir * WIDE_RUN_S * CFG.KITTY_SPEED;                               // where the stretch begins
+    const inside = (x) => dir * (x - xB) > 0;
+    const wx = (e, th) => e.frame.ox + e.frame.ux * th;
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const e = enemies[i];
+      if (!e.route || !e.route.some((q) => inside(wx(e, q.th)))) continue;
+      const thB = (xB - e.frame.ox) / e.frame.ux;
+      if (e.type === 'charger') {
+        e.route = e.route.map((q) => (inside(wx(e, q.th)) ? { r: q.r, th: thB } : q));
+        e.a0 = Math.min(...e.route.map((q) => q.th)); e.a1 = Math.max(...e.route.map((q) => q.th));
+        if (e.a1 - e.a0 > 3) continue;
+      }
+      enemies.splice(i, 1);
+    }
+    // the run wolves: spread evenly along the stretch (in whichever rooms it covers), each roaming wall to wall over a
+    // stretch of its own inside it, with Run only's level 9 behaviour. Along a leg th grows toward the start, so the
+    // stretch is th < thIn (its edge) in every leg's frame
+    // ...and never onto the skate wolves' paths: they start WIDE_RUN_CLEAR past the furthest any skate wolf still reaches
+    let reach = -Infinity;
+    for (const e of enemies) if (e.route) for (const q of e.route) reach = Math.max(reach, dir * wx(e, q.th));
+    const xRun = dir * reach + dir * WIDE_RUN_CLEAR;
+    const lv = RUN_PAUSES.length, pauseRange = RUN_PAUSES[lv - 1], walk = RUN_WALKS[lv - 1];
+    const len = WIDE_RUN_S * CFG.KITTY_SPEED, runDensity = RUN_FINALE_WOLVES / (Math.abs(lvl.corners[0].x - xDoor) * lvl.corridorWidth);
+    const n = Math.round(len * lvl.corridorWidth * runDensity * WIDE_RUN_DENSITY);
+    for (let k = 0; k < n; k++) {
+      const x = xRun + dir * (k + 0.5 + rng.range(-0.3, 0.3)) / n * Math.abs(xDoor - xRun);   // from past the gap to the door
+      const li = legs.findIndex((l, j) => { const th = (x - l.ox) / l.ux; return th >= ranges[j].lo && th <= ranges[j].hi; });
+      if (li < 0) continue;
+      const leg = legs[li], th = (x - leg.ox) / leg.ux, thIn = (xRun - leg.ox) / leg.ux, span = rng.range(10, 18);
+      const a1 = Math.min(thIn, th + span / 2, ranges[li].hi), a0 = Math.max(ranges[li].lo, Math.min(th - span / 2, a1 - 2.5));
+      if (a1 - a0 < 2.5) continue;
+      const id = enemies.length;
+      enemies.push({
+        id, type: 'wanderer', leg: li, frame: frameOf(leg),
+        rIn: -wideOut, rOut: wideOut, a0, a1,
+        speed: Math.min(CFG.KITTY_SPEED * 0.92, p.enemySpeed) * WIDE_RUN_SPEED, phase: rng.next(),
+        pauseScale: p.enemyPauseScale * 0.7,
+        seed: hashSeed(seed, level, 'wolf', id),
+        pauseRange, walk, lateral: true, wallShare: RUN_FINALE_WALL,
+      });
+    }
+    enemies.forEach((e, i) => { e.id = i; e.seed = hashSeed(seed, level, 'wolf', i); });
   }
   const r3 = (x) => Math.round(x * 1000) / 1000;
   // Skate only, per leg (for tests / tooling): its beat, the period it repeats with (n beats if some wolves drift),
@@ -969,13 +1073,18 @@ function inTree(levelData, x, z) {
 // true = the old Run + Skate winter levels (ice + wandering wolves) instead of Skate only's pattern wolves
 const CLASSIC_RUN_SKATE_ICE = false;
 
-function generateLevel(level, seed, mode = 'mixed', runFinaleOn = false) {
+// fv: the finale version the game plays (sim.finales): 0 = the original levels, 1 = + Run only's level 9 final run,
+// 2 = + the wide skate final run (Skate only / Run + Skate level 9). Online rooms use the newest every member has.
+function generateLevel(level, seed, mode = 'mixed', fv = 0) {
+  const v = fv === true ? 1 : +fv || 0;
   const L = Math.max(1, level | 0);
   const p = levelParams(L);
   const rng = createRng(hashSeed(seed, L));
-  const runFinale = !!runFinaleOn && mode === 'run' && L === SKATE_FINAL_LEVEL;
+  const runFinale = v >= 1 && mode === 'run' && L === SKATE_FINAL_LEVEL;
   const finale = (FINAL_MODES.includes(mode) || runFinale) && L === SKATE_FINAL_LEVEL;
-  const straight = finale ? buildStraight(createRng(hashSeed(seed, L, 'straight')), runFinale ? 1 : -1, runFinale ? RUN_FINALE_W : CFG.RING_WIDTH, runFinale ? ROOM : 0) : null;
+  const wide = runFinale || (finale && v >= 2);   // three lanes wide with a start room
+  const straight = finale ? buildStraight(createRng(hashSeed(seed, L, 'straight')), runFinale ? 1 : -1, wide ? RUN_FINALE_W : CFG.RING_WIDTH, wide ? ROOM : 0,
+    wide && !runFinale ? WIDE_RUN_EXTRA : 0) : null;
   const { walls, legs, corners, wallCorners, outer } = straight || buildSpiral();
   const path = finale ? buildStraightPath(corners) : buildPath(corners, legs);
 
@@ -992,8 +1101,8 @@ function generateLevel(level, seed, mode = 'mixed', runFinaleOn = false) {
   const lvl = {
     level: L, seed,
     loops: Math.floor((ARMS - 4) / 4),
-    corridorWidth: runFinale ? RUN_FINALE_W : CFG.RING_WIDTH,
-    safeSize: runFinale ? 2 * ROOM : CFG.RING_WIDTH,   // a safe square's width (Run only's level 9: its start room, the goal room's size)
+    corridorWidth: wide ? RUN_FINALE_W : CFG.RING_WIDTH,
+    safeSize: wide ? 2 * ROOM : CFG.RING_WIDTH,   // a safe square's width (Run only's level 9: its start room, the goal room's size)
     centerRadius: CFG.CENTER_RADIUS,
     roomHalf: ROOM,
     outerRadius: outer,
@@ -1132,7 +1241,7 @@ function onIce(levelData, x, z) {
   if (levelData.finale && inTree(levelData, x, z)) return false;   // the final run's tree: up there you can sit still
   const rh = levelData.roomHalf;
   if (Math.abs(x) < rh && Math.abs(z) < rh) return !levelData.finale && Math.hypot(x, z) >= levelData.centerRadius;
-  const h = levelData.corridorWidth / 2;
+  const h = (levelData.safeSize || levelData.corridorWidth) / 2;
   const sc = levelData.safeCorners;
   for (let i = 0; i < sc.length; i++) if (Math.abs(x - sc[i].x) < h && Math.abs(z - sc[i].z) < h) return false;
   return true;

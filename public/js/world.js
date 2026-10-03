@@ -590,9 +590,9 @@ function buildSafeProps(levelData, style, T) {
     }
     flames.push(paint(place(new THREE.ConeGeometry(0.17, 0.5, 6), 0, 0.31, 0), 0xff6a24));
     flames.push(paint(place(new THREE.ConeGeometry(0.1, 0.34, 6), 0.08, 0.24, 0.06, 1, 1, 1, 0, 0, -0.25), 0xff9a34));
-    flames.push(paint(place(new THREE.ConeGeometry(0.1, 0.32, 6), 0, 0.24, 0.08), 0xffd060));
+    flames.push(paint(place(new THREE.ConeGeometry(0.1, 0.32, 6), 0, 0.24, 0.08), 0xffb83a));
     flames.push(paint(place(new THREE.IcosahedronGeometry(0.11, 0), 0, 0.09, 0, 1.6, 0.4, 1.6), 0xd8441c));   // the embers
-    kinds.push([mergeGeos(fire), 1, [1.2, 1.4], null, mergeGeos(flames), { s: 3.8, color: 0xffa040, k: 0.45 }]);
+    kinds.push([mergeGeos(fire), 1, [1.2, 1.4], null, mergeGeos(flames), { s: 3.8, color: 0xff8a2a }]);
     // a lantern: a stone foot, a wooden post and a little lamp house with a warm glowing core
     kinds.push([mergeGeos([
       paint(place(new THREE.CylinderGeometry(0.13, 0.16, 0.08, 8), 0, 0.04, 0), STONE),
@@ -600,7 +600,7 @@ function buildSafeProps(levelData, style, T) {
       paint(place(new THREE.BoxGeometry(0.2, 0.03, 0.2), 0, 0.59, 0), 0x4a3020),
       ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => paint(place(new THREE.BoxGeometry(0.025, 0.2, 0.025), sx * 0.085, 0.7, sz * 0.085), 0x4a3020)),
       paint(place(new THREE.ConeGeometry(0.11, 0.1, 4), 0, 0.9, 0, 1, 1, 1, 0, Math.PI / 4, 0), 0x6a3a26),
-    ]), 2, [1.1, 1.3], null, mergeGeos([paint(place(new THREE.IcosahedronGeometry(0.125, 1), 0, 0.72, 0, 1, 1.2, 1), 0xffd890)]), { s: 2.6, color: 0xffb860, k: 0.42 }]);
+    ]), 2, [1.1, 1.3], null, mergeGeos([paint(place(new THREE.IcosahedronGeometry(0.125, 1), 0, 0.72, 0, 1, 1.2, 1), 0xffb84a)]), { s: 2.6, color: 0xffa03a }]);
     // a plump cushion on a folded woollen blanket (warm red with cream stripes)
     const blanket = [paint(place(new THREE.BoxGeometry(0.62, 0.05, 0.46), 0, 0.025, 0), 0xc8442e)];
     for (const x of [-0.2, 0, 0.2]) blanket.push(paint(place(new THREE.BoxGeometry(0.05, 0.052, 0.462), x, 0.026, 0), 0xf2dcb0));
@@ -650,15 +650,15 @@ function buildSafeProps(levelData, style, T) {
   let glowMat = null, glowGeo = null;
   const pools = [];
   kinds.forEach(([, , , , lit, pool], i) => {
-    if (lit) {
-      const m = makeInstanced(T.g(lit), T.m(new THREE.MeshBasicMaterial({ vertexColors: true })), lists[i]);
+    if (lit) {   // flames and lamp cores a little dimmer than full white-hot
+      const m = makeInstanced(T.g(lit), T.m(new THREE.MeshBasicMaterial({ vertexColors: true, color: 0xd8d8d8 })), lists[i]);
       out.push(m);
     }
-    if (pool) for (const it of lists[i]) pools.push({ x: it.x, z: it.z, y: 0.02, s: pool.s * it.s, color: new THREE.Color(pool.color).multiplyScalar(pool.k) });
+    if (pool) for (const it of lists[i]) pools.push({ x: it.x, z: it.z, y: 0.02, s: pool.s * it.s, color: new THREE.Color(pool.color) });
   });
   if (pools.length) {
     glowGeo = T.g(new THREE.PlaneGeometry(1, 1)); glowGeo.rotateX(-Math.PI / 2);
-    glowMat = T.m(new THREE.MeshBasicMaterial({ map: makeGlowTexture(T), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    glowMat = makeWarmGlowMat(T, 0.38);
     const g = makeInstanced(glowGeo, glowMat, pools);
     g.renderOrder = 1;
     out.push(g);
@@ -858,6 +858,19 @@ function makeWallTexture(style, T) {
       }
     }
   }));
+}
+
+// A pool of lamp / fire light on the ground: tints the floor toward a warm colour instead of adding light (additive
+// glows clipped to glaring white on pale floors like snow). opacity = how strong the tint gets at the centre.
+function makeWarmGlowMat(T, opacity, fog = false) {
+  return T.m(new THREE.MeshBasicMaterial({ map: makeGlowTexture(T), transparent: true, opacity, depthWrite: false, fog }));
+}
+
+// a lamp colour made deeper and more golden (pale lamp colours read as white once tone-mapped)
+function warmLampColor(hex) {
+  const c = new THREE.Color(hex), hsl = {};
+  c.getHSL(hsl);
+  return c.setHSL(hsl.h, Math.min(1, hsl.s * 1.15 + 0.1), Math.min(hsl.l, 0.58));
 }
 
 function makeGlowTexture(T) {
@@ -1326,8 +1339,7 @@ function buildLanterns(levelData, theme, T, rng) {
   }
   const pillarMat = T.m(new THREE.MeshStandardMaterial({ roughness: 0.85, flatShading: true }));
   const orbMat = T.m(new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  const glowTex = makeGlowTexture(T);
-  const glowMat = T.m(new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: true }));
+  const glowMat = makeWarmGlowMat(T, Math.min(0.42, theme.glowK * 1.25), true);
 
   const pillars = makeInstanced(pillarGeo, pillarMat, pillarItems, { cast: true, receive: true });
   const orbs = makeInstanced(orbGeo, orbMat, orbItems);
@@ -1335,9 +1347,9 @@ function buildLanterns(levelData, theme, T, rng) {
   glows.renderOrder = 1;
 
   const phases = spots.map(() => rng.range(0, 10));
-  const lampC = new THREE.Color(theme.lamp);
+  const lampC = warmLampColor(theme.lamp);
   // the final run: red lanterns down the run, warm gold ones in the goal room
-  const roomLampC = theme.roomLamp != null ? new THREE.Color(theme.roomLamp) : lampC, rr = levelData.roomHalf + 1;
+  const roomLampC = theme.roomLamp != null ? warmLampColor(theme.roomLamp) : lampC, rr = levelData.roomHalf + 1;
   const lamps = spots.map((s) => (Math.abs(s.x) <= rr && Math.abs(s.z) <= rr ? roomLampC : lampC));
   const tmp = new THREE.Color();
   const update = (time) => {
@@ -1345,8 +1357,7 @@ function buildLanterns(levelData, theme, T, rng) {
       const ph = phases[i], lc = lamps[i];
       const f = 0.86 + 0.08 * Math.sin(time * 6.3 + ph * 7) + 0.06 * Math.sin(time * 17.1 + ph * 13);
       orbs.setColorAt(i, tmp.copy(lc).multiplyScalar(f));
-      tmp.copy(lc).multiplyScalar(theme.glowK * f);
-      glows.setColorAt(i, tmp);
+      glows.setColorAt(i, tmp.copy(lc).multiplyScalar(f));   // strength: glowMat's opacity
     }
     if (orbs.instanceColor) orbs.instanceColor.needsUpdate = true;
     if (glows.instanceColor) glows.instanceColor.needsUpdate = true;

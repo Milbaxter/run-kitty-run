@@ -19,7 +19,7 @@ import { createRng, TAU, legPoint } from './rng.js';
 
 
 const EASE_T = 0.15;          // accel / decel time at move start / end (s)
-const TURN_RATE_MOVE = 40;    // heading smoothing while moving (â‰ˆ exact after ease-in)
+const TURN_RATE_MOVE = 40;    // heading smoothing while moving (Ã¢â€°Ë† exact after ease-in)
 const LONG_REST_CHANCE = 0.15; // chance a wolf stands still for a while before its next move
 const LONG_REST_MIN = 1.8, LONG_REST_MAX = 4.5;   // seconds
 
@@ -105,10 +105,35 @@ function canWalk(st, r0, th0, r1, th1) {
   return !!st.ext && st.ext.some((b) => inBox(b, r0, th0) && inBox(b, r1, th1));
 }
 
+// Running levels (spec.lateral): a random direction mostly sends wolves through the middle of the lane (near a wall
+// half the directions are blocked) and they hardly ever reach the strip along the walls, so hugging a wall was
+// by far the safest way through. Instead most moves pick where across the lane to end up first: WALL_SHARE of them
+// right against a wall (and so sometimes along it), the rest evenly across the width; then go there with the
+// move's usual length. LATERAL_RANDOM of the moves keep a plain random direction (that's how wolves find the corner
+// crossings and the goal room).
+const WALL_SHARE = 0.4, WALL_BAND = 0.05, LATERAL_RANDOM = 0.4;
+function lateralTarget(st, d) {
+  const { rng, r, th } = st;
+  const eb = inMain(st, r, th) ? null : extBox(st, r, th);
+  const lo = eb ? eb.rLo : st.rIn, hi = eb ? eb.rHi : st.rOut;
+  let tr;
+  if (rng.next() < WALL_SHARE) { const u = rng.next() * WALL_BAND; tr = rng.next() < 0.5 ? lo + u : hi - u; }
+  else tr = rng.range(lo, hi);
+  const dr = tr - r;
+  if (Math.abs(dr) > d) return null;
+  const tth = th + (rng.next() < 0.5 ? -1 : 1) * Math.sqrt(d * d - dr * dr);
+  return canWalk(st, r, th, tr, tth) ? { tr, tth } : null;
+}
+
 function pickWanderTarget(st) {
   const { rng, r, th, walk } = st;
   for (let i = 0; i < 24; i++) {
     const d = walk ? walk[0] + (walk[1] - walk[0]) * Math.pow(rng.next(), walk[2]) : rng.range(2, 7);
+    if (st.lateral && rng.next() >= LATERAL_RANDOM) {
+      const t = lateralTarget(st, d);
+      if (t) { st.nr = t.tr; st.nth = t.tth; return; }
+      continue;
+    }
     const phi = rng.range(0, TAU);
     const tr = r + d * Math.sin(phi);
     const tth = th + d * Math.cos(phi);
@@ -207,6 +232,8 @@ function createEnemy(spec) {
     // spec.ext [{ rLo, rHi, thLo, thHi }] (Run only): extra boxes beyond the lane (see canWalk); spec.avoid: keep-out disc
     ext: Array.isArray(spec.ext) && spec.ext.length ? spec.ext : null,
     avoid: spec.avoid && Number.isFinite(spec.avoid.R) ? spec.avoid : null,
+    // spec.lateral (running levels): pick where across the lane to go first, often right against a wall
+    lateral: !!spec.lateral,
   };
   const e = {
     id: spec.id, type: spec.type, spec,

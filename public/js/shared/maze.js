@@ -359,6 +359,7 @@ function placeEnemies(rng, lvl, p) {
         seed: hashSeed(seed, level, 'wolf', id),
       };
       if (tuned) { spec.pauseRange = pauseRange; spec.walk = walk; }
+      if (pauseRange) spec.lateral = true;   // every wolf of a running level also covers the walls (enemies.js)
       const ext = extFor(li, lo, hi);
       if (ext) { spec.ext = ext.boxes; if (ext.avoid) spec.avoid = ext.avoid; }
       enemies.push(spec);
@@ -383,6 +384,7 @@ function placeEnemies(rng, lvl, p) {
         seed: hashSeed(seed, level, 'wolf', id),
       };
       if (tuned) { spec.pauseRange = pauseRange; spec.walk = walk; }
+      if (pauseRange) spec.lateral = true;   // every wolf of a running level also covers the walls (enemies.js)
       enemies.push(spec);
       placed++;
     }

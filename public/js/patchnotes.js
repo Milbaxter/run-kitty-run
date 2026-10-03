@@ -5,6 +5,8 @@ const PATCH_NOTES = [
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
       'Run only and the running levels of Run + Skate: new wolves. Every wolf runs at the same speed. Most of them now stand still for a while, then walk off in a new direction, and the mix changes as you go: early levels have more long, slow walkers, later levels more restless wolves that stop and turn all the time',
+      'Running levels: hugging the wall is no longer the safe way through. Wolves now often head for the walls, stop there and walk along them, and cut across the middle less',
+      'Softer lights: lanterns, campfires and their light on the ground are a warm gold now instead of a glaring white (especially on snow)',
       'Running levels: wolves now come right up to the edge of the safe squares (the tiles are still completely safe), cross over into the next lane at open corners and roam the goal room, but never step inside the victory circle. The pack gets steadily denser toward the middle',
       'The final run is now a frozen hell: dark ash, dead trees, bones, fire braziers and red lanterns all the way down (no more start / finish line or signs), and the goal room at the end is a warm, golden reward with cushions, yarn balls and bowls of milk round the giant fish',
       'Softer lighting: no more glare. Kitty rings, auras, the goal portal, lanterns, revive circles and sparkles keep their colours without blowing out to white',

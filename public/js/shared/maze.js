@@ -174,6 +174,8 @@ const RUN_FINALE_START = 0.6;   // wolves in the first section (outside the star
 // final stretch, or the final stretch: its chargers alone make it riskier), a fixed climb so each is a bit harder than
 // the same lane the level before
 const LAST_LANE_TRIES = 12;
+const SPEED_KNEE = 0.6, SPEED_SLOPE = 0.45;
+const KIND_TOP = 1.2;   // version 7+: no wolf faster than this x its colour's base (median) speed in its lane   // skate wolves' speed past mid difficulty (version 7+, see speedD)
 const LAST_LANE_RISK = (L, door) => { const k = Math.min(8, Math.max(1, L)) - 1; return door ? 0.12 + 0.0075 * k : 0.105 + 0.0065 * k; };
 // Finale version 2 (generateLevel's fv): the skate final run as wide as Run only's level 9, with the same start room.
 // Its rooms get normal-width pattern layouts side by side (one per lane, each as hard as the narrow final run), the
@@ -262,6 +264,9 @@ function buildStraight(rng, side = -1, W = CFG.RING_WIDTH, sH = 0, extra = 0) {
 // The rest of each lane's wolves keep the original behaviour for their level: 1/3 on level 1 up to 3/4 on level 8.
 // [min, max, skew]: pause = min + (max - min) * u^skew. Level 1 always 6 s; by level 8 the average is back near the old
 // balance (~0.8 s) but a wolf can still stand still for up to 6 s now and then.
+// finale version 8+: running levels' first six lanes (the long ones) had too few wolves for their length: wolves in each
+// (guards included) on level 1 (as before) and level 8, evenly in between; the other lanes as before
+const RUN_LANES_L1 = [17, 19, 19, 21, 20, 22], RUN_LANES_L8 = [37, 38, 34, 35, 31, 32];
 const RUN_PAUSES = [[6, 6, 1], [3, 6, 0.67], [2, 6, 1.35], [1.2, 6, 2], [0.7, 6, 3.1], [0.4, 6, 4.1], [0.2, 6, 5.4], [0.1, 6, 7.4]];
 // walk length per move, same form: level 1 ~2x the old walks; by level 8 back near the old average, with long walks still possible
 const ROOM_WOLVES = 3;   // running levels: the goal room's own wolves (+1 from level 5)
@@ -336,7 +341,12 @@ function placeEnemies(rng, lvl, p) {
   const fracs = lens.map((L, i) => ({ i, f: L / total * shared - quota[i] })).sort((a, b) => b.f - a.f);
   let left = shared - quota.reduce((a, b) => a + b, 0);
   for (let k = 0; left > 0; k++, left--) quota[fracs[k % fracs.length].i]++;
-  if (pauseRange) legs.forEach((_, li) => { quota[li] = Math.max(0, quota[li] - guardsAt(li)); });  const spanScale = 1 + Math.min(1, 0.1 * (level - 1));   // territories grow with level
+  if (pauseRange) legs.forEach((_, li) => { quota[li] = Math.max(0, quota[li] - guardsAt(li)); });
+  if (pauseRange && !lvl.finale && lvl.fv >= 8) RUN_LANES_L8.forEach((top, li) => {
+    const want = Math.round(RUN_LANES_L1[li] + (top - RUN_LANES_L1[li]) * (lv - 1) / (RUN_PAUSES.length - 1));
+    quota[li] = Math.max(quota[li], want - guardsAt(li));
+  });
+  const spanScale = 1 + Math.min(1, 0.1 * (level - 1));   // territories grow with level
   // Run only: at an unsafe corner shared with another lane, wolves whose territory reaches the corner may also walk
   // into the neighbouring lane (an extra box in this leg's frame: the corner's band of th, and r reaching into the
   // other lane; enemies.js canWalk keeps every walk inside one box, so nobody cuts through the corner's walls).
@@ -810,9 +820,36 @@ function placePatternEnemies(rng, lvl, p) {
       return { name: 'junction-charger', wolves: [w], top: 0, bottom: 0 };
     });
   };
+  // finale version 7+: k white crossers wall to wall, each in the biggest gap left between the lane's crossers (between
+  // its corner squares), at random times in the lane's beat
+  const gapCrossers = (pl, k) => {
+    const leg = legs[pl.leg], m = CFG.WOLF_RADIUS + 0.15, a = W / 2 + 1, b = leg.len - W / 2 - 1, out = [];
+    const at = pl.segs.flatMap((sg) => sg.wolves.filter((w) => w.type === 'crosser').map((w) => (w.thMin + w.thMax) / 2)).filter((t) => t > a && t < b);
+    for (let j = 0; j < k; j++) {
+      const cuts = [a, ...at.sort((x, y) => x - y), b];
+      let gi = 1;
+      for (let i = 2; i < cuts.length; i++) if (cuts[i] - cuts[i - 1] > cuts[gi] - cuts[gi - 1]) gi = i;
+      const th = (cuts[gi - 1] + cuts[gi]) / 2;
+      at.push(th);
+      const route = [{ r: -W / 2 + m, th }, { r: W / 2 - m, th }];
+      if (rng.chance(0.5)) route.reverse();
+      const w = { type: 'crosser', route, loop: false, offT: 0, offS: 0 };
+      finish(w, leg);
+      if (!patFit(w, pl.beat)) patFit(w, 2 * pl.beat);
+      if (!(w.speed > 0 && w.speed <= PAT_VMAX)) w.speed = PAT_VMAX * 0.8;
+      w.cycle = buildPlan(w, NO_FRAME, w.speed).cycle;
+      w.off = rng.next() * w.cycle;
+      out.push({ name: 'fill-crosser', wolves: [w], top: 0, bottom: 0 });
+    }
+    return out;
+  };
+  // the difficulty wolf speeds go by (chargers' speed, the beat crossers and diagonals keep). Finale version 7+: above
+  // SPEED_KNEE it counts SPEED_SLOPE as much, so the last levels' wolves don't all run near the cap (still faster every
+  // level, just less so)
+  const speedD = (D) => (lvl.fv >= 7 && !lvl.finale ? Math.min(D, SPEED_KNEE) + Math.max(0, D - SPEED_KNEE) * SPEED_SLOPE : D);
   const makeChargers = (li, D, lanes) => {
     const leg = legs[li], { lo, hi } = ranges[li];
-    const v = Math.min(PAT_VMAX, (3.9 + 1.4 * D) * rng.range(0.95, 1.05));
+    const v = Math.min(PAT_VMAX, (3.9 + 1.4 * speedD(D)) * rng.range(0.95, 1.05));
     const off = rng.next();
     // lanes run at different speeds where they can: laps P / m (m = n +- 0..2) all fit the period P = n * lap
     // (P <= PAT_DRIFT_PERIOD), so the lanes come back into step every P seconds
@@ -844,7 +881,7 @@ function placePatternEnemies(rng, lvl, p) {
     const c = { D, G, rng, vOut };
     // the room's beat T: every crosser / diagonal runs there and back once per T (at the speed that takes); some
     // drift a little off it (placeLeg)
-    const T = T0 || Math.round(Math.max(5, 7.5 - 2 * D) * 4) / 4;
+    const T = T0 || Math.round(Math.max(5, 7.5 - 2 * speedD(D)) * 4) / 4;
     const fit = (w) => patFit(w, T);
     const segs = [];
     let cursor = hi - rng.range(0, 1.2);
@@ -1041,10 +1078,12 @@ function placePatternEnemies(rng, lvl, p) {
   }
 
   // ---- wolf count: at most `target` (see PAT_WOLVES_L1; under it only through PAT_PACK_MAX). Not in level 1's lessons.
+  // Finale version 7+ (skate levels): per lane instead (see perLane below), so every lane gets busier every level.
   const tamed = (pl) => pl.finale || (level === 1 && pl.leg < PAT_LESSONS.length);
+  const perLane = lvl.fv >= 7 && !lvl.finale && nb === 1;
   let count = plans.filter((pl) => !pl.finale).reduce((a, pl) => a + pl.segs.reduce((b, sg) => b + sg.wolves.length, 0), 0);
   const packs = [];
-  for (const pl of plans) {
+  if (!perLane) for (const pl of plans) {
     const cs = tamed(pl) ? null : pl.segs.find((sg) => sg.chargers);
     if (cs) for (const lead of cs.wolves.slice()) packs.push({ cs, lead, n: 1, back: 0 });
   }
@@ -1062,17 +1101,35 @@ function placePatternEnemies(rng, lvl, p) {
     const ws = sg.wolves, k = ws.length, drift = ws.filter((w) => w.drift).length;
     return [ws[k - 1], ws[0]].find((w) => drift - (w.drift ? 1 : 0) >= patRowNeed(k - 1));
   };
-  while (count > target) {
-    let best = null;
-    for (const pl of plans) if (!tamed(pl)) for (const sg of pl.segs) {
-      if (!sg.chargers && sg.name !== 'diagonal-scissors' && sg.wolves.length > 2 && trimEnd(sg) && (!best || sg.wolves.length > best.wolves.length)) best = sg;
+  // (trims the plans in pls while there are more than limit; returns how many are left)
+  const trimTo = (pls, n, limit) => {
+    while (n > limit) {
+      let best = null;
+      for (const pl of pls) for (const sg of pl.segs) {
+        if (!sg.chargers && sg.name !== 'diagonal-scissors' && sg.wolves.length > 2 && trimEnd(sg) && (!best || sg.wolves.length > best.wolves.length)) best = sg;
+      }
+      if (best) { best.wolves.splice(best.wolves.indexOf(trimEnd(best)), 1); n--; continue; }
+      // ...then lone crossers go, at random
+      const lone = pls.flatMap((pl) => pl.segs.filter((sg) => sg.name === 'crosswalk-single').map((sg) => [pl, sg]));
+      if (!lone.length) break;
+      const [pl, sg] = lone[Math.floor(rng.next() * lone.length)];
+      pl.segs.splice(pl.segs.indexOf(sg), 1); n--;
     }
-    if (best) { best.wolves.splice(best.wolves.indexOf(trimEnd(best)), 1); count--; continue; }
-    // ...then lone crossers go, at random
-    const lone = plans.filter((pl) => !tamed(pl)).flatMap((pl) => pl.segs.filter((sg) => sg.name === 'crosswalk-single').map((sg) => [pl, sg]));
-    if (!lone.length) break;
-    const [pl, sg] = lone[Math.floor(rng.next() * lone.length)];
-    pl.segs.splice(pl.segs.indexOf(sg), 1); count--;
+    return n;
+  };
+  if (!perLane) count = trimTo(plans.filter((pl) => !tamed(pl)), count, target);
+  else {
+    // finale version 7+: each lane gets its share of the target by length (wolves were spread evenly, ~0.4 per unit),
+    // so every lane gets busier every level with it (+10%). Over: trimmed as above, within the lane. Under (levels 7-8
+    // never reached their target): wall-to-wall white crossers in its biggest gaps (gapCrossers). Not level 1's
+    // lessons, nor the lane before the last one (tuned for its risk, filled by fillCrossers).
+    const sumLen = legs.reduce((a, g, i) => a + (i === door ? 0 : g.len), 0);
+    for (const pl of plans) {
+      if (tamed(pl) || (tuneLast && pl.leg === door - 1)) continue;
+      const quota = Math.floor(target * legs[pl.leg].len / sumLen);   // (rounded down: rounding to nearest left the shortest lane level 1 = level 2)
+      const n = trimTo([pl], pl.segs.reduce((b, sg) => b + sg.wolves.length, 0), quota);
+      if (n < quota) pl.segs.push(...gapCrossers(pl, quota - n));
+    }
   }
 
   // the last two lanes (tuneLast) down to their risk: the same trims (longest rows' end wolves, then lone crossers), one
@@ -1105,6 +1162,18 @@ function placePatternEnemies(rng, lvl, p) {
     doorPlan.segs.push(...junctionChargers(doorPlan));
   }
 
+  // version 7+: no wolf runs faster than KIND_TOP x the base speed of its colour in its lane (the median: drifting ones
+  // and the odd long route ran up to 2x the rest). Slower ones stay as they are.
+  const kindBase = new Map();
+  if (lvl.fv >= 7 && !lvl.finale) for (const pl of plans) {
+    const by = {};
+    for (const sg of pl.segs) for (const w of sg.wolves) if (!endsInOpen({ ...w, leg: pl.leg, pattern: sg.name })) (by[w.type] ||= []).push(w.speed);   // (the wolves that stay)
+    for (const [t, v] of Object.entries(by)) { v.sort((a, b) => a - b); kindBase.set(pl.leg + ':' + t, v[Math.floor(v.length / 2)]); }
+  }
+  const banded = (leg, w) => {
+    const b = kindBase.get(leg + ':' + w.type);
+    return b ? Math.min(KIND_TOP * b, w.speed) : w.speed;
+  };
   // ---- specs (a drifting wolf keeps its phase in the beat: at level start it is exactly in step)
   for (const pl of plans) {
     for (const seg of pl.segs) for (const w of seg.wolves) {
@@ -1113,7 +1182,7 @@ function placePatternEnemies(rng, lvl, p) {
       enemies.push({
         id, type: w.type, leg: pl.leg, frame: w.frame,
         rIn: w.rMin, rOut: w.rMax, a0: w.thMin, a1: w.thMax,
-        speed: w.speed,
+        speed: banded(pl.leg, w),
         phase: Math.round((((w.off % w.cycle) + w.cycle) % w.cycle) / w.cycle * 1e9) / 1e9,
         seed: hashSeed(seed, level, 'wolf', id),
         route: w.route, loop: !!w.loop,

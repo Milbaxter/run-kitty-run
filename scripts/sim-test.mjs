@@ -129,6 +129,19 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
         }
         ok(ok6 && ch6 >= 3, `finale version 6: no purple wolves in the last lane but the goal room's, ${ch6} more chargers in it`);
       }
+      // version 7: every lane (but level 1's lessons and the last two) gets more wolves every level
+      {
+        const per = [2, 3, 7, 8].map((L) => { const v7 = generateLevel(L, 3, 'ice', 7); return v7.legs.map((_, i) => v7.enemies.filter((e) => e.leg === i).length); });
+        const lanes = [...Array(13).keys()];
+        ok(lanes.every((i) => per.every((c, j) => !j || c[i] > per[j - 1][i])), `finale version 7: every lane busier every level (lane ${lanes[0]}: ${per.map((c) => c[lanes[0]]).join(' -> ')})`);
+      }
+      // version 8: running levels' first six lanes reach 37/38/34/35/31/32 wolves on level 8 (the rest as in version 7)
+      {
+        const lanes = (ld) => ld.legs.map((_, i) => ld.enemies.filter((e) => e.leg === i).length);
+        const r7 = lanes(generateLevel(8, 11, 'run', 7)), r8 = lanes(generateLevel(8, 11, 'run', 8)), r1 = lanes(generateLevel(1, 11, 'run', 8));
+        ok(r8.slice(0, 6).join() === '37,38,34,35,31,32' && r8.slice(6).join() === r7.slice(6).join() && r1.join() === lanes(generateLevel(1, 11, 'run', 7)).join(),
+          `finale version 8: running level 8's long lanes ${r8.slice(0, 6).join('/')} (was ${r7.slice(0, 6).join('/')}), level 1 as before`);
+      }
     }
     // version 3: Run + Skate's level 9 is both in a row (skate, a hallway, the run back to the goal room); Skate only keeps
     // the wide skate final run

@@ -4,6 +4,9 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Running levels: the long first lanes now fill up with more wolves every level, up to nearly twice as many on level 8, so the start of a run is no longer the quiet part',
+      'Skate levels: every lane gets busier every level (levels 7 and 8 used to be about as busy as each other), wolves on the last levels are a little slower, and no wolf runs much faster than the others of its colour in its lane',
+      'Online, everyone in the lobby needs the latest version for these (otherwise the levels are built as before)',
       'Skate levels, the last lane before the goal is fairer: its purple wolves (apart from the one in the goal room) are swapped for black chargers racing the whole lane, left to right and right to left, and one lane is always left free. Online, everyone in the lobby needs the latest version for this',
       'Skate levels, the last stretch: white wolves now run up and down through the goal room\'s door to the edge of the victory circle (more every level), the corner where the last two lanes meet has white wolves cutting across it, and the lane before the last one has more side-to-side wolves. No more wolves stopping in mid-air at the corner or halfway up a lane. Online, everyone in the lobby needs the latest version for these',
       'Big games are calmer: one "down" message for everyone who\'s down instead of one per kitty, "saved" messages only for the two kitties involved, and phones show at most two messages at a time',

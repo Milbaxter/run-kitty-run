@@ -113,6 +113,8 @@ const FINAL_MODES = ['mixed', 'ice'];
 //   8 = skate goal rooms without their three wolves behind the disc (finale version 4, rf 4)
 //   9 = no lane-before-last wolf turning round in the open at the skate levels' last junction (finale version 5, rf 5)
 //  10 = at most 2 slanted crossers in the skate levels' last junction, black chargers across it instead (finale version 6, rf 6)
-const PROTOCOL_VERSION = 10;
+//  11 = skate levels: every lane's wolf count its share of the level's (busier every level) (finale version 7, rf 7)
+//  12 = running levels: more wolves in the first six (long) lanes, up to 37/38/34/35/31/32 on level 8 (finale version 8, rf 8)
+const PROTOCOL_VERSION = 12;
 
 export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION };

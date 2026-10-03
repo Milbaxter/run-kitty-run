@@ -130,7 +130,7 @@ function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales
   const sim = {
     seed: seed == null ? 0 : seed,
     mode: GAME_MODES.includes(mode) ? mode : 'mixed',
-    finales: Math.max(0, Math.min(6, finales | 0)),
+    finales: Math.max(0, Math.min(8, finales | 0)),
     level: lvl,
     time: 0,
     levelTime: 0,

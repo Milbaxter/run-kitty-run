@@ -5,7 +5,7 @@ import { collideCircle, onIce, inTree, levelHash } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
 import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
 import { pregenNext } from './levelpregen.js';
-import { disposeModel, createKittyModel, createWolfRig, newWolfState, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel } from './models.js';
+import { ghostMaterial, disposeModel, createKittyModel, createWolfRig, newWolfState, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel } from './models.js';
 import { createWolfPack } from './wolfpack.js';
 import { buildWorld, setupLighting } from './world.js';
 import { createEffects } from './effects.js';
@@ -466,7 +466,7 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
 function startSim(players, startLevel, simMode = DEBUG_MODE) {
-  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 3 });
+  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 4 });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   accumulator = 0;
@@ -527,6 +527,37 @@ function buildView() {
   if (ld.finale) { fish = createGiantFishModel(); scene.add(fish.group); }
   view = { levelData: ld, world, portal, crown, fish, wolves, wolfPack, items, circles: new Map() };
   prevPos.clear();
+  warmShaders();
+}
+
+// Get every material of the level ready on the GPU while it loads. A shader is otherwise compiled the first time its
+// material is drawn: the first checkpoint coming into view, the first revive beam / teleport sparkles, the first
+// wolf of a kind on screen, the first kitty down (ghost + revive circle)... each a hitch of 20-150 ms mid-run. Hidden
+// things are shown for the call only; with KHR_parallel_shader_compile (compileAsync) the driver compiles in the
+// background instead of stalling the frame.
+// While the driver compiles them in the background (compileAsync), drawing would just wait for it (a frame of ~0.7 s at
+// a level start): keep showing the last picture instead, until they're ready (WARM_HOLD_MS at most).
+const WARM_HOLD_MS = 2000;
+let warmExtras = null, warmHoldUntil = 0;
+function warmShaders() {
+  if (!warmExtras) {   // things that only exist later (a kitty down): one hidden copy of each, kept for this
+    warmExtras = new THREE.Group();
+    warmExtras.add(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), ghostMaterial()), createReviveCircleModel(0xffffff).group);
+    warmExtras.visible = false;
+    scene.add(warmExtras);
+  }
+  const hidden = [];
+  scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
+  try {
+    if (renderer.compileAsync) {
+      const hold = performance.now() + WARM_HOLD_MS;
+      warmHoldUntil = hold;
+      const done = () => { if (warmHoldUntil === hold) warmHoldUntil = 0; };
+      renderer.compileAsync(scene, camera).then(done, done);
+    }
+    else renderer.compile(scene, camera);
+  } catch { /* a missing shader just compiles on first use, as before */ }
+  for (const o of hidden) o.visible = false;
 }
 
 function ensureKitties() {
@@ -1948,7 +1979,7 @@ function tick(dt) {
   }
 
   setKeepAwake(mode === 'play' && !paused && sim.state !== 'gameover');
-  renderer.render(scene, camera);
+  if (!(warmHoldUntil && performance.now() < warmHoldUntil)) renderer.render(scene, camera);   // (not while shaders compile)
   hideSplash(); // after the first rendered frame
 }
 

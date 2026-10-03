@@ -86,6 +86,20 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const runWolves = sk2.enemies.filter((e) => e.type === 'wanderer'), skate = sk2.enemies.filter((e) => e.pattern);
     ok(sk2.finale && sk2.ice && sk2.corridorWidth > CFG.RING_WIDTH && skate.length > 1000 && runWolves.length > 100 && sk2.enemies.every((e, i) => e.id === i),
       `finale version 2: wide skate final run, ${skate.length} skate wolves and ${runWolves.length} run wolves at the end`);
+    // version 4: skate goal rooms keep only their three wolves on the door's side of the disc (the rest of the level as before)
+    {
+      const v3 = generateLevel(4, 21, 'ice', 3), v4 = generateLevel(4, 21, 'ice', 4), dc = v4.corners.at(-1);
+      const room = (ld) => ld.enemies.filter((e) => /^room-/.test(e.pattern));
+      // ...and no last-lane crosser / diagonal turning round in the open (the junction); every other wolf as before
+      const key = (e) => JSON.stringify({ ...e, id: 0, seed: 0 }), was = new Set(v3.enemies.map(key));
+      const at = (e, q) => ({ x: e.frame.ox + e.frame.ux * q.th + e.frame.nx * q.r, z: e.frame.oz + e.frame.uz * q.th + e.frame.nz * q.r });
+      const inOpen = v4.enemies.filter((e) => e.leg === v4.legs.length - 1 && (e.type === 'crosser' || e.type === 'diagonal') && !/^room-/.test(e.pattern)
+        && [e.route[0], e.route.at(-1)].some((q) => { const p = at(e, q); return !(Math.abs(p.x) < 9 && Math.abs(p.z) < 9) && !collideCircle(v4, p.x, p.z, CFG.WOLF_RADIUS + 0.6).hit; }));
+      const early = (e) => e.leg < v4.legs.length - 2;   // (the last two lanes are picked for their risk in version 4: new designs)
+      ok(room(v3).length === 6 && room(v4).length === 3 && inOpen.length === 0 && v4.enemies.filter(early).filter((e) => !was.has(key(e))).length <= 3   // (the level's count trim may take a different row end)
+        && room(v4).every((e) => e.route.every((q) => at(e, q).x * dc.x + at(e, q).z * dc.z > 0)),
+        `finale version 4: skate goal rooms without the three wolves behind the disc, no last-lane wolf turning round in the open (${v3.enemies.length} -> ${v4.enemies.length} wolves)`);
+    }
     // version 3: Run + Skate's level 9 is both in a row (skate, a hallway, the run back to the goal room); Skate only keeps
     // the wide skate final run
     const cb = generateLevel(SKATE_FINAL_LEVEL, 7, 'mixed', 3), ice3 = generateLevel(SKATE_FINAL_LEVEL, 7, 'ice', 3);

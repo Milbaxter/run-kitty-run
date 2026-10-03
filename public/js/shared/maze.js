@@ -170,6 +170,11 @@ const FINALE_WOLVES = 385;       // the run's wolf count (the spiral's level-7+ 
 // wall to wall. Measured with docs/WOLF_WALL_TUNING.md's method across 17 points and along the corridor.
 const RUN_FINALE_W = 3 * CFG.RING_WIDTH, RUN_FINALE_WOLVES = 2100, RUN_FINALE_WALL = 0.45;
 const RUN_FINALE_START = 0.6;   // wolves in the first section (outside the start room) relative to the rest
+// skate levels' last two lanes (version 4+): designs to pick from, and the risk to aim at on level L (the lane before the
+// final stretch, or the final stretch: its chargers alone make it riskier), a fixed climb so each is a bit harder than
+// the same lane the level before
+const LAST_LANE_TRIES = 12;
+const LAST_LANE_RISK = (L, door) => { const k = Math.min(8, Math.max(1, L)) - 1; return door ? 0.12 + 0.0075 * k : 0.105 + 0.0065 * k; };
 // Finale version 2 (generateLevel's fv): the skate final run as wide as Run only's level 9, with the same start room.
 // Its rooms get normal-width pattern layouts side by side (one per lane, each as hard as the narrow final run), the
 // crossers and diagonals stretched wall to wall, at least one crosser in every wolf-width slot along it.
@@ -825,6 +830,69 @@ function placePatternEnemies(rng, lvl, p) {
     return { leg: li, beat: T, period, segs: kept, open };
   };
 
+  // finale version 4+ (the spiral levels): no crosser / diagonal that turns round in the open. Where two lanes meet at
+  // an unsafe corner, a row crossing one lane right at the corner ended where a wall would be, but there the other lane
+  // carries on: they ran up and turned round in mid-air in the middle of the junction. (Wolves that end at a wall or
+  // run on into the goal room are fine.) Dropped after everything's made, so the rest of the level stays the same.
+  const endsInOpen = (w) => {
+    // (only the last lane's: those run up and down across the junction; the lane before's run left to right into the last
+    // lane, which plays fine)
+    if (!(lvl.fv >= 4) || lvl.finale || w.leg !== door || (w.type !== 'crosser' && w.type !== 'diagonal') || /^room-/.test(w.pattern || '')) return false;
+    const leg = legs[w.leg];
+    for (const q of [w.route[0], w.route[w.route.length - 1]]) {
+      const { x, z } = legPoint(leg, q.r, q.th);
+      if (Math.abs(x) < ROOM + 1 && Math.abs(z) < ROOM + 1) continue;   // into the goal room (through its door)
+      if (!collideCircle(lvl, x, z, CFG.WOLF_RADIUS + 0.6).hit) return true;
+    }
+    return false;
+  };
+  // finale version 4+ (the spiral levels): the last two lanes' danger. They're designed like every lane, but with extra
+  // rules on top (the final stretch's chargers, rows through the door), so how dangerous they came out was luck: from far
+  // harder than the level's other lanes to nearly empty (a kitty standing still was touched 4-22% of the time). Now
+  // LAST_LANE_TRIES designs are made for each and the least risky one (laneRisk) that's still at or over LAST_LANE_RISK
+  // for the level is kept, then trimmed down to it once the wolf count is settled (trimLast). A fixed climb, not relative
+  // to the level's other lanes: those vary too, and the same lane should get a bit harder every level.
+  const tuneLast = lvl.fv >= 4 && !lvl.finale && nb === 1 && last >= 4;
+  // a lane's risk: the share of time a spot in it (every unit along between its corner squares, 5 across) is touched by one of the plan's wolves,
+  // over RISK_SECS (their poses straight from their timing; no goal-room wolves, none turning round in the open)
+  const HITR = CFG.KITTY_RADIUS * CFG.KITTY_HIT_SCALE + CFG.WOLF_RADIUS * CFG.WOLF_HIT_SCALE, HITR2 = HITR * HITR, RISK_SECS = 20, RISK_DT = 0.25;
+  const laneRisk = (pl) => {
+    const leg = legs[pl.leg], f = frameOf(leg), ws = [];
+    for (const sg of pl.segs) for (const w of sg.wolves) {
+      if (/^room-/.test(sg.name || '') || endsInOpen({ ...w, leg: pl.leg, pattern: sg.name })) continue;
+      const plan = buildPlan(w, f, w.speed), ph = (((w.off % w.cycle) + w.cycle) % w.cycle) / w.cycle;
+      ws.push({ plan, t0: ph * plan.cycle });
+    }
+    const spots = [];
+    for (let th = W / 2 + 0.5; th < leg.len - W / 2 - 0.5; th += 1) for (const r of [-3.6, -1.8, 0, 1.8, 3.6]) spots.push(r, th);   // (between its corners)
+    const n = spots.length / 2;
+    if (!n) return 0;
+    const pos = new Float64Array(ws.length * 2);
+    let hits = 0, samples = 0;
+    for (let t = 0; t < RISK_SECS; t += RISK_DT) {
+      ws.forEach((w, i) => { const q = patternPose(w.plan, (w.t0 + t) % w.plan.cycle); pos[i * 2] = q.r; pos[i * 2 + 1] = q.th; });
+      for (let k = 0; k < n; k++) {
+        const r = spots[k * 2], th = spots[k * 2 + 1];
+        for (let i = 0; i < ws.length; i++) {
+          const dr = pos[i * 2] - r, dt = pos[i * 2 + 1] - th;
+          if (dr * dr + dt * dt < HITR2) { hits++; break; }
+        }
+      }
+      samples += n;
+    }
+    return hits / samples;
+  };
+  const tuned = [];   // [plan, risk to aim at]
+  const pickNearest = (make, target) => {
+    let best = null, bestRisk = 0;
+    for (let k = 0; k < LAST_LANE_TRIES; k++) {
+      const pl = make();
+      if (!pl) continue;
+      const rk = laneRisk(pl);   // (only trimmed later: the least risky at or over the target, else the riskiest)
+      if (!best || (rk >= target ? bestRisk < target || rk < bestRisk : rk > bestRisk)) { best = pl; bestRisk = rk; }
+    }
+    return best;
+  };
   // the final run keeps its own tuning (heat 1.2, D up to 1.6); levels 7-8 go past it
   const heat = lvl.finale ? Math.min(1.2, p.patternHeat || 0) : p.patternHeat || 0, dTop = lvl.finale ? 1.6 : 1.9;
   for (let li = 0; li < legs.length; li++) {
@@ -834,12 +902,22 @@ function placePatternEnemies(rng, lvl, p) {
       // final stretch: a full room on the beat of the room before it (its chargers run corner to corner, straight, like
       // everywhere else), plus the goal room's crossers and diagonals (roomWolves). On top of the level's wolf count.
       const prev = plans.length && plans[plans.length - 1].leg === li - 1 ? plans[plans.length - 1] : null;
-      const chargers = makeChargers(li, D, chargerLanes(li, D));
-      const pl = placeLeg(li, legDesign(li, D, prev ? prev.beat : 0), chargers, false);
+      const makeDoor = () => placeLeg(li, legDesign(li, D, prev ? prev.beat : 0), makeChargers(li, D, chargerLanes(li, D)), false);
+      const pl = tuneLast ? pickNearest(makeDoor, LAST_LANE_RISK(level, true)) : makeDoor();
       if (pl) {
-        for (const sg of roomWolves(pl.beat)) pl.segs.push({ ...sg, top: 0, bottom: 0 });
+        // (finale version 4+: not the three on the far side of the disc, behind it from the door, which is always on the
+        // near side: they guarded nothing. Still made first, so the rest of the level comes out the same.)
+        const dc = lvl.corners[lvl.corners.length - 1];   // the door corner: "behind the disc" = the other side of the centre
+        const behind = (sg) => sg.wolves.every((w) => w.route.every((q) => { const pt = legPoint(legs[door], q.r, q.th); return pt.x * dc.x + pt.z * dc.z < 0; }));
+        for (const sg of roomWolves(pl.beat)) if (!(lvl.fv >= 4 && behind(sg))) pl.segs.push({ ...sg, top: 0, bottom: 0 });
         plans.push({ ...pl, finale: true });
+        if (tuneLast) tuned.push([plans[plans.length - 1], LAST_LANE_RISK(level, true)]);
       }
+      continue;
+    }
+    if (tuneLast && li === last - 1) {   // the lane before the final stretch (see pickNearest)
+      const pl = pickNearest(() => placeLeg(li, legDesign(li, D, 0), makeChargers(li, D, chargerLanes(li, D)), lesson), LAST_LANE_RISK(level, false));
+      if (pl) { plans.push(pl); tuned.push([pl, LAST_LANE_RISK(level, false)]); }
       continue;
     }
     for (const off of bands) {
@@ -891,9 +969,29 @@ function placePatternEnemies(rng, lvl, p) {
     pl.segs.splice(pl.segs.indexOf(sg), 1); count--;
   }
 
+  // the last two lanes (tuneLast) down to their risk: the same trims (longest rows' end wolves, then lone crossers), one
+  // at a time, each kept if it doesn't take the lane further from it (a row that doesn't help is left alone after that)
+  for (const [pl, target] of tuned) {
+    let rk = laneRisk(pl);
+    const done = new Set();
+    while (rk > target) {
+      let sg = null;
+      for (const s of pl.segs) if (!done.has(s) && !/^room-/.test(s.name || '') && !s.chargers && s.name !== 'diagonal-scissors' && s.wolves.length > 2 && trimEnd(s) && (!sg || s.wolves.length > sg.wolves.length)) sg = s;
+      const lone = pl.segs.filter((s) => !done.has(s) && s.name === 'crosswalk-single');
+      let undo;
+      if (sg) { const w = trimEnd(sg), i = sg.wolves.indexOf(w); sg.wolves.splice(i, 1); undo = () => { sg.wolves.splice(i, 0, w); done.add(sg); }; }
+      else if (lone.length) { const s = lone[Math.floor(rng.next() * lone.length)], i = pl.segs.indexOf(s); pl.segs.splice(i, 1); undo = () => { pl.segs.splice(i, 0, s); done.add(s); }; }
+      else break;
+      const nr = laneRisk(pl);
+      if (Math.abs(nr - target) > Math.abs(rk - target)) undo();
+      else rk = nr;
+    }
+  }
+
   // ---- specs (a drifting wolf keeps its phase in the beat: at level start it is exactly in step)
   for (const pl of plans) {
     for (const seg of pl.segs) for (const w of seg.wolves) {
+      if (endsInOpen({ ...w, leg: pl.leg, pattern: seg.name })) continue;
       const id = enemies.length;
       enemies.push({
         id, type: w.type, leg: pl.leg, frame: w.frame,
@@ -1147,7 +1245,8 @@ function generateCombo(L, seed) {
 
 // fv: the finale version the game plays (sim.finales): 0 = the original levels, 1 = + Run only's level 9 final run,
 // 2 = + the wide skate final run (Skate only / Run + Skate level 9), 3 = + Run + Skate's level 9 is both final runs in a row
-// (generateCombo). Online rooms use the newest every member has.
+// (generateCombo), 4 = + skate levels' goal rooms without their three wolves behind the disc. Online rooms use the newest
+// every member has.
 function generateLevel(level, seed, mode = 'mixed', fv = 0) {
   const v = fv === true ? 1 : +fv || 0;
   if (v >= 3 && mode === 'mixed' && (Math.max(1, level | 0)) === SKATE_FINAL_LEVEL) return generateCombo(SKATE_FINAL_LEVEL, seed);
@@ -1212,6 +1311,7 @@ function generateLevel(level, seed, mode = 'mixed', fv = 0) {
   // the boss run has them in every mode). CLASSIC_RUN_SKATE_ICE brings back the old Run + Skate winter levels:
   // ice with the wandering wolves of the running levels (placeEnemies). Git tag: classic-run-skate-ice.
   const pattern = (finale && lvl.ice) || (lvl.ice && !(CLASSIC_RUN_SKATE_ICE && mode === 'mixed'));   // Run only's level 9: wandering wolves
+  lvl.fv = v;   // the finale version (see above), for the wolf placement
   lvl.enemies = pattern ? placePatternEnemies(rng, lvl, p) : placeEnemies(rng, lvl, p);
   lvl.items = placeItems(rng, lvl, p);
   for (const t of lvl.trees) lvl.items.push({ id: lvl.items.length, type: 'boots', x: t.x, z: t.z, tree: true }); // a pair of boots up every tree

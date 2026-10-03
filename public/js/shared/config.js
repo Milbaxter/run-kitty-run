@@ -110,6 +110,7 @@ const FINAL_MODES = ['mixed', 'ice'];
 //   5 = Run only's level 9 final run (start messages carry rf; a room uses it only when every member has 5+)
 //   6 = the wide skate final run (finale version 2: start messages carry rf 2 when every member has 6+)
 //   7 = Run + Skate's level 9 is both final runs in a row (finale version 3, rf 3), its broken (medic) checkpoint
-const PROTOCOL_VERSION = 7;
+//   8 = skate goal rooms without their three wolves behind the disc (finale version 4, rf 4)
+const PROTOCOL_VERSION = 8;
 
 export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION };

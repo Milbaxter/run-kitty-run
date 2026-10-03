@@ -4,6 +4,8 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Smoother: fewer small hitches mid-level (everything the game draws is prepared before the level starts)',
+      'Skate levels: the last two lanes before the goal now get a little harder every level instead of being luck of the draw (no more very hard level followed by an easy one), the wolves behind the victory circle that guarded nothing are gone, and white wolves no longer run up and turn round in the middle of a junction. Online, everyone in the lobby needs the latest version for these',
       'Smoother and lighter: the big level 9s load faster and use far less memory (only the wolves on screen are drawn), coming back to an online game after switching apps no longer freezes it, and the server handles busy lobbies better',
       'Fixes: kitties no longer wear skates in the run half of Run + Skate level 9 (and can move right away after the medic checkpoint), a controller in any slot can steer, the online menu no longer gets stuck after a game over, keys and the mouse no longer stick after switching windows, the victory song stops when the game is in the background, and the STATS window keeps your keys to itself',
       'Run + Skate has a new level 9: both final runs in one. Skate the whole icy hell first, then where its goal room used to be a hallway leads to a broken field hospital, and from there it\'s the run on foot back through hell to cat heaven. The run wolves are slow at first and get faster all the way to the end',

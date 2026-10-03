@@ -2357,4 +2357,4 @@ function createGiantFishModel() {
   };
 }
 
-export { WOLF_TYPES, disposeModel, createKittyModel, createWolfModel, createWolfRig, newWolfState, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel };
+export { WOLF_TYPES, ghostMaterial, disposeModel, createKittyModel, createWolfModel, createWolfRig, newWolfState, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel };

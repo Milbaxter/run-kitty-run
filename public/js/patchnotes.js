@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Single player and local co-op now open a setup screen like online: pick your name, kitty colour and mode (Run + Skate, Run only or Skate only). In co-op both players choose their own name and colour',
       'Run only and the running levels of Run + Skate: new wolves. Every wolf runs at the same speed. Most of them now stand still for a while, then walk off in a new direction, and the mix changes as you go: early levels have more long, slow walkers, later levels more restless wolves that stop and turn all the time',
       'Running levels: hugging the wall is no longer the safe way through. Wolves now often head for the walls, stop there and walk along them, and cut across the middle less (more so on later levels, so the wall and the middle are about equally risky)',
       'Spring got a new look: daisy safe squares with a golden paw, and green hedges dotted with little white and yellow flowers',

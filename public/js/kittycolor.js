@@ -5,28 +5,31 @@
 import { PLAYER_COLORS } from './shared/config.js';
 
 const KEY = 'rkr-color';
+const KEY2 = 'rkr-color2';   // local co-op: player 2's own preference
 const CAT = `<svg viewBox="0 0 40 40"><path d="M5 4 L15 12 Q20 10.5 25 12 L35 4 L33.5 20 Q34 34.5 20 35.5 Q6 34.5 6.5 20 Z" fill="currentColor" stroke="#2b1840" stroke-width="2.6" stroke-linejoin="round"/><path d="M8.5 9 L13 12.6 L9.6 15.5 Z M31.5 9 L27 12.6 L30.4 15.5 Z" fill="#ff9ec4"/><ellipse cx="14.3" cy="21.5" rx="2.3" ry="3.1" fill="#2b1840"/><ellipse cx="25.7" cy="21.5" rx="2.3" ry="3.1" fill="#2b1840"/></svg>`;
 const hex = (c) => '#' + ((c >>> 0) & 0xffffff).toString(16).padStart(6, '0');
 
-function prefColor() {
+function prefColor(key = KEY) {
   try {
-    const v = localStorage.getItem(KEY);
+    const v = localStorage.getItem(key);
     const i = v == null ? -1 : parseInt(v, 10);
     return Number.isInteger(i) && i >= 0 && i < PLAYER_COLORS.length ? i : -1;
   } catch { return -1; }
 }
-function savePrefColor(i) {
-  try { if (i >= 0) localStorage.setItem(KEY, String(i)); else localStorage.removeItem(KEY); } catch { /* ignore */ }
+function savePrefColor(i, key = KEY) {
+  try { if (i >= 0) localStorage.setItem(key, String(i)); else localStorage.removeItem(key); } catch { /* ignore */ }
 }
 
-// Colour slots for n local players: player 1 gets the preference, the rest the first free slots (as before).
+// Colour slots for n local players: player 1 gets its preference, player 2 its own (KEY2) unless player 1 has it,
+// the rest the first free slots (never one a later player asked for).
 function localSlots(n) {
-  const pref = prefColor();
+  const prefs = [prefColor(), prefColor(KEY2)];
   const slots = [];
   for (let i = 0; i < n; i++) {
-    if (i === 0 && pref >= 0) { slots.push(pref); continue; }
+    const want = i < prefs.length ? prefs[i] : -1;
+    if (want >= 0 && !slots.includes(want)) { slots.push(want); continue; }
     let s = 0;
-    while (slots.includes(s) || (s === pref && pref >= 0)) s++;
+    while (slots.includes(s) || prefs.slice(i + 1).includes(s)) s++;
     slots.push(s);
   }
   return slots;
@@ -61,6 +64,8 @@ const CSS = `
 .rkcr-more:hover span{opacity:1;border-color:#ffcf5a;}
 .rkcr-x{display:none;}
 .rkcr.rkcr-open .rkcr-x{display:flex;}
+.rkcr-b.rkcr-taken{cursor:not-allowed;}
+.rkcr-b.rkcr-taken .rkcp-sw{opacity:.2;transform:none;}
 @media (max-height:500px){.rkcp-sw{width:22px;height:22px;}.rkcp-cat{width:22px;height:22px;}.rkcp-btn{font-size:12px;}}
 `;
 
@@ -123,8 +128,10 @@ function createColorPicker(onChange) {
 }
 
 // Inline swatches: ANY + the first `few` colours (+ the chosen one if it's further down) and a "more" toggle that
-// expands the whole palette in place. onChange(index) is called after the choice is saved.
-function createColorRow(onChange, few = 8) {
+// expands the whole palette in place. onChange(index) is called after the choice is saved. opts: key (where the
+// choice is saved; player 1's by default), taken() -> a colour index another local player has (greyed out, can't be
+// picked). The element's refresh() repaints it (after the other player picks).
+function createColorRow(onChange, few = 8, { key = KEY, taken = null } = {}) {
   injectCss();
   const wrap = document.createElement('div');
   wrap.className = 'rkcr';
@@ -141,7 +148,8 @@ function createColorRow(onChange, few = 8) {
     b.setAttribute('aria-label', b.title);
     b.appendChild(dot);
     b.addEventListener('click', () => {
-      savePrefColor(i);
+      if (i >= 0 && taken && taken() === i) return;
+      savePrefColor(i, key);
       wrap.classList.remove('rkcr-open'); // the pick stays visible in the short row
       paint();
       if (onChange) onChange(i);
@@ -158,10 +166,11 @@ function createColorRow(onChange, few = 8) {
   more.addEventListener('click', () => { wrap.classList.toggle('rkcr-open'); paint(); });
   wrap.appendChild(more);
   function paint() {
-    const p = prefColor();
+    const p = prefColor(key), t = taken ? taken() : -1;
     const open = wrap.classList.contains('rkcr-open');
     for (const [i, b, dot] of items) {
       dot.classList.toggle('rkcp-on', i === p);
+      b.classList.toggle('rkcr-taken', i >= 0 && i === t);
       b.setAttribute('aria-pressed', String(i === p));
       b.classList.toggle('rkcr-x', i >= few && i !== p); // hidden while collapsed
     }
@@ -169,7 +178,8 @@ function createColorRow(onChange, few = 8) {
     more.title = open ? 'Fewer colours' : 'More colours';
   }
   paint();
+  wrap.refresh = paint;
   return wrap;
 }
 
-export { prefColor, savePrefColor, localSlots, createColorPicker, createColorRow };
+export { prefColor, savePrefColor, localSlots, createColorPicker, createColorRow, KEY2 as P2_COLOR_KEY };

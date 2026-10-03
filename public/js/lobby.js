@@ -1,6 +1,6 @@
 // Online lobby screens (browser + room), styled with the same rkr-* look as ui.js.
 // All player-supplied text is inserted with textContent.
-import { createColorRow, prefColor } from './kittycolor.js';
+import { createColorRow, prefColor, P2_COLOR_KEY } from './kittycolor.js';
 import { PLAYER_COLORS, PLAYER_NAMES } from './shared/config.js';
 import { inviteUrl, share } from './platform.js';
 
@@ -112,6 +112,11 @@ const CSS = `
 .rkl-mode:focus:not(:focus-visible){outline:none;}
 .rkl-modetip{font-size:12px;font-weight:700;opacity:.7;line-height:1.3;min-height:31px;}
 .rkr-btn.rkl-create{margin-top:auto;font-size:19px;padding:9px 18px 11px;border-radius:18px;}
+.rkr-glass.rkl-lbox{max-width:640px;}
+.rkl-localcol .rkl-modes{flex-direction:row;flex-wrap:wrap;}
+.rkl-localcol .rkl-mode{flex:1 1 auto;}
+.rkl-localcol .rkl-modetip{min-height:0;}
+.rkl-localcol .rkr-btn.rkl-create{align-self:center;min-width:220px;justify-content:center;}
 .rkl-bbox .rkl-err{min-height:0;font-size:13px;}
 .rkl-bbox .rkl-err:empty{display:none;}
 @media (max-width:560px){
@@ -160,17 +165,11 @@ function createLobbyUI(root, cb) {
   let br = null; // lobby browser refs
   let refreshT = 0;
 
-  function savedName() {
-    try { return localStorage.getItem('rkr-name') || ''; } catch { return ''; }
-  }
   function savedMode() {
     try { const m = localStorage.getItem('rkr-mode'); return MODES.some((x) => x.id === m) ? m : 'mixed'; } catch { return 'mixed'; }
   }
   function saveMode(m) {
     try { localStorage.setItem('rkr-mode', m); } catch { /* ignore */ }
-  }
-  function saveName(n) {
-    try { localStorage.setItem('rkr-name', n); } catch { /* ignore */ }
   }
 
   function mount(inner, boxCls = '', ovCls = '') {
@@ -185,14 +184,133 @@ function createLobbyUI(root, cb) {
     root.appendChild(node);
   }
 
-  // Esc on the lobby browser = back to the title (unless a dialog is on top of it)
+  // Esc on the lobby browser / the local setup = back to the title, Enter on the local setup = START (unless a dialog
+  // is on top of it)
   document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || view !== 'browser' || !node || e.defaultPrevented) return;
+    const esc = e.key === 'Escape', enter = e.key === 'Enter' && view === 'local';
+    if ((!esc && !enter) || (view !== 'browser' && view !== 'local') || !node || e.defaultPrevented) return;
     if (document.querySelector('.rkt-modal')) return;
     if (node.nextElementSibling && node.nextElementSibling.classList.contains('rkr-overlay')) return;
     e.preventDefault();
-    cb.onBack();
+    if (enter) { e.stopPropagation(); localNav.go(); }   // the run has started: this Enter isn't the game's
+    else if (view === 'local') localNav.back();
+    else cb.onBack();
   });
+
+  // The game mode as a list of radio buttons + a one-line tip (the choice is remembered, online and offline alike).
+  function modePicker(initial) {
+    let mode = initial;
+    const modes = el('div', 'rkl-modes');
+    modes.setAttribute('role', 'radiogroup');
+    const tip = el('div', 'rkl-modetip');
+    const paint = () => {
+      for (const b of modes.children) {
+        const on = b.dataset.mode === mode;
+        b.classList.toggle('rkl-on', on);
+        b.setAttribute('aria-checked', String(on));
+      }
+      tip.textContent = tip.title = MODES.find((m) => m.id === mode).tip;
+    };
+    const set = (id) => { mode = id; saveMode(mode); paint(); };
+    for (const m of MODES) {
+      const b = el('button', 'rkl-mode');
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      b.textContent = m.label;
+      b.dataset.mode = m.id;
+      b.addEventListener('click', () => set(m.id));
+      modes.appendChild(b);
+    }
+    paint();
+    // step -1 / +1: the previous / next mode (gamepad)
+    const cycle = (step) => set(MODES[(MODES.findIndex((m) => m.id === mode) + step + MODES.length) % MODES.length].id);
+    return { modes, tip, get: () => mode, cycle };
+  }
+
+  // A kitty's row: its colour as a cat, name box (saved under nameKey as you type) + random name, colour swatches
+  // (saved under colorKey; taken() greys out another local player's colour).
+  function youRow({ label, nameKey, id, colorKey, taken = null, onColor = null }) {
+    const youCat = el('span', 'rkl-youcat', CAT);
+    const youLab = el('label', 'rkl-youlab');
+    youLab.append(youCat, document.createTextNode(label));
+    const name = el('input', 'rkl-in rkl-name');
+    name.id = id;
+    youLab.htmlFor = name.id;
+    name.maxLength = 14;
+    name.placeholder = PLAYER_NAMES[Math.floor(Math.random() * PLAYER_NAMES.length)];
+    try { name.value = localStorage.getItem(nameKey) || ''; } catch { /* ignore */ }
+    name.autocomplete = 'off';
+    name.spellcheck = false;
+    const save = (v) => { try { localStorage.setItem(nameKey, v); } catch { /* ignore */ } };
+    name.addEventListener('input', () => save(name.value.trim()));
+    const dice = el('button', 'rkl-dice', '🎲');
+    dice.type = 'button';
+    dice.title = 'Random name';
+    dice.setAttribute('aria-label', 'Random name');
+    dice.addEventListener('click', () => {
+      const cur = name.value.trim();
+      const pool = PLAYER_NAMES.filter((n) => n !== cur);
+      name.value = pool[Math.floor(Math.random() * pool.length)];
+      save(name.value);
+    });
+    const nameBox = el('div', 'rkl-namebox');
+    nameBox.append(name, dice);
+    const paintCat = () => {
+      const p = prefColor(colorKey);
+      youCat.classList.toggle('rkl-any', p < 0);
+      youCat.style.color = p < 0 ? '' : hex(PLAYER_COLORS[p]);
+    };
+    paintCat();
+    const colors = createColorRow(() => { paintCat(); if (onColor) onColor(); }, 8, { key: colorKey, taken });
+    const row = el('div', 'rkl-you');
+    row.append(youLab, nameBox, colors);
+    const getName = () => { const n = name.value.trim(); save(n); return n; };
+    return { el: row, getName, refresh: () => { paintCat(); colors.refresh(); } };
+  }
+
+  // Single player / local co-op setup: the online screen's name, colour and mode choices (one row per kitty), then
+  // START. onStart({ mode, names }) (an empty name = the colour's own name, main.js); onBack() = back to the title.
+  let localNav = null;
+  function showLocal(n, { onStart, onBack, mode: forced }) {
+    view = 'local';
+    roomRefs = null;
+    br = null;
+    errEl = null;
+    const back = el('button', 'rkl-back', '←');
+    back.type = 'button';
+    back.title = 'Back (Esc)';
+    back.setAttribute('aria-label', 'Back');
+    const goBack = () => { hide(); onBack(); };
+    back.addEventListener('click', goBack);
+    const h = el('h2', null, n === 2 ? 'LOCAL CO-OP' : 'SINGLE PLAYER');
+    const hsub = el('div', 'rkl-hsub', n === 2 ? 'Player 1: mouse · Player 2: WASD or arrows' : 'A solo run');
+    const head = el('div', 'rkl-head');
+    head.append(back, h, hsub);
+    // co-op: one row per player, each greying out the colour the other one has
+    const rows = [];
+    const refreshAll = () => { for (const r of rows) r.refresh(); };
+    rows.push(youRow({ label: n === 2 ? 'Player 1' : 'Your name', nameKey: 'rkr-name', id: 'rkl-lname1',
+      taken: n === 2 ? () => prefColor(P2_COLOR_KEY) : null, onColor: refreshAll }));
+    if (n === 2) rows.push(youRow({ label: 'Player 2', nameKey: 'rkr-name2', id: 'rkl-lname2', colorKey: P2_COLOR_KEY,
+      taken: () => prefColor(), onColor: refreshAll }));
+    const mp = modePicker(forced || savedMode());
+    const start = el('button', 'rkr-btn rkl-create', '<span>START</span>');
+    const go = () => { const names = rows.map((r) => r.getName()); hide(); onStart({ mode: mp.get(), names }); };
+    start.addEventListener('click', go);
+    const col = el('div', 'rkl-col rkl-localcol');
+    col.append(el('div', 'rkl-ctitle', 'Mode'), mp.modes, mp.tip, start);
+    mount([head, ...rows.map((r) => r.el), col], ' rkl-bbox rkl-lbox', ' rkl-ov');
+    // Enter in a name box starts too (inputs keep their keys to themselves, see mount)
+    node.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); e.stopPropagation(); go(); } });
+    localNav = { go, back: goBack, cycle: mp.cycle };
+  }
+  // gamepad (main.js): 'confirm' starts, 'prev' / 'next' switch the mode
+  function navigateLocal(cmd) {
+    if (view !== 'local' || !localNav) return;
+    if (cmd === 'confirm') localNav.go();
+    else if (cmd === 'prev') localNav.cycle(-1);
+    else if (cmd === 'next') localNav.cycle(1);
+  }
 
   function showBrowser() {
     view = 'browser';
@@ -208,41 +326,10 @@ function createLobbyUI(root, cb) {
     const head = el('div', 'rkl-head');
     head.append(back, h, hsub);
 
-    // you: name (always visible), random name, colour swatches
-    const youCat = el('span', 'rkl-youcat', CAT);
-    const youLab = el('label', 'rkl-youlab');
-    youLab.append(youCat, document.createTextNode('Your name'));
-    const name = el('input', 'rkl-in rkl-name');
-    name.id = 'rkl-name';
-    youLab.htmlFor = name.id;
-    name.maxLength = 14;
-    name.placeholder = PLAYER_NAMES[Math.floor(Math.random() * PLAYER_NAMES.length)];
-    name.value = savedName();
-    name.autocomplete = 'off';
-    name.spellcheck = false;
-    name.addEventListener('input', () => saveName(name.value.trim()));
-    const dice = el('button', 'rkl-dice', '🎲');
-    dice.type = 'button';
-    dice.title = 'Random name';
-    dice.setAttribute('aria-label', 'Random name');
-    dice.addEventListener('click', () => {
-      const cur = name.value.trim();
-      const pool = PLAYER_NAMES.filter((n) => n !== cur);
-      name.value = pool[Math.floor(Math.random() * pool.length)];
-      saveName(name.value);
-    });
-    const nameBox = el('div', 'rkl-namebox');
-    nameBox.append(name, dice);
-    const paintCat = () => {
-      const p = prefColor();
-      youCat.classList.toggle('rkl-any', p < 0);
-      youCat.style.color = p < 0 ? '' : hex(PLAYER_COLORS[p]);
-    };
-    paintCat();
-    const colors = createColorRow(paintCat); // preferred colour, sent with create / join (main.js)
-    const you = el('div', 'rkl-you');
-    you.append(youLab, nameBox, colors);
-    const getName = () => { const n = name.value.trim(); saveName(n); return n; };
+    // you: name (always visible), random name, colour swatches (the colour goes with create / join, main.js)
+    const me = youRow({ label: 'Your name', nameKey: 'rkr-name', id: 'rkl-name' });
+    const you = me.el;
+    const getName = me.getName;
 
     // left: join a game
     const live = el('span', 'rkl-live rkl-zero', '<span class="rkl-dot"></span><span></span>');
@@ -270,33 +357,12 @@ function createLobbyUI(root, cb) {
     joinCol.append(jt, list, codeRow, joinErr);
 
     // right: start your own (mode remembered)
-    let mode = savedMode();
-    const modes = el('div', 'rkl-modes');
-    modes.setAttribute('role', 'radiogroup');
-    const tip = el('div', 'rkl-modetip');
-    const paint = () => {
-      for (const b of modes.children) {
-        const on = b.dataset.mode === mode;
-        b.classList.toggle('rkl-on', on);
-        b.setAttribute('aria-checked', String(on));
-      }
-      tip.textContent = tip.title = MODES.find((m) => m.id === mode).tip;
-    };
-    for (const m of MODES) {
-      const b = el('button', 'rkl-mode');
-      b.type = 'button';
-      b.setAttribute('role', 'radio');
-      b.textContent = m.label;
-      b.dataset.mode = m.id;
-      b.addEventListener('click', () => { mode = m.id; saveMode(mode); paint(); });
-      modes.appendChild(b);
-    }
-    paint();
+    const mp = modePicker(savedMode());
     const create = el('button', 'rkr-btn rkl-create', '<span>CREATE LOBBY</span>');
-    create.addEventListener('click', () => { lastAct = 'create'; cb.onCreate(getName(), mode); });
+    create.addEventListener('click', () => { lastAct = 'create'; cb.onCreate(getName(), mp.get()); });
     const createErr = el('div', 'rkl-err');
     const newCol = el('div', 'rkl-col rkl-newcol');
-    newCol.append(el('div', 'rkl-ctitle', 'Start your own'), modes, tip, create, createErr);
+    newCol.append(el('div', 'rkl-ctitle', 'Start your own'), mp.modes, mp.tip, create, createErr);
 
     const cols = el('div', 'rkl-cols');
     cols.append(joinCol, newCol);
@@ -468,9 +534,10 @@ function createLobbyUI(root, cb) {
     errEl = null;
     br = null;
     roomRefs = null;
+    localNav = null;
   }
 
-  return { showBrowser, setLobbies, showRoom, showError, hide, isOpen: () => !!node, view: () => view };
+  return { showBrowser, setLobbies, showRoom, showLocal, navigateLocal, showError, hide, isOpen: () => !!node, view: () => view };
 }
 
 export { createLobbyUI };

@@ -384,7 +384,8 @@ let mode = 'title';      // 'title' | 'play'
 let paused = false;
 let sim = null;
 let playerCount = 1;
-let simTime = 0;          // presentation clock (seconds)
+let localSetup = { mode: undefined, names: [] };   // single player / co-op: the mode and names from the setup screen (lobby.js)
+let simTime = 0;         // presentation clock (seconds)
 let accumulator = 0;
 let gameOverShown = false;
 let victory = null;       // the final run is beaten: { sim, t, ev, shown, shownAt, lobbyAt, nextFw, musicBack } (presentation only)
@@ -399,8 +400,8 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
-function startSim(players, startLevel) {
-  sim = createSim({ seed: newSeed(), players, startLevel, mode: DEBUG_MODE });
+function startSim(players, startLevel, simMode = DEBUG_MODE) {
+  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   accumulator = 0;
   gameOverShown = false;
@@ -504,7 +505,17 @@ function enterTitle(showTitleScreen = true) {
   musicPlay(1);
 }
 
-function onTitlePick({ players }) { return players === 3 ? openOnline() : startGame(players); }
+// single player / local co-op: first the setup screen (name, kitty colour, mode; lobby.js), then the run
+function onTitlePick({ players }) {
+  if (players === 3) return openOnline();
+  audio.unlock();
+  audio.play('click');
+  lobbyUI.showLocal(players, {
+    mode: DEBUG_MODE,   // ?mode= (offline testing) preselects
+    onStart: ({ mode: m, names }) => { localSetup = { mode: m, names }; startGame(players); },
+    onBack: () => ui.showTitle(onTitlePick),
+  });
+}
 
 function startGame(n, level = DEBUG_LEVEL) {
   goFullscreenLandscape();
@@ -519,10 +530,11 @@ function startGame(n, level = DEBUG_LEVEL) {
   paused = false;
   const players = [];
   const slots = localSlots(n); // player 1 in the preferred colour (kittycolor.js)
-  for (let i = 0; i < n; i++) players.push({ id: i + 1, name: PLAYER_NAMES[slots[i]], color: PLAYER_COLORS[slots[i]] });
+  // the names from the setup screen (empty: the colour's own name)
+  for (let i = 0; i < n; i++) players.push({ id: i + 1, name: localSetup.names[i] || PLAYER_NAMES[slots[i]], color: PLAYER_COLORS[slots[i]] });
   removeKitties();
-  startSim(players, level);
-  analytics.runStart(n === 1 ? 'solo' : 'coop', 'mixed');
+  startSim(players, level, localSetup.mode || DEBUG_MODE);
+  analytics.runStart(n === 1 ? 'solo' : 'coop', sim.mode || 'mixed');
   cameraSnap = true;
   // First step emits levelStart which triggers buildView.
 }
@@ -530,7 +542,8 @@ function startGame(n, level = DEBUG_LEVEL) {
 function togglePause() {
   paused = !paused;
   if (paused) {
-    ui.showPause(() => { paused = false; ui.hidePause(); });
+    // LEAVE GAME: back to the title screen (the run is dropped)
+    ui.showPause(() => { paused = false; ui.hidePause(); }, () => enterTitle(), { online: false });
   } else {
     ui.hidePause();
   }
@@ -813,6 +826,10 @@ function pollPadNav() {
   if (legends.isOpen()) {
     if (back && !padNav.back) legends.close();
     else if (scroll) legends.scrollBy(scroll * 14);
+  } else if (lobbyUI.view() === 'local') {   // single player / co-op setup: A starts, d-pad / stick switches mode
+    if (prev && !padNav.prev) lobbyUI.navigateLocal('prev');
+    if (next && !padNav.next) lobbyUI.navigateLocal('next');
+    if (confirm && !padNav.confirm) lobbyUI.navigateLocal('confirm');
   } else if (ui.isOverlayOpen()) {
     if (prev && !padNav.prev) ui.navigate('prev');
     if (next && !padNav.next) ui.navigate('next');

@@ -920,14 +920,15 @@ function createUI(root) {
 
   // ================= pause =================
   let pauseEl = null;
-  function showPause(onResume, onLeave) {
+  // onLeave: a LEAVE GAME button. online: the online menu (the game keeps running) rather than a real pause.
+  function showPause(onResume, onLeave, { online = !!onLeave } = {}) {
     onResumeCb = onResume || null;
     if (pauseEl) pauseEl.remove();
     pauseEl = el('div', 'rkr-overlay rkr-dim');
     pauseEl.innerHTML = `<div class="rkr-glass">
         <div class="rkr-gcat">${ICONS.cat}</div>
-        <h2>${onLeave ? 'MENU' : 'PAUSED'}</h2>
-        <div class="rkr-gsub">${onLeave ? 'Online games keep running. Watch out!' : 'The kitties are taking a little nap.'}</div>
+        <h2>${online ? 'MENU' : 'PAUSED'}</h2>
+        <div class="rkr-gsub">${online ? 'Online games keep running. Watch out!' : 'The kitties are taking a little nap.'}</div>
         <button class="rkr-btn">RESUME</button>
         ${onLeave ? '<button class="rkr-btn rkr-alt rkr-leave">LEAVE GAME</button>' : ''}
         <div class="rkr-keyhint"><span class="rkr-k rkr-wide">Enter</span> or <span class="rkr-k">P</span> to resume &middot; <span class="rkr-k">M</span> mute</div>

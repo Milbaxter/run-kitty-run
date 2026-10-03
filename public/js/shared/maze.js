@@ -216,33 +216,117 @@ function buildStraight(rng) {
 
 // ---------------------------------------------------------------- placement
 
+// Run only: how long a tuned wolf stands still before each move (s) and how far it walks, levels 1-8 (9+ = 8).
+// The rest of each lane's wolves keep the original behaviour for their level: 1/3 on level 1 up to 3/4 on level 8.
+// [min, max, skew]: pause = min + (max - min) * u^skew. Level 1 always 6 s; by level 8 the average is back near the old
+// balance (~0.8 s) but a wolf can still stand still for up to 6 s now and then.
+const RUN_PAUSES = [[6, 6, 1], [3, 6, 0.67], [2, 6, 1.35], [1.2, 6, 2], [0.7, 6, 3.1], [0.4, 6, 4.1], [0.2, 6, 5.4], [0.1, 6, 7.4]];
+// walk length per move, same form: level 1 ~2x the old walks; by level 8 back near the old average, with long walks still possible
+const RUN_NEW_EXTRA = 1.5;   // Run only: extra tuned wolves = (this - 1) x a level's usual tuned count, levels mirrored (placeEnemies)
+const RUN_WALKS = [[5, 17.5, 1], [4.6, 18.2, 1.35], [4.3, 18.9, 1.7], [3.9, 19.6, 2], [3.6, 20.4, 2.4], [3.2, 21.1, 2.7], [2.9, 21.8, 3.1], [2.5, 22.5, 3.4]];
+
 function placeEnemies(rng, lvl, p) {
   const { legs, seed, level } = lvl;
+  // level 9+ uses level 8's tuning (for two wolves in three, see `tuned` below)
+  // Run only and Run + Skate's running levels (not its ice levels)
+  const runTuned = (lvl.mode === 'run' || lvl.mode === 'mixed') && !lvl.ice;
+  const pauseRange = runTuned ? RUN_PAUSES[Math.min(level, RUN_PAUSES.length) - 1] : null;
+  // Run only: walk length per move [min, max, skew]: d = min + (max - min) * u^skew. Level 1 walks ~2x the old
+  // length (evenly spread); higher levels can walk a little further but mostly take short hops (stop and turn more
+  // often, so they're harder to predict). Territories grow with the max walk.
+  const walk = runTuned ? RUN_WALKS[Math.min(level, RUN_WALKS.length) - 1] : null;
+  const moveScale = walk ? walk[1] / 7 : 1;
+  // share of original-behaviour wolves per lane: 1/3 on level 1 rising evenly to 3/4 on level 8 (and after) of the
+  // usual count; Run only then adds extra tuned wolves on top (the original ones stay as many)
+  const oldShare0 = 1 / 3 + (3 / 4 - 1 / 3) * (Math.min(level, RUN_PAUSES.length) - 1) / (RUN_PAUSES.length - 1);
   const W = CFG.RING_WIDTH;
   const enemies = [];
-  const count = p.enemyCount;
+  // the extra tuned wolves are the mirror image across levels 1-8: level 1 gets level 8's top-up (the smallest),
+  // level 8 gets level 1's (the biggest)
+  const lv = Math.min(level, RUN_PAUSES.length), mirror = RUN_PAUSES.length + 1 - lv;
+  const oldShareMirror = 1 / 3 + (3 / 4 - 1 / 3) * (mirror - 1) / (RUN_PAUSES.length - 1);
+  const count = pauseRange ? Math.round(p.enemyCount * (1 + (1 - oldShareMirror) * (RUN_NEW_EXTRA - 1))) : p.enemyCount;
+  const oldShare = pauseRange ? p.enemyCount * oldShare0 / count : oldShare0;
   const vIn = -W / 2 + WOLF_MARGIN, vOut = W / 2 - WOLF_MARGIN;
-  // usable s-range per leg: skip both corner squares (+ a little rest), and the start pocket
-  const last = legs.length - 1;
+  // usable s-range per leg: skip both corner squares and the start pocket. Wolves walk right up to where a safe
+  // square's tiles end (tiles are W - WALL_THICKNESS wide); a kitty standing fully on the tiles is still out of reach.
+  const last = legs.length - 1, tileEdge = (W - CFG.WALL_THICKNESS) / 2;
+  // Run only: which of each leg's corners (s = 0, s = len) is a safe square; unsafe corners are open ground
+  const isSafe = (x, z) => lvl.safeCorners.some((q) => Math.abs(q.x - x) < 1e-6 && Math.abs(q.z - z) < 1e-6);
+  const endSafe = legs.map((l) => [isSafe(l.ox, l.oz), isSafe(l.ox + l.ux * l.len, l.oz + l.uz * l.len)]);
   const ranges = legs.map((leg, li) => {
-    let lo = W / 2 + CORNER_REST + CFG.WOLF_RADIUS;
-    let hi = leg.len - W / 2 - CORNER_REST - CFG.WOLF_RADIUS;
+    let lo = tileEdge + CFG.WOLF_RADIUS;
+    let hi = leg.len - tileEdge - CFG.WOLF_RADIUS;
+    if (pauseRange) {   // Run only: an unsafe corner isn't a wall: roam right into it
+      if (!endSafe[li][0]) lo = -W / 2 + WOLF_MARGIN;
+      if (!endSafe[li][1]) hi = leg.len + W / 2 - WOLF_MARGIN;
+    }
     // final stretch: neither of its corners is safe (wolves roam from its first corner to the goal room's door)
     if (li === last) { lo = -W / 2 + WOLF_MARGIN; hi = leg.len + W / 2 - WOLF_MARGIN; }
-    if (li === 0) hi = leg.len - W / 2 - CFG.START_SAFE_ARC - CFG.WOLF_RADIUS; // start leg: c_M is the start
+    // start leg: c_M is the start. Running levels treat it like any safe square (wolves walk up to its tile edge);
+    // the rest keep an extra wolf-free stretch next to it (START_SAFE_ARC)
+    if (li === 0 && !pauseRange) hi = leg.len - W / 2 - CFG.START_SAFE_ARC - CFG.WOLF_RADIUS;
     return { lo, hi: Math.max(lo, hi) };
   });
   // 0 at the start leg -> 1 at the innermost leg: wolves get denser, faster and restless toward the middle
   // (ice levels ramp much more gently: skating is hard enough)
   const ramp = lvl.ice ? ICE_RAMP : 1;
   const depth = (li) => ramp * li / Math.max(1, legs.length - 1);
-  const lens = ranges.map((r, li) => Math.max(0, r.hi - r.lo) * (0.55 + 1.1 * depth(li)) * (li === last ? 0.95 : 1));
-  const total = lens.reduce((a, b) => a + b, 0);
-  const quota = lens.map((L) => Math.floor(L / total * count));
-  const fracs = lens.map((L, i) => ({ i, f: L / total * count - quota[i] })).sort((a, b) => b.f - a.f);
-  let left = count - quota.reduce((a, b) => a + b, 0);
+  // Run only: the guard wolves (see below) count toward their lane's share, and shares follow the lane's own length
+  // (not its roaming range, which reaches into open corners): short lanes by open corners - the last two - would
+  // otherwise end up far denser than the steady rise toward the middle
+  const guardsAt = (li) => (pauseRange && li !== last ? endSafe[li].filter(Boolean).length : 0);
+  const nGuards = legs.reduce((a, _, li) => a + guardsAt(li), 0);
+  const lens = ranges.map((r, li) => (pauseRange ? legs[li].len : Math.max(0, r.hi - r.lo)) * (0.55 + 1.1 * depth(li)) * (li === last ? 0.95 : 1));
+  const total = lens.reduce((a, b) => a + b, 0), shared = count + nGuards;
+  const quota = lens.map((L) => Math.floor(L / total * shared));
+  const fracs = lens.map((L, i) => ({ i, f: L / total * shared - quota[i] })).sort((a, b) => b.f - a.f);
+  let left = shared - quota.reduce((a, b) => a + b, 0);
   for (let k = 0; left > 0; k++, left--) quota[fracs[k % fracs.length].i]++;
+  if (pauseRange) legs.forEach((_, li) => { quota[li] = Math.max(0, quota[li] - guardsAt(li)); });
   const spanScale = 1 + Math.min(1, 0.1 * (level - 1));   // territories grow with level
+  // Run only: at an unsafe corner shared with another lane, wolves whose territory reaches the corner may also walk
+  // into the neighbouring lane (an extra box in this leg's frame: the corner's band of th, and r reaching into the
+  // other lane; enemies.js canWalk keeps every walk inside one box, so nobody cuts through the corner's walls).
+  const cornerExt = (li, end) => {
+    if (!pauseRange || endSafe[li][end]) return null;
+    const nb = end ? li - 1 : li + 1;
+    if (nb < 0 || nb > last) return null;
+    const leg = legs[li], o = legs[nb];
+    const dx = end ? o.ux : -o.ux, dz = end ? o.uz : -o.uz;   // from the corner into the neighbouring lane
+    const side = Math.sign(dx * leg.nx + dz * leg.nz);
+    if (!side) return null;
+    const reach = Math.max(0, Math.min(12, o.len - W / 2));
+    const c = end ? leg.len : 0;
+    return {
+      thLo: c - W / 2 + WOLF_MARGIN, thHi: c + W / 2 - WOLF_MARGIN,
+      rLo: side > 0 ? vIn : -W / 2 - reach, rHi: side > 0 ? W / 2 + reach : vOut,
+    };
+  };
+  // the final stretch's first corner sits right above the goal room's door (spiral levels): wolves there may also walk
+  // straight down through the door (a column the width of the corridor) and roam the room, but never into the goal
+  // disc (avoid: its radius + a wolf, so the victory circle stays as wolf-free as a safe square)
+  const toFrame = (leg, x, z) => ({ r: (x - leg.ox) * leg.nx + (z - leg.oz) * leg.nz, th: (x - leg.ox) * leg.ux + (z - leg.oz) * leg.uz });
+  const roomBoxes = (() => {
+    if (!pauseRange || lvl.finale) return null;
+    const leg = legs[last], m = ROOM - WOLF_MARGIN;
+    const pts = [[-m, -m], [m, -m], [-m, m], [m, m]].map(([x, z]) => toFrame(leg, x, z));
+    const room = { rLo: Math.min(...pts.map((q) => q.r)), rHi: Math.max(...pts.map((q) => q.r)), thLo: Math.min(...pts.map((q) => q.th)), thHi: Math.max(...pts.map((q) => q.th)) };
+    const c = toFrame(leg, 0, 0), side = Math.sign(c.r);   // the room lies this way across the corridor
+    const band = { thLo: -W / 2 + WOLF_MARGIN, thHi: W / 2 - WOLF_MARGIN };
+    const column = side > 0 ? { ...band, rLo: vIn, rHi: room.rHi } : { ...band, rLo: room.rLo, rHi: vOut };
+    return { boxes: [column, room], band, avoid: { r: c.r, th: c.th, R: lvl.centerRadius + CFG.WOLF_RADIUS + 0.05 } };
+  })();
+  const extFor = (li, a0, a1) => {
+    const boxes = [];
+    let avoid = null;
+    for (const end of [0, 1]) {
+      const ext = cornerExt(li, end);
+      if (ext && a0 <= ext.thHi && a1 >= ext.thLo) boxes.push(ext);
+    }
+    if (li === last && roomBoxes && a0 <= roomBoxes.band.thHi && a1 >= roomBoxes.band.thLo) { boxes.push(...roomBoxes.boxes); avoid = roomBoxes.avoid; }
+    return boxes.length ? { boxes, avoid } : null;
+  };
 
   legs.forEach((leg, li) => {
     const m = quota[li];
@@ -251,23 +335,56 @@ function placeEnemies(rng, lvl, p) {
     const frame = { ox: leg.ox, oz: leg.oz, ux: leg.ux, uz: leg.uz, nx: leg.nx, nz: leg.nz };
     const dk = depth(li);
     const off = rng.next();
+    let placed = 0;   // wolves placed in this lane so far
     for (let k = 0; k < m; k++) {
       const t = (k + off * 0.6 + 0.2) / m;
       const cs = R0 + (R1 - R0) * Math.min(0.999, t) + rng.range(-0.15, 0.15) / m * (R1 - R0);
       const type = rng.pick(p.enemyTypes);   // always 'wanderer' now, but the pick's rng.next() keeps levels unchanged
-      const span = spanScale * (1 + 0.4 * dk) * rng.range(10, 20);
+      // Run only: in every lane a share of the wolves (RUN_OLD_SHARE, spread evenly along it) keeps the original
+      // behaviour for its level; the rest are tuned (pauses / walks / shared speed)
+      const tuned = !!pauseRange && Math.floor((placed + 1) * oldShare) === Math.floor(placed * oldShare);
+      const span = (tuned ? moveScale : 1) * spanScale * (1 + 0.4 * dk) * rng.range(10, 20);
       const lo = Math.max(R0, cs - span / 2), hi = Math.min(R1, cs + span / 2);
       if (hi - lo < 2.5) continue;
       const id = enemies.length;
       const spec = {
         id, type, leg: li, frame,
         rIn: vIn, rOut: vOut, a0: lo, a1: hi,
-        speed: Math.min(CFG.KITTY_SPEED * 0.92, p.enemySpeed * (0.9 + 0.2 * dk) * rng.range(0.9, 1.1)),
+        // tuned wolves all share one speed, and in Run only the original ones do too (the rng calls stay so the
+        // rest of the level is unchanged)
+        speed: Math.min(CFG.KITTY_SPEED * 0.92, tuned ? (rng.next(), p.enemySpeed)
+          : pauseRange ? (rng.next(), p.enemySpeed) : p.enemySpeed * (0.9 + 0.2 * dk) * rng.range(0.9, 1.1)),
         phase: rng.next(),
         pauseScale: p.enemyPauseScale * (1.15 - 0.45 * dk),
         seed: hashSeed(seed, level, 'wolf', id),
       };
+      if (tuned) { spec.pauseRange = pauseRange; spec.walk = walk; }
+      const ext = extFor(li, lo, hi);
+      if (ext) { spec.ext = ext.boxes; if (ext.avoid) spec.avoid = ext.avoid; }
       enemies.push(spec);
+      placed++;
+    }
+    // Run only: a guard wolf at each end of the lane next to a safe square, roaming the stretch right beside it
+    // (spread-out territories leave those ends half as crowded, so a corner felt like two safe squares in a row)
+    if (!pauseRange || li === last) return;
+    const GUARD = 6;   // territory length next to the square
+    for (const end of [0, 1]) {
+      if (!endSafe[li][end]) continue;
+      const a0 = end ? Math.max(R0, R1 - GUARD) : R0, a1 = end ? R1 : Math.min(R1, R0 + GUARD);
+      if (a1 - a0 < 2.5) continue;
+      const id = enemies.length;
+      const tuned = Math.floor((placed + 1) * oldShare) === Math.floor(placed * oldShare);
+      const spec = {
+        id, type: 'wanderer', leg: li, frame,
+        rIn: vIn, rOut: vOut, a0, a1,
+        speed: Math.min(CFG.KITTY_SPEED * 0.92, tuned ? p.enemySpeed : (rng.next(), p.enemySpeed)),
+        phase: rng.next(),
+        pauseScale: p.enemyPauseScale * (1.15 - 0.45 * dk),
+        seed: hashSeed(seed, level, 'wolf', id),
+      };
+      if (tuned) { spec.pauseRange = pauseRange; spec.walk = walk; }
+      enemies.push(spec);
+      placed++;
     }
   });
   return enemies;
@@ -1014,6 +1131,7 @@ function mazeSelfTest(levels = 12, modes = ['mixed', 'ice']) {
       if (pattern) checkPatternWolves(ld, (msg) => P(s, l, msg), stats);
       else {
         if (ld.enemies.length < p.enemyCount * 0.85) P(s, l, `few enemies ${ld.enemies.length}/${p.enemyCount}`);
+        const runTunedLevel = ld.enemies.some((e) => e.pauseRange);
         for (const e of ld.enemies) {
           if (!(e.rIn < e.rOut && e.a0 < e.a1)) P(s, l, 'enemy bad bounds ' + e.id);
           if (!p.enemyTypes.includes(e.type)) P(s, l, 'enemy type ' + e.type);
@@ -1027,7 +1145,8 @@ function mazeSelfTest(levels = 12, modes = ['mixed', 'ice']) {
             for (const sp of ld.spawnPoints) if (Math.hypot(sp.x - x, sp.z - z) < CFG.START_SAFE_ARC) unsafe++;
           }
           if (clip) P(s, l, `enemy ${e.id} (${e.type}) bounds clip walls (${clip})`);
-          if (unsafe) P(s, l, `enemy ${e.id} covers start safe area`);
+          // tuned running levels walk up to the start square's tile edge like any safe square (sim-test checks the tiles)
+          if (unsafe && !runTunedLevel) P(s, l, `enemy ${e.id} covers start safe area`);
         }
       }
       // items

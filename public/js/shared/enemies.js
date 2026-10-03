@@ -84,25 +84,48 @@ function profileV(t, T, L, v) {
 
 // ---------------------------------------------------------------------------
 
+// A wanderer roams its own lane (main box) and, with spec.ext, extra boxes in its leg's frame: round an unsafe corner
+// reaching into the neighbouring lane (an L), or down through the goal room's door into the room. Every box is open
+// floor, so a straight walk is fine as long as both ends sit in the same box (it never cuts through a wall). With
+// spec.avoid { r, th, R } no walk ever comes closer than R to that point (the goal disc stays wolf-free).
+const inBox = (b, r, th) => r >= b.rLo && r <= b.rHi && th >= b.thLo && th <= b.thHi;
+const inMain = (st, r, th) => r >= st.rIn && r <= st.rOut && th >= st.a0 && th <= st.a1;
+const extBox = (st, r, th) => (st.ext ? st.ext.find((b) => inBox(b, r, th)) : null) || null;
+const inExt = (st, r, th) => !!extBox(st, r, th);
+function clearOfAvoid(st, r0, th0, r1, th1) {
+  const a = st.avoid;
+  if (!a) return true;
+  const dr = r1 - r0, dth = th1 - th0, L2 = dr * dr + dth * dth;
+  const k = L2 > 1e-9 ? clamp(((a.r - r0) * dr + (a.th - th0) * dth) / L2, 0, 1) : 0;
+  return Math.hypot(r0 + dr * k - a.r, th0 + dth * k - a.th) >= a.R;
+}
+function canWalk(st, r0, th0, r1, th1) {
+  if (!clearOfAvoid(st, r0, th0, r1, th1)) return false;
+  if (inMain(st, r0, th0) && inMain(st, r1, th1)) return true;
+  return !!st.ext && st.ext.some((b) => inBox(b, r0, th0) && inBox(b, r1, th1));
+}
+
 function pickWanderTarget(st) {
-  const { rng, rIn, rOut, a0, a1, r, th } = st;
+  const { rng, r, th, walk } = st;
   for (let i = 0; i < 24; i++) {
-    const d = rng.range(2, 7);
+    const d = walk ? walk[0] + (walk[1] - walk[0]) * Math.pow(rng.next(), walk[2]) : rng.range(2, 7);
     const phi = rng.range(0, TAU);
     const tr = r + d * Math.sin(phi);
-    if (tr < rIn || tr > rOut) continue;
     const tth = th + d * Math.cos(phi);
-    if (tth < a0 || tth > a1) continue;
+    if (!canWalk(st, r, th, tr, tth)) continue;
     st.nr = tr; st.nth = tth;
     return;
   }
-  // Tiny bounds fallback: random in-bounds point whose distance is closest to 4.5.
+  // Tiny bounds fallback: random reachable point in the box we're in whose distance is closest to 4.5.
+  const eb = inMain(st, r, th) ? null : extBox(st, r, th);
+  const { rIn, rOut, a0, a1 } = eb ? { rIn: eb.rLo, rOut: eb.rHi, a0: eb.thLo, a1: eb.thHi } : st;
   let best = Infinity;
   st.nr = r; st.nth = th;
   for (let i = 0; i < 8; i++) {
     const tr = rng.range(rIn, rOut);
     const tth = rng.range(a0, a1);
-    const score = Math.abs(pathLen(r, th, tr, tth) - 4.5);
+    if (!clearOfAvoid(st, r, th, tr, tth)) continue;
+    const score = Math.abs(pathLen(r, th, tr, tth) - (walk ? 0.5 * (walk[0] + walk[1]) : 4.5));
     if (score < best) { best = score; st.nr = tr; st.nth = tth; }
   }
 }
@@ -120,6 +143,12 @@ function planNext(e, initial) {
   const rng = st.rng;
   pickWanderTarget(st);
   st.longRest = false;
+  if (st.pauseRange) {   // Run only: pause from the level's range; every walk at the shared wolf speed, no dashes
+    const [lo, hi] = st.pauseRange;
+    if (!initial) st.pauseDur = lo + (hi - lo) * Math.pow(rng.next(), st.pauseRange[2] || 1);
+    st.vLeg = legSpeed(st, 1);
+    return;
+  }
   if (!initial) {
     const roll = rng.next();
     if (roll < LONG_REST_CHANCE) { st.pauseDur = rng.range(LONG_REST_MIN, LONG_REST_MAX); st.longRest = true; }
@@ -171,6 +200,13 @@ function createEnemy(spec) {
     nr: rMid, nth: a0, r0: 0, th0: 0, r1: 0, th1: 0, L: 0, T: 0,
     vLeg: speed,
     pauseScale: Number.isFinite(spec.pauseScale) ? spec.pauseScale : 1,
+    // spec.pauseRange [lo, hi, skew] (Run only): pause = lo + (hi - lo) * u^skew, no long rests or level scaling
+    pauseRange: Array.isArray(spec.pauseRange) ? spec.pauseRange : null,
+    // spec.walk [min, max, skew] (Run only): walk length = min + (max - min) * u^skew (bigger skew = mostly short hops)
+    walk: Array.isArray(spec.walk) ? spec.walk : null,
+    // spec.ext [{ rLo, rHi, thLo, thHi }] (Run only): extra boxes beyond the lane (see canWalk); spec.avoid: keep-out disc
+    ext: Array.isArray(spec.ext) && spec.ext.length ? spec.ext : null,
+    avoid: spec.avoid && Number.isFinite(spec.avoid.R) ? spec.avoid : null,
   };
   const e = {
     id: spec.id, type: spec.type, spec,
@@ -181,7 +217,7 @@ function createEnemy(spec) {
   };
   st.r = rng.range(rIn, rOut);
   st.th = a0 + phase * (a1 - a0);
-  st.pauseDur = 0.2 + phase * 0.7;
+  st.pauseDur = st.pauseRange ? phase * st.pauseRange[1] : 0.2 + phase * 0.7;   // first pause: spread out by phase
 
   planNext(e, true);
   e.heading = wrapPi(frameDir(st, 0, 1)); // face along the leg; never hint at the first move
@@ -226,8 +262,7 @@ function stepEnemy(e, dt) {
     e.speedNow = 0;
     // keep facing the last direction while resting: wolves only turn as they set off
   }
-  r = clamp(r, st.rIn, st.rOut);
-  th = clamp(th, st.a0, st.a1);
+  if (!inExt(st, r, th)) { r = clamp(r, st.rIn, st.rOut); th = clamp(th, st.a0, st.a1); }
   place(e, r, th);
 }
 

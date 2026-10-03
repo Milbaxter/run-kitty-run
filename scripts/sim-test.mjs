@@ -30,14 +30,28 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   const spawns = sim.levelData.spawnPoints;
   ok(sim.players.every((p) => p.alive && !p.inCenter && Math.hypot(p.x - spawns[0].x, p.z - spawns[0].z) < 4), 'everyone (incl. the dead one) respawns alive at the start');
 
-  // running levels ramp up toward the goal (winter levels in the default mode are the gentler ice rink, so use run mode)
-  const ld = generateLevel(sim.level, sim.levelData.seed, 'run');
+  // the default mode's running levels ramp up toward the goal (level 2 = autumn, a running level)
+  const ld = generateLevel(sim.level, sim.levelData.seed, 'mixed');
+  {
+    // Run only: tuned wolves (one shared speed; level 1: always 6 s pauses) and original ones, 1/3 original on
+    // level 1 up to 3/4 on level 8
+    const run = generateLevel(sim.level, sim.levelData.seed, 'run'), run1 = generateLevel(1, sim.levelData.seed, 'run');
+    const run8 = generateLevel(8, sim.levelData.seed, 'run');
+    const tuned = run.enemies.filter((e) => e.pauseRange);
+    // original wolves stay about as many as before (1/3 of the usual 216 on level 1, 3/4 on level 8, + guards);
+    // the tuned ones come on top
+    const n1 = run1.enemies.filter((e) => !e.pauseRange).length, n8 = run8.enemies.filter((e) => !e.pauseRange).length;
+    ok(new Set(tuned.map((e) => e.speed)).size === 1, 'Run only: tuned wolves share one speed');
+    ok(n1 >= 66 && n1 <= 86 && n8 >= 150 && n8 <= 185, `Run only: original wolves ${n1} on level 1, ${n8} on level 8`);
+    ok(run1.enemies.length - n1 > 216 - 72, `Run only: extra tuned wolves (${run1.enemies.length - n1} on level 1)`);
+    ok(run1.enemies.filter((e) => e.pauseRange).every((e) => e.pauseRange[0] === 6 && e.pauseRange[1] === 6), 'Run only level 1: tuned wolves stand still 6 s');
+  }
   ok(ld.enemies.length >= 200, `wolves: ${ld.enemies.length}`);
   const half = Math.floor(ld.legs.length / 2);
   const outer = ld.enemies.filter((e) => e.leg < half), inner = ld.enemies.filter((e) => e.leg >= half);
   const avg = (xs) => xs.reduce((s, x) => s + x, 0) / xs.length;
   const len = (from, to) => ld.legs.slice(from, to).reduce((s, l) => s + l.len, 0);
-  ok(avg(inner.map((e) => e.speed)) > avg(outer.map((e) => e.speed)) * 1.05, `inner wolves faster (${avg(outer.map((e) => e.speed)).toFixed(2)} -> ${avg(inner.map((e) => e.speed)).toFixed(2)})`);
+  ok(new Set(ld.enemies.map((e) => e.speed)).size === 1 && ld.enemies.some((e) => e.pauseRange), 'Run + Skate running levels: Run only tuning, every wolf at one speed');
   ok(inner.length / len(half) > outer.length / len(0, half), `inner legs denser (${(outer.length / len(0, half)).toFixed(3)} -> ${(inner.length / len(half)).toFixed(3)} wolves/unit)`);
   const n = ld.legs.length;
   const fin = ld.enemies.filter((e) => e.leg === n - 1);
@@ -52,16 +66,19 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   }
   ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG.RING_WIDTH / 2), 'the goal-door corner is not a safe square');
   {
-    // nothing marked safe is ever touched by a wolf; the final stretch's first corner is not marked safe
-    const s2 = createSim({ seed: 11, players: [] });
-    const W = s2.levelData.corridorWidth;
+    // no wolf ever steps onto a safe square's tiles (they're W - WALL_THICKNESS wide; wolves may walk right up to
+    // their edge); the final stretch's first corner is not marked safe
+    for (const mode of ['mixed', 'run']) {
+    const s2 = createSim({ seed: 11, players: [], mode });
+    const half = (s2.levelData.corridorWidth - CFG.WALL_THICKNESS) / 2 - 1e-6;
     let touched = 0;
     for (let t = 0; t < 60 * 60; t++) {
       stepSim(s2, {}, CFG.TICK);
-      for (const e of s2.enemies) for (const c of s2.levelData.safeCorners) if (Math.abs(e.x - c.x) < W / 2 + e.radius && Math.abs(e.z - c.z) < W / 2 + e.radius) touched++;
+      for (const e of s2.enemies) for (const c of s2.levelData.safeCorners) if (Math.abs(e.x - c.x) < half + e.radius && Math.abs(e.z - c.z) < half + e.radius) touched++;
     }
     const c5 = s2.levelData.corners.at(-2);
-    ok(touched === 0 && !s2.levelData.safeCorners.includes(c5), 'safe tiles are truly wolf-free; final-stretch corners have no tile');
+    ok(touched === 0 && !s2.levelData.safeCorners.includes(c5), `${mode}: safe tiles are truly wolf-free; final-stretch corners have no tile`);
+    }
   }
 
   // revive cooldown: standing on a fresh circle does nothing until REVIVE_DELAY has passed

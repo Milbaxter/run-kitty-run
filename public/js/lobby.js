@@ -211,7 +211,7 @@ function createLobbyUI(root, cb) {
     // you: name (always visible), random name, colour swatches
     const youCat = el('span', 'rkl-youcat', CAT);
     const youLab = el('label', 'rkl-youlab');
-    youLab.append(youCat, document.createTextNode('Your kitty'));
+    youLab.append(youCat, document.createTextNode('Your name'));
     const name = el('input', 'rkl-in rkl-name');
     name.id = 'rkl-name';
     youLab.htmlFor = name.id;

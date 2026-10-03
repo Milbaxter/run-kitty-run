@@ -179,7 +179,8 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:auto;overflow:auto;padding:20px 16px;}
 .rkr-title{background:radial-gradient(ellipse at 50% 35%,rgba(70,30,120,.3),rgba(14,6,34,.72) 75%),linear-gradient(180deg,rgba(20,8,48,.15),rgba(8,2,22,.6));
   animation:rkr-fadein .6s ease-out;}
-.rkr-statsbtn{position:absolute;left:max(16px,env(safe-area-inset-left));bottom:max(12px,env(safe-area-inset-bottom));z-index:2;
+.rkr-footl{position:absolute;left:max(16px,env(safe-area-inset-left));bottom:max(12px,env(safe-area-inset-bottom));z-index:2;display:flex;gap:8px;}
+.rkr-statsbtn{
   pointer-events:auto;cursor:pointer;font:inherit;font-weight:900;font-size:14px;letter-spacing:.06em;color:#fff6d8;
   padding:7px 14px;border-radius:999px;border:2px solid rgba(255,255,255,.25);background:rgba(20,8,48,.55);}
 .rkr-statsbtn:hover{background:rgba(60,30,110,.75);}
@@ -869,7 +870,12 @@ function createUI(root) {
     // desktop: anonymous play stats page
     const statsBtn = el('button', 'rkr-statsbtn rkr-desk', '📊 STATS');
     statsBtn.addEventListener('click', () => openStatsPage(root));
-    o.appendChild(statsBtn);
+    // feedback / ideas from the title screen too (main.js opens the feedback box)
+    const fbBtn = el('button', 'rkr-statsbtn', '💡 FEEDBACK');
+    fbBtn.addEventListener('click', () => { if (feedbackHandler) feedbackHandler(); });
+    const footl = el('div', 'rkr-footl');
+    footl.append(statsBtn, fbBtn);
+    o.appendChild(footl);
     titleBtns = [...o.querySelectorAll('.rkr-btn')];
     titleBtns.forEach((b) => {
       b.addEventListener('click', () => startGame(+b.dataset.p));
@@ -1188,6 +1194,8 @@ function createUI(root) {
   let muteHandler = null;
   muteEl.addEventListener('click', () => { if (muteHandler) muteHandler(); });
   function onMuteClick(fn) { muteHandler = fn; }
+  let feedbackHandler = null;
+  function onFeedbackClick(fn) { feedbackHandler = fn; }
   function onMenuClick(fn) { menuHandler = fn; }
   function isOverlayOpen() { return state.title || state.pause || state.gameOver || state.victory; }
 
@@ -1223,7 +1231,7 @@ function createUI(root) {
 
   return {
     showTitle, hideTitle, setHUD, updateMinimap, banner, toast, setScores,
-    showPause, hidePause, showGameOver, hideGameOver, gameOverSlot: () => (goEl ? goEl.querySelector('.rkr-goslot') : null), setMutedIcon, isOverlayOpen, onMuteClick, onMenuClick,
+    showPause, hidePause, showGameOver, hideGameOver, gameOverSlot: () => (goEl ? goEl.querySelector('.rkr-goslot') : null), setMutedIcon, isOverlayOpen, onMuteClick, onFeedbackClick, onMenuClick,
     showVictory, hideVictory, updateVictoryFish, isVictoryOpen: () => state.victory, navigate, hideHUD,
     showNotice, hideNotice, setBlocker, setVictoryHidden,
     isTitleOpen: () => state.title, isGameOverOpen: () => state.gameOver,

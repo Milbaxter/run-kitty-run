@@ -1219,10 +1219,13 @@ function world_update(dt, t) {
 
 const feedback = createFeedback(document.getElementById('ui'), {
   getContext: () => {
+    if (mode !== 'play' || !sim) return { name: '', mode: 'title', level: 0 };
     const me = online.playing ? sim.players.find((p) => p.id === online.me) : sim.players[0];
     return { name: me ? me.name : '', mode: online.playing ? 'online' : playerCount === 2 ? 'coop' : 'solo', level: sim ? sim.level : 0 };
   },
 });
+
+ui.onFeedbackClick(() => feedback.open());
 
 const hudScores = [], hudPlayers = [];
 const hudData = { level: 0, players: hudPlayers, time: 0, rescues: 0 };

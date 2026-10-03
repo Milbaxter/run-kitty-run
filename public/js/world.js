@@ -582,7 +582,7 @@ function makeHellTileTextures(T) {
 // Kept low (< ~0.6 tall) and tucked into the corners so they never hide a kitty. A checkpoint's flag corner is left clear.
 function buildSafeProps(levelData, style, T) {
   const rng = createRng(hashSeed('safeProps', levelData.seed ?? 1, levelData.level ?? 1));
-  const size = levelData.corridorWidth - CFG.WALL_THICKNESS, h = size / 2;
+  const size = (levelData.safeSize || levelData.corridorWidth) - CFG.WALL_THICKNESS, h = size / 2;
   const mat = T.m(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, flatShading: true }));
   const blade = (x, z, col, hgt = 0.36) => {
     const a = rng.range(0, TAU);
@@ -1258,10 +1258,15 @@ function buildFloors(levelData, theme, T) {
   const h = W / 2;
   const across = [-h, -h + 0.25, -h + 0.9, h - 0.9, h - 0.25, h];
   const edge = [0.62, 0.78, 1, 1, 0.78, 0.62];
+  // a start room narrower than the corridor (Run only's level 9): the corridor's floor stops at its opening and the
+  // room gets its own, edged like the goal room's
+  const sh = levelData.safeSize && levelData.safeSize < W ? levelData.safeSize / 2 : 0;
   legs.forEach((l, i) => {
     // each leg owns the corner square at its far end (s = len); the innermost leg also owns its start
     const s0 = i === legs.length - 1 ? -h : h;
-    addStrip(l.ox, l.oz, l.ux, l.uz, l.nx, l.nz, s0, l.len + h, across, edge, l.loop % 2 ? theme.groundAlt : theme.ground);
+    const color = l.loop % 2 ? theme.groundAlt : theme.ground;
+    addStrip(l.ox, l.oz, l.ux, l.uz, l.nx, l.nz, s0, i === 0 && sh ? l.len - sh : l.len + h, across, edge, color);
+    if (i === 0 && sh) addStrip(l.ox, l.oz, l.ux, l.uz, l.nx, l.nz, l.len - sh, l.len + sh, [-sh, -sh + 0.25, -sh + 0.9, sh - 0.9, sh - 0.25, sh], edge, color);
   });
   // goal room
   addStrip(0, 0, 1, 0, 0, 1, -rh, rh, [-rh, -rh + 0.25, -rh + 0.9, rh - 0.9, rh - 0.25, rh], edge, theme.roomGround ?? theme.ground);
@@ -1294,7 +1299,7 @@ function buildFloors(levelData, theme, T) {
   plaza.receiveShadow = true;
 
   // safe corners: wolves never enter these squares
-  const size = levelData.corridorWidth - CFG.WALL_THICKNESS;
+  const size = (levelData.safeSize || levelData.corridorWidth) - CFG.WALL_THICKNESS;
   const tp = [], tn = [], tuv = [], ti = [];
   for (const c of levelData.safeCorners) {
     const b = tp.length / 3, h = size / 2;
@@ -1394,9 +1399,11 @@ function buildLanterns(levelData, theme, T, rng) {
   if (levelData.finale) {
     // the final run: a steady rhythm of lanterns down both corridor walls (staggered), plus the goal room and start cap
     // (from just past the start square to just before the goal room's door)
-    const rh = levelData.roomHalf, step = 12, x0 = levelData.corners[0].x + levelData.corridorWidth / 2 + 5;
+    // (laid out for a corridor in from the left; Run only's runs in from the right: mirrored, D = -1)
+    const D = levelData.finaleSide > 0 ? -1 : 1;
+    const rh = levelData.roomHalf, step = 12, x0 = D * levelData.corners[0].x + levelData.corridorWidth / 2 + 5;
     for (const [w, off] of [[levelData.walls[0], 0], [levelData.walls[1], step / 2]]) {
-      for (let x = x0 + off; x < -rh - 4; x += step) spots.push({ x, z: w.az });
+      for (let x = x0 + off; x < -rh - 4; x += step) spots.push({ x: D * x, z: w.az });
     }
     for (const w of levelData.walls.slice(3)) {
       const L = Math.hypot(w.bx - w.ax, w.bz - w.az), n = Math.max(1, Math.floor(L / 8));
@@ -1456,11 +1463,11 @@ function buildLanterns(levelData, theme, T, rng) {
   };
   update(0);
 
-  // chevrons: in each corridor corner, pointing the way on
+  // chevrons: in each corridor corner, pointing the way on (not on the final run: no hints along the way)
   const chevGeo = T.g(new THREE.PlaneGeometry(1.5, 1.5)); chevGeo.rotateX(-Math.PI / 2);
   const chevItems = [];
   const cs = levelData.corners;
-  for (let k = 1; k < cs.length - 1; k++) {
+  for (let k = 1; !levelData.finale && k < cs.length - 1; k++) {
     const dx = cs[k + 1].x - cs[k].x, dz = cs[k + 1].z - cs[k].z;
     chevItems.push({ x: cs[k].x, z: cs[k].z, y: 0.02, ry: -Math.atan2(dz, dx) });
   }
@@ -1942,23 +1949,32 @@ function buildClimbTrees(levelData, theme, T) {
   trunks.castShadow = blobs.castShadow = true;
   blobs.receiveShadow = true;
   if (!levelData.finale) return [trunks, blobs];
-  // the final run's tree: frosted. Snow caps on the pad and the rim puffs, icicles hanging off the rim.
-  const caps = [], icicles = [];
+  // the final run's tree: smouldering. A charred canopy with glowing coals on the pad and round its rim, and glowing
+  // cracks up the trunk (unlit, so it stands out in the dark)
+  const coals = [], cracks = [];
   trees.forEach((t, i) => {
-    caps.push({ x: t.x, z: t.z, y: CLIMB_Y - 0.08, sx: R * 0.78, sy: 0.16, sz: R * 0.7, ry: rng.range(0, TAU) });
-    for (let k = 1; k < per; k++) {
-      blobs.getMatrixAt(i * per + k, m); m.decompose(pos, q, sc);
-      caps.push({ x: pos.x, z: pos.z, y: pos.y + sc.y * 0.55, sx: sc.x * 0.62, sy: 0.18, sz: sc.z * 0.62, ry: rng.range(0, TAU) });
+    for (let k = 0; k < per; k++) blobs.setColorAt(i * per + k, c.set(k % 2 ? 0x2e1f1c : 0x3c2622));
+    for (let k = 0; k < 9; k++) {   // on the pad
+      const a = rng.range(0, TAU), d = rng.range(0, R * 0.7);
+      coals.push({ x: t.x + Math.cos(a) * d, z: t.z + Math.sin(a) * d, y: CLIMB_Y - 0.02, sx: rng.range(0.18, 0.34), sy: 0.07, sz: rng.range(0.18, 0.34), ry: rng.range(0, TAU), color: new THREE.Color(k % 3 ? 0xff5a1a : 0xffa040) });
     }
-    for (let k = 0; k < 14; k++) {
-      const a = (k / 14) * TAU + rng.range(-0.15, 0.15), d = R + rng.range(0.1, 0.45);
-      icicles.push({ x: t.x + Math.cos(a) * d, z: t.z + Math.sin(a) * d, y: CLIMB_Y - 0.75, s: rng.range(0.6, 1.15), ry: rng.range(0, TAU) });
+    for (let k = 1; k < per; k++) {   // on the rim puffs
+      blobs.getMatrixAt(i * per + k, m); m.decompose(pos, q, sc);
+      for (let j = 0; j < 2; j++) {
+        const a = rng.range(0, TAU), d = sc.x * 0.5;
+        coals.push({ x: pos.x + Math.cos(a) * d, z: pos.z + Math.sin(a) * d, y: pos.y + sc.y * 0.4, sx: rng.range(0.14, 0.26), sy: 0.08, sz: rng.range(0.14, 0.26), ry: rng.range(0, TAU), color: new THREE.Color(j ? 0xff7a2a : 0xff4a14) });
+      }
+    }
+    for (let k = 0; k < 5; k++) {   // cracks up the trunk
+      const a = (k / 5) * TAU + rng.range(-0.3, 0.3), r = 0.36 - 0.08 * rng.range(0, 1);
+      cracks.push({ x: t.x + Math.cos(a) * r, z: t.z + Math.sin(a) * r, y: rng.range(0.4, 1.3), sx: 0.05, sy: rng.range(0.35, 0.7), sz: 0.05, ry: -a, color: new THREE.Color(0xff5a1e) });
     }
   });
-  const capMesh = makeInstanced(T.g(new THREE.IcosahedronGeometry(1, 1)), T.m(new THREE.MeshStandardMaterial({ color: 0xf6faff, roughness: 0.7, flatShading: true })), caps, { cast: true, receive: true });
-  const iceGeo = T.g(new THREE.ConeGeometry(0.07, 0.55, 5)); iceGeo.rotateX(Math.PI); iceGeo.translate(0, -0.27, 0);
-  const iceMat = T.m(new THREE.MeshStandardMaterial({ color: 0xcfeeff, emissive: 0x6fc8ff, emissiveIntensity: 0.35, roughness: 0.2, metalness: 0.1, flatShading: true }));
-  return [trunks, blobs, capMesh, makeInstanced(iceGeo, iceMat, icicles)];
+  blobs.instanceColor.needsUpdate = true;
+  const emberMat = T.m(new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  return [trunks, blobs,
+    makeInstanced(T.g(new THREE.IcosahedronGeometry(1, 1)), emberMat, coals),
+    makeInstanced(T.g(new THREE.BoxGeometry(1, 1, 1)), emberMat, cracks)];
 }
 
 // Checkpoint squares (every level but the final run): a glowing ring with cat ears on the tile (a cat's head
@@ -2032,9 +2048,22 @@ function textTexture(T, w, h, draw) {
 }
 
 function buildFinale(levelData, theme, T, rng) {
+  if (levelData.finaleSide > 0) {
+    // Run only's level 9 runs in from the right: build the left-hand layout and mirror it (x -> -x; three.js flips the
+    // face winding of a negatively scaled object by itself)
+    const mx = (o) => ({ ...o, x: -o.x });
+    const view = { ...levelData, finaleSide: -1, corners: levelData.corners.map(mx), trees: (levelData.trees || []).map(mx) };
+    const out = buildFinale(view, theme, T, rng);
+    const flip = new THREE.Group();
+    flip.scale.x = -1;
+    flip.add(...out.meshes);
+    return { meshes: [flip], update: out.update };
+  }
   const meshes = [];
   const W = levelData.corridorWidth, h = W / 2, rh = levelData.roomHalf, R = CFG.TREE_RADIUS;
-  const xs = levelData.corners[0].x, xStart = xs + h + 0.4, xEnd = -rh - 1;
+  // the corridor starts at the start square's edge (Run only's level 9: its start room, narrower than the corridor)
+  const sq = Math.min(h, (levelData.safeSize || W) / 2);
+  const xs = levelData.corners[0].x, xStart = xs + sq + 0.4, xEnd = -rh - 1;
   const xHi = -rh;                               // the corridor's ice ends at the goal room's door
 
   // ---- fire braziers outside both walls (staggered); evenly spaced, so they don't tell how far is left
@@ -2077,9 +2106,9 @@ function buildFinale(levelData, theme, T, rng) {
   auroraGeo.rotateX(-Math.PI / 2);
   auroraGeo.translate((xStart + xHi) / 2, 0.009, 0);
   const auroraMat = T.m(new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uTree: { value: new THREE.Vector3(tr.x, tr.z, R + 0.6) }, uK: { value: 0.2 } },
+    uniforms: { uTime: { value: 0 }, uTree: { value: new THREE.Vector3(tr.x, tr.z, R + 0.6) }, uK: { value: 0.2 }, uX0: { value: xStart }, uH: { value: h } },
     vertexShader: 'varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: `varying vec2 vP; uniform float uTime; uniform vec3 uTree; uniform float uK;
+    fragmentShader: `varying vec2 vP; uniform float uTime; uniform vec3 uTree; uniform float uK; uniform float uX0; uniform float uH;
       void main(){
         float t = uTime;
         float w = sin(vP.y * 0.32 + vP.x * 0.011 + t * 0.21) * 1.7;
@@ -2089,9 +2118,10 @@ function buildFinale(levelData, theme, T, rng) {
         vec3 blood = vec3(0.75, 0.08, 0.06), ember = vec3(0.9, 0.3, 0.1), violet = vec3(0.4, 0.12, 0.55);
         float m = 0.5 + 0.5 * sin(vP.x * 0.0071 + t * 0.07);
         vec3 col = mix(mix(blood, ember, m), violet, smoothstep(0.6, 1.0, b2));
-        float edge = 1.0 - smoothstep(3.6, 5.2, abs(vP.y));
+        float edge = 1.0 - smoothstep(uH - 1.8, uH - 0.2, abs(vP.y));   // fades out by the walls
         float hole = smoothstep(uTree.z, uTree.z + 1.2, distance(vP, uTree.xy));
-        gl_FragColor = vec4(col, clamp(a, 0.0, 1.0) * edge * hole * uK);
+        float fadeIn = smoothstep(uX0, uX0 + 6.0, vP.x);   // no hard line where it starts
+        gl_FragColor = vec4(col, clamp(a, 0.0, 1.0) * edge * hole * fadeIn * uK);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
@@ -2102,16 +2132,16 @@ function buildFinale(levelData, theme, T, rng) {
   aurora.frustumCulled = false;
   meshes.push(aurora);
 
-  // ---- the halfway tree: a disc of snow over the ice (you can stand still here)
+  // ---- the halfway tree: a disc of warm ash round the smouldering tree (on the ice: here you can stand still)
   if (levelData.trees && levelData.trees.length) {
     const snowTex = textTexture(T, 128, 128, (g, S) => {
       const gr = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
-      gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.78, 'rgba(250,252,255,1)'); gr.addColorStop(1, 'rgba(240,246,255,0)');
+      gr.addColorStop(0, 'rgba(70,52,48,1)'); gr.addColorStop(0.62, 'rgba(84,56,46,1)'); gr.addColorStop(0.82, 'rgba(230,96,40,0.9)'); gr.addColorStop(1, 'rgba(200,60,20,0)');
       g.fillStyle = gr; g.fillRect(0, 0, S, S);
-      for (let i = 0; i < 120; i++) { g.fillStyle = `rgba(170,195,235,${0.08 + 0.1 * Math.random()})`; g.beginPath(); g.arc(S / 2 + (Math.random() - 0.5) * S * 0.8, S / 2 + (Math.random() - 0.5) * S * 0.8, 1 + Math.random() * 2, 0, TAU); g.fill(); }
+      for (let i = 0; i < 90; i++) { g.fillStyle = `rgba(255,${90 + (Math.random() * 80) | 0},30,${0.25 + 0.4 * Math.random()})`; g.beginPath(); g.arc(S / 2 + (Math.random() - 0.5) * S * 0.75, S / 2 + (Math.random() - 0.5) * S * 0.75, 0.6 + Math.random() * 1.4, 0, TAU); g.fill(); }
     });
     const snowGeo = T.g(new THREE.PlaneGeometry(2 * R + 1.4, 2 * R + 1.4)); snowGeo.rotateX(-Math.PI / 2);
-    const snowMat = T.m(new THREE.MeshStandardMaterial({ map: snowTex, transparent: true, roughness: 0.85, depthWrite: false, emissive: 0x9fb8e0, emissiveIntensity: 0.15 }));
+    const snowMat = T.m(new THREE.MeshStandardMaterial({ map: snowTex, transparent: true, roughness: 0.95, depthWrite: false, emissive: 0xff5a1e, emissiveIntensity: 0.18, emissiveMap: snowTex }));
     for (const t of levelData.trees) {
       const snow = new THREE.Mesh(snowGeo, snowMat);
       snow.position.set(t.x, 0.011, t.z); snow.renderOrder = 1; snow.receiveShadow = true;
@@ -2230,7 +2260,7 @@ function buildWorld(scene, levelData) {
 
   for (const m of buildFloors(levelData, theme, T)) group.add(m);
   for (const m of buildCheckpoints(levelData, T)) group.add(m);
-  for (const m of buildClimbTrees(levelData, base, T)) group.add(m);   // the halfway tree stays green and frosted: the one refuge
+  for (const m of buildClimbTrees(levelData, base, T)) group.add(m);   // the halfway tree: smouldering in hell (buildClimbTrees), the one refuge
   for (const m of buildWalls(levelData, theme, T)) group.add(m);
   const lanterns = buildLanterns(levelData, theme, T, rng);
   for (const m of lanterns.meshes) group.add(m);
@@ -2314,7 +2344,8 @@ function setupLighting(scene) {
   // levelData (optional): the final run's lighting follows the camera (see update)
   function setTheme(theme, levelData = null) {
     scene.fog = fog; scene.background = bg;
-    blend = levelData && levelData.finale ? { x0: -levelData.roomHalf - 34, x1: -levelData.roomHalf + 2 } : null;
+    const D = levelData && levelData.finaleSide > 0 ? -1 : 1;   // Run only's level 9: the corridor comes in from the right
+    blend = levelData && levelData.finale ? { x0: D * (-levelData.roomHalf - 34), x1: D * (-levelData.roomHalf + 2) } : null;
     blendK = -1;
     if (blend) { mixLight(0); return; }
     apply(THEMES[(((theme | 0) % THEMES.length) + THEMES.length) % THEMES.length]);

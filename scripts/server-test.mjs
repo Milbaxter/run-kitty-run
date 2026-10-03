@@ -24,6 +24,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const WS_URL = `ws://127.0.0.1:${PORT}/ws`;
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rkr-server-test-'));
 const REPORTS_FILE = path.join(tmp, 'reports.jsonl');
+const SERVER_MIN = 4;   // server/index.js MIN_PROTOCOL (protocol 4 clients still play, minus Run only's level 9 ending)
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const srv = spawn(process.execPath, ['server/index.js'], {
   cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
@@ -52,9 +53,24 @@ async function victory() {
 
   // ---- version gating: older builds are told to update (protocol 4: slim wolf resync, every mode); clients
   // without a 'hi' can't play any mode
-  const noHi = bot(null), app3 = bot({ v: PROTOCOL_VERSION - 1, app: 'ios', ver: '1.0' });
+  const noHi = bot(null), app3 = bot({ v: SERVER_MIN - 1, app: 'ios', ver: '1.0' });
   await Promise.all([noHi.ready, app3.ready]); await sleep(150);
-  ok(app3.last.outdated && app3.ws.readyState >= 2, `protocol-${PROTOCOL_VERSION - 1} app told to update and dropped`);
+  ok(app3.last.outdated && app3.ws.readyState >= 2, `protocol-${SERVER_MIN - 1} app told to update and dropped`);
+
+  // ---- Run only's level 9 ending (protocol 5): a room with a protocol-4 kitty keeps the old spiral; a room playing
+  // the ending can't be joined by one
+  {
+    const a = bot(NEW), old = bot({ v: 4, app: 'ios', ver: '1.0' }), b = bot(NEW), old2 = bot({ v: 4, app: 'ios', ver: '1.0' });
+    await Promise.all([a.ready, old.ready, b.ready, old2.ready]);
+    a.send({ t: 'create', name: 'A', mode: 'run' }); b.send({ t: 'create', name: 'B', mode: 'run' }); await sleep(150);
+    old.send({ t: 'join', code: a.last.room.code, name: 'Old' }); await sleep(150);
+    a.send({ t: 'start', level: F }); b.send({ t: 'start', level: F }); await sleep(300);
+    ok(old.last.start && old.last.start.rf === 0 && a.last.start.rf === 0, 'Run only room with a protocol-4 kitty: no level 9 ending (rf 0)');
+    ok(b.last.start && b.last.start.rf === 1, 'Run only room of protocol-5 kitties plays the level 9 ending (rf 1)');
+    old2.send({ t: 'join', code: b.last.room.code, name: 'Old2' }); await sleep(150);
+    ok(old2.last.error && /Run only ending/.test(old2.last.error.msg) && !old2.last.start, `protocol-4 kitty can't join it mid-game: "${old2.last.error && old2.last.error.msg}"`);
+    for (const x of [a, old, b, old2]) x.ws.close();
+  }
   noHi.send({ t: 'create', name: 'Old', mode: 'ice' }); await sleep(150);
   ok(noHi.last.error && /Skate only/.test(noHi.last.error.msg) && !noHi.last.room, `no-hi client can't create a Skate only lobby: "${noHi.last.error && noHi.last.error.msg}"`);
   const host = bot(NEW); await host.ready;
@@ -121,10 +137,10 @@ async function victory() {
   // offline (solo / co-op) wins sign over HTTP: plausible runs only, one per IP per 10 minutes, edits with the key
   const post = (body, ip = '10.9.9.9') => fetch(`${BASE}/api/legends`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, ...(await r.json()) }));
   const coop = { mode: 'mixed', time: 900, runTime: 120, players: [{ name: 'Mittens', color: 0xffb347, text: 'We did it!' }, { name: 'Socks', color: 0x6ec6ff, text: '' }] };
-  const quick = await post({ ...coop, time: 60 }), runOnly = await post({ ...coop, mode: 'run' });
+  const quick = await post({ ...coop, time: 60 }), noMode = await post({ ...coop, mode: 'tag' });
   const made = await post(coop), again2 = await post(coop);
-  ok(!quick.ok && !runOnly.ok && made.ok && made.win.kind === 'coop' && made.win.entries.length === 2 && made.key && again2.status === 429,
-    `offline co-op win signed (${made.win && made.win.kind}); too-quick / run-only rejected; a 2nd win from the same IP within 10 min refused (${again2.status})`);
+  ok(!quick.ok && !noMode.ok && made.ok && made.win.kind === 'coop' && made.win.entries.length === 2 && made.key && again2.status === 429,
+    `offline co-op win signed (${made.win && made.win.kind}); too-quick / unknown mode rejected; a 2nd win from the same IP within 10 min refused (${again2.status})`);
   const bad = await post({ id: made.id, key: 'nope', players: [{ text: 'hacked' }] });
   const edit = await post({ id: made.id, key: made.key, players: [{ text: 'We did it!' }, { text: 'Me too' }] });
   ok(!bad.ok && edit.ok && edit.win.entries[1].text === 'Me too' && edit.win.entries[0].text === 'We did it!', 'offline lines editable with the key only');
@@ -143,7 +159,8 @@ async function victory() {
 
   // ---- stats + a new game
   const stats = await (await fetch(`http://127.0.0.1:${PORT}/api/stats`)).json();
-  ok(stats.totals.onlineWins === 1 && stats.onlineWinsByMode.ice === 1 && stats.totals.onlineGames === 1, `stats: onlineWins ${stats.totals.onlineWins}, ice ${stats.onlineWinsByMode.ice}`);
+  // onlineGames: this game + the two Run only level 9 rooms
+  ok(stats.totals.onlineWins === 1 && stats.onlineWinsByMode.ice === 1 && stats.totals.onlineGames === 3, `stats: onlineWins ${stats.totals.onlineWins}, ice ${stats.onlineWinsByMode.ice}`);
   const prevStart = guest.last.start;
   host.send({ t: 'start' });
   for (let i = 0; i < 30 && !(guest.last.start !== prevStart && guest.last.snap.st === 'playing'); i++) await sleep(100); // can lag on a busy machine
@@ -365,7 +382,7 @@ async function lobby() {
   await sleep(100);
 
   // a client below the server's MIN_PROTOCOL gets 'outdated' and is disconnected
-  for (const v of [0, PROTOCOL_VERSION - 1]) {
+  for (const v of [0, SERVER_MIN - 1]) {
     const ancient = bot('Ancient', v); await ancient.ready; await sleep(200);
     ok(ancient.last.outdated && ancient.ws.readyState >= 2, `protocol-${v} client told to update and dropped`);
   }

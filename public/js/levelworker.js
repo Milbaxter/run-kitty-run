@@ -3,8 +3,8 @@
 import { generateLevel } from './shared/maze.js';
 
 self.onmessage = (e) => {
-  const { id, level, seed, mode } = e.data || {};
+  const { id, level, seed, mode, rf } = e.data || {};
   let ld = null, error = null;
-  try { ld = generateLevel(level, seed, mode); } catch (err) { error = String(err && err.message || err); }
+  try { ld = generateLevel(level, seed, mode, rf); } catch (err) { error = String(err && err.message || err); }
   self.postMessage({ id, ld, error });
 };

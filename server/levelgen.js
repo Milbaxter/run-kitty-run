@@ -8,9 +8,9 @@ import { pregenParams } from '../public/js/shared/sim.js';
 if (!isMainThread && parentPort) {
   // ---- worker side ----
   const { generateLevel } = await import('../public/js/shared/maze.js');
-  parentPort.on('message', ({ id, level, seed, mode }) => {
+  parentPort.on('message', ({ id, level, seed, mode, rf }) => {
     let ld = null, error = null;
-    try { ld = generateLevel(level, seed, mode); } catch (err) { error = String(err && err.message || err); }
+    try { ld = generateLevel(level, seed, mode, rf); } catch (err) { error = String(err && err.message || err); }
     parentPort.postMessage({ id, ld, error });
   });
 }
@@ -30,7 +30,7 @@ function spawn(slot) {
     const job = slot.busy;
     slot.busy = null;
     if (job && job.id === id) {
-      if (ld && job.sim.level < job.level) job.sim.pregen = { level: job.level, seed: job.seed, mode: job.mode, ld };
+      if (ld && job.sim.level < job.level) job.sim.pregen = { level: job.level, seed: job.seed, mode: job.mode, rf: job.rf, ld };
       else if (error) console.error(`levelgen: level ${job.level} (${job.mode}) failed in worker: ${error}`);
     }
     pump();
@@ -52,7 +52,7 @@ function pump() {
     const job = queue.shift();
     if (job.sim.level >= job.level) { pump(); return; } // stale (already generated synchronously)
     slot.busy = job;
-    slot.worker.postMessage({ id: job.id, level: job.level, seed: job.seed, mode: job.mode });
+    slot.worker.postMessage({ id: job.id, level: job.level, seed: job.seed, mode: job.mode, rf: job.rf });
   }
 }
 

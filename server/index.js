@@ -27,6 +27,10 @@ const VICTORY_TO_LOBBY_MS = 12000;
 //   3 = Skate only level 8 (SKATE_FINAL_LEVEL) is the final run and clearing it wins (older clients build the spiral)
 //   4 = slim wolf resync format, used by every mode (with MIN_PROTOCOL 4 this only still matters for clients without 'hi')
 const MODE_MIN_PROTOCOL = { ice: 4, mixed: 4, run: 4 };
+// Run only rooms play its level 9 final run when every member has this (older clients build the endless spiral there,
+// so such a room keeps the spiral; once a room has it, older clients can't join it mid-game)
+const RUN_FINALE_PROTOCOL = 5;
+const runFinaleOk = (client, room) => !(room.phase === 'playing' && room.sim && room.sim.runFinale) || client.v >= RUN_FINALE_PROTOCOL;
 const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
 const MODE_NAMES = { mixed: 'Default (Run + Skate)', run: 'Run only', ice: 'Skate only' };
 const updateHow = (client) => (client.app === 'web' ? 'reload the page' : 'update the app');
@@ -342,7 +346,7 @@ function lobbyList(client) {
   const list = [];
   for (const r of rooms.values()) {
     if (r.members.length === 0) continue;
-    if (!modeOk(client, r.mode)) continue; // this client's build can't play that mode
+    if (!modeOk(client, r.mode) || !runFinaleOk(client, r)) continue; // this client's build can't play that mode / game
     list.push({
       code: r.code, players: r.members.length, max: r.max || NET.MAX_PLAYERS, phase: r.phase, locked: !!r.pass,
       host: (r.members.find((m) => m.id === r.hostId) || r.members[0]).name,
@@ -367,6 +371,7 @@ function joinRoom(client, room, name, pref, pass) {
   // Covers every way in: lobby list, code, invite deep link, reconnect rejoin, mid-game join.
   // 'code' in the text makes clients drop ?room= from the URL so they don't retry the link.
   if (!modeOk(client, room.mode)) return send(client.ws, { t: 'error', msg: `That lobby code is for ${MODE_NAMES[room.mode]}, which needs the latest version - ${updateHow(client)} to play it.` });
+  if (!runFinaleOk(client, room)) return send(client.ws, { t: 'error', msg: `That game is playing the new Run only ending - ${updateHow(client)} to join it.` });
   const max = room.max || NET.MAX_PLAYERS;
   if (room.members.length >= max) return send(client.ws, { t: 'error', msg: `That lobby is full (${max}/${max}).` });
   // private lobby: the password, unless this is a kitty coming back within the reconnect grace (room.left)
@@ -457,7 +462,7 @@ function leaveRoom(client) {
 function startMsg(room, withWolves) {
   const sim = room.sim;
   return {
-    t: 'start', seed: sim.seed, mode: sim.mode, level: sim.level, tick: room.tick, lt: sim.enemyTicks,
+    t: 'start', seed: sim.seed, mode: sim.mode, level: sim.level, tick: room.tick, lt: sim.enemyTicks, rf: sim.runFinale ? 1 : 0,
     st: sim.state, vic: room.victory || null, // mid-game joiners: the run may already be won (the 'victory' event went out before)
     players: sim.players.map((p) => ({ id: p.id, name: p.name, color: p.color })),
     wolves: withWolves ? serializeEnemies(sim.enemies) : null,
@@ -476,7 +481,7 @@ function startGame(room, startLevel = 1) {
   room.left = new Map();
   const seed = hashSeed(Date.now(), Math.random(), room.code) >>> 0;
   room.sim = createSim({
-    seed, startLevel, mode: room.mode,
+    seed, startLevel, mode: room.mode, runFinale: room.members.every((m) => m.v >= RUN_FINALE_PROTOCOL),
     players: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
   });
   for (const m of room.members) { m.inputs.clear(); m.lastInput = null; }

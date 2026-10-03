@@ -72,6 +72,16 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
       `Skate only level ${winter}: ${fs.length} wolves on the final stretch, ${room.length} of them in the goal room`);
   }
   ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG.RING_WIDTH / 2), 'the goal-door corner is not a safe square');
+  // Run only level 9: the final run on foot (from the right, wide, wandering wolves) only with runFinale; without it
+  // (online rooms with an older client) the old spiral
+  {
+    const rf = generateLevel(SKATE_FINAL_LEVEL, 7, 'run', true), old = generateLevel(SKATE_FINAL_LEVEL, 7, 'run');
+    ok(rf.finale && rf.finaleSide === 1 && !rf.ice && rf.corners[0].x > 0 && rf.corridorWidth > CFG.RING_WIDTH && rf.enemies.length > 1500 && rf.enemies.every((e) => !e.pattern),
+      `Run only level 9 final run: from the right, ${rf.corridorWidth.toFixed(1)} wide, ${rf.enemies.length} wandering wolves`);
+    ok(!old.finale && old.corridorWidth === CFG.RING_WIDTH, 'Run only level 9 without runFinale is the old spiral');
+    const s = createSim({ seed: 7, players: [{ id: 1, name: 'a' }], startLevel: SKATE_FINAL_LEVEL, mode: 'run', runFinale: true });
+    ok(s.levelData.finale && createSim({ seed: 7, players: [], startLevel: SKATE_FINAL_LEVEL, mode: 'ice', runFinale: true }).levelData.finaleSide === -1, 'the sim passes runFinale on (Skate only unchanged)');
+  }
   {
     // no wolf ever steps onto a safe square's tiles (they're W - WALL_THICKNESS wide; wolves may walk right up to
     // their edge); the final stretch's first corner is not marked safe
@@ -99,6 +109,20 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     for (; t < 120 && revivedAt < 0; t++) { p1.invuln = 99; if (stepSim(s, {}, CFG.TICK).some((e) => e.type === 'revive')) revivedAt = t; }
     const secs = (revivedAt + 1) * CFG.TICK;
     ok(revivedAt >= 0 && secs >= CFG.REVIVE_DELAY - 1e-9 && secs < CFG.REVIVE_DELAY + 0.05, `revive only after the ${CFG.REVIVE_DELAY}s cooldown (${secs.toFixed(2)}s)`);
+  }
+
+  // dev godmode: a wolf's touch never catches, but shows the extra-life effect (once per SPAWN_INVULN)
+  {
+    const s = createSim({ seed: 8, players: [{ id: 1, name: 'a' }] });
+    stepSim(s, {}, CFG.TICK);
+    const p = s.players[0], w = s.enemies[0], lives = p.lives;
+    p.invuln = 0; p.shield = 0;
+    let hits = 0;
+    for (let t = 0; t < Math.round(CFG.SPAWN_INVULN / CFG.TICK) * 2 + 5; t++) {
+      p.god = true; p.invuln = 0; p.x = w.x; p.z = w.z;
+      hits += stepSim(s, {}, CFG.TICK).filter((e) => e.type === 'extraLife' && e.god).length;
+    }
+    ok(p.alive && p.lives === lives && hits >= 2 && hits <= 3, `godmode: never caught, a touch shows the extra-life effect (${hits} in ~2 cooldowns)`);
   }
 
   // speed boots: 4 pairs max, lost when caught (an extra life keeps them)

@@ -4,6 +4,8 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Run only has an ending now: level 9 is a final run on foot through hell. One long corridor three lanes wide, packed with wolves the whole way, a smouldering tree halfway as the only place to rest, and cat heaven waiting at the end. Online, everyone in the lobby needs the latest version for it (otherwise level 9 is a normal level like before)',
+      'The final run: a new "WELCOME TO HELL" welcome, the camera stays where you spawn instead of showing how long the run is, no more arrows on the floor, and the tree halfway smoulders instead of being frosted',
       'Revive rewards: revive 10 kitties in a run and yours puts on a medic cape that flutters as you run, at 30 it leaves a trail of little Star of Life symbols behind it, and at 60 it grows a pair of feathered wings, all in your kitty\'s colour (they add up)',
       'Revive rewards with 6+ wins: the medic cape turns black with its symbol glowing in your aura\'s colours, and the wings and the Star of Life trail go rainbow',
       'Win 8 runs and revive 60 kitties in a run and your whole kitty goes rainbow, nose to tail (and so does its icon next to your name)',

@@ -441,7 +441,7 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
 function startSim(players, startLevel, simMode = DEBUG_MODE) {
-  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode });
+  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, runFinale: true });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   accumulator = 0;
@@ -611,7 +611,7 @@ function handleEvents(events) {
         for (const k of kitties.values()) k.paws.clear(); // prints belong to the old map
         for (const p of sim.players) effects.teleport(p.x, p.z, p.color);
         const finale = !!sim.levelData.finale;
-        if (finale) ui.banner('THE FINAL RUN', 'Wolves all the way through. No checkpoints, no stopping. There\'s a tree halfway, and something sweet at the end.', 4200, 'finale');
+        if (finale) ui.banner('WELCOME TO HELL', 'Think you can escape?', 4200, 'finale');
         else ui.banner(`LEVEL ${ev.level}`, levelSubtitle(ev.level), 2200);
         if (audio.isMuted() && !soundHintShown) {
           soundHintShown = true;
@@ -621,7 +621,7 @@ function handleEvents(events) {
         if (finale) effects.shake(0.35);
         musicPlay(ev.level);
         cameraSnap = cameraSnap || ev.level === DEBUG_LEVEL;
-        // the final run: the camera flies down the whole corridor, goal -> start, until you touch anything
+        // the final run: the camera stays on the start square, pushing in, until you touch anything
         intro = finale ? { sim, t: 0 } : null;
         break;
       }
@@ -639,7 +639,7 @@ function handleEvents(events) {
         const p = playerById(ev.playerId);
         if (mine(ev.playerId)) haptic('medium');
         effects.reviveBeam(ev.x, ev.z, p ? p.color : 0xffffff);
-        effects.floatText(ev.x, 1.6, ev.z, 'EXTRA LIFE!', '#ff8fb8');
+        effects.floatText(ev.x, 1.6, ev.z, ev.god ? 'HIT!' : 'EXTRA LIFE!', '#ff8fb8');   // ev.god: a touch in dev godmode
         effects.shake(0.3);
         audio.play('extraLife');
         break;
@@ -1043,9 +1043,8 @@ function updateCamera(dt, alpha) {
   }
   let flyover = false;
   if (intro && mode === 'play') {
-    // 0-1.2 s on the goal room, then down the whole corridor to the start line
-    const x0 = sim.levelData.corners[0].x;
-    tx = x0 * smooth01((intro.t - 1.2) / 3.8); tz = 0; want = 30;
+    // never show how long it is: the camera stays on the start square where you spawn, slowly pushing in from higher up
+    tx = sim.levelData.corners[0].x; tz = 0; want = 30 - 12 * smooth01(intro.t / 4.5);
     flyover = true;
   }
   const k = cameraSnap || flyover ? 1 : 1 - Math.exp(-dt * 5);
@@ -1588,7 +1587,7 @@ function beginOnlineGame(m) {
   for (const p of m.players) online.roster.set(p.id, p);
   playerCount = m.players.length;
   removeKitties();
-  sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode });
+  sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode, runFinale: !!m.rf });
   analytics.runStart('online', m.mode || 'mixed');
   sim.started = true;
   if (m.it) { const taken = new Set(m.it); for (const it of sim.items) it.taken = taken.has(it.id); } // joined mid-level

@@ -30,15 +30,15 @@ const MAX_SUBSTEPS = 64;
 // off-thread and hand it over in sim.pregen = { level, seed, mode, ld }: makeLevel takes it when it matches
 // (same inputs => the very same deterministic layout), otherwise generates synchronously.
 function pregenParams(sim, level = sim.level + 1) {
-  return { level, seed: hashSeed(sim.seed, level), mode: sim.mode };
+  return { level, seed: hashSeed(sim.seed, level), mode: sim.mode, rf: !!sim.runFinale };
 }
 
 function makeLevel(sim, level) {
-  const { seed, mode } = pregenParams(sim, level);
+  const { seed, mode, rf } = pregenParams(sim, level);
   const pg = sim.pregen;
   sim.pregen = null;
   sim.level = level;
-  sim.levelData = pg && pg.ld && pg.level === level && pg.seed === seed && pg.mode === mode ? pg.ld : generateLevel(level, seed, mode);
+  sim.levelData = pg && pg.ld && pg.level === level && pg.seed === seed && pg.mode === mode && !!pg.rf === rf ? pg.ld : generateLevel(level, seed, mode, rf);
   sim.enemies = createEnemies(sim.levelData);
   sim.enemyTicks = 0;          // updateEnemies calls since this level's wolves were created (netcode)
   const src = sim.levelData.items || [];
@@ -121,11 +121,14 @@ function makePlayer(def) {
   };
 }
 
-function createSim({ seed, players = [], startLevel = 1, mode = 'mixed' } = {}) {
+// runFinale: Run only's level 9 is its final run (see maze.js); off = the old endless spiral (online rooms with an
+// older client)
+function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', runFinale = false } = {}) {
   const lvl = Math.max(1, startLevel | 0);
   const sim = {
     seed: seed == null ? 0 : seed,
     mode: GAME_MODES.includes(mode) ? mode : 'mixed',
+    runFinale: !!runFinale,
     level: lvl,
     time: 0,
     levelTime: 0,
@@ -447,14 +450,20 @@ function stepSim(sim, inputs, dt) {
   for (let i = 0; i < players.length; i++) {
     const p = players[i];
     if (sim.state !== 'playing') break; // no deaths during the level-clear celebration
-    if (!p.alive || p.inCenter || p.invuln > 0 || p.shield > 0 || p.god) continue; // p.god: dev playtest godmode
+    if (!p.alive || p.inCenter || p.invuln > 0 || p.shield > 0) continue;
     if (inTree(ld, p.x, p.z)) continue; // up a tree: safe
+    // p.god: dev playtest godmode. Never caught, but a touch shows the extra-life effect (at most once per
+    // SPAWN_INVULN) so the tester can tell they'd have been hit
+    if (p.god && p.godHitT > 0) { p.godHitT -= dt; continue; }
     for (let e = 0; e < enemies.length; e++) {
       const en = enemies[e];
       const dx = p.x - en.x;
       const dz = p.z - en.z;
       if (dx * dx + dz * dz >= hitR2) continue;
-      if (p.lives > 0) {
+      if (p.god) {
+        p.godHitT = CFG.SPAWN_INVULN;
+        events.push({ type: 'extraLife', playerId: p.id, x: p.x, z: p.z, god: true });
+      } else if (p.lives > 0) {
         p.lives--;
         p.invuln = CFG.SPAWN_INVULN;
         events.push({ type: 'extraLife', playerId: p.id, x: p.x, z: p.z });

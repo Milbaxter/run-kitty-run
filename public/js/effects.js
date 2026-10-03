@@ -57,8 +57,13 @@ void main() {
       vec2 r = vec2(cos(an) * q.x - sin(an) * q.y, sin(an) * q.x + cos(an) * q.y);
       a = max(a, (1.0 - smoothstep(0.40, 0.45, abs(r.y))) * (1.0 - smoothstep(0.10, 0.135, abs(r.x))));
     }
-    float staff = (1.0 - smoothstep(0.025, 0.045, abs(q.x))) * (1.0 - smoothstep(0.30, 0.33, abs(q.y)));
-    c = mix(vColor, vec3(1.0), staff);
+    // the white staff with a knob on top and the snake wound round it (head up by the knob); point-sprite y runs down
+    float staff = (1.0 - smoothstep(0.016, 0.03, abs(q.x))) * (1.0 - smoothstep(0.29, 0.31, abs(q.y)));
+    staff = max(staff, 1.0 - smoothstep(0.035, 0.05, length(q - vec2(0.0, -0.33))));
+    float sx = sin(q.y * 21.0) * 0.075;
+    float snake = (1.0 - smoothstep(0.018, 0.032, abs(q.x - sx))) * step(-0.19, q.y) * (1.0 - smoothstep(0.24, 0.26, q.y));
+    snake = max(snake, 1.0 - smoothstep(0.035, 0.05, length((q - vec2(sin(-0.21 * 21.0) * 0.075, -0.21)) * vec2(0.8, 1.1))));
+    c = mix(vColor, vec3(1.0), max(staff, snake));
   } else if (vSquash < 0.0) {
     // heart (SHAPE_HEART): (x^2 + y^2 - 1)^3 - x^2 y^3 <= 0, point-sprite y runs down
     vec2 q = vec2(p.x, 0.08 - p.y) * 2.7;

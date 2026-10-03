@@ -672,6 +672,48 @@ function createKittyModel(color) {
   }
   for (const m of meshes) m.userData.shadow = m.castShadow;
 
+  // Every win reward and every revive reward: the whole kitty's fur goes rainbow, running from nose to tail and cycling
+  // like the rainbow wings. The fur parts get their own copies of their geometry; each vertex keeps its role (fur, belly, stripes) and is
+  // recoloured every frame, the rest (nose, inner ears, eyes) stays as it is.
+  const furSrc = new Set([G.body, G.head, G.ear, G.leg, G.tailSeg, G.tailTip]);
+  let fur = null, furOn = false;
+  const furC = new THREE.Color(), FUR_WHITE = new THREE.Color(0xffffff);
+  function buildFur() {
+    const pal = kittyPalette(color), roles = [pal.base, pal.light, pal.dark];
+    const rigInv = new THREE.Matrix4(), mm = new THREE.Matrix4(), v = new THREE.Vector3();
+    group.updateMatrixWorld(true); rigInv.copy(rig.matrixWorld).invert();
+    fur = [];
+    for (const m of meshes) {
+      if (!furSrc.has(m.geometry)) continue;
+      const geo = m.geometry.clone(), col = geo.attributes.color.array, pos = geo.attributes.position.array, n = col.length / 3;
+      const role = new Int8Array(n), u = new Float32Array(n);
+      mm.multiplyMatrices(rigInv, m.matrixWorld);
+      for (let i = 0; i < n; i++) {
+        role[i] = roles.findIndex((c) => Math.abs(c.r - col[i * 3]) + Math.abs(c.g - col[i * 3 + 1]) + Math.abs(c.b - col[i * 3 + 2]) < 1e-3);
+        u[i] = v.set(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]).applyMatrix4(mm).x;   // nose (+x) .. tail (-x), rig space
+      }
+      fur.push({ m, src: m.geometry, geo, role, u });
+    }
+  }
+  function updateFur(rainbow, t) {
+    const on = !!rainbow && !ghost;
+    if (on && !fur) buildFur();
+    if (on !== furOn && fur) { for (const p of fur) p.m.geometry = on ? p.geo : p.src; furOn = on; }
+    if (!on) return;
+    const h0 = (t * 0.45 + rainbowOff) % 1;
+    for (const p of fur) {
+      const col = p.geo.attributes.color.array;
+      for (let i = 0; i < p.role.length; i++) {
+        const r = p.role[i];
+        if (r < 0) continue;
+        const c = furC.setHSL(((h0 - p.u[i] * 1.1) % 1 + 1) % 1, 0.9, 0.55);
+        if (r === 1) c.lerp(FUR_WHITE, 0.4); else if (r === 2) c.multiplyScalar(0.6);
+        col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+      }
+      p.geo.attributes.color.needsUpdate = true;
+    }
+  }
+
   // crown sits on the head (follows its bob/tilt)
   const crown = new THREE.Mesh(chunkyCrownGeometry(false), new THREE.MeshStandardMaterial({ vertexColors: true, emissive: 0x7a4a00, emissiveIntensity: 0.6, metalness: 0.45, roughness: 0.35, flatShading: true }));
   crown.position.set(-0.02, 0.25, 0);
@@ -726,6 +768,9 @@ function createKittyModel(color) {
   capeCollar.position.set(0.17, 0.5, 0);
   capeCollar.rotation.z = -0.5;
   cape.add(capeCloth, capeCollar);
+  const capeMat = capeCloth.material, collarMat = capeCollar.material;
+  const capeGlowMat = [null, null];   // [white cloth, dark cloth]
+  let collarGlowMat = null, capeDarkMat = null;
   cape.visible = false;
   rig.add(cape);
   // Wings: both wings' bones and feathers are instances of one flat feather shape (one draw call), placed every frame
@@ -738,6 +783,8 @@ function createKittyModel(color) {
   wingMesh.visible = false;
   const wingCols = wingColors(color);
   for (let i = 0; i < 2 * WING_INST; i++) wingMesh.setColorAt(i, wingCols[i % WING_INST]);
+  let wingRainbow = false;
+  const wingTmp = new THREE.Color();
   rig.add(wingMesh);
   const wingPose = makeWingPose(wingMesh);
   // crown stones: a win from 2 to 6 sets one gem on a point (front first, then pairs toward the back), in place of its pearl
@@ -823,6 +870,32 @@ function createKittyModel(color) {
     else cloth.reset();
     const winged = !!s.wings && !ghost;
     wingMesh.visible = winged;
+    // 6+ wins (s.auraCycle, when the aura starts cycling through the kitty colours): the revive rewards' victory look.
+    // The cape turns near-black with its symbol, border and collar glowing in the aura's colour, and the wings'
+    // feathers go rainbow (the boots' clock), running through the rainbow from the shoulder out to the tips
+    const rainbowGear = !!s.auraCycle && !ghost;
+    updateFur(s.rainbowCat, t);
+    if (cape.visible) {
+      const glow = !!s.auraCycle && !!s.auraColor && !ghost, dark = rainbowGear ? 1 : 0;
+      if (glow && !capeGlowMat[dark]) {
+        capeGlowMat[dark] = new THREE.MeshStandardMaterial({ map: capeTexture(0x000000, dark ? CAPE_DARK : CAPE_WHITE), emissiveMap: capeTexture(0xffffff, '#000000'), emissive: 0xffffff, emissiveIntensity: 0.85, side: THREE.DoubleSide, roughness: 0.85, flatShading: true });
+      }
+      if (glow && !collarGlowMat) collarGlowMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.45, roughness: 0.6, flatShading: true });
+      if (!glow && dark && !capeDarkMat) capeDarkMat = cmat('capeDarkMat:' + new THREE.Color(color).getHexString(), () => new THREE.MeshStandardMaterial({ map: capeTexture(color, CAPE_DARK), side: THREE.DoubleSide, roughness: 0.85, flatShading: true }));
+      capeCloth.material = glow ? capeGlowMat[dark] : dark ? capeDarkMat : capeMat;
+      capeCollar.material = glow ? collarGlowMat : collarMat;
+      if (glow) { capeGlowMat[dark].emissive.copy(s.auraColor); collarGlowMat.color.copy(s.auraColor); collarGlowMat.emissive.copy(s.auraColor); }
+    }
+    if (winged && (rainbowGear || wingRainbow)) {
+      const h0 = (t * 0.45 + rainbowOff) % 1;
+      for (let i = 0; i < 2 * WING_INST; i++) {
+        const k = i % WING_INST;
+        if (rainbowGear) wingMesh.setColorAt(i, wingTmp.setHSL((h0 + WING_T[k] * 0.6) % 1, 0.9, 0.5 + 0.2 * WING_SHADE[k]));
+        else wingMesh.setColorAt(i, wingCols[k]);
+      }
+      wingMesh.instanceColor.needsUpdate = true;
+      wingRainbow = rainbowGear;
+    }
     if (winged) {
       // open: folded at rest, spreading as you run (more when speeding up); breath at rest, bob with the stride,
       // swing with turns and sweep back when speeding up (the springs above, like the tail)
@@ -1610,13 +1683,19 @@ const PACK_SLOTS = [
 const PACK_KIT_S = 1.3;   // passenger head scale
 // medic cape (10+ revives): front edge at the neck, CAPE_LEN back along the body, CAPE_W wide, CAPE_Y above the feet
 const CAPE_LEN = 0.44, CAPE_W = 0.36, CAPE_X0 = 0.16, CAPE_Y = 0.62;
-function capeTexture(color) {
-  const star = '#' + new THREE.Color(color).getHexString();   // the symbol and the border in the kitty's own colour
-  return ctex('capeTex7:' + star, () => {
+// The symbol and the border in the kitty's own colour on white cloth (CAPE_DARK, near-black, from 6+ wins: the aura's
+// colours vanish on white), the staff and snake cut out of the symbol in the cloth colour. With the cycling victory aura (6+
+// wins) the cape is drawn twice more: with a black symbol (capeTexture(0x000000, cloth)) and as a glow mask (white
+// symbol and border on black, cloth and staff black: capeTexture(0xffffff, '#000000')), so the symbol glows in the
+// aura's colour and the cloth keeps its own.
+const CAPE_WHITE = '#f8f8f5', CAPE_DARK = '#1a1822';
+function capeTexture(color, cloth = CAPE_WHITE) {
+  const star = '#' + new THREE.Color(color).getHexString();
+  return ctex('capeTex7:' + star + cloth, () => {
     const c = document.createElement('canvas');
     c.width = c.height = 256;
     const g = c.getContext('2d');
-    const WHITE = '#f8f8f5';
+    const WHITE = cloth;
     // canvas x runs hem (0) -> neck (256) along the cape, canvas y across it; "up" on the symbol points at the neck (+x)
     g.fillStyle = star; g.fillRect(0, 0, 256, 256);
     g.fillStyle = WHITE; g.fillRect(14, 16, 256 - 14 - 10, 256 - 32);   // white cloth inside a kitty-coloured border all round
@@ -1756,6 +1835,10 @@ const WING_N = 12;   // feathers per row
 const WING_ROWS = [[1, 0, 0.05, 0, 0], [0.6, 0.25, 0.05, 1, 0], [0.3, 0.6, 0.055, 2, 0], [0.42, 0.85, 0.075, 3, 0.45]];
 const WING_INST = 3 + WING_ROWS.length * WING_N;   // 3 bones + the feathers
 // in the kitty's own fur: darker leading edge, the flight feathers with a few tabby bands, lighter toward the top
+// each instance's place along the wing (0 shoulder .. 1 tip) and its row's shade, for the rainbow wings
+const WING_T = [], WING_SHADE = [];
+for (let k = 0; k < 3; k++) { WING_T.push(k / 3); WING_SHADE.push(0); }
+for (const [, shade, , , t0] of WING_ROWS) for (let j = 0; j < WING_N; j++) { WING_T.push(t0 + (1 - t0) * (j + 0.5) / WING_N); WING_SHADE.push(shade); }
 function wingColors(color) {
   const { base, light, dark } = kittyPalette(color);
   const c = [];

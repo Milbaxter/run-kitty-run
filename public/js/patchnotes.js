@@ -5,6 +5,9 @@ const PATCH_NOTES = [
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
       'Revive rewards: revive 10 kitties in a run and yours puts on a medic cape that flutters as you run, at 30 it leaves a trail of little Star of Life symbols behind it, and at 60 it grows a pair of feathered wings, all in your kitty\'s colour (they add up)',
+      'Revive rewards with 6+ wins: the medic cape turns black with its symbol glowing in your aura\'s colours, and the wings and the Star of Life trail go rainbow',
+      'Win 8 runs and revive 60 kitties in a run and your whole kitty goes rainbow, nose to tail',
+      'The Star of Life trail now has the staff and snake in it, like the cape',
       'Music: pick which songs play with the 🎵 button on the title screen: both songs one after the other, or just one of them on a loop (remembered)',
       'The victory circle: you can run back out of it again (to help a friend); you\'re only safe while you\'re inside',
       'Running levels: the goal room has a few wolves of its own on the door side, so every way into the victory circle is risky',

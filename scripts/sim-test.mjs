@@ -63,10 +63,13 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const ice = generateLevel(winter, sim.levelData.seed, 'mixed'), skate = generateLevel(winter, sim.levelData.seed, 'ice');
     ok(ice.ice && ice.enemies.every((e) => e.pattern) && JSON.stringify(ice.enemies) === JSON.stringify(skate.enemies) && ld.enemies.every((e) => !e.pattern),
       `Run + Skate winter level ${winter} has Skate only level ${winter}'s ${skate.enemies.length} pattern wolves; running levels keep wanderers`);
-    // skate levels' final stretch: a full room on top of the count, its chargers running on into the goal room
+    // skate levels' final stretch: a full room on top of the count (straight chargers), and crossers / diagonals in
+    // the goal room
     const fs = skate.enemies.filter((e) => e.finalStretch), lastLeg = skate.legs.length - 1;
-    ok(fs.length >= 8 && fs.every((e) => e.leg === lastLeg) && fs.some((e) => e.type === 'charger' && e.route.length === 4),
-      `Skate only level ${winter}: ${fs.length} wolves on the final stretch, chargers running on into the goal room`);
+    const room = fs.filter((e) => String(e.pattern).startsWith('room-'));
+    ok(fs.length >= 8 && fs.every((e) => e.leg === lastLeg) && fs.filter((e) => e.type === 'charger').every((e) => e.route.length === 2)
+      && room.some((e) => e.type === 'crosser') && room.some((e) => e.type === 'diagonal'),
+      `Skate only level ${winter}: ${fs.length} wolves on the final stretch, ${room.length} of them in the goal room`);
   }
   ok(ld.safeCorners.length === ld.corners.length - 2 && fin.some((e) => e.a0 < CFG.RING_WIDTH / 2), 'the goal-door corner is not a safe square');
   {
@@ -148,29 +151,24 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(tb.length === s.levelData.trees.length && tb.every((it, i) => it.type === 'boots' && it.x === s.levelData.trees[i].x), `a pair of boots on top of every tree (${tb.length})`);
     void t;
   }
-  // the first kitty into the finish circle always gets a crown, even at the goal's edge (it takes the floating one)
+  // the goal disc only makes you safe: the first kitty home can wait there for its friends; the level clears when a
+  // kitty touches the crown in the middle (it wears it and gets the finish)
   {
     const s = createSim({ seed: 32, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] });
     stepSim(s, {}, CFG.TICK);
     const [a, b] = s.players;
-    for (const q of s.players) q.invuln = 99;
-    a.x = s.levelData.centerRadius - 1; a.z = 0;
-    let ev = stepSim(s, {}, CFG.TICK);
-    ok(ev.some((e) => e.type === 'levelClear') && ev.some((e) => e.type === 'crown' && e.playerId === 1) && a.crowned && s.lastWinner === 1 && a.finishes === 1, 'goal edge clears the level and crowns the winner');
+    a.x = s.levelData.centerRadius - 1; a.z = 0;   // a: just inside the goal's edge, far from the crown
+    let ev = [];
+    for (let t = 0; t < 60 * 3; t++) { a.invuln = 0; b.invuln = 99; ev.push(...stepSim(s, {}, CFG.TICK)); }
+    ok(a.alive && a.inCenter && s.state === 'playing' && !ev.some((e) => e.type === 'levelClear') && !a.crowned,
+      'the goal disc is safe but does not clear the level: the first one home can wait for the others');
+    a.x = s.levelData.crown.x; a.z = s.levelData.crown.z;
+    ev = stepSim(s, {}, CFG.TICK);
+    ok(ev.some((e) => e.type === 'levelClear' && e.by === 1) && ev.some((e) => e.type === 'crown' && e.playerId === 1) && a.crowned && s.lastWinner === 1 && a.finishes === 1,
+      'touching the crown clears the level and crowns that kitty');
     b.x = s.levelData.crown.x; b.z = s.levelData.crown.z; // a teammate darts to the middle during the celebration
     ev = stepSim(s, {}, CFG.TICK);
-    ok(!ev.some((e) => e.type === 'crown') && !b.crowned, 'the crown is gone once the winner has it');
-  }
-  // a teammate grabbed the floating crown first: the winner still gets one of their own
-  {
-    const s = createSim({ seed: 33, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] });
-    stepSim(s, {}, CFG.TICK);
-    const [a, b] = s.players;
-    for (const q of s.players) q.invuln = 99;
-    s.crownTaken = true; s.lastWinner = 2; b.crowned = true;
-    a.x = s.levelData.centerRadius - 1; a.z = 0;
-    stepSim(s, {}, CFG.TICK);
-    ok(a.crowned && b.crowned && a.finishes === 1, 'first into the finish circle is crowned even if the crown was taken');
+    ok(!ev.some((e) => e.type === 'crown') && !b.crowned && b.finishes === 0, 'the crown is gone once the winner has it');
   }
 }
 

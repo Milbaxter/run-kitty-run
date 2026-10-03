@@ -9,7 +9,8 @@ import { createEnemies, updateEnemies } from './enemies.js';
 // Interpretations / extra fields (beyond CONTRACTS.md):
 // - sim.started (bool): false until the first stepSim, which emits levelStart.
 // - sim.enteredCenter: array of playerIds that already emitted enterCenter this level.
-// - Players already inCenter are clamped to stay inside the center disc.
+// - Players already inCenter are clamped to stay inside the center disc. The disc only makes them safe: the level
+//   clears when a kitty touches the crown over its middle (so the first one home can wait for the others).
 // - On level transition, shield is reset to 0 silently (no shieldEnd event).
 // - Spawn index = player index modulo spawnPoints.length (small offset if more players than points).
 // - Pickup 'life' when lives are already at MAX_EXTRA_LIVES is left on the ground.
@@ -345,7 +346,9 @@ function stepSim(sim, inputs, dt) {
     }
   }
 
-  // --- crown: floats over the middle of the goal room; first kitty to touch it wears it (also during the level-clear celebration) ---
+  // --- crown: floats over the middle of the goal room. The goal disc only makes you safe (wait there and watch your
+  // friends make it); the first kitty to touch the crown wears it and clears the level ---
+  let crownBy = null;
   if (!sim.crownTaken) {
     const cr = CFG.KITTY_RADIUS + CFG.CROWN_RADIUS;
     for (let i = 0; i < players.length; i++) {
@@ -356,6 +359,7 @@ function stepSim(sim, inputs, dt) {
       sim.lastWinner = p.id;
       p.crowned = true; // keeps wearing a crown for the rest of the run
       events.push({ type: 'crown', playerId: p.id });
+      crownBy = p;
       break;
     }
   }
@@ -478,13 +482,7 @@ function stepSim(sim, inputs, dt) {
 
   // --- state machine ---
   let alive = 0;
-  let aliveInCenter = 0;
-  for (let i = 0; i < players.length; i++) {
-    if (players[i].alive) {
-      alive++;
-      if (players[i].inCenter) aliveInCenter++;
-    }
-  }
+  for (let i = 0; i < players.length; i++) if (players[i].alive) alive++;
 
   if (sim.state === 'playing') {
     if (alive === 0) {
@@ -493,12 +491,10 @@ function stepSim(sim, inputs, dt) {
         sim.stateTimer = 0;
         events.push({ type: 'gameOver', level: sim.level });
       }
-    } else if (aliveInCenter > 0) {
-      const by = players.find((q) => q.alive && q.inCenter);
+    } else if (crownBy) {
+      // the crown's been grabbed (from inside the goal disc): its kitty clears the level
+      const by = crownBy;
       by.finishes = (by.finishes || 0) + 1;
-      // the first kitty into the finish circle always gets a crown (it takes the floating one if it's still there)
-      if (!sim.crownTaken) { sim.crownTaken = true; sim.lastWinner = by.id; events.push({ type: 'crown', playerId: by.id }); }
-      by.crowned = true;
       sim.stats.levelsCleared++;
       events.push({ type: 'levelClear', level: sim.level, by: by.id });
       if (ld.finale) win(sim, by, events);

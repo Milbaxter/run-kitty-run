@@ -303,11 +303,23 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
   setMouseNdc(e);
+  if (e.button === 2 && devGod) { devTeleport(mouseGround()); return; }   // dev: godmode right-click teleport
   mouse.held = true;
   mouse.iceDir = null;
   mouse.target = mouseGround();
   if (mouse.target) targetPulse = 1;
 });
+// dev: godmode right-click teleport (your kitty, anywhere that isn't inside a wall). Online the server does it too
+// (it only listens while your godmode is on); the local copy just moves at once.
+function devTeleport(g) {
+  const i = mousePlayerIndex(), p = i >= 0 ? sim.players[i] : null;
+  if (!g || !p || !p.alive || collideCircle(sim.levelData, g.x, g.z, CFG.KITTY_RADIUS).hit) return;
+  p.x = g.x; p.z = g.z; p.vx = 0; p.vz = 0;
+  prevPos.delete('p' + p.id);
+  mouse.target = null; mouse.iceDir = null;
+  effects.teleport(g.x, g.z, p.color);
+  if (online.playing) net.send({ t: 'tp', x: g.x, z: g.z });
+}
 function pointerEnd(e) {
   if (e.pointerType === 'touch') {
     if (e.pointerId !== touchId) return;
@@ -650,6 +662,8 @@ function handleEvents(events) {
         if (p) {
           effects.pickup(p.x, p.z, p.color);
           audio.play('pickup');
+          // the disc only makes you safe: the crown in the middle clears the level (wait for your friends first)
+          if (mine(p.id) && !sim.crownTaken) ui.toast(sim.players.length > 1 ? 'Safe! Grab the crown in the middle when your team is ready' : 'Safe! Grab the crown in the middle to finish', '#ffcf5a');
         }
         break;
       }

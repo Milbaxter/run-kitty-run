@@ -4,6 +4,8 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Reaching the victory circle no longer ends the level straight away: inside it you\'re safe, so you can wait there and watch your friends make it. Grab the crown in the middle to clear the level',
+      'Skate levels: the goal room\'s white wolves sweep left to right across the whole room, and wolves crossing the last lane right in front of the door carry on through it, up to the victory circle',
       'Skate levels: the last lane before the goal is a full wolf room now, and its black chargers no longer turn round at the walls: they run in from the lane before, round the corner and on through the door, right up to the edge of the victory circle',
       'Skate levels: the goal room is ice too (only the victory circle isn\'t), and the first safe square no longer has a bigger wolf-free area than the others',
       'Skate levels: every black charger runs alone in its lane (no more trains of two or three), like in the final run',

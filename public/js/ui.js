@@ -987,7 +987,7 @@ function createUI(root) {
         <div class="rkr-gcat">${ICONS.cat}</div>
         <h2>GAME OVER</h2>
         <div class="rkr-gsub">${esc(line)}</div>
-        ${stats.alone ? `<div class="rkr-alone">${ICONS.revive}<span><b>Kitties need friends.</b> Alone, nobody can revive you when you're caught. Run Kitty Run is made to be beaten together. ${stats.alone === 'online' ? 'Invite some into your lobby!' : 'Play Multiplayer or Local co-op!'}</span></div>` : ''}
+        ${stats.alone ? `<div class="rkr-alone">${ICONS.revive}<span><b>Hint:</b> Alone, nobody can revive you when you're caught. Run Kitty Run is made to be beaten together. ${stats.alone === 'online' ? 'Invite some into your lobby!' : 'Play Multiplayer or Local co-op!'}</span></div>` : ''}
         <div class="rkr-stats">${rows.map((r) => `<div class="rkr-stat"><div class="rkr-ico" style="color:${r.color || '#fff'}">${r.icon}</div><span class="rkr-sl">${r.label}</span><span class="rkr-sv">${r.fmt(0)}</span></div>`).join('')}</div>
         <button class="rkr-btn">${esc(buttonLabel || 'TRY AGAIN')}</button>
         <div class="rkr-keyhint">press <span class="rkr-k rkr-wide">Enter</span></div>

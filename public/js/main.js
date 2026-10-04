@@ -118,39 +118,13 @@ track.addEventListener('error', () => {
   nextTrack();
 });
 
-// Beating the final run plays this song (instead of the synthesized fanfare); the soundtrack waits until it ends.
-const victorySong = new Audio('music/one-and-only.mp3');
-victorySong.volume = 0.8;
-victorySong.preload = 'auto';
-let victorySongOn = false; // wanted (playing, or paused only because sound is muted)
-function victorySongPlay() {
-  victorySongOn = true;
-  try { victorySong.currentTime = 0; } catch (e) { /* not loaded yet */ }
-  if (!audio.isMuted()) victorySong.play().catch(() => { /* retried on input via syncTrack */ });
-}
-function victorySongStop() {
-  if (!victorySongOn) return;
-  victorySongOn = false;
-  victorySong.pause();
-}
-victorySong.addEventListener('ended', () => {
-  victorySongOn = false;
-  if (victory && !victory.musicBack && victory.sim === sim) { victory.musicBack = true; musicFadeIn(sim.level); }
-});
-victorySong.addEventListener('error', () => {
-  if (!victorySongOn) return;
-  victorySongOn = false; // missing file: fall back to the old fanfare
-  if (victory && victory.t < 2) audio.play('victory');
-});
-
 function musicPlay(level) {
-  victorySongStop();
   musicLevel = level;
   trackWanted = true;
   if (trackFailed) { audio.startMusic(level); return; }
   if (!audio.isMuted() && !inBackground && track.paused) playTrack();
 }
-// after the victory song the soundtrack comes back in softly (ramped in tick())
+// after the victory fanfare the soundtrack comes back in softly (ramped in tick())
 function musicFadeIn(level) {
   track.volume = 0.04;
   musicPlay(level);
@@ -161,8 +135,6 @@ function musicStop() {
   audio.stopMusic();
 }
 function syncTrack() {
-  if (audio.isMuted() || !victorySongOn) victorySong.pause();
-  else if (victorySong.paused) victorySong.play().catch(() => {});
   if (trackFailed) return;
   if (audio.isMuted() || !trackWanted || inBackground) track.pause();
   else if (track.paused) playTrack();
@@ -466,7 +438,7 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
 function startSim(players, startLevel, simMode = DEBUG_MODE) {
-  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 11 });
+  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 12 });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   accumulator = 0;
@@ -845,7 +817,7 @@ function startVictory(ev) {
     });
   }
   musicStop();
-  victorySongPlay(); // the user's victory song replaces the synthesized 'victory' fanfare
+  audio.play('victory');
   effects.confetti(0, 0);
   effects.shake(0.6);
   effects.reviveBeam(0, 0, 0xffd34a);
@@ -862,7 +834,7 @@ function startVictory(ev) {
 function updateVictory(dt) {
   if (victory && (victory.sim !== sim || mode !== 'play' || sim.state !== 'victory')) victory = null;
   if (!victory && mode === 'play' && sim.state === 'victory') startVictory(null); // missed the event: still party
-  if (!victory) { victorySongStop(); return; }
+  if (!victory) return;
   const v = victory;
   if (!(dt > 0)) return;
   v.t += dt;
@@ -872,7 +844,7 @@ function updateVictory(dt) {
     v.nextFw += v.t < 10 ? 0.25 + Math.random() * 0.4 : 0.9 + Math.random() * 1.5; // a big show, then a calmer one
   }
   if (v.t < 7) effects.confettiRain(0, 0, 10, Math.max(1, Math.round(3 * QUALITY.particles)));
-  if (!v.musicBack && !victorySongOn && v.t > 4.8) { v.musicBack = true; musicFadeIn(sim.level); }
+  if (!v.musicBack && v.t > 4.8) { v.musicBack = true; musicFadeIn(sim.level); }
   if (view && view.fish) {
     if (!v.feastCue && v.t > 2.4) { v.feastCue = true; if (!view.fish.done()) { const h = view.fish.headPos(); effects.floatText(h.x * 0.75, 2.4, h.z * 0.75, 'FISH FEAST!', '#ffb27a'); } }
     if (v.shown) ui.updateVictoryFish(Math.floor(view.fish.eaten() * 100));
@@ -1371,7 +1343,8 @@ function syncVisuals(dt, alpha) {
     const ka = _kitArgs;
     ka.speed01 = gliding ? 0 : eat && eat.walking ? 0.45 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2));
     ka.moving = (p.moving && !gliding) || !!(eat && eat.walking); ka.munch = !!(eat && eat.munch); ka.bites = k.bites | 0;
-    ka.skates = !!sim.levelData.ice && !(sim.levelData.iceZMax != null && z > sim.levelData.iceZMax);   // (not on Run + Skate level 9's run half) ka.boots = Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST); ka.invuln = p.invuln; ka.shield = p.shield; ka.time = t;
+    ka.skates = !!sim.levelData.ice && !(sim.levelData.iceZMax != null && z > sim.levelData.iceZMax);   // (not on Run + Skate level 9's run half)
+    ka.boots = Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST); ka.invuln = p.invuln; ka.shield = p.shield; ka.time = t;
     ka.crown = !!p.crowned; ka.crownStones = Math.max(0, Math.min(5, wins - 1)); ka.aura = wins >= 3; ka.auraColor = k.fx; ka.sunglasses = wins >= 5; ka.rainbowBoots = wins >= 7; ka.auraCycle = wins >= 6;
     ka.backpack = wins >= 8; ka.packColors = ka.backpack ? packColors(k, p) : null;
     // revive rewards (rescues this run): 10+ medic cape, 30+ a trail of little stars of life, 60+ angel wings (they add up)
@@ -2017,7 +1990,6 @@ function setBackground(bg) {
     releaseAllInput();
     touchId = null; joy.on = false; drawJoy();
     track.pause();
-    victorySong.pause();   // (syncTrack starts it again on return)
     audio.setBackground(true);
     if (NATIVE && mode === 'play' && !online.playing && !paused && sim.state === 'playing') togglePause();
   } else {

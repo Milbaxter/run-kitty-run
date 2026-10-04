@@ -122,6 +122,7 @@ const FINAL_MODES = ['mixed', 'ice'];
 //  13 = running levels: lanes 7-15 rise 5% a level up to their level 8 count (finale version 9, rf 9)
 //  14 = running levels 1-8: wolves rest as long in every lane, no shorter rests toward the middle (finale version 10, rf 10)
 //  15 = items: 8 a level (autumn 4 + the tree boots), at most 2 hearts and 3 shields, level 9's tree has big boots (finale version 11, rf 11)
-const PROTOCOL_VERSION = 15;
+//  16 = Skate only's levels 1-8: the seasons from winter, as floodlit night levels (finale version 12, rf 12)
+const PROTOCOL_VERSION = 16;
 
 export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION };

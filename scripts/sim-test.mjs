@@ -169,6 +169,13 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
         q.x = it.x; q.z = it.z; q.invuln = 99; stepSim(sim, {}, CFG.TICK);
         ok(it.taken && q.speedMult === CFG.SPEED_MULT_MAX, `finale version 11: the big boots give full speed at once (x${q.speedMult})`);
       }
+      // version 12: Skate only's levels 1-8 go through the seasons from winter, as night levels (the wolves as in 11)
+      {
+        const lv = [1, 2, 3, 4, 5].map((L) => [generateLevel(L, 13, 'ice', 12), generateLevel(L, 13, 'ice', 11)]);
+        ok(lv.map(([a]) => a.theme).join() === '2,4,0,1,2' && lv.every(([a, b]) => a.ice && a.night && JSON.stringify(a.enemies) === JSON.stringify(b.enemies))
+          && !generateLevel(9, 13, 'ice', 12).night && !generateLevel(2, 13, 'mixed', 12).night && !generateLevel(2, 13, 'run', 12).night,
+          'finale version 12: Skate only levels winter, spring, summer, autumn at night (wolves unchanged; not level 9 or the other modes)');
+      }
     }
     // version 3: Run + Skate's level 9 is both in a row (skate, a hallway, the run back to the goal room); Skate only keeps
     // the wide skate final run

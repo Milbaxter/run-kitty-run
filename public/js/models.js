@@ -988,7 +988,7 @@ const WOLF_TYPES = {
 //   ear (4+); claws, extra fangs, elbow tufts (5+); drool (6+); claw-mark scars, spiky tail (7+).
 //   collars (2+; pattern wolves always wear one in their type colour): summer studded leather, autumn bramble with
 //   thorns (+ burrs and a dead leaf in the fur), winter spiked iron + frost-rimed spikes and icicles (no scarf),
-//   spring a chain collar with a broken chain over the shoulder and muddy legs.
+//   spring a chain collar with a broken chain over the shoulder.
 //   hell: charred fur, ember cracks (unlit glow mesh), bone spikes and horns, ember eyes.
 // Eyes: the run wolves' amber/orange eyes redden with the tier; pattern wolves keep their type colour (it matches
 // their track on the ice) until the final run, where every eye is an ember (the collar band keeps the type).
@@ -1240,11 +1240,6 @@ function wolfGeos(type, look) {
       [P.cyl6, mtx([0, -0.22, 0], null, [0.058, 0.42, 0.058]), base],
       [P.ico1, mtx([0.025, -0.455, 0], null, [0.08, 0.05, 0.07]), dark],
     ];
-    if (season === 'spring') {   // muddy socks, splashing higher up the leg each level
-      const mh = 0.1 + 0.16 * s;
-      legParts.push([P.cyl6, mtx([0, -0.43 + mh / 2, 0], null, [0.064, mh, 0.064]), 0x4e3826]);
-      legParts.push([P.ico1, mtx([0.025, -0.45, 0], null, [0.086, 0.056, 0.076]), 0x3e2c1e]);
-    }
     if (tier >= 5) {
       for (const z of [-0.035, 0, 0.035]) legParts.push([P.cone4, along([0.08, -0.46, z], [0.135, -0.485, z * 1.2], 0.012), hell ? BONE : 0xe8e2d6]);
       spike(legParts, [-0.04, -0.1, 0], norm3([-0.9, -0.35, 0]), 0.09, 0.03, base);

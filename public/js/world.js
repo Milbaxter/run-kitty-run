@@ -101,6 +101,13 @@ const HELL = {
   particles: 'motes', particlePalette: [0xff7a3a, 0xffa040, 0xd8401c],
   safeStyle: 'hell', safeTint: 0xffffff,   // the start square: charred, cracked, bones at the edges (makeHellTileTextures)
 };
+// Skate only's night levels (levelData.night): the play area lit exactly as by day (floodlit), only the sky, fog and
+// everything beyond the outer walls night. NIGHT_FROST: the walls' [body, cap] emissive per season (theme index): spring
+// night frost, autumn's light frost, summer's hail along the hedge tops.
+const NIGHT_LIGHT = { sky: 0x0a0f22, fog: 0x0f1630, fogNear: 75, fogFar: 150 };
+const NIGHT_GROUND = 0x1a2238, NIGHT_TINT = 0x3b4466, NIGHT_ICE = 0xdcefff;
+const NIGHT_SPRING_CAP = { base: 0xf2b6d0, flowers: [0xffffff, 0xffd6e6, 0xff9ec7, 0xfff0f6], big: 1.8 };   // hedge tops in pink blossom
+const NIGHT_FROST = { 4: [0x26323f, 0x222c38], 1: [0x2a3446, 0x2a3446], 0: [0, 0x55606e], 2: [0, 0] };
 const HELL_LIGHT = { sky: 0x0e0507, fog: 0x1c0a0c, fogNear: 30, fogFar: 88, hemiSky: 0xb898a8, hemiGround: 0x4a1a1a, hemiIntensity: 1.15, sunColor: 0xffb098, sunIntensity: 1.25 };
 const HEAVEN_LIGHT = { sky: 0xffd9a8, fog: 0xf5d2a0, fogNear: 48, fogFar: 125, hemiSky: 0xfff0d8, hemiGround: 0x8a6a4a, hemiIntensity: 1.2, sunColor: 0xffe2b8, sunIntensity: 1.9 };
 
@@ -1157,7 +1164,8 @@ function buildWalls(levelData, theme, T) {
     out.copy(roomC && inRoom(x, z) ? roomC : wallC).multiplyScalar(f * ao);
   };
   // spring: a green hedge top dotted with clusters of little flowers (SPRING_CAPS)
-  const springCap = theme.safeStyle === 'spring' ? SPRING_CAPS[SPRING_LOOK] : null;
+  // (Skate's spring night: NIGHT_SPRING_CAP, a hedge in blossom, so it reads apart from summer's)
+  const springCap = theme.night && theme.nightTi === 4 ? NIGHT_SPRING_CAP : theme.safeStyle === 'spring' ? SPRING_CAPS[SPRING_LOOK] : null;
   const capBase = springCap ? new THREE.Color(springCap.base) : null, capFlowers = springCap ? springCap.flowers.map((c) => new THREE.Color(c)) : null;
   const capColor = style === 'neon'
     ? (x, y, z, out) => {
@@ -1199,6 +1207,13 @@ function buildWalls(levelData, theme, T) {
   const capMesh = new THREE.Mesh(T.g(bufToGeo(cb)), capMat);
   capMesh.castShadow = style !== 'neon';
   capMesh.receiveShadow = true;
+  if (theme.night) {   // night frost / hail on the walls (NIGHT_FROST)
+    const [fb, fc] = NIGHT_FROST[theme.nightTi] || [0, 0];
+    if (fb && bodyMat.emissive) bodyMat.emissive.setHex(fb);
+    if (fc && capMat.emissive && style !== 'neon') capMat.emissive.setHex(fc);
+    if (theme.nightTi === 0) { bodyMat.color.setRGB(0.66, 0.84, 0.58); capMat.color.setRGB(0.7, 0.86, 0.6); }   // summer: a deep, rich green
+    if (theme.nightTi === 4) bodyMat.color.setRGB(1.12, 1.18, 1.0);   // spring: a paler, fresh green
+  }
   if (!springCap) return [bodyMesh, capMesh];
   // the little flowers: tiny flat blooms sitting on the rounded hedge top, in drifts (denser where the noise is high)
   const rng = createRng(hashSeed('capFlowers', levelData.seed || 0));
@@ -1207,13 +1222,19 @@ function buildWalls(levelData, theme, T) {
     const L = Math.hypot(w.bx - w.ax, w.bz - w.az) || 1, tx = (w.bx - w.ax) / L, tz = (w.bz - w.az) / L;
     for (let d = rng.range(0, 0.3); d < L; d += rng.range(0.12, 0.32)) {
       const x0 = w.ax + tx * d, z0 = w.az + tz * d;
-      if (vnoise(x0 * 0.8 + 3.7, z0 * 0.8 - 1.9) < 0.42) continue;   // bare stretches between the drifts
+      if (vnoise(x0 * 0.8 + 3.7, z0 * 0.8 - 1.9) < (theme.night ? 0.1 : 0.42)) continue;   // bare stretches between the drifts (night spring: in full blossom)
       const a = rng.range(-0.8, 0.8), c = Math.pow(Math.abs(a), 1 / 0.8), y = base + capH * Math.pow(Math.sqrt(1 - c * c), 0.7);
       const col = rng.pick(capFlowers).clone().multiplyScalar(rng.range(0.92, 1.05));
       items.push({ x: x0 - tz * a * hw, z: z0 + tx * a * hw, y: y + 0.01, s: rng.range(0.8, 1.25), ry: rng.range(0, TAU), color: col });
     }
+    // night spring: blossom down both sides of the hedge too
+    if (theme.night) for (let d = rng.range(0, 0.2); d < L; d += rng.range(0.1, 0.22)) {
+      const x0 = w.ax + tx * d, z0 = w.az + tz * d, side = rng.chance(0.5) ? 1 : -1;
+      if (vnoise(x0 * 1.1 - 4.3, z0 * 1.1 + 2.2) < 0.3) continue;
+      items.push({ x: x0 - tz * side * (ht + 0.03), z: z0 + tx * side * (ht + 0.03), y: rng.range(0.25, H - 0.2), s: rng.range(0.9, 1.4), ry: rng.range(0, TAU), color: rng.pick(capFlowers).clone().multiplyScalar(rng.range(0.92, 1.05)) });
+    }
   }
-  const bloomGeo = T.g(new THREE.IcosahedronGeometry(0.055, 0)); bloomGeo.scale(1, 0.45, 1);
+  const bloomGeo = T.g(new THREE.IcosahedronGeometry(0.055 * (springCap.big || 1), 0)); bloomGeo.scale(1, 0.45, 1);
   const bloomMat = T.m(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, flatShading: true }));
   return [bodyMesh, capMesh, ...makeInstancedChunks(bloomGeo, bloomMat, items, {}, 24)];
 }
@@ -1266,7 +1287,7 @@ function buildFloors(levelData, theme, T) {
   addStrip(0, 0, 1, 0, 0, 1, -rh, rh, [-rh, -rh + 0.25, -rh + 0.9, rh - 0.9, rh - 0.25, rh], edge, theme.roomGround ?? theme.ground);
   // the outside: a big ground plane slightly below the corridors
   const big = levelData.outerRadius + 150;
-  addStrip(0, 0, 1, 0, 0, 1, -big, big, [-big, big], [1, 1], theme.outerGround, -0.03);
+  addStrip(0, 0, 1, 0, 0, 1, -big, big, [-big, big], [1, 1], theme.night ? NIGHT_GROUND : theme.outerGround, -0.03);   // (night: dark everywhere off the lanes)
 
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -1366,7 +1387,8 @@ function buildIce(levelData, T, theme) {
   });
   // the goal room is iced too (the goal disc draws on top of it; maze.js onIce), except the final run's reward room
   if (!levelData.finale) {
-    const rh = levelData.roomHalf - CFG.WALL_THICKNESS / 2, b = pos.length / 3;
+    // (out to the walls' outer face: the walls hide it, and it covers the doorway's threshold, which showed the floor)
+    const rh = levelData.roomHalf + CFG.WALL_THICKNESS / 2, b = pos.length / 3;
     for (const [x, z] of [[-rh, -rh], [rh, -rh], [-rh, rh], [rh, rh]]) { pos.push(x, 0.004, z); uv.push(x * UVS, z * UVS); }
     idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);
   }
@@ -1376,7 +1398,7 @@ function buildIce(levelData, T, theme) {
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setIndex(idx);
   const mat = new THREE.MeshStandardMaterial({
-    map, color: theme.ice ?? 0xd6efff, transparent: true, opacity: 0.82, roughness: 1, metalness: 0, // matte: no sun glare
+    map, color: theme.ice ?? 0xd6efff, transparent: true, opacity: theme.night ? 1 : 0.82, roughness: 1, metalness: 0, // matte: no sun glare (night: opaque, the ground under it is dark; still drawn in the transparent pass, over the floor)
     emissive: theme.iceEmissive ?? 0x5aa8f0, emissiveIntensity: 0.12, depthWrite: false,
   });
   const ice = new THREE.Mesh(T.g(g), T.m(mat));
@@ -1430,11 +1452,11 @@ function buildLanterns(levelData, theme, T, rng) {
     const c = Math.abs(x) <= prr && Math.abs(z) <= prr ? rpc : pc;
     pillarItems.push({ x, z, ry: 0, color: c.clone().multiplyScalar(rng.range(0.9, 1.08)) });
     orbItems.push({ x, z, y: PH + 0.36, color: new THREE.Color(1, 1, 1) });
-    glowItems.push({ x, z, y: 0.03, s: 4.2, color: new THREE.Color(1, 1, 1) });
+    glowItems.push({ x, z, y: 0.03, s: theme.night ? 7.1 : 4.2, color: new THREE.Color(1, 1, 1) });   // (night: floodlights)
   }
   const pillarMat = T.m(new THREE.MeshStandardMaterial({ roughness: 0.85, flatShading: true }));
   const orbMat = T.m(new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  const glowMat = makeWarmGlowMat(T, Math.min(0.42, theme.glowK * 1.25), true);
+  const glowMat = makeWarmGlowMat(T, theme.night ? Math.min(0.85, theme.glowK * 2.75) : Math.min(0.42, theme.glowK * 1.25), true);
 
   const pillars = makeInstanced(pillarGeo, pillarMat, pillarItems, { cast: true, receive: true });
   const orbs = makeInstanced(orbGeo, orbMat, orbItems);
@@ -1823,6 +1845,84 @@ function buildHellDecor(levelData, theme, T, rng, { inst, sampleOuter, sampleCor
   return meshes;
 }
 
+// ---------------------------------------------------------------- night (Skate only's seasons)
+
+// Dresses a built level for the night (the ground off the lanes is already dark: NIGHT_GROUND): everything off the maze tinted
+// dark, the small things lying on the ice halved and muted toward the ice (not in winter), and in summer hailstones and
+// the newspaper. Returns the meshes to add.
+function nightDress(group, ld, ti, T) {
+  const out = [];
+  const R = ld.outerRadius + 0.6;
+  const M = new THREE.Matrix4(), V = new THREE.Vector3(), Q = new THREE.Quaternion(), S = new THREE.Vector3();
+  const tint = new THREE.Color(NIGHT_TINT), white = new THREE.Color(1, 1, 1), ice = new THREE.Color(NIGHT_ICE);
+  const pos = (o, i) => { o.getMatrixAt(i, M); return V.setFromMatrixPosition(M); };
+  group.traverse((o) => {
+    if (!o.isInstancedMesh || o.count < 2) return;
+    const outside = [], low = [];
+    for (let i = 0; i < o.count; i++) { const p = pos(o, i); outside.push(Math.max(Math.abs(p.x), Math.abs(p.z)) > R || locate(ld, p.x, p.z).leg === -2); low.push(p.y < 0.2); }
+    const inside = outside.filter((x) => !x).length, lowIn = outside.filter((x, i) => !x && low[i]).length;
+    const floorDecor = ti !== 2 && inside > 60 && lowIn / inside > 0.9 && !o.material.map;
+    if (!outside.some(Boolean) && !floorDecor) return;
+    const had = !!o.instanceColor, c = new THREE.Color();
+    for (let i = 0; i < o.count; i++) {
+      if (had) o.getColorAt(i, c); else c.copy(white);
+      if (outside[i]) c.multiply(tint);
+      else if (floorDecor) {
+        if (i % 2) { o.getMatrixAt(i, M); M.decompose(V, Q, S); S.setScalar(0); M.compose(V, Q, S); o.setMatrixAt(i, M); }
+        c.lerp(ice, ti === 4 ? 0.45 : 0.35);
+      }
+      o.setColorAt(i, c);
+    }
+    o.instanceColor.needsUpdate = true; o.instanceMatrix.needsUpdate = true;
+  });
+  if (ti === 0) out.push(summerHail(ld, R, T), summerNewspaper(ld, T));
+  return out;
+}
+
+// summer: hailstones lying on the ice (seeded, so everyone sees the same)
+function summerHail(ld, R, T) {
+  const rng = createRng(hashSeed(ld.seed ?? 1, ld.level ?? 1, 'hail'));
+  const items = [];
+  for (let t = 0; items.length < 600 && t < 20000; t++) {
+    const x = rng.range(-R + 1, R - 1), z = rng.range(-R + 1, R - 1);
+    if (locate(ld, x, z).leg < 0 || collideCircle(ld, x, z, 0.3).hit) continue;
+    items.push({ x, z, y: 0.06, s: rng.range(0.8, 1.3), ry: rng.range(0, TAU) });
+  }
+  const geo = T.g(new THREE.IcosahedronGeometry(0.11, 0)); geo.scale(1, 0.7, 1);
+  return makeInstanced(geo, T.m(new THREE.MeshStandardMaterial({ color: 0xf4f8ff, roughness: 0.35 })), items);
+}
+
+// summer's easter egg: a weathered newspaper lying flat on one of the safe squares (feet go over it)
+function summerNewspaper(ld, T) {
+  const rng = createRng(hashSeed(ld.seed ?? 1, ld.level ?? 1, 'paper'));
+  const cv = document.createElement('canvas'); cv.width = 768; cv.height = 560; const g = cv.getContext('2d');
+  g.save(); g.beginPath(); const pts = [];
+  const edge = (x0, y0, x1, y1, n) => { for (let i = 0; i <= n; i++) { const t = i / n; pts.push([x0 + (x1 - x0) * t + rng.range(-7, 7), y0 + (y1 - y0) * t + rng.range(-7, 7)]); } };
+  edge(30, 30, 738, 24, 22); edge(744, 30, 736, 420, 12); pts.push([700, 470], [660, 530]); edge(640, 536, 26, 530, 20); edge(22, 526, 30, 34, 14);
+  g.moveTo(...pts[0]); for (const q of pts) g.lineTo(...q); g.closePath(); g.clip();
+  const grd = g.createLinearGradient(0, 0, 768, 560); grd.addColorStop(0, '#e9dfc4'); grd.addColorStop(1, '#d8cba6'); g.fillStyle = grd; g.fillRect(0, 0, 768, 560);
+  g.fillStyle = '#2a2622'; g.textAlign = 'center'; g.font = 'bold 62px Georgia, serif'; g.fillText('THE DAILY WHISKER', 384, 92); g.fillRect(44, 112, 680, 5);
+  g.font = 'italic 20px Georgia, serif'; g.fillText('Midsummer edition  ·  Meow-tropolis', 384, 140);
+  g.font = 'bold 44px Georgia, serif'; g.fillText('SURPRISE HAILSTORM', 384, 200); g.fillText('EXPECTED FOR MIDSUMMER', 384, 250); g.fillText('IN FINLAND', 384, 300);
+  g.fillStyle = '#8f969c'; g.fillRect(52, 330, 270, 180); g.fillStyle = '#545b63'; g.beginPath(); g.ellipse(185, 385, 95, 38, 0, 0, TAU); g.fill();
+  g.fillStyle = '#f3f3f0'; for (let i = 0; i < 24; i++) { g.beginPath(); g.arc(100 + (i % 8) * 24, 440 + Math.floor(i / 8) * 20, 5, 0, TAU); g.fill(); }
+  g.fillStyle = '#6d6a64'; for (let col = 0; col < 2; col++) for (let r = 0; r < 9; r++) g.fillRect(350 + col * 190, 336 + r * 19, 170 - ((r * 7 + col) % 4) * 18, 7);
+  const fold = g.createLinearGradient(370, 0, 398, 0); fold.addColorStop(0, 'rgba(0,0,0,0)'); fold.addColorStop(0.5, 'rgba(60,45,20,0.28)'); fold.addColorStop(0.55, 'rgba(255,255,255,0.18)'); fold.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = fold; g.fillRect(360, 0, 48, 560);
+  for (let i = 0; i < 14; i++) { const x = rng.range(40, 720), y = rng.range(40, 520), a = rng.range(0, Math.PI), l = rng.range(60, 180); g.strokeStyle = 'rgba(70,55,30,' + rng.range(0.06, 0.14).toFixed(3) + ')'; g.lineWidth = rng.range(2, 5); g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
+  for (let i = 0; i < 5; i++) { const x = rng.range(80, 700), y = rng.range(80, 480), r = rng.range(40, 95); const st = g.createRadialGradient(x, y, r * 0.6, x, y, r); st.addColorStop(0, 'rgba(160,130,70,0.10)'); st.addColorStop(0.85, 'rgba(140,105,50,0.28)'); st.addColorStop(1, 'rgba(140,105,50,0)'); g.fillStyle = st; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill(); }
+  const vg = g.createRadialGradient(384, 280, 220, 384, 280, 470); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(120,90,40,0.35)'); g.fillStyle = vg; g.fillRect(0, 0, 768, 560);
+  g.fillStyle = 'rgba(70,50,30,0.55)'; g.beginPath(); g.ellipse(610, 470, 26, 22, 0, 0, TAU); g.fill();
+  for (const [dx, dy] of [[-30, -32], [-10, -44], [12, -44], [32, -32]]) { g.beginPath(); g.ellipse(610 + dx, 470 + dy, 10, 13, 0, 0, TAU); g.fill(); }
+  g.restore();
+  const tex = T.t(new THREE.CanvasTexture(cv)); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const mat = T.m(new THREE.MeshStandardMaterial({ map: tex, transparent: true, alphaTest: 0.5, roughness: 0.95, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  const sq = ld.safeCorners.length > 1 ? ld.safeCorners[1 + Math.floor(rng.next() * (ld.safeCorners.length - 1))] : ld.safeCorners[0];
+  const paper = new THREE.Mesh(T.g(new THREE.PlaneGeometry(2.8, 2.04)), mat);
+  paper.rotation.set(-Math.PI / 2, 0, rng.range(-0.6, 0.6));
+  paper.position.set(sq.x + rng.range(-1.6, 1.6), 0.012, sq.z + rng.range(-1.6, 1.6)); paper.renderOrder = 1; paper.receiveShadow = true;
+  return paper;
+}
+
 // ---------------------------------------------------------------- particles
 
 // box = { w, d } (the final run): instead of a disc over the whole map, the particles fill a w x d box that wraps
@@ -1830,7 +1930,8 @@ function buildHellDecor(levelData, theme, T, rng, { inst, sampleOuter, sampleCor
 function buildParticles(theme, rng, radius, T, box = null) {
   const kind = theme.particles;
   const area = box ? box.w * box.d : Math.PI * radius * radius;
-  const count = Math.round(clamp(area * 0.1, 300, 1300) * QUALITY.particles);
+  const thin = theme.night && theme.nightTi !== 2, hail = theme.night && theme.nightTi === 0;   // night skate seasons: a third; summer: hail
+  const count = Math.round(clamp(area * 0.1, 300, 1300) * QUALITY.particles * (thin ? 1 / 3 : 1));
   const pos = new Float32Array(count * 3), col = new Float32Array(count * 3);
   const base = new Float32Array(count * 5); // bx, bz, by, phase, speed
   const c = new THREE.Color();
@@ -1839,7 +1940,8 @@ function buildParticles(theme, rng, radius, T, box = null) {
   else if (kind === 'leaves') { palette = theme.crowns; H = 11; size = 0.42; additive = false; sprite = 'leaf'; }
   else if (kind === 'snow') { palette = [0xffffff, 0xf0f6ff]; H = 12; size = 0.2; additive = false; sprite = 'snow'; }
   else { palette = theme.particlePalette || [theme.accent, theme.wallTop, 0xb68cff]; H = 7; size = 0.26; additive = true; sprite = 'dot'; }
-  const bright = kind === 'motes' || kind === 'pollen' ? 0.9 : 1;
+  if (hail) { palette = [0xf4f8ff, 0xffffff]; H = 12; size = 0.14; additive = false; sprite = 'snow'; }
+  const bright = hail ? 1 : kind === 'motes' || kind === 'pollen' ? 0.9 : 1;
   for (let i = 0; i < count; i++) {
     if (box) { base[i * 5] = rng.range(0, box.w); base[i * 5 + 1] = rng.range(0, box.d); } else {
       const r = radius * Math.sqrt(rng.next()), a = rng.range(0, TAU);
@@ -1847,7 +1949,7 @@ function buildParticles(theme, rng, radius, T, box = null) {
     }
     base[i * 5 + 2] = kind === 'pollen' ? rng.range(0.4, 3.5) : rng.range(0, H);
     base[i * 5 + 3] = rng.range(0, 100);
-    base[i * 5 + 4] = kind === 'leaves' ? rng.range(0.6, 1.2) : kind === 'snow' ? rng.range(0.7, 1.5) : rng.range(0.25, 0.6);
+    base[i * 5 + 4] = hail ? rng.range(4, 6) : kind === 'leaves' ? rng.range(0.6, 1.2) : kind === 'snow' ? rng.range(0.7, 1.5) : rng.range(0.25, 0.6);
     c.set(rng.pick(palette)).multiplyScalar(bright * rng.range(0.85, 1.1));
     col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
   }
@@ -1874,7 +1976,9 @@ function buildParticles(theme, rng, radius, T, box = null) {
     for (let i = 0; i < count; i++) {
       const o = i * 5, bx = base[o], bz = base[o + 1], by = base[o + 2], ph = base[o + 3], sp = base[o + 4];
       let x, y, z;
-      if (kind === 'pollen') {
+      if (hail) {   // hail: falls fast and straight
+        y = ((by - t * sp) % H + H) % H + 0.05; x = bx; z = bz;
+      } else if (kind === 'pollen') {
         x = bx + Math.sin(t * 0.3 * sp + ph) * 1.6; z = bz + Math.cos(t * 0.27 * sp + ph * 1.3) * 1.6;
         y = by + Math.sin(t * 0.8 * sp + ph * 2) * 0.35;
       } else if (kind === 'motes') {
@@ -2457,7 +2561,8 @@ function buildWorld(scene, levelData) {
   const T = makeTracker();
   const ti = (((levelData.theme ?? ((levelData.level || 1) - 1)) % THEMES.length) + THEMES.length) % THEMES.length;
   const base = THEMES[ti];
-  const theme = levelData.finale ? { ...base, ...HELL } : base;   // the final run: a frozen hell (see HELL)
+  const night = !!levelData.night && !levelData.finale;   // Skate only: a floodlit night level (see NIGHT_LIGHT)
+  const theme = levelData.finale ? { ...base, ...HELL } : night ? { ...base, night: true, nightTi: ti } : base;   // the final run: a frozen hell (see HELL)
   const rng = createRng(hashSeed(levelData.seed ?? 1, levelData.level ?? 1, 'world'));
   const group = new THREE.Group();
   group.name = 'world';
@@ -2472,6 +2577,7 @@ function buildWorld(scene, levelData) {
   const lanterns = buildLanterns(levelData, theme, T, rng);
   for (const m of lanterns.meshes) group.add(m);
   for (const m of buildDecor(levelData, theme, ti, T, rng)) group.add(m);
+  if (night) for (const m of nightDress(group, levelData, ti, T)) group.add(m);
   let finale = null;
   if (levelData.sections) {   // Run + Skate's level 9: each half dressed as on its own, moved into place
     const parts = levelData.sections.map((sec) => {
@@ -2575,7 +2681,8 @@ function setupLighting(scene) {
     blend = levelData && levelData.finale ? { x0: D * (-levelData.roomHalf - 34), x1: D * (-levelData.roomHalf + 2), zMin: levelData.combo ? levelData.iceZMax : -Infinity } : null;
     blendK = -1;
     if (blend) { mixLight(0); return; }
-    apply(THEMES[(((theme | 0) % THEMES.length) + THEMES.length) % THEMES.length]);
+    const t = THEMES[(((theme | 0) % THEMES.length) + THEMES.length) % THEMES.length];
+    apply(levelData && levelData.night ? { ...t, ...NIGHT_LIGHT } : t);
   }
   setTheme(0);
 

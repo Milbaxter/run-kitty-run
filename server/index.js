@@ -30,11 +30,11 @@ const MODE_MIN_PROTOCOL = { ice: 4, mixed: 4, run: 4 };
 // Finale versions (sim.finales, see maze.js generateLevel): the protocol each needs. A room plays the newest version
 // every member has (older clients would build the older level 9 and desync); once it plays one, older clients can't
 // join it mid-game.
-const FINALE_PROTOCOL = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];   // 1 = Run only's level 9 final run, 2 = the wide skate final run, 3 = Run + Skate's both in a row, 4 = skate goal rooms without their back wolves, 5 = no lane-before-last wolf turning in the open, 6 = junction chargers, 7 = wolves per lane, 8 = running levels' long lanes, 9 = their other lanes, 10 = running levels' rests, 11 = items
+const FINALE_PROTOCOL = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];   // 1 = Run only's level 9 final run, 2 = the wide skate final run, 3 = Run + Skate's both in a row, 4 = skate goal rooms without their back wolves, 5 = no lane-before-last wolf turning in the open, 6 = junction chargers, 7 = wolves per lane, 8 = running levels' long lanes, 9 = their other lanes, 10 = running levels' rests, 11 = items, 12 = Skate only's night seasons
 const finalesOf = (members) => Math.min(...members.map((m) => FINALE_PROTOCOL.filter((p) => m.v >= p).length - 1));
 // the newest finale version that changes this mode's levels (older ones build them the same): Run only 1 and 8 to 11,
-// Skate only 2, 4 to 7 and 11, Run + Skate 2 to 11
-const finaleFor = (mode, f) => (mode === 'run' ? (f >= 8 ? f : Math.min(f, 1)) : mode === 'ice' ? (f >= 11 ? f : f >= 4 ? Math.min(f, 7) : f >= 2 ? 2 : 0) : (f === 1 ? 0 : f));
+// Skate only 2, 4 to 7, 11 and 12, Run + Skate 2 to 11
+const finaleFor = (mode, f) => (mode === 'run' ? (f >= 8 ? Math.min(f, 11) : Math.min(f, 1)) : mode === 'ice' ? (f >= 11 ? f : f >= 4 ? Math.min(f, 7) : f >= 2 ? 2 : 0) : (f === 1 ? 0 : Math.min(f, 11)));   // (12: Skate only only)
 const runFinaleOk = (client, room) => !(room.phase === 'playing' && room.sim) || client.v >= FINALE_PROTOCOL[finaleFor(room.mode, room.sim.finales | 0)];
 const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
 const MODE_NAMES = { mixed: 'Default (Run + Skate)', run: 'Run only', ice: 'Skate only' };

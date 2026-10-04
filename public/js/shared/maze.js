@@ -36,6 +36,7 @@ const SPRING_THEME = 4;
 // Seasons: summer meadow, autumn (climbable trees), winter (the ice rink), spring blossom, repeat.
 // (Theme 3, the neon night garden, is out of the rotation.)
 const THEME_ORDER = [0, TREE_THEME, ICE_THEME, SPRING_THEME];   // Run only: meadow, autumn, snow, spring
+const SKATE_THEME_ORDER = [ICE_THEME, SPRING_THEME, 0, TREE_THEME];   // Skate only (finale version 12+): winter, spring, summer, autumn
 const MIXED_THEME_ORDER = [0, TREE_THEME, ICE_THEME];             // Run + Skate: summer, fall, winter (ice); level 9's winter is the boss run
 
 // The 8 rotations/reflections of the plane; the spiral is mapped by the one that puts the start
@@ -1524,12 +1525,15 @@ function generateLevel(level, seed, mode = 'mixed', fv = 0) {
     enemies: [],
     items: [],
     path,
-    theme: CFG.ICE_TEST || mode === 'ice' || finale ? ICE_THEME : mode === 'mixed' ? MIXED_THEME_ORDER[(L - 1) % 3] : THEME_ORDER[(L - 1) % 4], // run mode: winter just isn't ice
+    // (finale version 12+: Skate only's levels 1-8 go through the seasons from winter, as floodlit night levels)
+    theme: !finale && mode === 'ice' && v >= 12 ? SKATE_THEME_ORDER[(L - 1) % 4]
+      : CFG.ICE_TEST || mode === 'ice' || finale ? ICE_THEME : mode === 'mixed' ? MIXED_THEME_ORDER[(L - 1) % 3] : THEME_ORDER[(L - 1) % 4], // run mode: winter just isn't ice
     mode,
     finale,
     finaleSide: finale ? straight.side : 0,   // the final run's corridor: -1 = in from the left (skate), 1 = from the right (run)
   };
-  lvl.ice = mode !== 'run' && lvl.theme === ICE_THEME;
+  lvl.ice = mode !== 'run' && (lvl.theme === ICE_THEME || (mode === 'ice' && v >= 12));
+  if (mode === 'ice' && v >= 12 && !finale) lvl.night = true;   // (world.js: the play area lit as by day, night beyond the walls)
   lvl.checkpoints = !finale ? pickCheckpoints(corners, legs, lvl.safeCorners.length) : [];
   // the crown: floats over the middle of the goal room (above the portal)
   lvl.crown = { x: 0, z: 0 };

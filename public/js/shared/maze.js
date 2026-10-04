@@ -425,7 +425,7 @@ function placeEnemies(rng, lvl, p) {
         speed: Math.min(CFG.KITTY_SPEED * 0.92, tuned ? (rng.next(), p.enemySpeed)
           : pauseRange ? (rng.next(), p.enemySpeed) : p.enemySpeed * (0.9 + 0.2 * dk) * rng.range(0.9, 1.1)),
         phase: rng.next(),
-        pauseScale: p.enemyPauseScale * (1.15 - 0.45 * dk),
+        pauseScale: p.enemyPauseScale * (lvl.finale || !(lvl.fv >= 10) ? 1.15 - 0.45 * dk : 1),   // (version 10+: no shorter rests toward the middle, levels 1-8)
         seed: hashSeed(seed, level, 'wolf', id),
       };
       if (tuned) { spec.pauseRange = pauseRange; spec.walk = walk; }
@@ -450,7 +450,7 @@ function placeEnemies(rng, lvl, p) {
         rIn: vIn, rOut: vOut, a0, a1,
         speed: Math.min(CFG.KITTY_SPEED * 0.92, tuned ? p.enemySpeed : (rng.next(), p.enemySpeed)),
         phase: rng.next(),
-        pauseScale: p.enemyPauseScale * (1.15 - 0.45 * dk),
+        pauseScale: p.enemyPauseScale * (lvl.finale || !(lvl.fv >= 10) ? 1.15 - 0.45 * dk : 1),   // (version 10+: no shorter rests toward the middle, levels 1-8)
         seed: hashSeed(seed, level, 'wolf', id),
       };
       if (tuned) { spec.pauseRange = pauseRange; spec.walk = walk; }

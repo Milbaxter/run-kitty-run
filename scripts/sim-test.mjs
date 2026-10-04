@@ -149,6 +149,13 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
         ok(r[0].slice(6).join() === '16,18,16,17,14,15,11,11,10' && r[2].join() === lanes(generateLevel(8, 11, 'run', 8)).join(),
           `finale version 9: running lanes 7-15 ${r.map((c) => c.slice(6).join('/')).join(' -> ')} (levels 1, 4, 8)`);
       }
+      // version 10: running levels 1-8 rest as long in every lane (version 9 rested less toward the middle); level 9 as before
+      {
+        const rests = (ld) => [...new Set(ld.enemies.filter((e) => e.type === 'wanderer' && !e.goalRoom).map((e) => e.pauseScale.toFixed(3)))];
+        const r9 = rests(generateLevel(5, 11, 'run', 9)), r10 = rests(generateLevel(5, 11, 'run', 10));
+        ok(r9.length > 5 && r10.length === 1 && rests(generateLevel(9, 11, 'run', 10)).join() === rests(generateLevel(9, 11, 'run', 9)).join(),
+          `finale version 10: running level 5 rests ${r10.join()} in every lane (was ${r9[0]} to ${r9.at(-1)}), level 9 unchanged`);
+      }
     }
     // version 3: Run + Skate's level 9 is both in a row (skate, a hallway, the run back to the goal room); Skate only keeps
     // the wide skate final run

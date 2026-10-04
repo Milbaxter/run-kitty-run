@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Running levels 1-8: wolves rest just as long in every lane, instead of getting more restless toward the middle (the final run is unchanged). Online, everyone in the lobby needs the latest version for this',
       'Wolves look wilder: a shaggy ruff of fur round the neck instead of a collar, longer and messier every level, in each wolf\'s own fur colours (the final run\'s hellhounds keep their black, ash grey and purple coats)',
       'Running levels: the later lanes now get busier steadily every level too (a little quieter on the early levels, the same on level 8)',
       'Running levels: the long first lanes now fill up with more wolves every level, up to nearly twice as many on level 8, so the start of a run is no longer the quiet part',

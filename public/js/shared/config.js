@@ -116,6 +116,7 @@ const FINAL_MODES = ['mixed', 'ice'];
 //  11 = skate levels: every lane's wolf count its share of the level's (busier every level) (finale version 7, rf 7)
 //  12 = running levels: more wolves in the first six (long) lanes, up to 37/38/34/35/31/32 on level 8 (finale version 8, rf 8)
 //  13 = running levels: lanes 7-15 rise 5% a level up to their level 8 count (finale version 9, rf 9)
-const PROTOCOL_VERSION = 13;
+//  14 = running levels 1-8: wolves rest as long in every lane, no shorter rests toward the middle (finale version 10, rf 10)
+const PROTOCOL_VERSION = 14;
 
 export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION };

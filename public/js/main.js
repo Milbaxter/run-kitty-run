@@ -466,7 +466,7 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
 function startSim(players, startLevel, simMode = DEBUG_MODE) {
-  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 10 });
+  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 11 });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   accumulator = 0;
@@ -521,6 +521,7 @@ function buildView() {
   for (const it of sim.items) {
     if (it.taken) continue;
     const m = createItemModel(it.type);
+    if (it.mega) m.group.scale.setScalar(1.7);   // level 9's big pair of boots (full speed at once)
     m.group.position.set(it.x, inTree(ld, it.x, it.z) ? 2.2 : 0, it.z); // tree boots sit on the canopy
     scene.add(m.group);
     items.set(it.id, m);
@@ -749,7 +750,7 @@ function handleEvents(events) {
         const colors = { boots: 0x5ff3ff, life: 0xff6fa8, shield: 0x7aa8ff };
         const labels = { boots: 'SPEED UP!', life: '+1 LIFE', shield: 'SHIELD!' };
         effects.pickup(ev.x, ev.z, colors[ev.itemType] || 0xffffff);
-        effects.floatText(ev.x, 1.4, ev.z, labels[ev.itemType] || '', hexCss(colors[ev.itemType] || 0xffffff));
+        effects.floatText(ev.x, 1.4, ev.z, ev.mega ? 'MAX SPEED!' : labels[ev.itemType] || '', hexCss(colors[ev.itemType] || 0xffffff));
         audio.play(ev.itemType, { pan: panFor(ev.x) });
         const m = view && view.items.get(ev.itemId);
         if (m) { disposeModel(m.group); view.items.delete(ev.itemId); }
@@ -993,15 +994,20 @@ function pollPadNav() {
   padNav.a = a; padNav.b = bBtn; padNav.start = start; padNav.select = select;
 }
 
+// one line per level (levels past 8: the last one); some of them are hints (see CFG.MUSIC_BOOST and the level rules
+// after it)
 function levelSubtitle(level) {
   const tips = [
-    'Reach the heart of the labyrinth',
-    'Orbiters circle the rings. Wait for the gap!',
-    'Grab boots: speed is forever',
-    'Sweepers cut across corridors',
+    'Get to the middle',
+    'Music makes you go faster',
+    'CATJAM',
+    'Speed is life',
     'Never leave a kitty behind',
+    'Grind never stops',
+    'Getting close!',
+    'Is it over...?',
   ];
-  return tips[(level - 1) % tips.length];
+  return tips[Math.min(level, tips.length) - 1];
 }
 
 function panFor(x) {
@@ -1440,7 +1446,7 @@ function updateHUD() {
   if (dirty) { hudScores.length = ps.length; hudPlayers.length = ps.length; }
   for (let i = 0; i < ps.length; i++) {
     const p = ps[i];
-    const score = p.rescues - p.deaths + 20 * (p.finishes || 0), crown = !!p.crowned;
+    const score = p.rescues + (p.bonus || 0) - p.deaths + 20 * (p.finishes || 0), crown = !!p.crowned;
     const me = online.playing ? p.id === online.me : true, you = online.playing && p.id === online.me;
     let r = hudScores[i];
     if (!r) r = hudScores[i] = {};
@@ -1794,10 +1800,10 @@ function onlineTick() {
   snapshotPrev();
   const t = ++online.tick;
   const inp = myInput();
-  const q = { x: Math.round(inp.x * 1000) / 1000, z: Math.round(inp.z * 1000) / 1000 };
+  const q = { x: Math.round(inp.x * 1000) / 1000, z: Math.round(inp.z * 1000) / 1000, m: audio.isMuted() ? 0 : 1 };   // m: CFG.MUSIC_BOOST
   online.inputs.set(t, q);
   online.inputs.delete(t - 240);
-  net.send({ t: 'in', k: t, x: q.x, z: q.z });
+  net.send({ t: 'in', k: t, x: q.x, z: q.z, m: q.m });
 
   const me = sim.players.find((p) => p.id === online.me);
   if (me) predictPlayer(sim, me, q, CFG.TICK);
@@ -1852,7 +1858,7 @@ function applySnapshot(m) {
   const seen = new Set();
   let rosterChanged = false;
   for (const a of m.p) {
-    const [id, x, z, vx, vz, heading, alive, inC, lives, speedMult, invuln, shield, deaths, rescues, margin, finishes = 0, waitRelease, crowned = 0] = a;
+    const [id, x, z, vx, vz, heading, alive, inC, lives, speedMult, invuln, shield, deaths, rescues, margin, finishes = 0, waitRelease, crowned = 0, bonus = 0] = a;
     seen.add(id);
     let p = sim.players.find((q) => q.id === id);
     const fresh = !p;
@@ -1865,7 +1871,7 @@ function applySnapshot(m) {
     }
     const wasAlive = p.alive;
     const oldX = p.x + (id === online.me ? online.errX : 0), oldZ = p.z + (id === online.me ? online.errZ : 0);
-    Object.assign(p, { vx, vz, heading, alive: !!alive, inCenter: !!inC, lives, speedMult, invuln, shield, deaths, rescues, finishes, crowned: !!crowned });
+    Object.assign(p, { vx, vz, heading, alive: !!alive, inCenter: !!inC, lives, speedMult, invuln, shield, deaths, rescues, finishes, crowned: !!crowned, bonus });
     p.moving = Math.hypot(vx, vz) > 0.5;
     if (id === online.me) {
       p.x = x; p.z = z;
@@ -1930,7 +1936,7 @@ function tick(dt) {
         const mi = mousePlayerIndex();
         sim.players.forEach((p, i) => {
           const kb = readInput(i, playerCount);
-          inputs[p.id] = i === mi ? mouseInput(p, kb) : kb;
+          inputs[p.id] = { ...(i === mi ? mouseInput(p, kb) : kb), m: audio.isMuted() ? 0 : 1 };   // m: CFG.MUSIC_BOOST
         });
         if (window.__bot) Object.assign(inputs, window.__bot(sim));
       }

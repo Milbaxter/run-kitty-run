@@ -11,6 +11,10 @@ const CFG = {
   KITTY_HIT_SCALE: 0.85,     // kitty hitbox = radius * this
   SPEED_BOOST: 0.05,         // +5% per boots
   SPEED_MULT_MAX: 1.2,       // four pairs of boots max (lost when caught)
+  MUSIC_BOOST: 1.01,         // "music makes you go faster": an input with m (sound on) runs 1% faster
+  MUSIC_BOOST_LEVEL: { 3: 1.02 },   // ...and on these levels this much ("CATJAM")
+  HEART_BOOT_LEVEL: 4,       // "speed is life": on this level a heart counts as a pair of boots too
+  REVIVE_DOUBLE_LEVEL: 5,    // "never leave a kitty behind": revives score double here (p.bonus)
   MAX_EXTRA_LIVES: 1,
   SPAWN_INVULN: 2.0,         // seconds after level start / revive
   SHIELD_TIME: 4.0,          // seconds from shield pickup
@@ -117,6 +121,7 @@ const FINAL_MODES = ['mixed', 'ice'];
 //  12 = running levels: more wolves in the first six (long) lanes, up to 37/38/34/35/31/32 on level 8 (finale version 8, rf 8)
 //  13 = running levels: lanes 7-15 rise 5% a level up to their level 8 count (finale version 9, rf 9)
 //  14 = running levels 1-8: wolves rest as long in every lane, no shorter rests toward the middle (finale version 10, rf 10)
-const PROTOCOL_VERSION = 14;
+//  15 = items: 8 a level (autumn 4 + the tree boots), at most 2 hearts and 3 shields, level 9's tree has big boots (finale version 11, rf 11)
+const PROTOCOL_VERSION = 15;
 
 export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION };

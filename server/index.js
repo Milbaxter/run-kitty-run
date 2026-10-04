@@ -30,11 +30,11 @@ const MODE_MIN_PROTOCOL = { ice: 4, mixed: 4, run: 4 };
 // Finale versions (sim.finales, see maze.js generateLevel): the protocol each needs. A room plays the newest version
 // every member has (older clients would build the older level 9 and desync); once it plays one, older clients can't
 // join it mid-game.
-const FINALE_PROTOCOL = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];   // 1 = Run only's level 9 final run, 2 = the wide skate final run, 3 = Run + Skate's both in a row, 4 = skate goal rooms without their back wolves, 5 = no lane-before-last wolf turning in the open, 6 = junction chargers, 7 = wolves per lane, 8 = running levels' long lanes, 9 = their other lanes, 10 = running levels' rests
+const FINALE_PROTOCOL = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];   // 1 = Run only's level 9 final run, 2 = the wide skate final run, 3 = Run + Skate's both in a row, 4 = skate goal rooms without their back wolves, 5 = no lane-before-last wolf turning in the open, 6 = junction chargers, 7 = wolves per lane, 8 = running levels' long lanes, 9 = their other lanes, 10 = running levels' rests, 11 = items
 const finalesOf = (members) => Math.min(...members.map((m) => FINALE_PROTOCOL.filter((p) => m.v >= p).length - 1));
-// the newest finale version that changes this mode's levels (older ones build them the same): Run only 1 and 8 to 10,
-// Skate only 2 and 4 to 7, Run + Skate 2 to 10
-const finaleFor = (mode, f) => (mode === 'run' ? (f >= 8 ? f : Math.min(f, 1)) : mode === 'ice' ? (f >= 4 ? Math.min(f, 7) : f >= 2 ? 2 : 0) : (f === 1 ? 0 : f));
+// the newest finale version that changes this mode's levels (older ones build them the same): Run only 1 and 8 to 11,
+// Skate only 2, 4 to 7 and 11, Run + Skate 2 to 11
+const finaleFor = (mode, f) => (mode === 'run' ? (f >= 8 ? f : Math.min(f, 1)) : mode === 'ice' ? (f >= 11 ? f : f >= 4 ? Math.min(f, 7) : f >= 2 ? 2 : 0) : (f === 1 ? 0 : f));
 const runFinaleOk = (client, room) => !(room.phase === 'playing' && room.sim) || client.v >= FINALE_PROTOCOL[finaleFor(room.mode, room.sim.finales | 0)];
 const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
 const MODE_NAMES = { mixed: 'Default (Run + Skate)', run: 'Run only', ice: 'Skate only' };
@@ -430,7 +430,7 @@ function rememberLeft(room, client) {
   room.left.set(client.tok || `ip:${client.ip}#${client.id}`, {
     at: Date.now(), sim, level: sim.level, ip: client.ip,
     alive: p.alive, x: p.x, z: p.z, circleT: circ ? circ.t : 0,
-    lives: p.lives, deaths: p.deaths, rescues: p.rescues, finishes: p.finishes, crowned: p.crowned, speedMult: p.speedMult,
+    lives: p.lives, deaths: p.deaths, rescues: p.rescues, finishes: p.finishes, crowned: p.crowned, speedMult: p.speedMult, bonus: p.bonus || 0,
   });
 }
 
@@ -443,7 +443,7 @@ function restoreLeft(room, client, p) {
   const r = room.left.get(key);
   room.left.delete(key);
   const sim = room.sim;
-  Object.assign(p, { lives: r.lives, deaths: r.deaths, rescues: r.rescues, finishes: r.finishes, crowned: r.crowned, speedMult: r.speedMult });
+  Object.assign(p, { lives: r.lives, deaths: r.deaths, rescues: r.rescues, finishes: r.finishes, crowned: r.crowned, speedMult: r.speedMult, bonus: r.bonus || 0 });
   // a new level (or the victory party) revives everyone anyway
   if (!r.alive && r.level === sim.level && sim.state !== 'victory') {
     Object.assign(p, { alive: false, x: r.x, z: r.z, vx: 0, vz: 0, moving: false, inCenter: false, invuln: 0, shield: 0, speedMult: 1 });
@@ -533,10 +533,10 @@ function sendSnapshot(room) {
   const margins = new Map(room.members.map((m) => [m.id, m.margin]));
   broadcast(room, {
     t: 'snap', k: room.tick, lvl: sim.level, st: sim.state, lt: sim.enemyTicks, tm: r3(sim.time),
-    // [id, x, z, vx, vz, heading, alive, inCenter, lives, speedMult, invuln, shield, deaths, rescues, inputMargin, finishes, waitRelease, crowned]
+    // [id, x, z, vx, vz, heading, alive, inCenter, lives, speedMult, invuln, shield, deaths, rescues, inputMargin, finishes, waitRelease, crowned, bonus]
     p: sim.players.map((p) => [p.id, r3(p.x), r3(p.z), r3(p.vx), r3(p.vz), r3(p.heading), p.alive ? 1 : 0, p.inCenter ? 1 : 0,
       p.lives, r3(p.speedMult), r3(p.invuln), r3(p.shield), p.deaths, p.rescues, Math.round((margins.get(p.id) ?? 0) * 10) / 10, p.finishes || 0, p.waitRelease ? 1 : 0,
-      p.crowned ? 1 : 0]),
+      p.crowned ? 1 : 0, p.bonus || 0]),
     lw: sim.lastWinner || 0, ct: sim.crownTaken ? 1 : 0,
     it: sim.items.filter((i) => i.taken).map((i) => i.id),
     c: sim.circles.map((c) => [c.playerId, r3(c.x), r3(c.z), r3(c.t)]),
@@ -728,11 +728,12 @@ wss.on('connection', (ws, req) => {
         const k = msg.k | 0;
         const x = Number.isFinite(msg.x) ? Math.max(-1, Math.min(1, msg.x)) : 0;
         const z = Number.isFinite(msg.z) ? Math.max(-1, Math.min(1, msg.z)) : 0;
+        const m = msg.m ? 1 : 0;   // sound on (CFG.MUSIC_BOOST)
         const margin = k - room.tick; // >0: arrived early enough to be used on time
         client.margin += (margin - client.margin) * 0.1;
-        if (k <= room.tick) { client.lastInput = { x, z }; return; }    // late: best effort
+        if (k <= room.tick) { client.lastInput = { x, z, m }; return; }    // late: best effort
         if (k > room.tick + 120) return;                               // nonsense / far future
-        client.inputs.set(k, { x, z });
+        client.inputs.set(k, { x, z, m });
         break;
       }
       case 'chat': {

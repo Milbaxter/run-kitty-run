@@ -45,7 +45,7 @@ function makeLevel(sim, level) {
   const items = [];
   for (let i = 0; i < src.length; i++) {
     const it = src[i];
-    items.push({ id: it.id, type: it.type, x: it.x, z: it.z, taken: false });
+    items.push({ id: it.id, type: it.type, x: it.x, z: it.z, taken: false, ...(it.mega ? { mega: true } : {}) });
   }
   sim.items = items;
   sim.circles = [];
@@ -118,6 +118,7 @@ function makePlayer(def) {
     inCenter: false,
     deaths: 0,
     rescues: 0,
+    bonus: 0,   // extra score points (REVIVE_DOUBLE_LEVEL)
     finishes: 0,    // levels this kitty finished first this run (run rewards, see main.js)
     crowned: false, // grabbed the crown at least once this run (wears one from then on)
   };
@@ -130,7 +131,7 @@ function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales
   const sim = {
     seed: seed == null ? 0 : seed,
     mode: GAME_MODES.includes(mode) ? mode : 'mixed',
-    finales: Math.max(0, Math.min(10, finales | 0)),
+    finales: Math.max(0, Math.min(11, finales | 0)),
     level: lvl,
     time: 0,
     levelTime: 0,
@@ -170,7 +171,7 @@ function readInput(inputs, id) {
     x /= m;
     z /= m;
   }
-  return { x, z };
+  return inp.m ? { x, z, m: 1 } : { x, z };   // m: sound on (CFG.MUSIC_BOOST)
 }
 
 function movePlayer(sim, p, inp, dt) {
@@ -179,7 +180,7 @@ function movePlayer(sim, p, inp, dt) {
     if (!inp.none && inp.x * inp.x + inp.z * inp.z < 0.01) p.waitRelease = false;
     else inp = { x: 0, z: 0 };
   }
-  const maxSpeed = CFG.KITTY_SPEED * p.speedMult;
+  const maxSpeed = CFG.KITTY_SPEED * p.speedMult * (inp.m ? CFG.MUSIC_BOOST_LEVEL[sim.level] || CFG.MUSIC_BOOST : 1);   // (inp.m: sound on, see MUSIC_BOOST)
   const tx = inp.x * maxSpeed;
   const tz = inp.z * maxSpeed;
   const curSpeed = Math.sqrt(p.vx * p.vx + p.vz * p.vz);
@@ -341,16 +342,19 @@ function stepSim(sim, inputs, dt) {
       let take = true;
       if (it.type === 'boots') {
         if (p.speedMult >= CFG.SPEED_MULT_MAX) take = false; // already boosted: leave them for a friend
-        else p.speedMult = Math.min(CFG.SPEED_MULT_MAX, p.speedMult + CFG.SPEED_BOOST);
+        else p.speedMult = it.mega ? CFG.SPEED_MULT_MAX : Math.min(CFG.SPEED_MULT_MAX, p.speedMult + CFG.SPEED_BOOST);   // (a big pair: full speed at once)
       } else if (it.type === 'life') {
-        if (p.lives >= CFG.MAX_EXTRA_LIVES) take = false;
-        else p.lives = Math.min(CFG.MAX_EXTRA_LIVES, p.lives + 1);
+        if (p.lives >= CFG.MAX_EXTRA_LIVES) take = false;   // (already has one: left for a friend, even on HEART_BOOT_LEVEL)
+        else {
+          p.lives = Math.min(CFG.MAX_EXTRA_LIVES, p.lives + 1);
+          if (sim.level === CFG.HEART_BOOT_LEVEL) p.speedMult = Math.min(CFG.SPEED_MULT_MAX, p.speedMult + CFG.SPEED_BOOST);   // a pair of boots too
+        }
       } else if (it.type === 'shield') {
         p.shield = CFG.SHIELD_TIME;
       }
       if (take) {
         it.taken = true;
-        events.push({ type: 'pickup', playerId: p.id, itemType: it.type, itemId: it.id, x: it.x, z: it.z });
+        events.push({ type: 'pickup', playerId: p.id, itemType: it.type, itemId: it.id, x: it.x, z: it.z, ...(it.mega ? { mega: true } : {}) });
         break;
       }
     }
@@ -411,6 +415,7 @@ function stepSim(sim, inputs, dt) {
       dead.inCenter = false;
       dead.invuln = 0; // no grace period after a friend's revive
       rescuer.rescues++;
+      if (sim.level === CFG.REVIVE_DOUBLE_LEVEL) rescuer.bonus = (rescuer.bonus || 0) + 1;   // (scores double, REVIVE_DOUBLE_LEVEL)
       sim.stats.rescues++;
       sim.circles.splice(c, 1);
       events.push({ type: 'revive', playerId: dead.id, by: rescuer.id, x: circ.x, z: circ.z });

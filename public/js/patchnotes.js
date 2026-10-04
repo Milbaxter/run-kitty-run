@@ -4,6 +4,10 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Items: every level has 8 now, with at most 2 hearts and 3 shields (the rest are boots). Autumn levels skip the extra boots, since every tree already has a pair, and Run + Skate\'s level 9 has 8 in each half. Online, everyone in the lobby needs the latest version for this',
+      'Level 9: the tree halfway now holds a big pair of boots that gives full speed at once',
+      'New lines at the start of every level',
+      'Added an easter egg',
       'The final run on foot: its wolves wear a scorched brown coat instead of charred black, so they are much easier to see in the dark',
       'Running levels 1-8: wolves rest just as long in every lane, instead of getting more restless toward the middle (the final run is unchanged). Online, everyone in the lobby needs the latest version for this',
       'Wolves look wilder: a shaggy ruff of fur round the neck instead of a collar, longer and messier every level, in each wolf\'s own fur colours (the final run\'s hellhounds keep their black, ash grey and purple coats)',

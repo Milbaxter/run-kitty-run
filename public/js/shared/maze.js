@@ -1295,6 +1295,38 @@ function placePatternEnemies(rng, lvl, p) {
 }
 
 
+// Finale version 11+: n items with at most cap.life hearts and cap.shield shields (once both are used up, the rest are
+// boots; boots: false keeps them out, e.g. autumn levels, where every tree already has a pair). Same spots as placeItems.
+const ITEMS_PER_LEVEL = 8, ITEMS_AUTUMN = 4, ITEM_CAP = { life: 2, shield: 3 };
+function placeItemsCapped(rng, lvl, n, cap, boots = true) {
+  const { legs, spawnPoints } = lvl;
+  const W = lvl.corridorWidth;
+  const items = [], used = { life: 0, shield: 0 };
+  const okSpot = (x, z) => {
+    for (const s of spawnPoints) if (Math.hypot(s.x - x, s.z - z) < 4) return false;
+    for (const t of items) if (Math.hypot(t.x - x, t.z - z) < 6) return false;
+    if (collideCircle(lvl, x, z, CFG.ITEM_RADIUS + 0.15).hit) return false;
+    for (const t of lvl.trees || []) if (Math.hypot(t.x - x, t.z - z) < CFG.TREE_RADIUS + 1) return false;
+    return true;
+  };
+  for (let k = 0; k < n; k++) {
+    const pool = [['boots', boots ? 5 : 0], ['life', used.life < cap.life ? 2 : 0], ['shield', used.shield < cap.shield ? 3 : 0]];
+    const type = pool.some((t) => t[1] > 0) ? pickWeighted(rng, pool, (t) => t[1])[0] : 'boots';
+    for (let s = 0; s < 40; s++) {
+      const leg = pickWeighted(rng, legs, (l) => l.len);
+      const along = rng.range(0, leg.len), lat = rng.range(-W / 2 + 1.2, W / 2 - 1.2);
+      const { x, z } = legPoint(leg, lat, along);
+      if (!okSpot(x, z)) continue;
+      items.push({ type, x, z });
+      if (type in used) used[type]++;
+      break;
+    }
+  }
+  return items;
+}
+// version 11+: the tree up the middle of a level 9 holds a big pair of boots worth four (full speed at once)
+const treeBoots = (trees, mega) => trees.map((t) => ({ type: 'boots', x: t.x, z: t.z, tree: true, ...(mega ? { mega: true } : {}) }));
+
 function placeItems(rng, lvl, p) {
   const { legs, spawnPoints } = lvl;
   const W = lvl.corridorWidth;
@@ -1375,7 +1407,7 @@ const CLASSIC_RUN_SKATE_ICE = false;
 const COMBO_GAP = 6;   // between the two corridors' walls (room for the braziers outside them)
 const MEDIC_RESCUES = 60;   // revives this run that repair the broken checkpoint (= the wings)
 const COMBO_RUN_SPEED0 = 0.7;   // the run half's wolf speed at its start (of their usual), rising to 1 at the goal room
-function generateCombo(L, seed) {
+function generateCombo(L, seed, v = 3) {
   const sk = generateLevel(L, hashSeed(seed, L, 'combo-skate'), 'mixed', 2);
   const rn = generateLevel(L, hashSeed(seed, L, 'combo-run'), 'run', 1);
   const W = rn.corridorWidth, h = W / 2, sH = rn.safeSize / 2;
@@ -1408,7 +1440,15 @@ function generateCombo(L, seed) {
     }),
   ];
   enemies.forEach((e, i) => { e.id = i; e.seed = hashSeed(seed, L, 'wolf', i); });
-  const items = [...sk.items.map(mv), ...rn.items];
+  // (version 11+: ITEMS_PER_LEVEL per half, at most ITEM_CAP.life hearts each and ITEM_CAP.shield shields in all, and
+  // the trees' big boots)
+  let items = [...sk.items.map(mv), ...rn.items];
+  if (v >= 11) {
+    const a = placeItemsCapped(createRng(hashSeed(seed, L, 'items-skate')), sk, ITEMS_PER_LEVEL, ITEM_CAP);
+    const left = ITEM_CAP.shield - a.filter((it) => it.type === 'shield').length;
+    const b = placeItemsCapped(createRng(hashSeed(seed, L, 'items-run')), rn, ITEMS_PER_LEVEL, { life: ITEM_CAP.life, shield: left });
+    items = [...a.map(mv), ...treeBoots(sk.trees, true).map(mv), ...b, ...treeBoots(rn.trees, true)];
+  }
   items.forEach((it, i) => { it.id = i; });
   const skPath = sk.path.filter((q) => q.x <= -ROOM).map(mv);
   const lvl = {
@@ -1443,7 +1483,7 @@ function generateCombo(L, seed) {
 // every member has.
 function generateLevel(level, seed, mode = 'mixed', fv = 0) {
   const v = fv === true ? 1 : +fv || 0;
-  if (v >= 3 && mode === 'mixed' && (Math.max(1, level | 0)) === SKATE_FINAL_LEVEL) return generateCombo(SKATE_FINAL_LEVEL, seed);
+  if (v >= 3 && mode === 'mixed' && (Math.max(1, level | 0)) === SKATE_FINAL_LEVEL) return generateCombo(SKATE_FINAL_LEVEL, seed, v);
   const L = Math.max(1, level | 0);
   const p = levelParams(L);
   const rng = createRng(hashSeed(seed, L));
@@ -1507,8 +1547,15 @@ function generateLevel(level, seed, mode = 'mixed', fv = 0) {
   const pattern = (finale && lvl.ice) || (lvl.ice && !(CLASSIC_RUN_SKATE_ICE && mode === 'mixed'));   // Run only's level 9: wandering wolves
   lvl.fv = v;   // the finale version (see above), for the wolf placement
   lvl.enemies = pattern ? placePatternEnemies(rng, lvl, p) : placeEnemies(rng, lvl, p);
-  lvl.items = placeItems(rng, lvl, p);
-  for (const t of lvl.trees) lvl.items.push({ id: lvl.items.length, type: 'boots', x: t.x, z: t.z, tree: true }); // a pair of boots up every tree
+  if (v >= 11) {
+    // version 11+: ITEMS_PER_LEVEL items (autumn: ITEMS_AUTUMN, hearts and shields only: every tree has boots), capped
+    const autumn = lvl.trees.length > 0 && !finale;
+    lvl.items = [...placeItemsCapped(createRng(hashSeed(seed, L, 'items')), lvl, autumn ? ITEMS_AUTUMN : ITEMS_PER_LEVEL, ITEM_CAP, !autumn), ...treeBoots(lvl.trees, finale)]
+      .map((it, i) => ({ id: i, ...it }));
+  } else {
+    lvl.items = placeItems(rng, lvl, p);
+    for (const t of lvl.trees) lvl.items.push({ id: lvl.items.length, type: 'boots', x: t.x, z: t.z, tree: true }); // a pair of boots up every tree
+  }
   return lvl;
 }
 

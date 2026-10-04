@@ -156,6 +156,19 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
         ok(r9.length > 5 && r10.length === 1 && rests(generateLevel(9, 11, 'run', 10)).join() === rests(generateLevel(9, 11, 'run', 9)).join(),
           `finale version 10: running level 5 rests ${r10.join()} in every lane (was ${r9[0]} to ${r9.at(-1)}), level 9 unchanged`);
       }
+      // version 11: 8 items a level (autumn: 4 hearts / shields + the tree boots), at most 2 hearts and 3 shields;
+      // level 9's tree boots are a big pair; Run + Skate's level 9: 8 per half, 2 hearts each, 3 shields in all
+      {
+        const kinds = (ld) => { const c = { boots: 0, life: 0, shield: 0, tree: 0, mega: 0 }; for (const it of ld.items) { if (it.tree) c.tree++; else c[it.type]++; if (it.mega) c.mega++; } return c; };
+        const plain = [[1, 'run'], [4, 'ice'], [7, 'mixed']].map(([L, m]) => kinds(generateLevel(L, 31, m, 11)));
+        const fall = kinds(generateLevel(2, 31, 'run', 11)), r9 = kinds(generateLevel(9, 31, 'run', 11)), c9 = kinds(generateLevel(9, 31, 'mixed', 11));
+        ok(plain.every((c) => c.boots + c.life + c.shield === 8 && c.life <= 2 && c.shield <= 3 && !c.tree) && fall.boots === 0 && fall.life + fall.shield === 4 && fall.tree > 0
+          && r9.mega === 1 && c9.boots + c9.life + c9.shield === 16 && c9.life <= 4 && c9.shield <= 3 && c9.mega === 2 && kinds(generateLevel(1, 31, 'run', 10)).boots + kinds(generateLevel(1, 31, 'run', 10)).life + kinds(generateLevel(1, 31, 'run', 10)).shield === 8,
+          `finale version 11: items 8 a level (autumn ${fall.life + fall.shield} + ${fall.tree} tree boots), Run + Skate level 9 ${c9.boots + c9.life + c9.shield} + ${c9.mega} big boots`);
+        const sim = createSim({ seed: 31, players: [{ id: 'a', name: 'A' }], startLevel: 9, mode: 'run', finales: 11 }), it = sim.items.find((i) => i.mega), q = sim.players[0];
+        q.x = it.x; q.z = it.z; q.invuln = 99; stepSim(sim, {}, CFG.TICK);
+        ok(it.taken && q.speedMult === CFG.SPEED_MULT_MAX, `finale version 11: the big boots give full speed at once (x${q.speedMult})`);
+      }
     }
     // version 3: Run + Skate's level 9 is both in a row (skate, a hallway, the run back to the goal room); Skate only keeps
     // the wide skate final run
@@ -380,6 +393,23 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
 
 // ======== maze generator self-test: levels 1-2, every seed, mixed + ice (determinism, paths, spawns, wolves, pattern gaps)
 {
+  // sound on (input m): 1% faster (CFG.MUSIC_BOOST)
+  {
+    const run = (m) => { const s = createSim({ seed: 5, players: [{ id: 'a', name: 'A' }], startLevel: 1, mode: 'run' }); stepSim(s, {}, CFG.TICK); const p = s.players[0]; p.invuln = 99; for (let i = 0; i < 30; i++) stepSim(s, { a: { x: 0, z: -1, m } }, CFG.TICK); return Math.hypot(p.vx, p.vz); };
+    const off = run(0), on = run(1);
+    ok(Math.abs(on / off - CFG.MUSIC_BOOST) < 1e-6, `input m: kitty speed x${(on / off).toFixed(3)}`);
+  }
+  // level rules: sound on runs 2% faster on level 3 (CFG.MUSIC_BOOST_LEVEL), a heart is a pair of boots too on level 4,
+  // revives score double on level 5 (p.bonus)
+  {
+    const sp = (L) => { const s = createSim({ seed: 5, players: [{ id: 'a', name: 'A' }], startLevel: L, mode: 'run' }); stepSim(s, {}, CFG.TICK); const p = s.players[0]; p.invuln = 99; const v = []; for (const m of [0, 1]) { p.vx = p.vz = 0; for (let i = 0; i < 30; i++) stepSim(s, { a: { x: 1, z: 0, m } }, CFG.TICK); v.push(Math.hypot(p.vx, p.vz)); p.x = s.levelData.spawnPoints[0].x; p.z = s.levelData.spawnPoints[0].z; } return v[1] / v[0]; };
+    const heart = (L, full) => { const s = createSim({ seed: 5, players: [{ id: 'a', name: 'A' }], startLevel: L, mode: 'run' }); stepSim(s, {}, CFG.TICK); const p = s.players[0], it = s.items.find((i) => i.type === 'life') || s.items[0]; it.type = 'life'; p.lives = full ? CFG.MAX_EXTRA_LIVES : 0; p.x = it.x; p.z = it.z; p.invuln = 99; stepSim(s, {}, CFG.TICK); return [it.taken, p.speedMult]; };
+    const [h3, h4, h4full] = [heart(3), heart(4), heart(4, true)];
+    ok(Math.abs(sp(3) - 1.02) < 1e-6 && Math.abs(sp(2) - 1.01) < 1e-6 && h3[0] && h3[1] === 1 && h4[0] && h4[1] > 1 && !h4full[0], `level rules: sound-on speed x${sp(3).toFixed(3)} on level 3, a heart on level 4 is boots too (x${h4[1]})`);
+    const rev = (L) => { const s = createSim({ seed: 5, players: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }], startLevel: L, mode: 'run' }); stepSim(s, {}, CFG.TICK); const [a, b] = s.players; b.alive = false; s.circles.push({ playerId: "b", x: a.x, z: a.z, t: CFG.REVIVE_DELAY }); a.invuln = 99; for (let i = 0; i < 10; i++) stepSim(s, {}, CFG.TICK); return [a.rescues, a.bonus]; };
+    const [r4, r5] = [rev(4), rev(5)];
+    ok(r4[0] === 1 && !r4[1] && r5[0] === 1 && r5[1] === 1, `level rules: a revive on level 5 scores double (rescues ${r5[0]} + bonus ${r5[1]})`);
+  }
   const r = mazeSelfTest(2);
   ok(r.ok, 'maze self-test (2 levels)' + (r.ok ? '' : ':\n  ' + r.problems.join('\n  ')));
 }

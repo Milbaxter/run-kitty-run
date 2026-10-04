@@ -1001,6 +1001,7 @@ const WOLF_HELL_TYPES = {
   charger: { base: 0x1d1917, light: 0x403835, dark: 0x090706 },
   crosser: { base: 0xa4a8b2, light: 0xc6c9d1, dark: 0x4c4f58 },   // ash grey (was ash white: in a ruff it read as white)
   diagonal: { base: 0x5a2e66, light: 0x7e4a8e, dark: 0x23102a },   // (light toned down: the ruff showed it as a brighter purple)
+  wanderer: { base: 0x7a4a2c, light: 0xa07250, dark: 0x3a2214 },   // the run wolves: scorched brown, near their own coat (black was hard to see)
 };
 const WOLF_RED_EYE = 0xff2a12, WOLF_EMBER = 0xff5a1e, WOLF_EMBER_HOT = 0xffa23a;
 const BONE = 0xdccdad, STEEL = 0xc2c8d0, FROST = 0xe9f5ff, SCAR = 0xc98585, IRON = 0x2b2f37, LEATHER = 0x3c291c;

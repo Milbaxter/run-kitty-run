@@ -112,6 +112,7 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you){min-width:0;padding:0;border-radius:5px;border-width:1px;gap:0;box-shadow:none;}
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you) .rkr-cbody{display:none;}
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you) .rkr-head{width:18px;height:18px;filter:none;}
+.rkr-cards.rkr-tiny .rkr-card.rkr-down:not(.rkr-you) .rkr-head{filter:grayscale(.6);}
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you){pointer-events:auto;}
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you):hover{z-index:5;}
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you):hover::after{content:attr(data-name);position:absolute;left:-2px;top:calc(100% + 4px);

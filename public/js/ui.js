@@ -108,7 +108,8 @@ html.rkr-touch .rkr-touchonly{display:block;}
 /* big lobbies: everyone but you is just a face (colour + alive / down), no name */
 /* (faces keep the cards' zoom, so a face is exactly the size of the card's boots icon) */
 .rkr-cards.rkr-tiny{flex-direction:row;flex-wrap:wrap;gap:2px;max-width:150px;}
-.rkr-cards.rkr-tiny .rkr-card.rkr-you{flex-basis:100%;order:-1;margin-bottom:2px;}
+.rkr-cards .rkr-card.rkr-you{order:-1;}   /* your own card always on top */
+.rkr-cards.rkr-tiny .rkr-card.rkr-you{flex-basis:100%;margin-bottom:2px;}
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you){min-width:0;padding:0;border-radius:5px;border-width:1px;gap:0;box-shadow:none;}
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you) .rkr-cbody{display:none;}
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you) .rkr-head{width:18px;height:18px;filter:none;}

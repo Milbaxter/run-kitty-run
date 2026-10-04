@@ -67,7 +67,7 @@ const ui = createUI(document.getElementById('ui'));
 
 // Soundtrack: a playlist of mp3s next to index.html, played one after the other on repeat.
 // Plain <audio> element. A track that fails to load is skipped; if all fail, procedural music plays.
-const PLAYLIST = ['music/soundtrack.mp3', 'music/soundtrack2.mp3'];
+const PLAYLIST = ['music/catjam1.mp3', 'music/catjam2.mp3'];
 let trackIdx = 0;
 const badTracks = new Set();
 // No src until the first real play(): nothing (4+ MB) is fetched at load, or ever while muted.

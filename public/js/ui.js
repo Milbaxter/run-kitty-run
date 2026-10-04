@@ -105,6 +105,17 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-scores .rkr-sr.rkr-me{text-decoration:underline;text-underline-offset:3px;}
 .rkr-scores .rkr-best{opacity:.65;font-size:11px;margin-top:2px;}
 .rkr-cards.rkr-many .rkr-card{zoom:.68;}
+/* big lobbies: everyone but you is just a face (colour + alive / down), no name */
+/* (faces keep the cards' zoom, so a face is exactly the size of the card's boots icon) */
+.rkr-cards.rkr-tiny{flex-direction:row;flex-wrap:wrap;gap:2px;max-width:150px;}
+.rkr-cards.rkr-tiny .rkr-card.rkr-you{flex-basis:100%;order:-1;margin-bottom:2px;}
+.rkr-cards.rkr-tiny .rkr-card:not(.rkr-you){min-width:0;padding:0;border-radius:5px;border-width:1px;gap:0;box-shadow:none;}
+.rkr-cards.rkr-tiny .rkr-card:not(.rkr-you) .rkr-cbody{display:none;}
+.rkr-cards.rkr-tiny .rkr-card:not(.rkr-you) .rkr-head{width:18px;height:18px;filter:none;}
+.rkr-cards.rkr-tiny .rkr-card:not(.rkr-you){pointer-events:auto;}
+.rkr-cards.rkr-tiny .rkr-card:not(.rkr-you):hover{z-index:5;}
+.rkr-cards.rkr-tiny .rkr-card:not(.rkr-you):hover::after{content:attr(data-name);position:absolute;left:-2px;top:calc(100% + 4px);
+  padding:2px 8px;border-radius:8px;background:rgba(20,10,40,.9);border:1px solid rgba(255,255,255,.2);color:var(--pc);font-weight:900;font-size:17px;white-space:nowrap;pointer-events:none;}
 .rkr-card{--pc:#ffb347;position:relative;display:flex;align-items:center;gap:10px;min-width:210px;padding:8px 12px 8px 8px;border-radius:18px;
   background:linear-gradient(135deg,rgba(30,16,60,.72),rgba(30,16,60,.5));border:2px solid rgba(255,255,255,.14);
   box-shadow:inset 4px 0 0 var(--pc),0 6px 16px rgba(0,0,0,.3);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
@@ -525,9 +536,10 @@ function createUI(root) {
 
   function updateCard(card, p) {
     const v = card.v;
-    if (p.name !== v.name) { v.name = p.name; card.name.textContent = p.name; }
+    if (p.name !== v.name) { v.name = p.name; card.name.textContent = p.name; card.root.dataset.name = p.name; }   // (hover label on a face)
     if (p.color !== v.color) { v.color = p.color; card.root.style.setProperty('--pc', hexColor(p.color)); }
     if (!!p.cool !== v.cool) { v.cool = !!p.cool; card.root.classList.toggle('rkr-cool', v.cool); }   // 5+ wins: sunglasses
+    if (!!p.you !== v.you) { v.you = !!p.you; card.root.classList.toggle('rkr-you', v.you); }
     if (!!p.rainbow !== v.rainbow) { v.rainbow = !!p.rainbow; card.root.classList.toggle('rkr-rainbow', v.rainbow); }   // every reward
     const alive = !!p.alive;
     if (alive !== v.alive) {
@@ -567,6 +579,7 @@ function createUI(root) {
   function setHUD(d) {
     if (!d) return;
     cardsEl.classList.toggle('rkr-many', (d.players || []).length > 4);
+    cardsEl.classList.toggle('rkr-tiny', (d.players || []).length > 5);   // faces only (your own card stays full)
     if (!H.visible) { H.visible = true; hud.classList.remove('rkr-off'); }
     const now = performance.now();
     const dt = H.lastNow ? Math.min(0.1, (now - H.lastNow) / 1000) : 0;

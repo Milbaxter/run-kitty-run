@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'Big games: with more than 5 kitties, everyone else\'s card shrinks to a little face in their colour (red with X eyes when they\'re down), so the whole team fits on screen. Your own card stays full size, and on a computer you can hover a face to see who it is',
       'Skate only goes through the seasons now: winter, spring, summer and autumn, as floodlit night levels (the ice is lit like day, it\'s night beyond the walls). Spring has a night frost and hedges in blossom, summer a midsummer hailstorm and autumn a cold snap. Keep an eye out on the summer levels... Online, everyone in the lobby needs the latest version for these',
       'Fixed: speed boots and the shield bubble show on your kitty again (and the blink after a respawn)',
       'Beating the final run plays the victory fanfare again',

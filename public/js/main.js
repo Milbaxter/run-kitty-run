@@ -1429,7 +1429,7 @@ function updateHUD() {
     }
     let h = hudPlayers[i];
     if (!h) h = hudPlayers[i] = {};
-    h.name = p.name; h.color = p.color; h.cool = (p.finishes || 0) >= 5; h.rainbow = (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield;
+    h.name = p.name; h.color = p.color; h.cool = (p.finishes || 0) >= 5; h.rainbow = (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
   }
   if (dirty) ui.setScores(hudScores);
   hudData.level = sim.level; hudData.time = sim.time; hudData.rescues = sim.stats.rescues;

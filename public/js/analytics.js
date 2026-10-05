@@ -122,6 +122,9 @@ function drawChart(canvas, days) {
   g.fillStyle = 'rgba(255,255,255,.7)'; g.fillText('played that day', padL + 136, padT - 5);
 }
 
+// the soundtrack's average song length (music/catjam1-2.mp3: 3:00 and 3:05): songs played = time played / this
+const SONG_SECONDS = 182;
+
 let styled = false;
 function openStatsPage(root) {
   if (!styled) { const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st); styled = true; }
@@ -146,7 +149,7 @@ function openStatsPage(root) {
     const tiles = [
       [fmt(d.players), 'players ever'], [fmt(d.playersToday), 'played today'], [fmt(d.onlineNow), 'online now'],
       [fmt(T.runs), 'runs played'], [fmt(T.levels), 'levels cleared'], [fmtTime(T.seconds), 'time played'],
-      [fmt(T.rescues), 'kitties rescued'], [fmt(T.deaths), 'times caught'], [fmt(T.bestLevel), 'best level'],
+      [fmt(T.rescues), 'kitties rescued'], [fmt(T.deaths), 'times caught'], [fmt(Math.floor((T.seconds || 0) / SONG_SECONDS)), 'songs played'],
       [fmt(T.lobbies), 'lobbies created'], [fmt(T.onlineGames), 'online games'], [fmt(d.peakOnline.count), 'most online at once'],
     ];
     const grid = el('div', 'rks-grid');

@@ -128,7 +128,8 @@ function createStats(file) {
     const days = Object.keys(s.days).sort().map((d) => ({ day: d, ...s.days[d] }));
     return {
       since: s.since, players: Object.keys(s.players).length, playersToday: todaySeen.size,
-      onlineNow, peakOnline: s.peakOnline, totals: s.totals, kinds: s.kinds, modes: s.modes, devices: s.devices,
+      onlineNow, peakOnline: s.peakOnline, totals: { ...s.totals, bestLevel: undefined },   // (best level: a spoiler, there's a level 9)
+      kinds: s.kinds, modes: s.modes, devices: s.devices,
       onlineWinsByMode: s.onlineWinsByMode,
       days: days.slice(-120),
     };

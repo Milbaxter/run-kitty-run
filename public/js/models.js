@@ -490,6 +490,10 @@ function createKittyModel(color) {
   // legs: 0 FL, 1 FR, 2 BL, 3 BR
   const legs = [];
   const skates = [];
+  const goldSkates = [];   // 10+ wins: golden boots, rainbow blades (this kitty's own blade copy, recoloured)
+  const bladeGeo = skateBladeGeometry().clone();
+  const bladeMat = new THREE.MeshStandardMaterial({ vertexColors: true, emissive: 0x2a2a2a, roughness: 0.3, metalness: 0.2, flatShading: true });
+  let bladeAt = -1;
   const speedBoots = [];   // one per leg, shown for each pair of speed boots (FL, FR, BL, BR)
   const rainbowBoots = [];
   const rainbowMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.45, flatShading: true, roughness: 0.45 });
@@ -501,6 +505,8 @@ function createKittyModel(color) {
     rig.add(p);
     mk(G.leg, p, true);
     skates.push(mk(G.skate, p, true));
+    const gs = new THREE.Mesh(goldSkateGeometry(), goldMat()); gs.castShadow = true; gs.visible = false; p.add(gs); goldSkates.push(gs);
+    const bl = new THREE.Mesh(bladeGeo, bladeMat); bl.castShadow = true; gs.add(bl);
     const sb = mk(G.speedBoot, p, true);
     sb.visible = false;
     speedBoots.push(sb);
@@ -515,7 +521,7 @@ function createKittyModel(color) {
   const tailRoot = new THREE.Group();
   tailRoot.position.set(-0.32, 0.4, 0);
   rig.add(tailRoot);
-  const tail = [];
+  const tail = [], tailMeshes = [];
   const N_TAIL = 6, SEG_LEN = 0.085;
   const SWING_W = [0.3, 0.2, 0.15, 0.13, 0.12, 0.1]; // share of the skating turn bend per segment (base-heavy: the whole tail swings)
   let parent = tailRoot;
@@ -526,6 +532,8 @@ function createKittyModel(color) {
     const m = mk(i === N_TAIL - 1 ? G.tailTip : G.tailSeg, seg, i < 3);
     const taper = 1 - i * 0.07;
     m.scale.set(taper, 1, taper);
+    m.userData.taper = taper;
+    tailMeshes.push(m);
     tail.push(seg);
     parent = seg;
   }
@@ -697,12 +705,26 @@ function createKittyModel(color) {
       fur.push({ m, src: m.geometry, geo, role, u });
     }
   }
-  let furAt = -1;
-  function updateFur(rainbow, t) {
-    const on = !!rainbow && !ghost;
+  let furAt = -1, furMode = null;
+  // fixed palettes [fur, belly, stripes]: silver = the moonlight lion (16 wins without 120 revives)
+  const FUR_PALETTES = { silver: [new THREE.Color(0xc3cddb), new THREE.Color(0xf2f5fa), new THREE.Color(0x8593a8)] };
+  function updateFur(mode, t) {   // mode: 'rainbow' | 'silver' | falsy
+    const on = !!mode && !ghost;
     if (on && !fur) buildFur();
-    if (on !== furOn && fur) { for (const p of fur) p.m.geometry = on ? p.geo : p.src; furOn = on; furAt = -1; }
+    if (on !== furOn && fur) { for (const p of fur) p.m.geometry = on ? p.geo : p.src; furOn = on; furAt = -1; furMode = null; }
     if (!on) return;
+    if (FUR_PALETTES[mode]) {
+      if (furMode === mode) return;
+      furMode = mode;
+      const pal = FUR_PALETTES[mode];
+      for (const p of fur) {
+        const col = p.geo.attributes.color.array;
+        for (let i = 0; i < p.role.length; i++) { const r = p.role[i]; if (r < 0) continue; const c = pal[r]; col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
+        p.geo.attributes.color.needsUpdate = true;
+      }
+      return;
+    }
+    if (furMode !== 'rainbow') { furMode = 'rainbow'; furAt = -1; }
     if (furAt >= 0 && Math.abs(t - furAt) < 0.05) return;   // ~20 times a second is plenty for a slow hue drift
     furAt = t;
     const h0 = (t * 0.45 + rainbowOff) % 1;
@@ -744,7 +766,7 @@ function createKittyModel(color) {
   const packHeads = [];
   function setPackColors(cols) {
     packCols = cols;
-    for (const h of packHeads) h.removeFromParent();
+    for (const h of packHeads) { h.removeFromParent(); if (h.userData.rb) h.userData.rb.geo.dispose(); }
     packHeads.length = 0;
     const n = Math.min(cols ? cols.length : 0, PACK_SLOTS.length);
     if (!n) return;
@@ -752,7 +774,7 @@ function createKittyModel(color) {
       const [x, y, z, yaw] = PACK_SLOTS[n - 1][i];
       const m = new THREE.Mesh(kittenHeadGeometry(cols[i]), mat);
       m.position.set(x, y, z); m.rotation.y = yaw; m.scale.setScalar(PACK_KIT_S); m.castShadow = true;
-      m.userData.y = y; m.userData.yaw = yaw;
+      m.userData.y = y; m.userData.yaw = yaw; m.userData.col = cols[i];
       pack.add(m);
       packHeads.push(m);
     }
@@ -786,7 +808,7 @@ function createKittyModel(color) {
   wingMesh.castShadow = true;
   wingMesh.frustumCulled = false;
   wingMesh.visible = false;
-  const wingCols = wingColors(color);
+  const wingCols = wingColors(color), wingMat = wingMesh.material;
   for (let i = 0; i < 2 * WING_INST; i++) wingMesh.setColorAt(i, wingCols[i % WING_INST]);
   let wingRainbow = false;
   const wingTmp = new THREE.Color();
@@ -801,6 +823,156 @@ function createKittyModel(color) {
     crown.add(pearl, stone);
     return { pearl, stone, born: -1 };
   });
+  // ---- win rewards 9-16, 120 revives ----
+  // night crown (9+) and its five stars (10-14)
+  const moon = new THREE.Mesh(moonCrownGeometry(), goldMat());
+  moon.position.set(-0.02, 0.23, 0); moon.rotation.z = -0.12; moon.scale.setScalar(1.15); moon.castShadow = true; moon.visible = false;
+  head.add(moon);
+  const moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTexture(), color: 0xfff1b8, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  moonGlow.position.set(0.1, 0.1, 0); moonGlow.scale.setScalar(0.32); moonGlow.visible = false; moon.add(moonGlow);
+  // 15+: the moon cat, a full moon with a cat's face over the crescent, leaning back like it
+  const moonCat = new THREE.Mesh(moonCatGeometry(), cmat('moonCatMat', () => new THREE.MeshStandardMaterial({ vertexColors: true, emissive: 0x3a3214, emissiveIntensity: 0.6, roughness: 0.6, flatShading: true })));
+  moonCat.position.set(0.1, 0.1, 0); moonCat.rotation.z = 0.6; moonCat.scale.setScalar(0.092); moonCat.visible = false; moon.add(moonCat);   // (big enough to cover the crescent behind it)
+  const moonStars = [60, 300, 120, 240, 180].map((deg, i) => {
+    const a = (deg / 180) * Math.PI;
+    const dot = new THREE.Mesh(P.ico1, pearlMat()); dot.position.set(Math.cos(a) * 0.13, 0.03, Math.sin(a) * 0.13); dot.scale.setScalar(0.014);
+    const star = new THREE.Mesh(starGeometry(), starMat()); star.visible = false;
+    moon.add(dot, star);
+    return { dot, star, a, born: -1, i };
+  });
+
+  // fluffy tail (11+): thicker segments, a glowing tip
+  const tipGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialTexture(), color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  tipGlow.position.y = 0.075; tipGlow.visible = false;
+  tail[N_TAIL - 1].add(tipGlow);
+  let fluffy = false;
+  // lion mane (14+)
+  let maneMesh = null, maneTint = null;
+  // celestial lion (16 wins + 120 revives): every fur part and the mane in the cosmic material
+  let cosmic = null, chromeMat = null;   // (chrome: the 16-win lion without the revives, one material per kitty)
+  const furMeshes = meshes.filter((m) => furSrc.has(m.geometry));
+  // medevac rotor (120+ revives): blades on a mast in the gap behind the head, faster as you run
+  const backRotor = new THREE.Group();
+  const backMast = new THREE.Mesh(cgeo('backMast2', () => bake([[P.cyl8, mtx([0, 0.19, 0], null, [0.018, 0.38, 0.018]), 0x5b6472], [P.cyl8, mtx([0, 0.01, 0], null, [0.05, 0.03, 0.05]), 0x3b4250]])), mat);
+  const backBlades = new THREE.Mesh(rotorGeometry(0.75), mat); backBlades.position.y = 0.39;
+  backRotor.add(backMast, backBlades); backRotor.position.set(0.04, 0.6, 0); backRotor.visible = false;
+  rig.add(backRotor);
+  const rbC = new THREE.Color();
+  function updateRewards(s, t, mdt) {
+    const off = ghost;
+    // night crown
+    const moonOn = !!s.crown && !!s.moonCrown && rig.visible && !off;
+    moon.visible = moonOn;
+    if (moonOn) {
+      crown.visible = false;
+      moon.position.y = 0.23 + Math.sin(t * 3) * 0.008;
+      moonGlow.visible = !!s.moonGlow;   // 14+: the moon lights up with the lion
+      if (moonGlow.visible) moonGlow.material.opacity = 0.6 + 0.25 * Math.sin(t * 2.4);
+      moonCat.visible = !!s.moonCat;   // 15+: the moon cat (in place of the crescent)
+      moon.geometry = moonCrownGeometry(!!s.moonCat);
+      moonGlow.scale.setScalar(s.moonCat ? 0.42 : 0.32);
+      for (const p of moonStars) {
+        const on = p.i < (s.crownStars || 0);
+        if (on && p.born < 0) p.born = t;
+        if (!on) p.born = -1;
+        p.dot.visible = !on; p.star.visible = on;
+        if (!on) continue;
+        const v = Math.min(1, (t - p.born) / 0.4) - 1, k = 1 + 2.70158 * v * v * v + 1.70158 * v * v;   // ease-out-back pop
+        p.star.position.set(Math.cos(p.a) * 0.13, 0.055, Math.sin(p.a) * 0.13);
+        p.star.scale.setScalar(0.026 * k);
+        p.star.rotation.y = t * 1.6 + p.i;
+      }
+
+    }
+    // golden skates
+    const gold = !!s.goldSkates && !off;
+    for (let i = 0; i < goldSkates.length; i++) { goldSkates[i].visible = gold && !!s.skates; if (gold) skates[i].visible = false; }
+    if (gold && s.skates && Math.abs(t - bladeAt) > 0.05) {   // rainbow along the blade, cycling (~20 times a second)
+      bladeAt = t;
+      const col = bladeGeo.attributes.color.array, pos = bladeGeo.attributes.position.array;
+      for (let j = 0; j < col.length / 3; j++) {
+        rbC.setHSL((((t * 0.45 + rainbowOff - pos[j * 3] * 4) % 1) + 1) % 1, 0.95, 0.55);
+        col[j * 3] = rbC.r; col[j * 3 + 1] = rbC.g; col[j * 3 + 2] = rbC.b;
+      }
+      bladeGeo.attributes.color.needsUpdate = true;
+    }
+    // fluffy tail with a glowing tip
+    const fl = !!s.fluffyTail && !off;
+    if (fl !== fluffy) {
+      fluffy = fl;
+      tailMeshes.forEach((m, i) => { const tp = m.userData.taper, k = fl ? (i === tailMeshes.length - 1 ? 1.9 : 1.55 + i * 0.04) : 1; m.scale.set(tp * k, fl ? 1.08 : 1, tp * k); });
+    }
+    tipGlow.visible = fl;
+    if (fl) {
+      tipGlow.material.color.copy(s.celestial ? rbC.set(0xb48cff) : s.silver ? rbC.set(0xe8f0ff) : s.auraColor || rbC.set(color)).lerp(AURA_WHITE, 0.25);
+      tipGlow.scale.setScalar(0.3 + 0.05 * Math.sin(t * 4));
+    }
+    // lion mane (silver with the silver fur)
+    const lion = !!s.lion && !off, tint = s.silver ? 'silver' : null;
+    if (lion && (!maneMesh || maneTint !== tint)) {
+      if (maneMesh) { maneMesh.removeFromParent(); if (maneMesh.userData.rb) maneMesh.userData.rb.geo.dispose(); }
+      maneTint = tint;
+      maneMesh = new THREE.Mesh(maneGeometry(color, maneTint), mat);
+      maneMesh.castShadow = true;
+      head.add(maneMesh);
+      meshes.push(maneMesh);
+    }
+    if (maneMesh) {
+      const rb = lion && !!s.rainbowCat && !s.celestial;
+      if (rb && !maneMesh.userData.rb) maneMesh.userData.rb = { src: maneMesh.geometry, geo: maneMesh.geometry.clone(), at: -1 };
+      const mr = maneMesh.userData.rb;
+      if (mr) maneMesh.geometry = rb ? mr.geo : mr.src;
+      if (rb && Math.abs(t - mr.at) > 0.05) {   // the rainbow fur's own nose-to-tail rainbow (updateFur), so they flow as one
+        mr.at = t;
+        const col = mr.geo.attributes.color.array, pos = mr.geo.attributes.position.array, h0 = (t * 0.45 + rainbowOff) % 1;
+        for (let j = 0; j < col.length / 3; j++) {
+          const u = K_HEAD_POS[0] + pos[j * 3];   // rig-space x (head space + the head's place on the rig)
+          rbC.setHSL(((h0 - u * 1.1) % 1 + 1) % 1, 0.9, 0.55);
+          col[j * 3] = rbC.r; col[j * 3 + 1] = rbC.g; col[j * 3 + 2] = rbC.b;
+        }
+        mr.geo.attributes.color.needsUpdate = true;
+      }
+      maneMesh.visible = lion;
+      if (lion) { maneMesh.rotation.x = Math.sin(t * 2.1 + seedOff) * 0.05; maneMesh.scale.setScalar(1 + 0.03 * Math.sin(phase * 2) * runAmt); }
+    }
+    // celestial lion
+    if (s.silver && !chromeMat) chromeMat = chromeFurMaterial();
+    const want = off ? null : s.celestial ? cosmicMaterial() : s.silver ? chromeMat : null;
+    if (want !== cosmic) {
+      cosmic = want;
+      for (const m of furMeshes) m.material = cosmic || mat;
+      if (maneMesh) maneMesh.material = cosmic || mat;
+    }
+    if (chromeMat) { chromeMat.uniforms.uTime.value = t; chromeMat.uniforms.uOrigin.value.copy(group.position); }
+    if (cosmic) { cosmic.uniforms.uTime.value = t; if (maneMesh && maneMesh.material !== cosmic) maneMesh.material = cosmic; }
+    wingMesh.material = s.celestial && cosmic ? cosmic : wingMat;   // the wings turn celestial too
+    // backpack heads turn rainbow one by one (13, 14), all of them at 15
+    const nr = off ? 0 : s.packRainbow | 0;
+    for (let i = 0; i < packHeads.length; i++) {
+      const h = packHeads[i], on = pack.visible && i < nr;
+      let r = h.userData.rb;
+      if (on && !r) {
+        const src = h.geometry, geo = src.clone(), col = geo.attributes.color.array, pal = kittyPalette(h.userData.col), roles = [pal.base, pal.light];
+        const role = new Int8Array(col.length / 3);
+        for (let j = 0; j < role.length; j++) role[j] = roles.findIndex((c) => Math.abs(c.r - col[j * 3]) + Math.abs(c.g - col[j * 3 + 1]) + Math.abs(c.b - col[j * 3 + 2]) < 1e-3);
+        r = h.userData.rb = { src, geo, role };
+      }
+      if (!r) continue;
+      h.geometry = on ? r.geo : r.src;
+      if (!on) continue;
+      // a rainbow running down each kitten's head (ears to chin), cycling
+      const col = r.geo.attributes.color.array, pos = r.geo.attributes.position.array, hue = t * 0.45 + rainbowOff + i * 0.27;
+      for (let j = 0; j < r.role.length; j++) {
+        if (r.role[j] < 0) continue;
+        rbC.setHSL((((hue - pos[j * 3 + 1] * 6) % 1) + 1) % 1, 0.9, 0.55); if (r.role[j] === 1) rbC.lerp(FUR_WHITE, 0.4);
+        col[j * 3] = rbC.r; col[j * 3 + 1] = rbC.g; col[j * 3 + 2] = rbC.b;
+      }
+      r.geo.attributes.color.needsUpdate = true;
+    }
+    // medevac rotor
+    backRotor.visible = !!s.rotor && !off;
+    if (backRotor.visible) backBlades.rotation.y = t * (12 + 18 * flowGo);
+  }
   // aura: super-saiyan flames in the kitty's own colour. The outer flame shell uses normal blending so it
   // still shows on bright snow/ice (additive light vanishes there); an additive inner core adds the glow.
   const auraCol = new THREE.Color(color);
@@ -826,7 +998,7 @@ function createKittyModel(color) {
   sparks.frustumCulled = false;
   const sparkSeed = [];
   for (let i = 0; i < NS; i++) sparkSeed.push([Math.random() * TAU_, 0.35 + Math.random() * 0.45, Math.random(), 0.8 + Math.random() * 0.7]);
-  aura.add(outer, inner, ring, sparks);
+  aura.add(outer, inner, ring);   // (no rising sparks: they read as little cubes floating up)
   for (const o of aura.children) o.renderOrder = 3; // after floor marks (skate trail, decals: 1-2)
   aura.visible = false;
   group.add(aura);
@@ -879,7 +1051,8 @@ function createKittyModel(color) {
     // The cape turns near-black with its symbol, border and collar glowing in the aura's colour, and the wings'
     // feathers go rainbow (the boots' clock), running through the rainbow from the shoulder out to the tips
     const rainbowGear = !!s.auraCycle && !ghost;
-    updateFur(s.rainbowCat, t);
+    updateFur(s.celestial || s.silver ? null : s.rainbowCat ? 'rainbow' : null, t);
+    updateRewards(s, t, mdt);
     if (cape.visible) {
       const glow = !!s.auraCycle && !!s.auraColor && !ghost, dark = rainbowGear ? 1 : 0;
       if (glow && !capeGlowMat[dark]) {
@@ -964,6 +1137,7 @@ function createKittyModel(color) {
   updateAll(0, {});
   group.userData.onDispose = () => {
     if (fur) for (const p of fur) p.geo.dispose();
+    bladeGeo.dispose(); bladeMat.dispose(); if (chromeMat) chromeMat.dispose();
     for (const mt of [capeGlowMat[0], capeGlowMat[1], collarGlowMat]) if (mt) mt.dispose();
   };
   return { group, update: updateAll, setGhost };
@@ -2004,6 +2178,216 @@ function createCrownPickupModel() {
     glow.material.opacity = 0.35 + 0.15 * Math.sin(t * 3.1);
   }
   return { group, update };
+}
+
+
+// ---------------------------------------------------------------------------
+// Win rewards 9-16 and the 120-revive reward
+// 9+ wins: the night crown, a slim gold circlet with a crescent moon at the front (smaller than the old crown, so the
+// backpack's kittens and the mane stay clear); wins 10-14 light one star on it each, like the stones of wins 2-6.
+function moonCrownGeometry(noMoon) {
+  return cgeo(noMoon ? 'moonCrownBare' : 'moonCrown', () => {
+    // a filled crescent (outer circle minus an offset inner one), horns up and back like a waxing moon, standing on
+    // the circlet's front and leaning back so the top-down camera sees its face
+    const sh = new THREE.Shape(), D = Math.PI / 180;
+    for (let a = 50; a <= 310; a += 10) { const x = Math.cos(a * D), y = Math.sin(a * D); if (a === 50) sh.moveTo(x, y); else sh.lineTo(x, y); }
+    for (let a = 287; a >= 73; a -= 10) sh.lineTo(0.45 + 0.8 * Math.cos(a * D), 0.8 * Math.sin(a * D));
+    const arc = new THREE.ExtrudeGeometry(sh, { depth: 0.3, bevelEnabled: true, bevelThickness: 0.08, bevelSize: 0.06, bevelSegments: 1, curveSegments: 4 });
+    arc.translate(0, 0, -0.15);
+    arc.rotateZ(Math.PI / 2 - 0.35);   // horns up (and a little back)
+    arc.rotateY(Math.PI / 2);          // face forward (+x)
+    arc.rotateZ(0.6);                  // lean back toward the camera
+    const out = bake([
+      [P.cyl18, mtx([0, 0, 0], null, [0.125, 0.03, 0.125]), 0xffd34a],
+      [P.cyl18, mtx([0, -0.02, 0], null, [0.13, 0.01, 0.13]), 0xe0a020],
+      [arc, mtx([0.1, 0.1, 0], null, 0.075), 0xfff1b8],
+      [P.ico0, mtx([0.132, 0.018, 0], null, 0.017), 0x7fd6ff],   // a blue gem under the moon
+    ].filter((p) => !noMoon || p[0] !== arc));   // (noMoon: just the circlet, for the moon cat)
+    arc.dispose();
+    return out;
+  });
+}
+// 15+ wins: the moon cat, the moon shaped like the player card's cat icon (its head outline, ears and all, facing +x,
+// about unit radius) with the icon's face: tall dark eyes with a white glint, a pink triangle nose, the little w mouth
+function moonCatGeometry() {
+  return cgeo('moonCat', () => {
+    const MOON = 0xfff1bf, INK = 0x2b1840, PINK = 0xff9ec4, NOSE = 0xff6f9f, F = 0.2;   // F: the face's front
+    // the icon's 40x40 frame (y down) to the face plane: 14 icon units = 1
+    const V = (x, y) => new THREE.Vector2((x - 20) / 14, (20 - y) / 14);
+    const slab = (sh, depth, bevel) => {
+      const g = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 1, curveSegments: 6 });
+      g.translate(0, 0, -depth / 2);
+      g.rotateY(Math.PI / 2);   // the icon faces +x
+      return g;
+    };
+    const head = new THREE.Shape();   // M5 4 L15 12 Q20 10.5 25 12 L35 4 L33.5 20 Q34 34.5 20 35.5 Q6 34.5 6.5 20 Z
+    head.moveTo(...V(5, 4).toArray()); head.lineTo(...V(15, 12).toArray());
+    head.quadraticCurveTo(...V(20, 10.5).toArray(), ...V(25, 12).toArray());
+    head.lineTo(...V(35, 4).toArray()); head.lineTo(...V(33.5, 20).toArray());
+    head.quadraticCurveTo(...V(34, 34.5).toArray(), ...V(20, 35.5).toArray());
+    head.quadraticCurveTo(...V(6, 34.5).toArray(), ...V(6.5, 20).toArray());
+    head.closePath();
+    const inner = new THREE.Shape([V(8.5, 9), V(13, 12.6), V(9.6, 15.5)]);   // the pink inner ears
+    const innerR = new THREE.Shape([V(31.5, 9), V(27, 12.6), V(30.4, 15.5)]);
+    const headG = slab(head, 0.32, 0.04), earL = slab(inner, 0.02, 0), earR = slab(innerR, 0.02, 0);
+    // an ink stroke on the face from (y0, z0) to (y1, z1)
+    const line = (y0, z0, y1, z1, w) => {
+      const dy = y1 - y0, dz = z1 - z0;
+      return [P.box, mtx([F + 0.01, (y0 + y1) / 2, (z0 + z1) / 2], [Math.atan2(-dy, dz), 0, 0], [0.02, w, Math.hypot(dy, dz) + w * 0.6]), INK];
+    };
+    const parts = [
+      [headG, mtx([0, 0, 0]), MOON],
+      [earL, mtx([F, 0, 0]), PINK], [earR, mtx([F, 0, 0]), PINK],
+      [P.cone4, mtx([F + 0.01, -0.5, 0], [Math.PI, 0, 0], [0.03, 0.16, 0.14]), NOSE],                      // nose, tip down
+      line(-0.58, 0, -0.7, 0.13, 0.07), line(-0.7, 0.13, -0.66, 0.27, 0.07),                               // the w mouth
+      line(-0.58, 0, -0.7, -0.13, 0.07), line(-0.7, -0.13, -0.66, -0.27, 0.07),
+    ];
+    for (const sz of [1, -1]) {
+      parts.push([P.ico1, mtx([F, -0.1, 0.41 * sz], null, [0.03, 0.26, 0.19]), INK]);                      // eyes
+      parts.push([P.ico1, mtx([F + 0.03, -0.02, 0.41 * sz - 0.06], null, [0.02, 0.06, 0.06]), 0xffffff]);  // and their glint
+    }
+    const out = bake(parts);
+    headG.dispose(); earL.dispose(); earR.dispose();
+    return out;
+  });
+}
+// a little four-pointed (six really) sparkle star
+function starGeometry() {
+  return cgeo('rewardStar', () => {
+    const o = new THREE.OctahedronGeometry(1, 0);
+    const out = bake([
+      [o, mtx([0, 0, 0], null, [0.32, 1, 0.32]), 0xffffff],
+      [o, mtx([0, 0, 0], [0, 0, Math.PI / 2], [0.32, 1, 0.32]), 0xffffff],
+      [o, mtx([0, 0, 0], [Math.PI / 2, 0, 0], [0.32, 1, 0.32]), 0xffffff],
+    ]);
+    o.dispose();
+    return out;
+  });
+}
+function starMat() {
+  return cmat('rewardStarMat', () => new THREE.MeshStandardMaterial({ color: 0xfff6c8, emissive: 0xffd86a, emissiveIntensity: 0.9, roughness: 0.3, flatShading: true }));
+}
+function goldMat() {
+  return cmat('rewardGoldMat', () => new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.3, emissive: 0x6a4300, emissiveIntensity: 0.55, flatShading: true }));
+}
+// 10+ wins: skates with golden boots (same shape as the ice skates) and rainbow blades
+function goldSkateGeometry() {
+  return cgeo('skateGold', () => bake([
+    [P.ico1, mtx([0.02, -0.2, 0], null, [0.085, 0.06, 0.075]), 0xffd34a],
+    [P.cyl8, mtx([0.0, -0.155, 0], null, [0.062, 0.05, 0.062]), 0xffd34a],
+    [P.box, mtx([0.01, -0.235, 0], null, [0.1, 0.022, 0.05]), 0xb8860b],
+    [P.box, mtx([0.0, -0.13, 0], null, [0.07, 0.012, 0.07]), 0xffeaa0],
+  ]));
+}
+// the blades on their own (white: tinted by a material colour), recoloured along their length every frame
+function skateBladeGeometry() {
+  return cgeo('skateBlade', () => bake([
+    [P.box, mtx([0.01, -0.27, 0], null, [0.21, 0.045, 0.016]), 0xffffff],
+    [P.box, mtx([0.12, -0.25, 0], [0, 0, 0.9], [0.06, 0.025, 0.016]), 0xffffff],
+  ]));
+}
+// 14+ wins: a lion's mane, rings of tufts round the face (head space, behind the eyes), a gap on top for the crown;
+// in a deeper shade of the kitty's colour (silver for the moonlight lion)
+function maneGeometry(color, tint) {   // tint: 'silver' (the moonlight lion) or null
+  return cgeo('mane:' + new THREE.Color(color).getHexString() + (tint ? ':' + tint : ''), () => {
+    // a deeper, richer shade of the kitty's own colour (or silver), in fluffy round tufts
+    const hsl = {}, c0 = new THREE.Color(tint === 'silver' ? 0xd6dee9 : color);
+    c0.getHSL(hsl);
+    const shade = (l) => new THREE.Color().setHSL(hsl.h, Math.min(1, hsl.s * 1.1), hsl.l * l);
+    const base = shade(0.78), dark = shade(0.58), light = shade(0.95);
+    const parts = [];
+    const ringOf = (r, n, sz, x, off, col) => {
+      for (let i = 0; i < n; i++) {
+        const a = ((i + off) / n) * TAU_, y = Math.sin(a) * r - 0.03, z = Math.cos(a) * r;
+        if (Math.sin(a) > 0.72) continue;   // a gap on top, where the crown sits
+        parts.push([P.ico1, mtx([x, y, z], [Math.PI / 2 - a, 0, 0], [sz * 0.75, sz * 1.15, sz]), col]);
+      }
+    };
+    ringOf(0.235, 15, 0.09, -0.09, 0, dark);     // outer, behind
+    ringOf(0.2, 13, 0.08, -0.04, 0.5, base);
+    ringOf(0.172, 11, 0.064, 0.02, 0.25, light);  // the fringe round the face
+    parts.push([P.ico1, mtx([-0.1, -0.03, 0], null, [0.08, 0.23, 0.23]), dark]);   // fills the back of the ring
+    return bake(parts);
+  });
+}
+// 16 wins + 120 revives: celestial lion, the fur looks made of outer space (screen-space stars over a drifting
+// nebula, a violet rim light)
+function cosmicMaterial() {
+  return cmat('cosmic', () => new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    // (instanceMatrix: the wings' feathers are one instanced mesh)
+    vertexShader: `varying vec3 vN; varying vec3 vV;
+      void main() {
+        vec4 p = vec4(position, 1.0); vec3 nn = normal;
+      #ifdef USE_INSTANCING
+        p = instanceMatrix * p; nn = mat3(instanceMatrix) * nn;
+      #endif
+        vec4 mv = modelViewMatrix * p; vN = normalize(normalMatrix * nn); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `uniform float uTime; varying vec3 vN; varying vec3 vV;
+      float h(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float n(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(h(i), h(i + vec2(1.0, 0.0)), f.x), mix(h(i + vec2(0.0, 1.0)), h(i + vec2(1.0, 1.0)), f.x), f.y); }
+      // signed distance to a five-pointed star (radius r, inner ratio rf; Inigo Quilez's sdStar5)
+      float star5(vec2 p, float r, float rf) {
+        const vec2 k1 = vec2(0.809016994375, -0.587785252292);
+        const vec2 k2 = vec2(-0.809016994375, -0.587785252292);
+        p.x = abs(p.x);
+        p -= 2.0 * max(dot(k1, p), 0.0) * k1;
+        p -= 2.0 * max(dot(k2, p), 0.0) * k2;
+        p.x = abs(p.x);
+        p.y -= r;
+        vec2 ba = rf * vec2(-k1.y, k1.x) - vec2(0.0, 1.0);
+        float hh = clamp(dot(p, ba) / dot(ba, ba), 0.0, r);
+        return length(p - ba * hh) * sign(p.y * ba.x - p.x * ba.y);
+      }
+      void main() {
+        vec2 uv = gl_FragCoord.xy / 70.0;
+        float neb = n(uv * 0.8 + uTime * 0.04) * 0.6 + n(uv * 2.1 - uTime * 0.06) * 0.4;
+        vec3 col = mix(vec3(0.03, 0.02, 0.13), vec3(0.36, 0.1, 0.6), neb);
+        col = mix(col, vec3(0.05, 0.4, 0.7), smoothstep(0.55, 0.9, n(uv * 1.3 + 7.0)) * 0.7);
+        // stars: small five-pointed stars (one maybe per 12-pixel cell, at a random spot, size and turn), with a soft glow
+        vec2 cc = gl_FragCoord.xy / 12.0, g = floor(cc); float s = h(g);
+        vec2 q = fract(cc) - (vec2(0.3) + 0.4 * vec2(h(g + 3.1), h(g + 8.7)));
+        float a = h(g + 5.3) * 6.2831, ca = cos(a), sa = sin(a);
+        q = mat2(ca, -sa, sa, ca) * q;
+        float sz = 0.2 + 0.14 * h(g + 9.9), d = star5(q, sz, 0.45);
+        float star = step(0.78, s) * (smoothstep(0.035, -0.035, d) + 0.35 * smoothstep(sz * 1.3, 0.0, length(q)));
+        col += vec3(1.0, 0.95, 0.85) * star * (0.75 + 0.25 * sin(uTime * 1.5 + s * 60.0));   // a gentle, slow twinkle
+        float rim = pow(1.0 - max(dot(normalize(vN), normalize(vV)), 0.0), 2.2);
+        col += vec3(0.6, 0.45, 1.0) * rim;
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  }));
+}
+// 16 wins without the revives: the chrome moon lion, mirror-silver fur no kitty colour has, with slow bands of light
+// sweeping over it. One material per kitty: the bands are anchored to the kitty (uOrigin), so running doesn't make
+// them flash past
+function chromeFurMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uOrigin: { value: new THREE.Vector3() } },
+    vertexShader: `uniform vec3 uOrigin; varying vec3 vN; varying vec3 vR;
+      void main() {
+        vec4 w = modelMatrix * vec4(position, 1.0); vR = w.xyz - uOrigin;
+        vec4 mv = viewMatrix * w; vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `uniform float uTime; varying vec3 vN; varying vec3 vR;
+      void main() {
+        vec3 n = normalize(vN);
+        float lit = 0.72 + 0.28 * max(dot(n, normalize(vec3(0.3, 1.0, 0.4))), 0.0), rim = pow(1.0 - max(n.z, 0.0), 2.5);
+        vec3 sky = mix(vec3(0.22, 0.25, 0.32), vec3(0.96, 0.98, 1.0), smoothstep(-0.25, 0.65, n.y));
+        float band = smoothstep(0.88, 1.0, sin(vR.x * 4.0 + vR.z * 2.5 + vR.y * 3.0 - uTime * 1.3));
+        gl_FragColor = vec4(sky * lit + vec3(1.0) * band * 0.6 + vec3(0.85, 0.9, 1.0) * rim * 0.55, 1.0);
+      }`,
+  });
+}
+// 120+ revives: medevac rotor blades spinning on the kitty's back
+function rotorGeometry(len) {
+  return cgeo('rotor:' + len, () => bake([
+    [P.box, mtx([0, 0, 0], null, [len, 0.008, 0.035]), 0x3b4250],
+    [P.box, mtx([0, 0, 0], [0, Math.PI / 2, 0], [len, 0.008, 0.035]), 0x3b4250],
+    [P.cyl8, mtx([0, 0.006, 0], null, [0.025, 0.02, 0.025]), 0xe2493b],
+  ]));
 }
 
 // ---------------------------------------------------------------------------

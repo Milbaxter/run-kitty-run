@@ -630,6 +630,92 @@ function createEffects(scene) {
     soft.data[p + DRAG] = 1.2; soft.data[p + SHAPE] = SHAPE_STAR; soft.data[p + ROT] = rr(0, TAU); soft.data[p + SPIN] = rr(-1.2, 1.2);
   }
 
+  // celestial lion (16 wins + 120 revives): a trail of little stars of space (violet, blue, white) that
+  // drift and twinkle out behind the kitty
+  const COSMIC_COLS = [0x7a4dff, 0x3f7dff, 0xffffff, 0xb05cff, 0x2ec5ff, 0x5a2dbf];
+  // (n stars, spread around the point, lift: how high above y they start; the wing tips use a thin stream)
+  function cosmicTrail(x, y, z, n = 3, spread = 0.2, lift = 0.5, size = 1) {
+    for (let k = 0; k < n; k++) {
+      _trailCol.set(COSMIC_COLS[(rand() * COSMIC_COLS.length) | 0]);
+      const p = emit(soft, x + rr(-spread, spread), y + rr(0.1, 0.1 + lift), z + rr(-spread, spread), rr(-0.08, 0.08), rr(0.05, 0.25), rr(-0.08, 0.08),
+        rr(1.0, 1.7), rr(0.2, 0.4) * size, 0.1, _trailCol.r, _trailCol.g, _trailCol.b, 1);
+      if (p < 0) return;
+      soft.data[p + DRAG] = 2;
+      soft.data[p + SHAPE] = SHAPE_STAR; soft.data[p + ROT] = rr(0, TAU); soft.data[p + SPIN] = rr(-2, 2);   // all stars (plain specks read as cubes)
+    }
+  }
+
+  // ---------------------------------------------------------------- calling card (120+ revives)
+  // The rescuer's cat icon (the player card's, in their colour) left on the ground where they saved
+  // a kitty: pops in, stays a few seconds, fades. One texture per colour.
+  const cardTex = new Map();
+  // The rescuer's cat icon as their player card shows it (5+ wins: sunglasses, rainbow cat: the sliding rainbow fur)
+  const RAINBOW = ['#ff5a5a', '#ffb84a', '#f4f05a', '#6ef08a', '#5ac8ff', '#b47cff'];
+  function drawCard(g, col, cool, phase) {
+    const INK = '#2b1840', P = (d) => new Path2D(d);
+    g.clearRect(0, 0, 256, 256);
+    g.save(); g.translate(128 - 20 * 5.6, 128 - 20 * 5.6); g.scale(5.6, 5.6);   // the cat fills the card
+    g.lineJoin = 'round'; g.lineCap = 'round';
+    const head = P('M5 4 L15 12 Q20 10.5 25 12 L35 4 L33.5 20 Q34 34.5 20 35.5 Q6 34.5 6.5 20 Z');
+    if (phase != null) {   // the HUD's rainbow: diagonal stripes, one repeat 40 wide, sliding
+      const gr = g.createLinearGradient(-40 * phase, -24 * phase, 80 - 40 * phase, 48 - 24 * phase);
+      for (let r = 0; r < 2; r++) RAINBOW.forEach((c, i) => gr.addColorStop((r + i / 6) / 2, c));
+      gr.addColorStop(1, RAINBOW[0]);
+      g.save(); g.clip(head); g.fillStyle = gr; g.fillRect(0, 0, 80, 48); g.restore();
+    } else { g.fillStyle = col; g.fill(head); }
+    g.strokeStyle = INK; g.lineWidth = 2.6; g.stroke(head);
+    g.fillStyle = '#ff9ec4'; g.fill(P('M8.5 9 L13 12.6 L9.6 15.5 Z M31.5 9 L27 12.6 L30.4 15.5 Z'));
+    if (cool) {
+      g.strokeStyle = '#ffd34a'; g.lineWidth = 1.6; g.stroke(P('M5 19.6 L10 18.8 M35 19.6 L30 18.8 M18.4 20.2 Q20 18.6 21.6 20.2'));
+      g.fillStyle = '#1e1a2b'; g.lineWidth = 1;
+      g.beginPath(); g.ellipse(14, 21.6, 4.8, 4.2, 0, 0, TAU); g.fill(); g.stroke();
+      g.beginPath(); g.ellipse(26, 21.6, 4.8, 4.2, 0, 0, TAU); g.fill(); g.stroke();
+      g.strokeStyle = '#fff'; g.lineWidth = 1.2; g.stroke(P('M11.4 19.8 L14.6 19.1 M23.4 19.8 L26.6 19.1'));
+    } else {
+      g.fillStyle = INK; g.beginPath(); g.ellipse(14.3, 21.5, 2.3, 3.1, 0, 0, TAU); g.ellipse(25.7, 21.5, 2.3, 3.1, 0, 0, TAU); g.fill();
+      g.fillStyle = '#fff'; g.beginPath(); g.arc(15, 20.4, 0.9, 0, TAU); g.arc(26.4, 20.4, 0.9, 0, TAU); g.fill();
+    }
+    g.strokeStyle = INK;
+    const nose = P('M18.2 26.4 L21.8 26.4 L20 28.6 Z');
+    g.fillStyle = '#ff6f9f'; g.fill(nose); g.lineWidth = 1; g.stroke(nose);
+    g.lineWidth = 1.3; g.stroke(P('M20 28.6 Q18.5 31 16.5 30 M20 28.6 Q21.5 31 23.5 30'));
+    g.restore();
+  }
+  function cardTexture(color, cool, rainbow) {
+    const key = (color >>> 0) + (cool ? ':c' : '');
+    if (!rainbow && cardTex.has(key)) return cardTex.get(key);
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    drawCard(c.getContext('2d'), '#' + new THREE.Color(color).getHexString(), cool, rainbow ? 0 : null);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    if (!rainbow) cardTex.set(key, t);   // (a rainbow card animates: its own canvas)
+    return t;
+  }
+  const cards = [];
+  const CARD_GEO = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+  const CARD_LIFE = 3.6;
+  function callingCard(x, z, color, look = {}) {
+    const map = cardTexture(color, !!look.cool, !!look.rainbow);
+    const mat = new THREE.MeshBasicMaterial({ map, transparent: true, opacity: 0, depthWrite: false });
+    const m = new THREE.Mesh(CARD_GEO, mat);
+    m.position.set(x, 0.07, z);
+    m.renderOrder = 4;   // over the floor marks
+    scene.add(m);
+    cards.push({ m, age: 0, rainbow: look.rainbow ? { cool: !!look.cool, col: color } : null });
+  }
+  function updateCards(dt) {
+    for (let i = cards.length - 1; i >= 0; i--) {
+      const c = cards[i];
+      c.age += dt;
+      if (c.age >= CARD_LIFE) { scene.remove(c.m); if (c.rainbow) c.m.material.map.dispose(); c.m.material.dispose(); cards.splice(i, 1); continue; }
+      if (c.rainbow) { drawCard(c.m.material.map.image.getContext('2d'), null, c.rainbow.cool, (c.age / 2.2) % 1); c.m.material.map.needsUpdate = true; }   // (the HUD's 2.2 s slide)
+      const pop = Math.min(1, c.age / 0.3), v = pop - 1, k = 1 + 2.70158 * v * v * v + 1.70158 * v * v;   // ease-out-back
+      c.m.scale.setScalar(1.7 * k * (1 + 0.03 * Math.sin(c.age * 5)));
+      c.m.material.opacity = pop * Math.min(1, (CARD_LIFE - c.age) / 0.6);
+    }
+  }
+
   // ---------------------------------------------------------------- fireworks (the final run's victory party)
   // A rocket climbs from (x0, z0) to (x, y, z) leaving a sparkly trail, then bursts. opts:
   //   color, color2 (second burst colour), kind ('peony' | 'ring' | 'willow'), fuse (s), scale (particle count, 0..1),
@@ -797,6 +883,7 @@ function createEffects(scene) {
     updatePool(glow, dt);
     updatePool(soft, dt);
     updateRings(dt);
+    updateCards(dt);
     updateBeams(dt);
     updateTexts(dt);
     updateRockets(dt);
@@ -811,7 +898,7 @@ function createEffects(scene) {
 
   return {
     burst, deathPoof, reviveBeam, pickup, teleport, shieldPop, dust, iceKick, confetti, firework, confettiRain, munch,
-    shake, getShakeOffset, floatText, update, medicTrail,
+    shake, getShakeOffset, floatText, update, medicTrail, cosmicTrail, callingCard,
   };
 }
 

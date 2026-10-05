@@ -126,6 +126,10 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-card .rkr-head svg{display:block;width:100%;height:100%;}
 .rkr-card .rkr-shades,.rkr-card .rkr-shades-broken{position:absolute;inset:0;display:none !important;}
 .rkr-card.rkr-cool:not(.rkr-down) .rkr-shades{display:block !important;}
+/* 12+ wins: the name shimmers through the rainbow (player card and scoreboard) */
+@keyframes rkr-shim{to{background-position:-300% 0;}}
+.rkr-card.rkr-shimmer .rkr-name,.rkr-scores .rkr-shim{background:linear-gradient(90deg,#ff6b81,#ffd56b,#6bff9a,#6bd5ff,#c27bff,#ff6b81);background-size:300% 100%;
+  -webkit-background-clip:text;background-clip:text;color:transparent !important;text-shadow:none;filter:drop-shadow(0 2px 0 rgba(0,0,0,.45));animation:rkr-shim 3s linear infinite;}
 .rkr-card.rkr-cool.rkr-down .rkr-shades-broken{display:block !important;}
 .rkr-card.rkr-cool.rkr-down .rkr-xeyes{display:none;}
 .rkr-card.rkr-rainbow .rkr-cat > path:first-child{fill:url(#rkr-rainbow-fur);}
@@ -541,6 +545,7 @@ function createUI(root) {
     if (p.name !== v.name) { v.name = p.name; card.name.textContent = p.name; card.root.dataset.name = p.name; }   // (hover label on a face)
     if (p.color !== v.color) { v.color = p.color; card.root.style.setProperty('--pc', hexColor(p.color)); }
     if (!!p.cool !== v.cool) { v.cool = !!p.cool; card.root.classList.toggle('rkr-cool', v.cool); }   // 5+ wins: sunglasses
+    if (!!p.shimmer !== v.shimmer) { v.shimmer = !!p.shimmer; card.root.classList.toggle('rkr-shimmer', v.shimmer); }   // 12+ wins: rainbow name
     if (!!p.you !== v.you) { v.you = !!p.you; card.root.classList.toggle('rkr-you', v.you); }
     if (!!p.rainbow !== v.rainbow) { v.rainbow = !!p.rainbow; card.root.classList.toggle('rkr-rainbow', v.rainbow); }   // every reward
     const alive = !!p.alive;
@@ -1222,7 +1227,7 @@ function createUI(root) {
     const rows = all.slice(0, 8);
     const meRow = all.find((p) => p.you);
     if (meRow && !rows.includes(meRow)) rows.push(meRow);
-    const key = rows.map((p) => `${p.name}|${p.score}|${p.me}|${p.crown}`).join(',') + '#' + best;
+    const key = rows.map((p) => `${p.name}|${p.score}|${p.me}|${p.crown}|${p.shimmer}`).join(',') + '#' + best;
     if (key === scoresKey) return;
     scoresKey = key;
     scoresEl.textContent = '';
@@ -1230,6 +1235,7 @@ function createUI(root) {
     for (const p of rows) {
       const r = el('div', 'rkr-sr' + (p.you ? ' rkr-me' : ''));
       const n = el('span'); n.textContent = (p.crown ? '👑 ' : '') + p.name; n.style.color = hexColor(p.color);
+      if (p.shimmer) n.classList.add('rkr-shim');   // 12+ wins
       const v = el('span'); v.textContent = (p.score > 0 ? '+' : '') + p.score;
       r.append(n, v);
       scoresEl.appendChild(r);

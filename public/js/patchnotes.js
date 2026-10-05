@@ -4,6 +4,8 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'New rewards for 9 to 16 wins (Run + Skate lets you get that far): at 9 your crown becomes a night crown with a crescent moon, and every win from 10 to 14 adds a golden star to it. 10: golden skates with rainbow blades. 11: a fluffy tail with a glowing tip. 12: your name shimmers through the rainbow on your player card and the scoreboard. 13, 14 and 15: the kittens in your backpack turn rainbow, one, two, then all of them. 14: a lion mane, and the moon on your crown starts to glow. 15: the moon turns into a moon cat. 16: you become a chrome moon lion, or a rainbow lion if you have 60+ revives, or a celestial lion made of outer space if you have 120+ revives',
+      'New reward for 120 revives: medevac rotor blades on your back, and every kitty you save gets your calling card, your cat face left on the ground for a few seconds',
       'The STATS page counts songs played',
       'The mode list starts with Run only, then Skate only, then Run + Skate (no longer the default)',
       'Run + Skate: every level is played twice now, first on foot by day and then on skates by night (the Skate only level, in its season). Reaching the goal by day is a checkpoint: everyone comes back and teleports onto the night rink, and clearing the night half takes you to the next level. Every crown counts toward your rewards, the day ones too. Level 9 stays as it was. Online, everyone in the lobby needs the latest version for this',

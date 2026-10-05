@@ -689,6 +689,7 @@ function handleEvents(events) {
         const p = playerById(ev.playerId);
         const by = playerById(ev.by);
         if (mine(ev.playerId) || mine(ev.by)) haptic('medium');
+        if (by && (by.rescues || 0) >= 120) effects.callingCard(ev.x, ev.z, by.color, { cool: (by.finishes || 0) >= 5, rainbow: (by.finishes || 0) >= 8 });   // 120+ revives: the rescuer's calling card, as their player card looks
         effects.reviveBeam(ev.x, ev.z, p ? p.color : 0xffffff);
         effects.floatText(ev.x, 1.6, ev.z, 'SAVED!', p ? hexCss(p.color) : '#fff');
         audio.play('revive', { pan: panFor(ev.x) });
@@ -1360,19 +1361,40 @@ function syncVisuals(dt, alpha) {
     ka.boots = Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST); ka.invuln = p.invuln; ka.shield = p.shield; ka.time = t;
     ka.crown = !!p.crowned; ka.crownStones = Math.max(0, Math.min(5, wins - 1)); ka.aura = wins >= 3; ka.auraColor = k.fx; ka.sunglasses = wins >= 5; ka.rainbowBoots = wins >= 7; ka.auraCycle = wins >= 6;
     ka.backpack = wins >= 8; ka.packColors = ka.backpack ? packColors(k, p) : null;
+    // wins 9-16: night crown (9) and its stars (10-14), golden skates (10), fluffy tail
+    // with a glowing tip (11), a rainbow name (12, ui.js), backpack kittens turning rainbow (13: one, 14: two, 15: all),
+    // lion (14; at 16 a celestial or silver lion, see below). 120 revives: medevac rotor blades on the back
+    ka.moonCrown = wins >= 9; ka.crownStars = Math.max(0, Math.min(5, wins - 9));
+    ka.goldSkates = wins >= 10; ka.fluffyTail = wins >= 11;
+    ka.packRainbow = wins >= 15 ? 99 : wins >= 14 ? 2 : wins >= 13 ? 1 : 0;
+    // 14: the lion (and the crown's moon lights up); 16: celestial lion with 120 revives, the rainbow cat stays rainbow
+    // (60+ revives), otherwise the chrome moon lion; 120 revives: the medevac rotor
+    const res = p.rescues || 0;
+    ka.lion = wins >= 14; ka.moonGlow = wins >= 14; ka.moonCat = wins >= 15;   // 15: the crown's moon becomes a moon cat
+    ka.celestial = wins >= 16 && res >= 120; ka.silver = wins >= 16 && res < 60; ka.rotor = res >= 120;
     // revive rewards (rescues this run): 10+ medic cape, 30+ a trail of little stars of life, 60+ angel wings (they add up)
     const saves = p.rescues || 0;
     ka.cape = saves >= 10; ka.wings = saves >= 60;
     ka.rainbowCat = wins >= 8 && saves >= 60;   // every win reward and every revive reward: rainbow fur
     if (DEBUG_LOOK.has('crown')) ka.crown = true;
     if (DEBUG_LOOK.has('pack')) { ka.backpack = true; ka.packColors = DEBUG_PACK; }
-    if (saves >= 30 && p.alive && speed > 1) {
+    if (saves >= 30 && !ka.celestial && p.alive && speed > 1) {   // (celestial lion: its own space trail instead, below)
       k.heartT = (k.heartT || 0) - dt;
       if (k.heartT <= 0) {
         k.heartT = 0.11;
         // 6+ wins: each star a step further round the rainbow, so the trail is a rainbow
         const col = ka.auraCycle ? _trailRainbow.setHSL((t * 1.6 + (k.rbOff ??= Math.random())) % 1, 1, 0.55) : p.color;
         effects.medicTrail(x - Math.cos(p.heading) * 0.35, k.climb || 0, z - Math.sin(p.heading) * 0.35, col);
+      }
+    }
+    if (ka.celestial && p.alive && speed > 0.5) {   // celestial lion: a trail of space behind
+      k.cosT = (k.cosT || 0) - dt;
+      if (k.cosT <= 0) {
+        k.cosT = 0.045;
+        const cy = k.climb || 0, fx = Math.cos(p.heading), fz = Math.sin(p.heading);
+        effects.cosmicTrail(x - fx * 0.4, cy, z - fz * 0.4);
+        // a thin stream of stars off each open wing's tip (rig space: 0.1 back, 0.62 up, 0.65 out to each side)
+        for (const side of [1, -1]) effects.cosmicTrail(x - fx * 0.1 - fz * 0.65 * side, cy + 0.52, z - fz * 0.1 + fx * 0.65 * side, 1, 0.04, 0.12, 0.55);
       }
     }
     k.model.update(dt, ka);
@@ -1436,13 +1458,14 @@ function updateHUD() {
     const me = online.playing ? p.id === online.me : true, you = online.playing && p.id === online.me;
     let r = hudScores[i];
     if (!r) r = hudScores[i] = {};
-    if (r.name !== p.name || r.color !== p.color || r.score !== score || r.crown !== crown || r.me !== me || r.you !== you) {
-      r.name = p.name; r.color = p.color; r.score = score; r.crown = crown; r.me = me; r.you = you;
+    const shimmer = (p.finishes || 0) >= 12;   // 12+ wins: a rainbow name on the scoreboard
+    if (r.name !== p.name || r.color !== p.color || r.score !== score || r.crown !== crown || r.me !== me || r.you !== you || r.shimmer !== shimmer) {
+      r.name = p.name; r.color = p.color; r.score = score; r.crown = crown; r.me = me; r.you = you; r.shimmer = shimmer;
       dirty = true;
     }
     let h = hudPlayers[i];
     if (!h) h = hudPlayers[i] = {};
-    h.name = p.name; h.color = p.color; h.cool = (p.finishes || 0) >= 5; h.rainbow = (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
+    h.name = p.name; h.color = p.color; h.cool = (p.finishes || 0) >= 5; h.shimmer = (p.finishes || 0) >= 12; h.rainbow = (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
   }
   if (dirty) ui.setScores(hudScores);
   hudData.level = sim.levelData.level || sim.level; hudData.time = sim.time; hudData.rescues = sim.stats.rescues;

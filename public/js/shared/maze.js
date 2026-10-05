@@ -1,4 +1,4 @@
-import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES } from './config.js';
+import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, stageOf } from './config.js';
 import { createRng, hashSeed, ipow, legPoint } from './rng.js';
 import { buildPlan, patternPose, patternSpeed } from './enemies.js';
 
@@ -1482,7 +1482,15 @@ function generateCombo(L, seed, v = 3) {
 // 2 = + the wide skate final run (Skate only / Run + Skate level 9), 3 = + Run + Skate's level 9 is both final runs in a row
 // (generateCombo), 4 = + skate levels' goal rooms without their three wolves behind the disc. Online rooms use the newest
 // every member has.
+// Run + Skate's day / night steps (config.js stageOf): by day exactly Run only's level, by night exactly Skate only's
 function generateLevel(level, seed, mode = 'mixed', fv = 0) {
+  const st = stageOf(mode, fv, level);
+  if (st.day) return generateLevelCore(st.level, seed, 'run', Math.min(fv, 11));
+  if (st.night) return generateLevelCore(st.level, seed, 'ice', Math.min(fv, 12));
+  return generateLevelCore(st.level, seed, mode, fv);
+}
+
+function generateLevelCore(level, seed, mode = 'mixed', fv = 0) {
   const v = fv === true ? 1 : +fv || 0;
   if (v >= 3 && mode === 'mixed' && (Math.max(1, level | 0)) === SKATE_FINAL_LEVEL) return generateCombo(SKATE_FINAL_LEVEL, seed, v);
   const L = Math.max(1, level | 0);

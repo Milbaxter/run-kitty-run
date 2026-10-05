@@ -104,6 +104,21 @@ const NET = {
 const SKATE_FINAL_LEVEL = 9;
 const FINAL_MODES = ['mixed', 'ice'];
 
+// Run + Skate from level version 13 (DAY_NIGHT_FV): every level is played twice, first by day on foot (Run only's
+// level) and then by night on skates (Skate only's); reaching the day goal is a checkpoint (everyone revives and
+// teleports to the night rink). Internally each half is its own step (sim.level): 1 = level 1 by day, 2 = level 1 by
+// night, ..., 16 = level 8 by night, 17 = level 9 (the final run, unchanged).
+const DAY_NIGHT_FV = 13;
+function stageOf(mode, fv, step) {
+  if (mode !== 'mixed' || (fv | 0) < DAY_NIGHT_FV) return { level: step, day: false, night: false };
+  const level = Math.min(SKATE_FINAL_LEVEL, Math.ceil(step / 2));
+  if (level >= SKATE_FINAL_LEVEL) return { level, day: false, night: false };
+  return { level, day: step % 2 === 1, night: step % 2 === 0 };
+}
+// the step that starts a level (by night: its second half)
+const stageStep = (mode, fv, level, night = false) => (mode === 'mixed' && (fv | 0) >= DAY_NIGHT_FV
+  ? (level >= SKATE_FINAL_LEVEL ? 2 * SKATE_FINAL_LEVEL - 1 : 2 * level - 1 + (night ? 1 : 0)) : level);
+
 // Online protocol version, sent by clients in their first 'hi' message (net.js). Bump it whenever the sim or netcode
 // changes incompatibly (anything that would desync an older client); the server's MODE_MIN_PROTOCOL / MIN_PROTOCOL
 // then decide who gets an "update" notice. App store builds lag the web by days, so avoid bumping casually.
@@ -123,6 +138,7 @@ const FINAL_MODES = ['mixed', 'ice'];
 //  14 = running levels 1-8: wolves rest as long in every lane, no shorter rests toward the middle (finale version 10, rf 10)
 //  15 = items: 8 a level (autumn 4 + the tree boots), at most 2 hearts and 3 shields, level 9's tree has big boots (finale version 11, rf 11)
 //  16 = Skate only's levels 1-8: the seasons from winter, as floodlit night levels (finale version 12, rf 12)
-const PROTOCOL_VERSION = 16;
+//  17 = Run + Skate: every level by day (Run only's) then by night (Skate only's), see DAY_NIGHT_FV (finale version 13, rf 13)
+const PROTOCOL_VERSION = 17;
 
-export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION };
+export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION, DAY_NIGHT_FV, stageOf, stageStep };

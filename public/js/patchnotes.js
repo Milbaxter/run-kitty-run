@@ -4,6 +4,8 @@ const PATCH_NOTES = [
   {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
+      'The mode list starts with Run only, then Skate only, then Run + Skate (no longer the default)',
+      'Run + Skate: every level is played twice now, first on foot by day and then on skates by night (the Skate only level, in its season). Reaching the goal by day is a checkpoint: everyone comes back and teleports onto the night rink, and clearing the night half takes you to the next level. Every crown counts toward your rewards, the day ones too. Level 9 stays as it was. Online, everyone in the lobby needs the latest version for this',
       'Big games: with more than 5 kitties, everyone else\'s card shrinks to a little face in their colour (red with X eyes when they\'re down), so the whole team fits on screen. Your own card stays full size, and on a computer you can hover a face to see who it is',
       'Online, your own card is always at the top of the list',
       'New soundtrack: two new songs',

@@ -1,4 +1,4 @@
-import { CFG } from './config.js';
+import { CFG, stageOf } from './config.js';
 import { hashSeed } from './rng.js';
 import { generateLevel, collideCircle, inCenter, onIce, inTree } from './maze.js';
 import { createEnemies, updateEnemies } from './enemies.js';
@@ -55,7 +55,8 @@ function makeLevel(sim, level) {
   sim.levelTime = 0;
   sim.state = 'playing';
   sim.stateTimer = 0;
-  if (level > sim.stats.bestLevel) sim.stats.bestLevel = level;
+  const shown = sim.levelData.level || level;   // (Run + Skate day / night: both halves are the same level)
+  if (shown > sim.stats.bestLevel) sim.stats.bestLevel = shown;
 }
 
 function spawnPoint(levelData, index) {
@@ -131,7 +132,7 @@ function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales
   const sim = {
     seed: seed == null ? 0 : seed,
     mode: GAME_MODES.includes(mode) ? mode : 'mixed',
-    finales: Math.max(0, Math.min(12, finales | 0)),
+    finales: Math.max(0, Math.min(13, finales | 0)),
     level: lvl,
     time: 0,
     levelTime: 0,
@@ -180,7 +181,7 @@ function movePlayer(sim, p, inp, dt) {
     if (!inp.none && inp.x * inp.x + inp.z * inp.z < 0.01) p.waitRelease = false;
     else inp = { x: 0, z: 0 };
   }
-  const maxSpeed = CFG.KITTY_SPEED * p.speedMult * (inp.m ? CFG.MUSIC_BOOST_LEVEL[sim.level] || CFG.MUSIC_BOOST : 1);   // (inp.m: sound on, see MUSIC_BOOST)
+  const maxSpeed = CFG.KITTY_SPEED * p.speedMult * (inp.m ? CFG.MUSIC_BOOST_LEVEL[ld.level || sim.level] || CFG.MUSIC_BOOST : 1);   // (inp.m: sound on, see MUSIC_BOOST)
   const tx = inp.x * maxSpeed;
   const tz = inp.z * maxSpeed;
   const curSpeed = Math.sqrt(p.vx * p.vx + p.vz * p.vz);
@@ -347,7 +348,7 @@ function stepSim(sim, inputs, dt) {
         if (p.lives >= CFG.MAX_EXTRA_LIVES) take = false;   // (already has one: left for a friend, even on HEART_BOOT_LEVEL)
         else {
           p.lives = Math.min(CFG.MAX_EXTRA_LIVES, p.lives + 1);
-          if (sim.level === CFG.HEART_BOOT_LEVEL) p.speedMult = Math.min(CFG.SPEED_MULT_MAX, p.speedMult + CFG.SPEED_BOOST);   // a pair of boots too
+          if ((sim.levelData.level || sim.level) === CFG.HEART_BOOT_LEVEL) p.speedMult = Math.min(CFG.SPEED_MULT_MAX, p.speedMult + CFG.SPEED_BOOST);   // a pair of boots too
         }
       } else if (it.type === 'shield') {
         p.shield = CFG.SHIELD_TIME;
@@ -415,7 +416,7 @@ function stepSim(sim, inputs, dt) {
       dead.inCenter = false;
       dead.invuln = 0; // no grace period after a friend's revive
       rescuer.rescues++;
-      if (sim.level === CFG.REVIVE_DOUBLE_LEVEL) rescuer.bonus = (rescuer.bonus || 0) + 1;   // (scores double, REVIVE_DOUBLE_LEVEL)
+      if ((sim.levelData.level || sim.level) === CFG.REVIVE_DOUBLE_LEVEL) rescuer.bonus = (rescuer.bonus || 0) + 1;   // (scores double, REVIVE_DOUBLE_LEVEL)
       sim.stats.rescues++;
       sim.circles.splice(c, 1);
       events.push({ type: 'revive', playerId: dead.id, by: rescuer.id, x: circ.x, z: circ.z });
@@ -535,18 +536,27 @@ function stepSim(sim, inputs, dt) {
       if (players.length > 0) {
         sim.state = 'gameover';
         sim.stateTimer = 0;
-        events.push({ type: 'gameOver', level: sim.level });
+        events.push({ type: 'gameOver', level: ld.level || sim.level });
       }
     } else if (crownBy) {
       // the crown's been grabbed (from inside the goal disc): its kitty clears the level
       const by = crownBy;
+      if (stageOf(sim.mode, sim.finales, sim.level).day) {
+        // Run + Skate by day: a checkpoint, not a cleared level; everyone revives on the night rink (nextLevel). The
+        // crown still counts as a win (the cosmetic rewards)
+        by.finishes = (by.finishes || 0) + 1;
+        events.push({ type: 'stageClear', level: ld.level, by: by.id });
+        sim.state = 'levelclear';
+        sim.stateTimer = CFG.LEVEL_CLEAR_TIME;
+      } else {
       by.finishes = (by.finishes || 0) + 1;
       sim.stats.levelsCleared++;
-      events.push({ type: 'levelClear', level: sim.level, by: by.id });
+      events.push({ type: 'levelClear', level: ld.level || sim.level, by: by.id });
       if (ld.finale) win(sim, by, events);
       else {
         sim.state = 'levelclear';
         sim.stateTimer = CFG.LEVEL_CLEAR_TIME;
+      }
       }
     }
   } else if (sim.state === 'victory') {
@@ -583,7 +593,7 @@ function win(sim, by, events) {
     party.push(p.id);
   }
   sim.circles = [];
-  events.push({ type: 'victory', level: sim.level, by: by.id, time: sim.levelTime, party });
+  events.push({ type: 'victory', level: sim.levelData.level || sim.level, by: by.id, time: sim.levelTime, party });
 }
 
 function justDied(events, playerId) {

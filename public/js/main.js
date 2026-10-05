@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET } from './shared/config.js';
+import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET, DAY_NIGHT_FV, stageOf, stageStep } from './shared/config.js';
 import { hashSeed } from './shared/rng.js';
 import { collideCircle, onIce, inTree, levelHash } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
@@ -29,6 +29,7 @@ import { NATIVE, haptic, plugin, call, storeUrl, openExternal, APP_VERSION } fro
 
 const params = new URLSearchParams(location.search);
 const DEBUG_LEVEL = Math.max(1, parseInt(params.get('level') || '1', 10) || 1);
+const DEBUG_NIGHT = params.has('night');   // ?level=3&night: Run + Skate's level 3 by night
 const DEBUG_MODE = ['mixed', 'run', 'ice'].includes(params.get('mode')) ? params.get('mode') : undefined; // offline testing: ?mode=ice
 // local testing only (localhost): ?wins=7 starts every offline kitty with that many wins and a crown (all run rewards)
 const DEBUG_WINS = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? Math.max(0, parseInt(params.get('wins') || '0', 10) || 0) : 0;
@@ -438,7 +439,7 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
 function startSim(players, startLevel, simMode = DEBUG_MODE) {
-  sim = createSim({ seed: newSeed(), players, startLevel, mode: simMode, finales: 12 });
+  sim = createSim({ seed: newSeed(), players, startLevel: stageStep(simMode || 'mixed', DAY_NIGHT_FV, startLevel, DEBUG_NIGHT), mode: simMode, finales: DAY_NIGHT_FV });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   accumulator = 0;
@@ -649,16 +650,18 @@ function handleEvents(events) {
         for (const k of kitties.values()) k.paws.clear(); // prints belong to the old map
         for (const p of sim.players) effects.teleport(p.x, p.z, p.color);
         const finale = !!sim.levelData.finale;
+        const L = sim.levelData.level || ev.level, night = stageOf(sim.mode, sim.finales, sim.level).night;
         if (finale) ui.banner('WELCOME TO HELL', 'Think you can escape?', 4200, 'finale');
-        else ui.banner(`LEVEL ${ev.level}`, levelSubtitle(ev.level), 2200);
+        else if (night) ui.banner(`LEVEL ${L} · NIGHT`, 'Lace up your skates!', 2200);
+        else ui.banner(`LEVEL ${L}`, levelSubtitle(L), 2200);
         if (audio.isMuted() && !soundHintShown) {
           soundHintShown = true;
           ui.toast('Sound is off. Press M or click the speaker to turn it on', '#b9a4ff');
         }
         audio.play(finale ? 'finale' : 'levelStart');
         if (finale) effects.shake(0.35);
-        musicPlay(ev.level);
-        cameraSnap = cameraSnap || ev.level === DEBUG_LEVEL;
+        musicPlay(L);
+        cameraSnap = cameraSnap || L === DEBUG_LEVEL;
         // the final run: the camera stays on the start square, pushing in, until you touch anything
         intro = finale ? { sim, t: 0 } : null;
         break;
@@ -736,6 +739,16 @@ function handleEvents(events) {
           // the disc only makes you safe: the crown in the middle clears the level (wait for your friends first)
           if (mine(p.id) && !sim.crownTaken) ui.toast(sim.players.length > 1 ? 'Safe! Grab the crown in the middle when your team is ready' : 'Safe! Grab the crown in the middle to finish', '#ffcf5a');
         }
+        break;
+      }
+      case 'stageClear': {
+        // Run + Skate by day: the goal is a checkpoint, the night half of the same level comes next
+        haptic('success');
+        effects.confetti(0, 0);
+        effects.shake(0.2);
+        const by = playerById(ev.by);
+        ui.banner(by && sim.players.length > 1 ? `${by.name.toUpperCase()} MADE IT!` : 'MADE IT!', 'Night falls… off to the ice!', 2000);
+        audio.play('levelClear');
         break;
       }
       case 'levelClear': {
@@ -844,7 +857,7 @@ function updateVictory(dt) {
     v.nextFw += v.t < 10 ? 0.25 + Math.random() * 0.4 : 0.9 + Math.random() * 1.5; // a big show, then a calmer one
   }
   if (v.t < 7) effects.confettiRain(0, 0, 10, Math.max(1, Math.round(3 * QUALITY.particles)));
-  if (!v.musicBack && v.t > 4.8) { v.musicBack = true; musicFadeIn(sim.level); }
+  if (!v.musicBack && v.t > 4.8) { v.musicBack = true; musicFadeIn(sim.levelData.level || sim.level); }
   if (view && view.fish) {
     if (!v.feastCue && v.t > 2.4) { v.feastCue = true; if (!view.fish.done()) { const h = view.fish.headPos(); effects.floatText(h.x * 0.75, 2.4, h.z * 0.75, 'FISH FEAST!', '#ffb27a'); } }
     if (v.shown) ui.updateVictoryFish(Math.floor(view.fish.eaten() * 100));
@@ -1391,7 +1404,7 @@ const feedback = createFeedback(document.getElementById('ui'), {
   getContext: () => {
     if (mode !== 'play' || !sim) return { name: '', mode: 'title', level: 0 };
     const me = online.playing ? sim.players.find((p) => p.id === online.me) : sim.players[0];
-    return { name: me ? me.name : '', mode: online.playing ? 'online' : playerCount === 2 ? 'coop' : 'solo', level: sim ? sim.level : 0 };
+    return { name: me ? me.name : '', mode: online.playing ? 'online' : playerCount === 2 ? 'coop' : 'solo', level: sim ? sim.levelData.level || sim.level : 0 };
   },
 });
 
@@ -1432,7 +1445,7 @@ function updateHUD() {
     h.name = p.name; h.color = p.color; h.cool = (p.finishes || 0) >= 5; h.rainbow = (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
   }
   if (dirty) ui.setScores(hudScores);
-  hudData.level = sim.level; hudData.time = sim.time; hudData.rescues = sim.stats.rescues;
+  hudData.level = sim.levelData.level || sim.level; hudData.time = sim.time; hudData.rescues = sim.stats.rescues;
   ui.setHUD(hudData);
 }
 
@@ -1931,7 +1944,7 @@ function tick(dt) {
       if (sim !== runSim) return; // a new run already started
       if (online.menu) { online.menu = false; ui.hidePause(); }   // the game-over card replaces the online menu
       ui.showGameOver({
-        level: sim.level, deaths: sim.stats.deaths, rescues: sim.stats.rescues,
+        level: sim.levelData.level || sim.level, deaths: sim.stats.deaths, rescues: sim.stats.rescues,
         time: sim.time,
         // alone: nobody could revive you; nudge toward friends
         alone: sim.players.length === 1 ? (wasOnline ? 'online' : 'solo') : null,

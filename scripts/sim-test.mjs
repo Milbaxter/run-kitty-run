@@ -421,4 +421,31 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   ok(r.ok, 'maze self-test (2 levels)' + (r.ok ? '' : ':\n  ' + r.problems.join('\n  ')));
 }
 
+// ======== Run + Skate by day then by night (level version 13): by day Run only's level, by night Skate only's; the
+// day goal is a checkpoint (everyone revives on the night rink), only the night goal clears the level
+{
+  const sim = createSim({ seed: 21, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }], mode: 'mixed', finales: 13 });
+  stepSim(sim, {}, CFG.TICK);
+  const day = sim.levelData, [a, b] = sim.players;
+  ok(sim.level === 1 && day.level === 1 && !day.ice && !day.night, 'Run + Skate (v13): level 1 starts by day, on foot');
+  ok(JSON.stringify(day.enemies) === JSON.stringify(generateLevel(1, day.seed, 'run', 11).enemies), "Run + Skate (v13): by day it's Run only's level");
+  b.alive = false; b.deaths = 1; sim.circles.push({ playerId: 2, x: b.x, z: b.z, t: 0 });
+  a.x = 0; a.z = 0;
+  let ev = stepSim(sim, {}, CFG.TICK);
+  ok(ev.some((e) => e.type === 'stageClear' && e.level === 1) && !ev.some((e) => e.type === 'levelClear') && a.finishes === 1 && sim.stats.levelsCleared === 0, 'Run + Skate (v13): the day goal is a checkpoint, not a cleared level (its crown still counts as a win)');
+  for (let t = 0; t < 60 * 4 && sim.level === 1; t++) stepSim(sim, {}, CFG.TICK);
+  const night = sim.levelData;
+  ok(sim.level === 2 && night.level === 1 && night.ice && night.night, 'Run + Skate (v13): then level 1 by night, on the ice');
+  ok(sim.players.every((p) => p.alive) && sim.circles.length === 0, 'Run + Skate (v13): everyone revives for the night half');
+  ok(JSON.stringify(night.enemies) === JSON.stringify(generateLevel(1, night.seed, 'ice', 12).enemies), "Run + Skate (v13): by night it's Skate only's level");
+  a.x = 0; a.z = 0; a.invuln = 99;
+  ev = stepSim(sim, {}, CFG.TICK);
+  ok(ev.some((e) => e.type === 'levelClear' && e.level === 1) && a.finishes === 2 && sim.stats.levelsCleared === 1, 'Run + Skate (v13): the night goal clears level 1');
+  for (let t = 0; t < 60 * 4 && sim.level === 2; t++) stepSim(sim, {}, CFG.TICK);
+  ok(sim.level === 3 && sim.levelData.level === 2 && !sim.levelData.ice, 'Run + Skate (v13): then level 2 by day');
+  const fin = generateLevel(17, 5, 'mixed', 13);
+  ok(fin.finale && fin.level === SKATE_FINAL_LEVEL && fin.checkpoints.some((c) => c.medic), 'Run + Skate (v13): step 17 is the unchanged level 9 final run');
+  ok(!generateLevel(2, 5, 'mixed', 12).night && generateLevel(2, 5, 'mixed', 12).level === 2, 'Run + Skate before v13: one level per level, as before');
+}
+
 console.log(process.exitCode ? 'FAIL sim-test' : 'PASS sim-test');

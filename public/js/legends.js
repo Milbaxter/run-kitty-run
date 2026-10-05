@@ -8,7 +8,7 @@ import { cleanForApp } from './net.js';
 import { TOUCH } from './device.js';
 
 const MAX = 140;
-const MODES = { mixed: 'Default (Run + Skate)', run: 'Run only', ice: 'Skate only' };
+const MODES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
 
 const CSS = `
 .rkg-wrap{position:absolute;inset:0;z-index:45;display:flex;align-items:center;justify-content:flex-end;pointer-events:none;

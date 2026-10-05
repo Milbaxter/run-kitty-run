@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { CFG, NET, PLAYER_COLORS, PLAYER_NAMES, SKATE_FINAL_LEVEL } from '../public/js/shared/config.js';
+import { CFG, NET, PLAYER_COLORS, PLAYER_NAMES, SKATE_FINAL_LEVEL, stageStep } from '../public/js/shared/config.js';
 import { hashSeed } from '../public/js/shared/rng.js';
 import { GAME_MODES, createSim, stepSim, addPlayer, removePlayer } from '../public/js/shared/sim.js';
 import { serializeEnemies } from '../public/js/shared/enemies.js';
@@ -30,14 +30,14 @@ const MODE_MIN_PROTOCOL = { ice: 4, mixed: 4, run: 4 };
 // Finale versions (sim.finales, see maze.js generateLevel): the protocol each needs. A room plays the newest version
 // every member has (older clients would build the older level 9 and desync); once it plays one, older clients can't
 // join it mid-game.
-const FINALE_PROTOCOL = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];   // 1 = Run only's level 9 final run, 2 = the wide skate final run, 3 = Run + Skate's both in a row, 4 = skate goal rooms without their back wolves, 5 = no lane-before-last wolf turning in the open, 6 = junction chargers, 7 = wolves per lane, 8 = running levels' long lanes, 9 = their other lanes, 10 = running levels' rests, 11 = items, 12 = Skate only's night seasons
+const FINALE_PROTOCOL = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];   // 1 = Run only's level 9 final run, 2 = the wide skate final run, 3 = Run + Skate's both in a row, 4 = skate goal rooms without their back wolves, 5 = no lane-before-last wolf turning in the open, 6 = junction chargers, 7 = wolves per lane, 8 = running levels' long lanes, 9 = their other lanes, 10 = running levels' rests, 11 = items, 12 = Skate only's night seasons, 13 = Run + Skate by day then by night
 const finalesOf = (members) => Math.min(...members.map((m) => FINALE_PROTOCOL.filter((p) => m.v >= p).length - 1));
 // the newest finale version that changes this mode's levels (older ones build them the same): Run only 1 and 8 to 11,
-// Skate only 2, 4 to 7, 11 and 12, Run + Skate 2 to 11
-const finaleFor = (mode, f) => (mode === 'run' ? (f >= 8 ? Math.min(f, 11) : Math.min(f, 1)) : mode === 'ice' ? (f >= 11 ? f : f >= 4 ? Math.min(f, 7) : f >= 2 ? 2 : 0) : (f === 1 ? 0 : Math.min(f, 11)));   // (12: Skate only only)
+// Skate only 2, 4 to 7, 11 and 12, Run + Skate 2 to 11 and 13
+const finaleFor = (mode, f) => (mode === 'run' ? (f >= 8 ? Math.min(f, 11) : Math.min(f, 1)) : mode === 'ice' ? (f >= 11 ? Math.min(f, 12) : f >= 4 ? Math.min(f, 7) : f >= 2 ? 2 : 0) : (f >= 13 ? 13 : f === 1 ? 0 : Math.min(f, 11)));   // (12: Skate only only)
 const runFinaleOk = (client, room) => !(room.phase === 'playing' && room.sim) || client.v >= FINALE_PROTOCOL[finaleFor(room.mode, room.sim.finales | 0)];
 const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
-const MODE_NAMES = { mixed: 'Default (Run + Skate)', run: 'Run only', ice: 'Skate only' };
+const MODE_NAMES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
 const updateHow = (client) => (client.app === 'web' ? 'reload the page' : 'update the app');
 const APPS = ['web', 'ios', 'android'];
 // Test hooks (scripts/server-test.mjs): 'start' may pick a level and 'dbg' can drop a kitty in the goal.
@@ -355,7 +355,7 @@ function lobbyList(client) {
     list.push({
       code: r.code, players: r.members.length, max: r.max || NET.MAX_PLAYERS, phase: r.phase, locked: !!r.pass,
       host: (r.members.find((m) => m.id === r.hostId) || r.members[0]).name,
-      level: r.sim ? r.sim.level : 0, mode: r.mode,
+      level: r.sim ? r.sim.levelData.level || r.sim.level : 0, mode: r.mode,
     });
   }
   return list.sort((a, b) => (a.phase === 'lobby' ? 0 : 1) - (b.phase === 'lobby' ? 0 : 1) || b.players - a.players).slice(0, 30);
@@ -487,7 +487,7 @@ function startGame(room, startLevel = 1) {
   room.left = new Map();
   const seed = hashSeed(Date.now(), Math.random(), room.code) >>> 0;
   room.sim = createSim({
-    seed, startLevel, mode: room.mode, finales: finalesOf(room.members),
+    seed, startLevel: stageStep(room.mode, finalesOf(room.members), startLevel), mode: room.mode, finales: finalesOf(room.members),
     players: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
   });
   for (const m of room.members) { m.inputs.clear(); m.lastInput = null; }

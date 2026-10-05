@@ -68,7 +68,7 @@ const ui = createUI(document.getElementById('ui'));
 
 // Soundtrack: a playlist of mp3s next to index.html, played one after the other on repeat.
 // Plain <audio> element. A track that fails to load is skipped; if all fail, procedural music plays.
-const PLAYLIST = ['music/catjam1.mp3', 'music/catjam2.mp3'];
+const PLAYLIST = ['music/catjam2.mp3', 'music/catjam3.mp3'];   // (catjam1.mp3 is resting for now)
 let trackIdx = 0;
 const badTracks = new Set();
 // No src until the first real play(): nothing (4+ MB) is fetched at load, or ever while muted.
@@ -82,10 +82,10 @@ function playTrack() {
   track.play().catch(() => { /* needs a user gesture; retried on input */ });
 }
 // Which songs play (remembered): 'both' (one after the other) or the index of one song, played on a loop
-const MUSIC_CHOICES = ['both', '0', '1'];
+const MUSIC_CHOICES = ['both', ...PLAYLIST.map((_, i) => String(i))];   // ('both': all songs, the old name kept for saved choices)
 let musicChoice = 'both';
 try { const v = localStorage.getItem('rkr-music'); if (MUSIC_CHOICES.includes(v)) musicChoice = v; } catch { /* ignore */ }
-function musicLabel() { return musicChoice === 'both' ? 'MUSIC: BOTH SONGS' : `MUSIC: SONG ${+musicChoice + 1} ON LOOP`; }
+function musicLabel() { return musicChoice === 'both' ? (PLAYLIST.length === 2 ? 'MUSIC: BOTH SONGS' : 'MUSIC: ALL SONGS') : `MUSIC: SONG ${+musicChoice + 1} ON LOOP`; }
 function applyMusicChoice() {
   const one = musicChoice === 'both' ? -1 : +musicChoice;
   track.loop = one >= 0;

@@ -122,8 +122,8 @@ function drawChart(canvas, days) {
   g.fillStyle = 'rgba(255,255,255,.7)'; g.fillText('played that day', padL + 136, padT - 5);
 }
 
-// the soundtrack's average song length (music/catjam1-2.mp3: 3:00 and 3:05): songs played = time played / this
-const SONG_SECONDS = 182;
+// the soundtrack's average song length (music/catjam2-3.mp3: 3:05 and 3:23): songs played = time played / this
+const SONG_SECONDS = 194;
 
 let styled = false;
 function openStatsPage(root) {

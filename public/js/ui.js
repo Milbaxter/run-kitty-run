@@ -62,6 +62,10 @@ const CSS = `
 .rkr-root *{box-sizing:border-box;}
 .rkr-root svg{display:block;}
 .rkr-hidden{display:none !important;}
+/* account total (account.js): a little gold tag under the cat icon */
+.rkr-card .rkr-paid{position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);font-size:10px;font-weight:900;line-height:1;white-space:nowrap;
+  color:#ffd56b;background:rgba(20,8,40,.85);padding:2px 4px;border-radius:6px;text-shadow:none;}
+.rkr-cards.rkr-tiny .rkr-card:not(.rkr-you) .rkr-paid{display:none;}
 
 /* ---------------- HUD ---------------- */
 .rkr-hud{position:absolute;inset:0;pointer-events:none;transition:opacity .4s;}
@@ -427,6 +431,7 @@ function restartAnim(node, cls) {
 // ---------------------------------------------------------------------------
 
 function createUI(root) {
+  let accountHandler = null, acctBtn = null, acctLabel = '';   // title screen account button (account.js)
   injectStyle();
   root.classList.add('rkr-root');
 
@@ -519,7 +524,7 @@ function createUI(root) {
 
   function makeCard() {
     const c = el('div', 'rkr-card',
-      `<div class="rkr-head">${ICONS.cat}${SHADES_SVG}${SHADES_BROKEN_SVG}</div>
+      `<div class="rkr-head">${ICONS.cat}${SHADES_SVG}${SHADES_BROKEN_SVG}<span class="rkr-paid rkr-hidden"></span></div>
        <div class="rkr-cbody">
          <div class="rkr-crow"><span class="rkr-name"></span><span class="rkr-status">ALIVE</span><span class="rkr-hearts"></span></div>
          <div class="rkr-crow"><span class="rkr-boots">${ICONS.boots}<span>+0%</span></span></div>
@@ -534,7 +539,8 @@ function createUI(root) {
       bootsTxt: c.querySelector('.rkr-boots > span'),
       shieldRow: c.querySelector('.rkr-shield'),
       shieldFill: c.querySelector('.rkr-sfill'),
-      v: { name: null, color: null, alive: null, lives: null, speed: null, shield: null },
+      paid: c.querySelector('.rkr-paid'),
+      v: { paid: 0, name: null, color: null, alive: null, lives: null, speed: null, shield: null },
     };
     cardsEl.appendChild(c);
     return refs;
@@ -546,6 +552,7 @@ function createUI(root) {
     if (p.color !== v.color) { v.color = p.color; card.root.style.setProperty('--pc', hexColor(p.color)); }
     if (!!p.cool !== v.cool) { v.cool = !!p.cool; card.root.classList.toggle('rkr-cool', v.cool); }   // 5+ wins: sunglasses
     if (!!p.shimmer !== v.shimmer) { v.shimmer = !!p.shimmer; card.root.classList.toggle('rkr-shimmer', v.shimmer); }   // 12+ wins: rainbow name
+    if ((p.paid | 0) !== v.paid) { v.paid = p.paid | 0; card.paid.textContent = '$' + (v.paid / 100).toFixed(2); card.paid.classList.toggle('rkr-hidden', !v.paid); }
     if (!!p.you !== v.you) { v.you = !!p.you; card.root.classList.toggle('rkr-you', v.you); }
     if (!!p.rainbow !== v.rainbow) { v.rainbow = !!p.rainbow; card.root.classList.toggle('rkr-rainbow', v.rainbow); }   // every reward
     const alive = !!p.alive;
@@ -931,7 +938,11 @@ function createUI(root) {
     const fbBtn = el('button', 'rkr-statsbtn', '💡 FEEDBACK');
     fbBtn.addEventListener('click', () => { if (feedbackHandler) feedbackHandler(); });
     const footl = el('div', 'rkr-footl');
-    footl.append(statsBtn, fbBtn);
+    // optional account (account.js): hidden until accounts are on; shows your total once you've paid
+    acctBtn = el('button', 'rkr-statsbtn rkr-hidden');
+    acctBtn.addEventListener('click', () => { if (accountHandler) accountHandler(); });
+    if (acctLabel) { acctBtn.textContent = acctLabel; acctBtn.classList.remove('rkr-hidden'); }
+    footl.append(statsBtn, fbBtn, acctBtn);
     o.appendChild(footl);
     titleBtns = [...o.querySelectorAll('.rkr-btn')];
     titleBtns.forEach((b) => {
@@ -1260,6 +1271,14 @@ function createUI(root) {
   function setMusicControl(c) { musicCtl = c; }
   let feedbackHandler = null;
   function onFeedbackClick(fn) { feedbackHandler = fn; }
+  function onAccountClick(fn) { accountHandler = fn; }
+  // title screen account button: label, or '' to hide it
+  function setAccountButton(label) {
+    acctLabel = label || '';
+    if (!acctBtn) return;
+    acctBtn.textContent = acctLabel;
+    acctBtn.classList.toggle('rkr-hidden', !acctLabel);
+  }
   function onMenuClick(fn) { menuHandler = fn; }
   function isOverlayOpen() { return state.title || state.pause || state.gameOver || state.victory; }
 
@@ -1295,7 +1314,7 @@ function createUI(root) {
 
   return {
     showTitle, hideTitle, setHUD, updateMinimap, banner, toast, setScores,
-    showPause, hidePause, showGameOver, hideGameOver, setMusicControl, gameOverSlot: () => (goEl ? goEl.querySelector('.rkr-goslot') : null), setMutedIcon, isOverlayOpen, onMuteClick, onFeedbackClick, onMenuClick,
+    showPause, hidePause, showGameOver, hideGameOver, setMusicControl, gameOverSlot: () => (goEl ? goEl.querySelector('.rkr-goslot') : null), setMutedIcon, isOverlayOpen, onMuteClick, onFeedbackClick, onAccountClick, setAccountButton, onMenuClick,
     showVictory, hideVictory, updateVictoryFish, isVictoryOpen: () => state.victory, navigate, hideHUD,
     showNotice, hideNotice, setBlocker, setVictoryHidden,
     isTitleOpen: () => state.title, isGameOverOpen: () => state.gameOver,

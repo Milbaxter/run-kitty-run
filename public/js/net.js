@@ -59,6 +59,7 @@ function createNet() {
     connected: false,
     id: 0,
     rtt: 100,          // ms, smoothed
+    acct: () => '',    // account session token (main.js sets this to account.token)
     on(type, fn) { handlers.set(type, fn); },
     connect() {
       if (net.outdated) return;
@@ -72,7 +73,7 @@ function createNet() {
         lastMsgAt = performance.now();
         // handshake first: lets the server tell old app builds to update
         if (!tok) tok = tabToken();
-        ws.send(JSON.stringify({ t: 'hi', v: PROTOCOL_VERSION, app: PLATFORM, ver: APP_VERSION, tok }));
+        ws.send(JSON.stringify({ t: 'hi', v: PROTOCOL_VERSION, app: PLATFORM, ver: APP_VERSION, tok, acct: net.acct() || undefined }));
         while (queue.length) ws.send(queue.shift());
         emit('open', {});
         clearInterval(pingT);

@@ -20,6 +20,7 @@ import { createPadNav } from './padnav.js';
 import { prefColor, localSlots } from './kittycolor.js';
 import { createChat } from './chat.js';
 import { createFeedback } from './feedback.js';
+import { createAccount, fmtPaid } from './account.js';
 import { createLegends } from './legends.js';
 import { analytics, openStatsPage } from './analytics.js';
 import { TOUCH, QUALITY, goFullscreenLandscape, setKeepAwake, hideSplash } from './device.js';
@@ -1432,6 +1433,7 @@ const feedback = createFeedback(document.getElementById('ui'), {
 
 ui.onFeedbackClick(() => feedback.open());
 
+
 const hudScores = [], hudPlayers = [];
 const hudData = { level: 0, players: hudPlayers, time: 0, rescues: 0 };
 let hudScoresOff = false;
@@ -1466,6 +1468,7 @@ function updateHUD() {
     let h = hudPlayers[i];
     if (!h) h = hudPlayers[i] = {};
     h.name = p.name; h.color = p.color; h.cool = (p.finishes || 0) >= 5; h.shimmer = (p.finishes || 0) >= 12; h.rainbow = (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
+    h.paid = online.playing ? ((online.roster.get(p.id) || {}).paid | 0) : i === 0 ? account.paid() : 0;   // account total
   }
   if (dirty) ui.setScores(hudScores);
   hudData.level = sim.levelData.level || sim.level; hudData.time = sim.time; hudData.rescues = sim.stats.rescues;
@@ -1481,6 +1484,16 @@ function updateHUD() {
 //  - reconciles its kitty on each snapshot (server state + replay of unacknowledged inputs);
 //  - shows other kitties extrapolated from their last snapshot to the same "present" as the wolves.
 const net = createNet();
+// optional account: your total shows next to your name online (and on your card offline)
+const account = createAccount(document.getElementById('ui'));
+net.acct = account.token;
+account.onChange(() => {
+  ui.setAccountButton(!account.enabled() ? '' : account.paid() ? '💰 ' + fmtPaid(account.paid()) : '💰 YOUR NUMBER');
+  if (net.connected) net.send({ t: 'acct', acct: account.token() || '' });
+});
+ui.onAccountClick(() => account.open());
+account.init();
+
 const lobbyUI = createLobbyUI(document.getElementById('ui'), {
   // opts: { max: how many kitties may join, password: '' = public } (lobby.js)
   onCreate: (name, mode, opts = {}) => net.send({ t: 'create', name, mode, color: prefColor(), max: opts.max, password: opts.password || '' }),
@@ -1676,7 +1689,7 @@ function beginOnlineGame(m) {
   online.menu = false;
   mode = 'play';
   paused = false;
-  for (const p of m.players) online.roster.set(p.id, p);
+  for (const p of m.players) online.roster.set(p.id, { ...online.roster.get(p.id), ...p });   // (keeps the room's paid totals)
   playerCount = m.players.length;
   removeKitties();
   sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode, finales: +m.rf || 0 });

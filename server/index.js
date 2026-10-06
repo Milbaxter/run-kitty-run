@@ -12,6 +12,7 @@ import { serializeEnemies } from '../public/js/shared/enemies.js';
 import { levelHash } from '../public/js/shared/maze.js';
 import { createStats } from './stats.js';
 import { createLegends } from './legends.js';
+import { createAccounts } from './accounts.js';
 import { pregenNext } from './levelgen.js';
 
 const PORT = +process.env.PORT || 8080;
@@ -63,6 +64,10 @@ const REJOIN_GRACE_MS = 60e3;
 const stats = createStats(process.env.STATS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'stats.json'));
 // Legends board (online winners sign it; see legends.js), next to the feedback file too.
 const legends = createLegends(process.env.LEGENDS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'legends.json'));
+// optional accounts (Google + Stripe): the total a player paid shows next to their name online
+const accounts = createAccounts(process.env.ACCOUNTS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'accounts.json'));
+const accountHits = new Map(); // ip -> { tok, at } (token bucket)
+setInterval(() => { const now = Date.now(); for (const [ip, h] of accountHits) if (now - h.at > 600e3) accountHits.delete(ip); }, 600e3).unref();
 const SIGN_RATE = 0.2, SIGN_BURST = 3;     // legends: sign / edit your line
 const LEGENDS_RATE = 0.5, LEGENDS_BURST = 3; // legends: ask for the board again (after a reconnect)
 // Oldest client protocol still accepted at all (see PROTOCOL_VERSION in shared/config.js). App store builds lag the
@@ -129,12 +134,20 @@ function handleHttp(req, res) {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         'Access-Control-Max-Age': '86400',
       }).end();
       return;
     }
     if (url.pathname === '/api/feedback') { handleFeedback(req, res); return; }
+    if (url.pathname === '/api/stripe/webhook' && req.method === 'POST') { accounts.webhook(req, res); return; }
+    if (url.pathname.startsWith('/api/account/')) {
+      const ip = clientIp(req), now = Date.now(), h = accountHits.get(ip) || { tok: 20, at: now };
+      h.tok = Math.min(20, h.tok + (now - h.at) / 1000 * 0.5); h.at = now; accountHits.set(ip, h);   // 20 burst, 1 per 2s
+      if (h.tok < 1) { res.writeHead(429, { 'Content-Type': 'application/json' }).end('{"ok":false,"msg":"Slow down a little!"}'); return; }
+      h.tok -= 1;
+      if (accounts.handle(req, res, url.pathname.slice('/api/account/'.length))) return;
+    }
     if (url.pathname === '/api/legends') { handleLegends(req, res); return; }
     if (url.pathname === '/api/event' || url.pathname === '/api/stats') { stats.handle(req, res, clientIp(req), () => wss.clients.size); return; }
     res.writeHead(404, { 'Content-Type': 'application/json' }).end('{"ok":false}');
@@ -338,7 +351,7 @@ function roomInfo(room) {
   return {
     t: 'room', code: room.code, host: room.hostId, phase: room.phase, mode: room.mode, max: room.max || NET.MAX_PLAYERS,
     locked: !!room.pass, pass: room.pass || undefined,   // private lobby: its members see the password (to pass it on)
-    members: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color, app: m.app })),
+    members: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color, app: m.app, paid: m.paid || undefined })),   // paid: cents (accounts.js)
   };
 }
 
@@ -659,10 +672,18 @@ wss.on('connection', (ws, req) => {
         client.app = APPS.includes(msg.app) ? msg.app : 'web';
         client.ver = String(msg.ver ?? '').replace(/[^\w.+-]/g, '').slice(0, 16);
         if (typeof msg.tok === 'string' && /^[\w-]{8,64}$/.test(msg.tok)) client.tok = msg.tok; // reconnect grace (net.js)
+        client.paid = accounts.paidFor(msg.acct);   // signed-in account: its total shows next to the name
         if (v < MIN_PROTOCOL) {
           send(ws, { t: 'outdated', msg: 'A new version of Run Kitty Run is out - update to keep playing online.' });
           ws.close(4000, 'outdated');
         }
+        break;
+      }
+      case 'acct': {
+        // signed in / out (or paid more) after connecting
+        if (!take(client, 'lobby', LOBBY_RATE, LOBBY_BURST, Date.now())) return;
+        const paid = accounts.paidFor(msg.acct);
+        if (paid !== (client.paid || 0)) { client.paid = paid; if (room) sendRoom(room); }
         break;
       }
       case 'report':
@@ -824,6 +845,7 @@ process.on('uncaughtException', (err) => {
   console.error('uncaught:', err);
   try { stats.flush(); } catch { /* ignore */ }
   try { legends.flush(); } catch { /* ignore */ }
+  try { accounts.flush(); } catch { /* ignore */ }
   process.exit(1);
 });
 
@@ -838,6 +860,7 @@ function shutdown() {
   for (const ws of wss.clients) { try { ws.close(1012, 'restarting'); } catch { /* ignore */ } }
   stats.flush();
   legends.flush();
+  accounts.flush();
   server.close();
   setTimeout(() => process.exit(0), 300);
 }

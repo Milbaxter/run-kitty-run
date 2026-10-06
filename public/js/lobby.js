@@ -50,6 +50,10 @@ const CSS = `
 .rkl-link{font-size:13px;font-weight:700;opacity:.75;word-break:break-all;user-select:text;-webkit-user-select:text;}
 .rkl-invite{min-width:220px;}
 .rkl-plat{font-size:13px;flex:none;opacity:.85;}
+.rkl-slot .rkl-cat{position:relative;}
+/* account total (account.js): a little gold tag under the cat icon, like on the in-game card */
+.rkl-paid{position:absolute;left:50%;bottom:-8px;transform:translateX(-50%);font-size:9px;font-weight:900;line-height:1;white-space:nowrap;
+  color:#ffd56b;background:rgba(20,8,40,.85);padding:2px 3px;border-radius:5px;pointer-events:none;}
 @media (max-height:500px){ .rkl-invite{padding:8px 22px 10px!important;} }
 /* lobby browser: header, "you" row, then join (left) / start your own (right) */
 .rkr-glass.rkl-bbox{max-width:880px;text-align:left;align-items:stretch;gap:12px;padding:16px 20px 18px;}
@@ -550,6 +554,7 @@ function createLobbyUI(root, cb) {
       pn.textContent = m ? m.name : 'open';
       if (m && m.id === info.you) pn.appendChild(el('span', 'rkl-you', '(you)'));
       s.append(cat, pn);
+      if (m && m.paid > 0) cat.appendChild(el('span', 'rkl-paid', '$' + (m.paid / 100).toFixed(2)));
       if (m && PLAT[m.app]) {
         const b = el('span', 'rkl-plat');
         b.textContent = PLAT[m.app][0];

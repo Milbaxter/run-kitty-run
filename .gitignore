@@ -6,6 +6,8 @@ feedback.jsonl*
 reports.jsonl*
 stats.json*
 legends.json*
+accounts.json*
+payments.jsonl*
 
 # Capacitor web build
 www/
@@ -50,3 +52,4 @@ fastlane/README.md
 fastlane/Preview.html
 *.p8
 .bundle/
+.env.local

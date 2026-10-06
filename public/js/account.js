@@ -105,7 +105,7 @@ function createAccount(root) {
       try {
         const j = await api('confirm', { session: paid });
         A.account = j.account; changed();
-        open({ thanks: j.paid, msg: j.paid ? '' : 'Your payment is still processing; your number updates as soon as it clears.' });
+        open({ thanks: j.paid, msg: j.paid ? '' : 'Your payment is still processing; your total updates as soon as it clears.' });
       } catch (e) { open({ err: e.message }); }
     }
   }
@@ -120,7 +120,7 @@ function createAccount(root) {
     return d;
   }
 
-  // one modal, three states: signed out (Google button), signed in (pick an amount), paid (your number + add more)
+  // one modal, three states: signed out (Google button), signed in (pick an amount), paid (your total + add more)
   function open(opts = {}) {
     if (!A.enabled) return;
     close();
@@ -139,7 +139,7 @@ function createAccount(root) {
     const a = A.account;
 
     if (!A.token || !a) {
-      box.append(el('h2', null, 'YOUR NUMBER'),
+      box.append(el('h2', null, 'CREATE SWAG ACCOUNT'),
         el('div', 'rkr-gsub', `Totally optional. Chip in whatever you like (from ${fmtPaid(A.cfg.min)}) and the total shows next to your kitty for everyone online.`));
       const g = el('div', 'rka-gbtn');
       box.append(g, msg, fine('By signing in you agree to the '), closeBtn);
@@ -164,10 +164,10 @@ function createAccount(root) {
 
     const paid = Number(a.paid) || 0;
     if (paid > 0) {
-      box.append(el('h2', null, opts.thanks ? 'THANK YOU!' : 'YOUR NUMBER'), el('div', 'rka-big', fmtPaid(paid)),
+      box.append(el('h2', null, opts.thanks ? 'THANK YOU!' : 'YOUR SWAG ACCOUNT'), el('div', 'rka-big', fmtPaid(paid)),
         el('div', 'rkr-gsub', 'Shows next to your kitty online. Add more any time, it only goes up.'));
     } else {
-      box.append(el('h2', null, 'YOUR NUMBER'),
+      box.append(el('h2', null, 'CREATE SWAG ACCOUNT'),
         el('div', 'rkr-gsub', `Hi ${a.name || 'there'}! How much? Whatever you pick shows next to your kitty for everyone online.`));
     }
     let cents = 50;
@@ -211,7 +211,7 @@ function createAccount(root) {
     });
     links.append(out, del);
     box.append(amts, custom, row, msg,
-      fine(`Signed in as ${a.email}. One-time payment through Stripe, no subscription. Your number shows right away, so payments can't be refunded. `), links);
+      fine(`Signed in as ${a.email}. One-time payment through Stripe, no subscription. Your total shows right away, so payments can't be refunded. `), links);
     sync();
     if (opts.msg || opts.err) say(opts.err || opts.msg, opts.err ? 'err' : opts.thanks ? 'ok' : '');
     root.appendChild(modal);

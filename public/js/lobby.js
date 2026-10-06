@@ -1,6 +1,6 @@
 // Online lobby screens (browser + room), styled with the same rkr-* look as ui.js.
 // All player-supplied text is inserted with textContent.
-import { fmtPaid } from './account.js';
+import { fmtNum } from './account.js';
 import { createColorRow, prefColor, P2_COLOR_KEY } from './kittycolor.js';
 import { PLAYER_COLORS, PLAYER_NAMES } from './shared/config.js';
 import { inviteUrl, share } from './platform.js';
@@ -555,7 +555,7 @@ function createLobbyUI(root, cb) {
       pn.textContent = m ? m.name : 'open';
       if (m && m.id === info.you) pn.appendChild(el('span', 'rkl-you', '(you)'));
       s.append(cat, pn);
-      if (m && m.paid > 0) cat.appendChild(el('span', 'rkl-paid', fmtPaid(m.paid)));
+      if (m && m.paid > 0) cat.appendChild(el('span', 'rkl-paid', fmtNum(m.paid)));
       if (m && PLAT[m.app]) {
         const b = el('span', 'rkl-plat');
         b.textContent = PLAT[m.app][0];

@@ -34,6 +34,7 @@ const TOKEN_KEY = 'rkr-acct';
 const SYMBOLS = { eur: '€', usd: '$', gbp: '£' };
 let symbol = '€';
 const fmtPaid = (c) => symbol + (c / 100).toFixed(2);
+const fmtNum = (c) => (c / 100).toFixed(2);   // in game (lobby slots, player cards): just the number
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -224,4 +225,4 @@ function createAccount(root) {
   };
 }
 
-export { createAccount, fmtPaid };
+export { createAccount, fmtPaid, fmtNum };

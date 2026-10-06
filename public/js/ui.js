@@ -4,7 +4,7 @@ import { TOUCH } from './device.js';
 import { NATIVE, APP_VERSION, SERVER_ORIGIN, openExternal } from './platform.js';
 import { PATCH_NOTES } from './patchnotes.js';
 import { openStatsPage } from './analytics.js';
-import { createColorPicker, localSlots } from './kittycolor.js';
+import { localSlots } from './kittycolor.js';
 
 // Run Kitty Run — UI layer (DOM + injected CSS + 2D canvas minimap).
 // Contract notes / interpretations:
@@ -912,27 +912,10 @@ function createUI(root) {
         ${NATIVE ? `<div class="rkr-legal"><a data-page="privacy">Privacy</a>&middot;<a data-page="terms">Terms</a>&middot;<a data-page="support">Support</a>&middot;<span>v${esc(APP_VERSION)}</span></div>` : ''}
       </div>`;
     o.prepend(paws);
-    // preferred kitty colour (kittycolor.js): player 1 offline, and asked for when joining a lobby
-    const paintPlayers = () => {
-      const s = localSlots(2);
-      o.querySelector('.rkr-p1').style.color = hexColor(PLAYER_COLORS[s[0]]);
-      o.querySelector('.rkr-p2').style.color = hexColor(PLAYER_COLORS[s[1]]);
-    };
-    // kitty colour + which songs play (main.js: both one after the other, or one on a loop), side by side
-    const prefs = el('div', 'rkr-prefs');
-    prefs.style.cssText = 'display:flex;gap:10px;justify-content:center;align-items:flex-start;flex-wrap:wrap;';
-    prefs.appendChild(createColorPicker(paintPlayers));
-    if (musicCtl) {
-      const mb = el('button', 'rkcp-btn rkr-musicbtn');
-      mb.type = 'button';
-      mb.title = 'Which songs play: both, or one on a loop';
-      mb.textContent = '🎵 ' + musicCtl.label();
-      mb.addEventListener('mousedown', (e) => e.preventDefault());   // keep Enter / gamepad on the menu buttons
-      mb.addEventListener('click', () => { mb.textContent = '🎵 ' + musicCtl.cycle(); });
-      prefs.appendChild(mb);
-    }
-    o.querySelector('.rkr-btns').after(prefs);
-    paintPlayers();
+    // the controls panel shows players 1 and 2 in their preferred kitty colours (picked on the setup / online screens)
+    const s = localSlots(2);
+    o.querySelector('.rkr-p1').style.color = hexColor(PLAYER_COLORS[s[0]]);
+    o.querySelector('.rkr-p2').style.color = hexColor(PLAYER_COLORS[s[1]]);
     o.querySelectorAll('.rkr-legal a').forEach((a) => a.addEventListener('click', () => openExternal(`${SERVER_ORIGIN}/${a.dataset.page}.html`)));
     const credits = el('div', 'rkr-credits', 'made by <a href="https://www.instagram.com/ben.bhc/" target="_blank" rel="noopener">Benjamin</a> and <a href="https://x.com/milimithrandir" target="_blank" rel="noopener">Maximilian</a>');
     o.appendChild(credits);
@@ -1004,10 +987,18 @@ function createUI(root) {
         <div class="rkr-gsub">${online ? 'Online games keep running. Watch out!' : 'The kitties are taking a little nap.'}</div>
         <button class="rkr-btn">RESUME</button>
         ${onLeave ? '<button class="rkr-btn rkr-alt rkr-leave">LEAVE GAME</button>' : ''}
+        ${musicCtl ? '<button class="rkr-statsbtn rkr-musicbtn" title="Which songs play: both, or one on a loop"></button>' : ''}
         <div class="rkr-keyhint"><span class="rkr-k rkr-wide">Enter</span> or <span class="rkr-k">P</span> to resume &middot; <span class="rkr-k">M</span> mute</div>
       </div>`;
     pauseEl.querySelector('.rkr-btn').addEventListener('click', resume);
     if (onLeave) pauseEl.querySelector('.rkr-leave').addEventListener('click', () => { hidePause(); onLeave(); });
+    // which songs play (main.js: both one after the other, or one on a loop)
+    const mb = pauseEl.querySelector('.rkr-musicbtn');
+    if (mb) {
+      mb.textContent = '🎵 ' + musicCtl.label();
+      mb.addEventListener('mousedown', (e) => e.preventDefault());   // keep Enter on RESUME
+      mb.addEventListener('click', () => { mb.textContent = '🎵 ' + musicCtl.cycle(); });
+    }
     root.appendChild(pauseEl);
     state.pause = true;
   }

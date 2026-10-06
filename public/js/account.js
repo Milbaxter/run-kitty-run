@@ -126,7 +126,7 @@ function createAccount(root) {
     return d;
   }
 
-  // one modal: signed out (Google button); signed in: the account menu, or the amount picker (opts.view 'pay')
+  // one modal: signed out (create one, or sign back in); signed in: the account menu, or the amount picker (opts.view 'pay')
   function open(opts = {}) {
     if (!A.enabled) return;
     close();
@@ -143,14 +143,19 @@ function createAccount(root) {
     const closeBtn = el('button', 'rkr-btn rkr-alt', 'CLOSE');
     closeBtn.addEventListener('click', close);
     const a = A.account;
+    const section = (title) => { const s = el('div', 'rka-sec'); s.appendChild(el('div', 'rka-sech', title)); return s; };
+    const sayOpts = () => { if (opts.msg || opts.err) say(opts.err || opts.msg, opts.err ? 'err' : opts.thanks || opts.ok ? 'ok' : ''); };
 
     if (!A.token || !a) {
-      box.append(el('h2', null, 'CREATE SWAG ACCOUNT'),
-        el('div', 'rkr-gsub', `Totally optional. Chip in whatever you like (from ${fmtPaid(A.cfg.min)}) and the total shows next to your kitty for everyone online (can toggle it on and off).`));
-      const g = el('div', 'rka-gbtn');
-      box.append(g, msg, fine('By signing in you agree to the '), closeBtn);
+      // Signed out: create one, or sign back in (another browser, cleared storage). Accounts are keyed by the Google
+      // account, so both buttons do the same thing: the same Google account always gets the same swag account back.
+      const create = section('NEW HERE?'), back = section('ALREADY HAVE ONE?');
+      const gNew = el('div', 'rka-gbtn'), gBack = el('div', 'rka-gbtn');
+      create.append(el('div', 'rka-note', `Totally optional. Chip in whatever you like (from ${fmtPaid(A.cfg.min)}) and the total shows next to your kitty for everyone online (can toggle it on and off).`), gNew);
+      back.append(el('div', 'rka-note', 'Sign in with the same Google account as before and your swag comes back, on any browser.'), gBack);
+      box.append(el('h2', null, 'SWAG ACCOUNT'), create, back, msg, fine('By signing in you agree to the '), closeBtn);
       loadGsi().then(() => {
-        if (!modal || !g.isConnected) return;
+        if (!modal || !gNew.isConnected) return;
         google.accounts.id.initialize({
           client_id: A.cfg.googleClientId,
           callback: async (r) => {
@@ -158,11 +163,14 @@ function createAccount(root) {
             try {
               const j = await api('google', { credential: r.credential });
               setSession(j.token, j.account);
-              open(Number(j.account && j.account.paid) > 0 ? {} : { view: 'pay' });
+              // always the account menu, never straight to paying (paying is only ever the player's own click)
+              open({ msg: Number(j.account && j.account.paid) > 0 ? 'Welcome back! Your swag is on this browser now.' : 'Signed in!', ok: true });
             } catch (e) { say(e.message, 'err'); }
           },
         });
-        google.accounts.id.renderButton(g, { theme: 'filled_black', size: 'large', shape: 'pill', text: 'continue_with' });
+        const look = { theme: 'filled_black', size: 'large', shape: 'pill' };
+        google.accounts.id.renderButton(gNew, { ...look, text: 'signup_with' });
+        google.accounts.id.renderButton(gBack, { ...look, text: 'signin_with' });
       }).catch((e) => say(e.message, 'err'));
       root.appendChild(modal);
       return;
@@ -170,8 +178,6 @@ function createAccount(root) {
 
     const paid = Number(a.paid) || 0;
     const shown = a.show !== false;
-    const section = (title) => { const s = el('div', 'rka-sec'); s.appendChild(el('div', 'rka-sech', title)); return s; };
-    const sayOpts = () => { if (opts.msg || opts.err) say(opts.err || opts.msg, opts.err ? 'err' : opts.thanks ? 'ok' : ''); };
 
     // Signed in: the account menu, one section per thing (stats & progress go in here later). The amount picker is
     // its own view (opts.view 'pay', with BACK).

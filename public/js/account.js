@@ -128,6 +128,8 @@ function createAccount(root) {
     const box = el('div', 'rkr-glass rka-box');
     modal.appendChild(box);
     modal.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') close(); });
+    box.tabIndex = -1;   // focus inside, so title / game keys don't fire behind the box
+    setTimeout(() => { if (modal && !modal.contains(document.activeElement)) box.focus(); }, 0);
     modal.addEventListener('keyup', (e) => e.stopPropagation());
     modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
     const msg = el('div', 'rka-msg' + (opts.err ? ' rka-err' : opts.thanks ? ' rka-ok' : ''), opts.err || opts.msg || '');

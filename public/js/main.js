@@ -20,7 +20,7 @@ import { createPadNav } from './padnav.js';
 import { prefColor, localSlots } from './kittycolor.js';
 import { createChat } from './chat.js';
 import { createFeedback } from './feedback.js';
-import { createAccount, fmtPaid } from './account.js';
+import { createAccount } from './account.js';
 import { createLegends } from './legends.js';
 import { analytics, openStatsPage } from './analytics.js';
 import { TOUCH, QUALITY, goFullscreenLandscape, setKeepAwake, hideSplash } from './device.js';
@@ -1488,7 +1488,7 @@ const net = createNet();
 const account = createAccount(document.getElementById('ui'));
 net.acct = account.token;
 account.onChange(() => {
-  ui.setAccountButton(!account.enabled() ? '' : account.paid() ? '💰 ' + fmtPaid(account.paid()) : '💰 YOUR NUMBER');
+  ui.setAccountButton(account.enabled() ? { paid: account.paid() } : null);
   if (net.connected) net.send({ t: 'acct', acct: account.token() || '' });
 });
 ui.onAccountClick(() => account.open());

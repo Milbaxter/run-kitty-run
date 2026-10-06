@@ -4,7 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
-      'Optional, on the website: sign in with Google and chip in whatever you like (from €0.50). The total shows as a little number under your cat, on your card and in lobbies, for everyone online. Add more any time, it only goes up. Press 💰 on the title screen',
+      'Optional, on the website: sign in with Google and chip in whatever you like (from €0.50). The total shows as a little number under your cat, on your card and in lobbies, for everyone online. Add more any time, it only goes up. Button 4 on the title screen: Create personal swag account',
     ],
   },
   {

@@ -234,6 +234,7 @@ html.rkr-touch .rkr-touchonly{display:block;}
   transition:transform .12s,box-shadow .12s,filter .12s;display:flex;flex-direction:column;align-items:center;gap:2px;}
 .rkr-btn small{font-size:.55em;letter-spacing:.02em;opacity:.75;font-weight:800;}
 .rkr-btn.rkr-alt{background:linear-gradient(180deg,#e3f7ff,#7fd8ff 55%,#5b9dff);}
+.rkr-btn.rkr-swag{background:linear-gradient(180deg,#ffe1f4,#ff9ad5 55%,#c77dff);}   /* 4: optional account (account.js) */
 .rkr-btn:hover,.rkr-btn.rkr-sel{transform:translateY(-3px) scale(1.04);filter:brightness(1.08);box-shadow:0 10px 0 #3a1650,0 18px 30px rgba(0,0,0,.45),0 0 0 5px rgba(255,255,255,.35);}
 .rkr-btn:active{transform:translateY(4px) scale(.98);box-shadow:0 3px 0 #3a1650,0 6px 14px rgba(0,0,0,.4);}
 .rkr-btn:focus:not(:focus-visible){outline:none;}
@@ -432,14 +433,14 @@ function restartAnim(node, cls) {
 // ---------------------------------------------------------------------------
 
 function createUI(root) {
-  let accountHandler = null, acctBtn = null, acctLabel = '';   // title screen account button (account.js)
+  let accountHandler = null, acctBtn = null, acctState = null;   // title screen button 4 (account.js)
   injectStyle();
   root.classList.add('rkr-root');
 
   const state = { title: false, pause: false, gameOver: false, victory: false };
   let onStartCb = null, onResumeCb = null, onRestartCb = null;
   // Title menu order (data-p = mode: 3 online, 1 solo, 2 local co-op); keys 1/2/3 follow this order.
-  const TITLE_ORDER = [3, 1, 2];
+  const titleOrder = () => (acctState ? [3, 1, 2, 4] : [3, 1, 2]);   // 4 = the account button, while accounts are on
   let titleSel = 3;
   let gameOverArmedAt = 0;
 
@@ -878,6 +879,7 @@ function createUI(root) {
           <button class="rkr-btn" data-p="3"><span><span class="rkr-kk">1</span>MULTIPLAYER</span><small>online, up to 32 kitties</small></button>
           <button class="rkr-btn" data-p="1"><span><span class="rkr-kk">2</span>SINGLE PLAYER</span><small>solo run</small></button>
           <button class="rkr-btn rkr-alt rkr-desk" data-p="2"><span><span class="rkr-kk">3</span>LOCAL CO-OP</span><small>2 players, one keyboard</small></button>
+          <button class="rkr-btn rkr-swag rkr-hidden" data-p="4"><span><span class="rkr-kk">4</span><b class="rkr-swagt"></b></span><small></small></button>
         </div>
         <div class="rkr-touchonly rkr-touchhint">Put your thumb down anywhere and drag: a joystick appears under it and steers your kitty.</div>
         <div class="rkr-info rkr-desk">
@@ -939,11 +941,10 @@ function createUI(root) {
     const fbBtn = el('button', 'rkr-statsbtn', '💡 FEEDBACK');
     fbBtn.addEventListener('click', () => { if (feedbackHandler) feedbackHandler(); });
     const footl = el('div', 'rkr-footl');
-    // optional account (account.js): hidden until accounts are on; shows your total once you've paid
-    acctBtn = el('button', 'rkr-statsbtn rkr-hidden');
-    acctBtn.addEventListener('click', () => { if (accountHandler) accountHandler(); });
-    if (acctLabel) { acctBtn.textContent = acctLabel; acctBtn.classList.remove('rkr-hidden'); }
-    footl.append(statsBtn, fbBtn, acctBtn);
+    footl.append(statsBtn, fbBtn);
+    // 4: optional account (account.js), hidden until accounts are on
+    acctBtn = o.querySelector('.rkr-swag');
+    paintAccount();
     o.appendChild(footl);
     titleBtns = [...o.querySelectorAll('.rkr-btn')];
     titleBtns.forEach((b) => {
@@ -958,6 +959,7 @@ function createUI(root) {
   }
   function startGame(n) {
     if (!state.title) return;
+    if (n === 4) { if (acctState && accountHandler) accountHandler(); return; }   // the account box opens over the title
     const cb = onStartCb;
     hideTitle();
     if (cb) cb({ players: n === 2 || n === 3 ? n : 1 });
@@ -1273,12 +1275,15 @@ function createUI(root) {
   let feedbackHandler = null;
   function onFeedbackClick(fn) { feedbackHandler = fn; }
   function onAccountClick(fn) { accountHandler = fn; }
-  // title screen account button: label, or '' to hide it
-  function setAccountButton(label) {
-    acctLabel = label || '';
+  // title screen button 4: null hides it (accounts off), else { paid } in cents (0 = no account yet)
+  function setAccountButton(st) { acctState = st || null; paintAccount(); }
+  function paintAccount() {
     if (!acctBtn) return;
-    acctBtn.textContent = acctLabel;
-    acctBtn.classList.toggle('rkr-hidden', !acctLabel);
+    acctBtn.classList.toggle('rkr-hidden', !acctState);
+    if (!acctState) return;
+    const paid = acctState.paid || 0;
+    acctBtn.querySelector('.rkr-swagt').textContent = paid ? 'YOUR SWAG ACCOUNT' : 'CREATE PERSONAL SWAG ACCOUNT';
+    acctBtn.querySelector('small').textContent = paid ? `${fmtNum(paid)} under your cat · add more` : 'optional · your number under your cat';
   }
   function onMenuClick(fn) { menuHandler = fn; }
   function isOverlayOpen() { return state.title || state.pause || state.gameOver || state.victory; }
@@ -1303,11 +1308,11 @@ function createUI(root) {
       return;
     }
     if (state.title) {
-      const idx = TITLE_ORDER.indexOf(titleSel);
-      if (k === '1' || k === '2' || k === '3') startGame(TITLE_ORDER[+k - 1]);
+      const order = titleOrder(), idx = order.indexOf(titleSel);
+      if (order[+k - 1] && /^[1-4]$/.test(k)) startGame(order[+k - 1]);
       else if (k === 'Enter' || k === ' ') { e.preventDefault(); startGame(titleSel); }
-      else if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'a' || k === 'A' || k === 'w' || k === 'W') selectTitle(TITLE_ORDER[Math.max(0, idx - 1)]);
-      else if (k === 'ArrowRight' || k === 'ArrowDown' || k === 'd' || k === 'D' || k === 's' || k === 'S') selectTitle(TITLE_ORDER[Math.min(TITLE_ORDER.length - 1, idx + 1)]);
+      else if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'a' || k === 'A' || k === 'w' || k === 'W') selectTitle(order[Math.max(0, idx - 1)]);
+      else if (k === 'ArrowRight' || k === 'ArrowDown' || k === 'd' || k === 'D' || k === 's' || k === 'S') selectTitle(order[Math.min(order.length - 1, idx + 1)]);
     }
   });
 

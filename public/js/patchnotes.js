@@ -2,6 +2,12 @@
 // When you ship something players will notice, add a line to the top entry (or start a new one).
 const PATCH_NOTES = [
   {
+    version: '1.1', date: '2026-10-07', title: 'Your number',
+    items: [
+      'Optional, on the website: sign in with Google and chip in whatever you like (from €0.50). The total shows as a little number under your cat, on your card and in lobbies, for everyone online. Add more any time, it only goes up. Press 💰 on the title screen',
+    ],
+  },
+  {
     version: '1.0', date: '2026-10-02', title: 'The final run',
     items: [
       'Soundtrack: a new song takes the place of the first one',

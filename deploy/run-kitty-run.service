@@ -16,8 +16,6 @@ Environment=REPORTS_FILE=/var/lib/run-kitty-run/reports.jsonl
 # (Play Console > App integrity; comma-separate several, e.g. upload + signing keys)
 #Environment=APPLE_TEAM_ID=ABCDE12345
 #Environment=ANDROID_CERT_SHA256=AA:BB:...:FF
-# optional accounts (server/accounts.js): GOOGLE_CLIENT_ID, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET (root-only file, 0600)
-EnvironmentFile=-/etc/run-kitty-run/accounts.env
 ExecStart=/usr/bin/node server/index.js
 Restart=always
 RestartSec=2

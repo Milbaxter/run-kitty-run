@@ -27,7 +27,7 @@ const CSS = `
 .rka-gbtn{display:flex;justify-content:center;min-height:44px;}
 `;
 
-const PRESETS = [50, 100, 420, 1337];
+const PRESETS = [50, 420, 1337];
 const TOKEN_KEY = 'rkr-acct';
 
 // totals are in the server's one currency (config); lobby.js and ui.js format with this too
@@ -170,7 +170,7 @@ function createAccount(root) {
       box.append(el('h2', null, 'YOUR NUMBER'),
         el('div', 'rkr-gsub', `Hi ${a.name || 'there'}! How much? Whatever you pick shows next to your kitty for everyone online.`));
     }
-    let cents = paid > 0 ? 100 : 1337;
+    let cents = 50;
     const amts = el('div', 'rka-amts');
     const btns = PRESETS.map((c) => {
       const b = el('button', 'rka-amt', fmtPaid(c));

@@ -228,6 +228,10 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-sub{max-width:640px;text-align:center;font-weight:700;font-size:clamp(15px,2vw,21px);color:#f1e8ff;line-height:1.35;text-shadow:0 2px 0 rgba(0,0,0,.45);}
 .rkr-sub b{color:#ffcf5a;}
 .rkr-btns{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;}
+/* title with all four buttons (account on, not a phone): 4 in a row, 2x2 or one column, never 3 + 1 */
+html:not(.rkr-touch) .rkr-btns.rkr-four{display:grid;grid-template-columns:repeat(4,auto);justify-content:center;}
+@media (max-width:1060px){ html:not(.rkr-touch) .rkr-btns.rkr-four{grid-template-columns:repeat(2,auto);} }
+@media (max-width:560px){ html:not(.rkr-touch) .rkr-btns.rkr-four{grid-template-columns:auto;} }
 .rkr-btn{pointer-events:auto;cursor:pointer;font-family:inherit;font-weight:900;font-size:clamp(18px,2.4vw,26px);letter-spacing:.04em;
   padding:14px 30px 16px;border-radius:22px;border:4px solid #3a1650;color:#3a1650;
   background:linear-gradient(180deg,#fff2a8,#ffc93c 55%,#ff9a3d);box-shadow:0 7px 0 #3a1650,0 14px 26px rgba(0,0,0,.4);
@@ -1280,6 +1284,7 @@ function createUI(root) {
   function paintAccount() {
     if (!acctBtn) return;
     acctBtn.classList.toggle('rkr-hidden', !acctState);
+    acctBtn.parentNode.classList.toggle('rkr-four', !!acctState);
     if (!acctState) return;
     const paid = acctState.paid || 0;
     // short title so it's the size of the other three; the rest goes in the small line

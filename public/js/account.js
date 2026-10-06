@@ -1,4 +1,4 @@
-// Optional account (web only for now): sign in with Google, chip in what you like (from $0.50) through Stripe
+// Optional account (web only for now): sign in with Google, chip in what you like (from 0.50) through Stripe
 // Checkout, and your total shows next to your kitty's name online. Server side: server/accounts.js.
 // The session token lives in localStorage; main.js passes it to the game server ('hi' / 'acct').
 import { apiUrl, NATIVE } from './platform.js';
@@ -30,7 +30,10 @@ const CSS = `
 const PRESETS = [50, 100, 420, 1337];
 const TOKEN_KEY = 'rkr-acct';
 
-const fmtPaid = (c) => '$' + (c / 100).toFixed(2);
+// totals are in the server's one currency (config); lobby.js and ui.js format with this too
+const SYMBOLS = { eur: '€', usd: '$', gbp: '£' };
+let symbol = '€';
+const fmtPaid = (c) => symbol + (c / 100).toFixed(2);
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -85,6 +88,7 @@ function createAccount(root) {
     try {
       A.cfg = await fetch(apiUrl('/api/account/config')).then((r) => r.json());
       A.enabled = !!(A.cfg && A.cfg.enabled);
+      if (A.cfg && A.cfg.currency) symbol = SYMBOLS[A.cfg.currency] || A.cfg.currency.toUpperCase() + ' ';
     } catch { A.enabled = false; }
     if (!A.enabled) { changed(); return; }
     const q = new URLSearchParams(location.search), paid = q.get('paid');
@@ -133,7 +137,7 @@ function createAccount(root) {
 
     if (!A.token || !a) {
       box.append(el('h2', null, 'YOUR NUMBER'),
-        el('div', 'rkr-gsub', 'Totally optional. Chip in whatever you like (from $0.50) and the total shows next to your kitty for everyone online.'));
+        el('div', 'rkr-gsub', `Totally optional. Chip in whatever you like (from ${fmtPaid(A.cfg.min)}) and the total shows next to your kitty for everyone online.`));
       const g = el('div', 'rka-gbtn');
       box.append(g, msg, fine('By signing in you agree to the '), closeBtn);
       loadGsi().then(() => {
@@ -171,7 +175,7 @@ function createAccount(root) {
       amts.appendChild(b);
       return [b, c];
     });
-    const custom = el('label', 'rka-custom', '$');
+    const custom = el('label', 'rka-custom', symbol);
     const input = el('input');
     input.type = 'text'; input.inputMode = 'decimal'; input.placeholder = 'other';
     input.addEventListener('input', () => {

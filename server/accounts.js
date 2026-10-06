@@ -1,4 +1,4 @@
-// Optional player accounts: sign in with Google, chip in any amount (min $0.50) through Stripe Checkout, and the total
+// Optional player accounts: sign in with Google, chip in any amount (min 0.50) through Stripe Checkout, and the total
 // you've paid shows next to your kitty's name online (a lowkey flex). Nothing else depends on an account.
 // An account only counts once something is paid; signing in alone just lets you pay.
 //
@@ -7,14 +7,13 @@
 // every credited payment is also appended to payments.jsonl next to it (bookkeeping, never rewritten).
 //
 // Env: GOOGLE_CLIENT_ID (comma-separate several: web + iOS/Android clients), STRIPE_SECRET_KEY,
-// STRIPE_WEBHOOK_SECRET, PUBLIC_ORIGIN (where Checkout returns to, default https://runkittyrun.fun).
+// STRIPE_WEBHOOK_SECRET, PUBLIC_ORIGIN (where Checkout returns to, default https://runkittyrun.fun), CURRENCY (default eur).
 // Without GOOGLE_CLIENT_ID + STRIPE_SECRET_KEY accounts are off and the client hides the button.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 
-const MIN_CENTS = 50;              // Stripe's minimum charge in USD
-const MAX_CENTS = 100000;          // per payment ($1000): catches typos
-const CURRENCY = 'usd';
+const MIN_CENTS = 50;              // Stripe's minimum charge (EUR / USD; the account settles in EUR, so a USD charge must clear €0.50)
+const MAX_CENTS = 100000;          // per payment (1000): catches typos
 const MAX_SESSIONS = 10;           // signed-in devices per account
 const SAVE_DELAY_MS = 1000;
 const GOOGLE_ISS = ['accounts.google.com', 'https://accounts.google.com'];
@@ -31,6 +30,7 @@ function createAccounts(file, env = process.env) {
   const origins = new Set([env.PUBLIC_ORIGIN || 'https://runkittyrun.fun',
     ...(env.NODE_ENV === 'production' ? [] : [`http://localhost:${env.PORT || 8080}`, `http://127.0.0.1:${env.PORT || 8080}`])]);
   const enabled = !!(clientIds.length && stripeKey);
+  const CURRENCY = /^[a-z]{3}$/.test(env.CURRENCY || '') ? env.CURRENCY : 'eur';   // one currency for everyone, so totals compare
   const paymentsFile = file.replace(/[^/]*$/, 'payments.jsonl');
 
   // sub (Google user id) -> { sub, email, name, paid (cents), created, sessions: [sha256 of token], payments: [stripe session ids] }
@@ -165,7 +165,7 @@ function createAccounts(file, env = process.env) {
     if (name === 'me') return { ok: true, account: pub(a) };
     if (name === 'pay') {
       const cents = Math.round(+m.cents);
-      if (!(cents >= MIN_CENTS && cents <= MAX_CENTS)) return { ok: false, msg: `Pick between $${(MIN_CENTS / 100).toFixed(2)} and $${MAX_CENTS / 100}.` };
+      if (!(cents >= MIN_CENTS && cents <= MAX_CENTS)) return { ok: false, msg: `Pick between ${(MIN_CENTS / 100).toFixed(2)} and ${MAX_CENTS / 100}.` };
       const origin = origins.has(m.origin) ? m.origin : [...origins][0];
       const s = await stripe('POST', '/checkout/sessions', {
         mode: 'payment', client_reference_id: a.sub, customer_email: a.email || undefined, submit_type: 'pay',

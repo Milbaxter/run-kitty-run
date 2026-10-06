@@ -5,6 +5,7 @@ const PATCH_NOTES = [
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
       'Soundtrack: a third song, CATJAM 4 Meow',
+      'The music button is back on the main menu, and it can now turn the music off while keeping the game sounds (M still mutes everything)',
       'Swag account stats: how many times you have beaten each level in Run only, Skate only and Run + Skate, plus your crowns and revives. Online and solo / local games are counted apart',
       'Tidier main menu: pick your kitty colour on the Local / Multiplayer screen next to your name, and choose the music (both songs or one on a loop) in the Esc menu while playing',
       'Security and reliability improvements for accounts, payments, shared game links and player reports',

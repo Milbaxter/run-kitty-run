@@ -79,15 +79,19 @@ track.preload = 'none';
 let trackWanted = false, trackFailed = false, musicLevel = 1;
 let inBackground = false; // see setBackground()
 function playTrack() {
+  if (musicOff()) return;
   if (!track.getAttribute('src')) track.src = PLAYLIST[trackIdx];
   track.play().catch(() => { /* needs a user gesture; retried on input */ });
 }
-// Which songs play (remembered): 'both' (one after the other) or the index of one song, played on a loop
-const MUSIC_CHOICES = ['both', ...PLAYLIST.map((_, i) => String(i))];   // ('both': all songs, the old name kept for saved choices)
+// Which songs play (remembered): 'both' (one after the other), the index of one song (played on a loop), or 'off'
+// (no music at all, the game's sound effects keep playing; M still mutes everything)
+const MUSIC_CHOICES = ['both', ...PLAYLIST.map((_, i) => String(i)), 'off'];   // ('both': all songs, the old name kept for saved choices)
 let musicChoice = 'both';
 try { const v = localStorage.getItem('rkr-music'); if (MUSIC_CHOICES.includes(v)) musicChoice = v; } catch { /* ignore */ }
-function musicLabel() { return musicChoice === 'both' ? (PLAYLIST.length === 2 ? 'MUSIC: BOTH SONGS' : 'MUSIC: ALL SONGS') : `MUSIC: SONG ${+musicChoice + 1} ON LOOP`; }
+const musicOff = () => musicChoice === 'off';
+function musicLabel() { return musicOff() ? 'MUSIC: OFF' : musicChoice === 'both' ? (PLAYLIST.length === 2 ? 'MUSIC: BOTH SONGS' : 'MUSIC: ALL SONGS') : `MUSIC: SONG ${+musicChoice + 1} ON LOOP`; }
 function applyMusicChoice() {
+  if (musicOff()) { track.pause(); audio.stopMusic(); return; }
   const one = musicChoice === 'both' ? -1 : +musicChoice;
   track.loop = one >= 0;
   if (one >= 0 && one !== trackIdx && !badTracks.has(one)) {
@@ -95,6 +99,9 @@ function applyMusicChoice() {
     if (trackWanted && !audio.isMuted() && !inBackground && !trackFailed) { track.src = PLAYLIST[one]; playTrack(); }
     else track.removeAttribute('src');
   }
+  // (back on after 'off': pick the music up again if a game wants it)
+  if (trackWanted && trackFailed && !audio.isMuted()) audio.startMusic(musicLevel);
+  else syncTrack();
 }
 function cycleMusic() {
   musicChoice = MUSIC_CHOICES[(MUSIC_CHOICES.indexOf(musicChoice) + 1) % MUSIC_CHOICES.length];
@@ -116,14 +123,14 @@ track.addEventListener('ended', nextTrack);   // (one song on a loop: track.loop
 applyMusicChoice();
 track.addEventListener('error', () => {
   badTracks.add(trackIdx);
-  if (badTracks.size >= PLAYLIST.length) { trackFailed = true; if (trackWanted) audio.startMusic(musicLevel); return; }
+  if (badTracks.size >= PLAYLIST.length) { trackFailed = true; if (trackWanted && !musicOff()) audio.startMusic(musicLevel); return; }
   nextTrack();
 });
 
 function musicPlay(level) {
   musicLevel = level;
   trackWanted = true;
-  if (trackFailed) { audio.startMusic(level); return; }
+  if (trackFailed) { if (!musicOff()) audio.startMusic(level); return; }
   if (!audio.isMuted() && !inBackground && track.paused) playTrack();
 }
 // after the victory fanfare the soundtrack comes back in softly (ramped in tick())
@@ -138,7 +145,7 @@ function musicStop() {
 }
 function syncTrack() {
   if (trackFailed) return;
-  if (audio.isMuted() || !trackWanted || inBackground) track.pause();
+  if (audio.isMuted() || !trackWanted || inBackground || musicOff()) track.pause();
   else if (track.paused) playTrack();
 }
 

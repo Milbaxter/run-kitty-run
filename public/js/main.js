@@ -1494,7 +1494,7 @@ const net = createNet();
 const account = createAccount(document.getElementById('ui'));
 net.acct = account.token;
 account.onChange(() => {
-  ui.setAccountButton(account.enabled() ? { paid: account.paid(), hidden: !account.shown() } : null);
+  ui.setAccountButton(account.enabled() ? { paid: account.paid(), hidden: !account.shown(), signedIn: account.signedIn() } : null);
   if (net.connected) net.send({ t: 'acct', acct: account.token() || '' });
 });
 ui.onAccountClick(() => account.open());

@@ -1278,7 +1278,9 @@ function createUI(root) {
     const paid = acctState.paid || 0;
     // short title so it's the size of the other three; the rest goes in the small line
     acctBtn.querySelector('.rkr-swagt').textContent = 'SWAG ACCOUNT';
-    acctBtn.querySelector('small').textContent = paid ? (acctState.hidden ? `${fmtNum(paid)}, hidden online` : `${fmtNum(paid)} under your cat`) : 'create a personal one';
+    // signed in: the button opens the account menu (the "shown online" switch, adding more, signing out)
+    acctBtn.querySelector('small').textContent = paid ? `${fmtNum(paid)}${acctState.hidden ? ' hidden' : ''} · manage account`
+      : acctState.signedIn ? 'manage your account' : 'create a personal one';
   }
   function onMenuClick(fn) { menuHandler = fn; }
   function isOverlayOpen() { return state.title || state.pause || state.gameOver || state.victory; }

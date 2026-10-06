@@ -264,6 +264,7 @@ function createAccount(root) {
     isOpen: () => !!modal,
     enabled: () => A.enabled,
     token: () => A.token,
+    signedIn: () => !!(A.token && A.account),
     paid: () => (A.account ? Number(A.account.paid) || 0 : 0),
     shown: () => !A.account || A.account.show !== false,   // the player's "shown online" switch
     onChange(fn) { changeFn = fn; },

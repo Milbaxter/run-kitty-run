@@ -586,14 +586,20 @@ function enterTitle(showTitleScreen = true) {
   musicPlay(1);
 }
 
-// single player / local co-op: first the setup screen (name, kitty colour, mode; lobby.js), then the run
+// LOCAL (solo or co-op, picked on the setup screen with name, kitty colour, mode; lobby.js), then the run.
+// Phones have no second keyboard player: solo only. The last pick is remembered.
+const LOCAL_N_KEY = 'rkr-local-players';
 function onTitlePick({ players }) {
   if (players === 3) return openOnline();
   audio.unlock();
   audio.play('click');
-  lobbyUI.showLocal(players, {
+  let n = 1;
+  if (!TOUCH) { try { n = localStorage.getItem(LOCAL_N_KEY) === '2' ? 2 : 1; } catch { /* ignore */ } }
+  lobbyUI.showLocal(n, {
     mode: DEBUG_MODE,   // ?mode= (offline testing) preselects
-    onStart: ({ mode: m, names }) => { localSetup = { mode: m, names }; startGame(players); },
+    coop: !TOUCH,
+    onPlayers: (k) => { try { localStorage.setItem(LOCAL_N_KEY, String(k)); } catch { /* ignore */ } },
+    onStart: ({ mode: m, names, players: k }) => { localSetup = { mode: m, names }; startGame(k); },
     onBack: () => ui.showTitle(onTitlePick),
   });
 }

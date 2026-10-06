@@ -131,6 +131,8 @@ const CSS = `
 .rkr-btn.rkl-create{margin-top:auto;font-size:19px;padding:9px 18px 11px;border-radius:18px;}
 .rkr-glass.rkl-lbox{max-width:640px;}
 .rkl-localcol .rkl-modes{flex-direction:row;flex-wrap:wrap;}
+.rkl-who{flex-direction:row;flex-wrap:wrap;}
+.rkl-who .rkl-mode{flex:1 1 auto;justify-content:center;}
 .rkl-localcol .rkl-mode{flex:1 1 auto;}
 .rkl-localcol .rkl-modetip{min-height:0;}
 .rkl-localcol .rkr-btn.rkl-create{align-self:center;min-width:220px;justify-content:center;}
@@ -287,7 +289,8 @@ function createLobbyUI(root, cb) {
   // Single player / local co-op setup: the online screen's name, colour and mode choices (one row per kitty), then
   // START. onStart({ mode, names }) (an empty name = the colour's own name, main.js); onBack() = back to the title.
   let localNav = null;
-  function showLocal(n, { onStart, onBack, mode: forced }) {
+  function showLocal(n, opts) {
+    const { onStart, onBack, mode: forced, coop = true, onPlayers = null } = opts;
     view = 'local';
     roomRefs = null;
     br = null;
@@ -298,10 +301,27 @@ function createLobbyUI(root, cb) {
     back.setAttribute('aria-label', 'Back');
     const goBack = () => { hide(); onBack(); };
     back.addEventListener('click', goBack);
-    const h = el('h2', null, n === 2 ? 'LOCAL CO-OP' : 'SINGLE PLAYER');
+    const h = el('h2', null, 'LOCAL');
     const hsub = el('div', 'rkl-hsub', n === 2 ? 'Player 1: mouse · Player 2: WASD or arrows' : 'A solo run');
     const head = el('div', 'rkl-head');
     head.append(back, h, hsub);
+    // solo or co-op on this device (the same screen again with one or two player rows)
+    const who = el('div', 'rkl-modes rkl-who');
+    who.setAttribute('role', 'radiogroup');
+    for (const [k, label] of [[1, 'Solo'], [2, 'Co-op (2 players)']]) {
+      const b = el('button', 'rkl-mode' + (k === n ? ' rkl-on' : ''));
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(k === n));
+      b.textContent = label;
+      b.addEventListener('click', () => {
+        if (k === n) return;
+        if (onPlayers) onPlayers(k);
+        hide();
+        showLocal(k, { ...opts, mode: mp.get() });
+      });
+      who.appendChild(b);
+    }
     // co-op: one row per player, each greying out the colour the other one has
     const rows = [];
     const refreshAll = () => { for (const r of rows) r.refresh(); };
@@ -311,11 +331,11 @@ function createLobbyUI(root, cb) {
       taken: () => prefColor(), onColor: refreshAll }));
     const mp = modePicker(forced || savedMode());   // the same memory as online: the last mode picked anywhere
     const start = el('button', 'rkr-btn rkl-create', '<span>START</span>');
-    const go = () => { const names = rows.map((r) => r.getName()); hide(); onStart({ mode: mp.get(), names }); };
+    const go = () => { const names = rows.map((r) => r.getName()); hide(); onStart({ mode: mp.get(), names, players: n }); };
     start.addEventListener('click', go);
     const col = el('div', 'rkl-col rkl-localcol');
     col.append(el('div', 'rkl-ctitle', 'Mode'), mp.modes, mp.tip, start);
-    mount([head, ...rows.map((r) => r.el), col], ' rkl-bbox rkl-lbox', ' rkl-ov');
+    mount([head, ...(coop ? [who] : []), ...rows.map((r) => r.el), col], ' rkl-bbox rkl-lbox', ' rkl-ov');
     // Enter in a name box starts too (inputs keep their keys to themselves, see mount)
     node.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); e.stopPropagation(); go(); } });
     localNav = { go, back: goBack };   // (a controller moves through the screen like any menu: padnav.js)

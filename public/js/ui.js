@@ -228,10 +228,9 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-sub{max-width:640px;text-align:center;font-weight:700;font-size:clamp(15px,2vw,21px);color:#f1e8ff;line-height:1.35;text-shadow:0 2px 0 rgba(0,0,0,.45);}
 .rkr-sub b{color:#ffcf5a;}
 .rkr-btns{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;}
-/* title with all four buttons (account on, not a phone): 4 in a row, 2x2 or one column, never 3 + 1 */
-html:not(.rkr-touch) .rkr-btns.rkr-four{display:grid;grid-template-columns:repeat(4,auto);justify-content:center;}
-@media (max-width:1060px){ html:not(.rkr-touch) .rkr-btns.rkr-four{grid-template-columns:repeat(2,auto);} }
-@media (max-width:560px){ html:not(.rkr-touch) .rkr-btns.rkr-four{grid-template-columns:auto;} }
+/* title with all three buttons (account on): one row or one column, never 2 + 1 */
+.rkr-btns.rkr-three{display:grid;grid-template-columns:repeat(3,auto);justify-content:center;}
+@media (max-width:820px){ .rkr-btns.rkr-three{grid-template-columns:auto;} }
 .rkr-btn{pointer-events:auto;cursor:pointer;font-family:inherit;font-weight:900;font-size:clamp(18px,2.4vw,26px);letter-spacing:.04em;
   padding:14px 30px 16px;border-radius:22px;border:4px solid #3a1650;color:#3a1650;
   background:linear-gradient(180deg,#fff2a8,#ffc93c 55%,#ff9a3d);box-shadow:0 7px 0 #3a1650,0 14px 26px rgba(0,0,0,.4);
@@ -444,7 +443,7 @@ function createUI(root) {
   const state = { title: false, pause: false, gameOver: false, victory: false };
   let onStartCb = null, onResumeCb = null, onRestartCb = null;
   // Title menu order (data-p = mode: 3 online, 1 solo, 2 local co-op); keys 1/2/3 follow this order.
-  const titleOrder = () => (acctState ? [3, 1, 2, 4] : [3, 1, 2]);   // 4 = the account button, while accounts are on
+  const titleOrder = () => (acctState ? [3, 1, 4] : [3, 1]);   // 3 = online, 1 = local (solo / co-op), 4 = the account button while accounts are on
   let titleSel = 3;
   let gameOverArmedAt = 0;
 
@@ -881,9 +880,8 @@ function createUI(root) {
         <div class="rkr-sub">Reach the <b>heart of the labyrinth</b>. Don't touch the wolves. <b>Never leave a kitty behind.</b></div>
         <div class="rkr-btns">
           <button class="rkr-btn" data-p="3"><span><span class="rkr-kk">1</span>MULTIPLAYER</span><small>online, up to 32 kitties</small></button>
-          <button class="rkr-btn" data-p="1"><span><span class="rkr-kk">2</span>SINGLE PLAYER</span><small>solo run</small></button>
-          <button class="rkr-btn rkr-alt rkr-desk" data-p="2"><span><span class="rkr-kk">3</span>LOCAL CO-OP</span><small>2 players, one keyboard</small></button>
-          <button class="rkr-btn rkr-swag rkr-hidden" data-p="4"><span><span class="rkr-kk">4</span><b class="rkr-swagt"></b></span><small></small></button>
+          <button class="rkr-btn rkr-alt" data-p="1"><span><span class="rkr-kk">2</span>LOCAL</span><small class="rkr-desk">solo or co-op, one keyboard</small><small class="rkr-touchonly">solo run</small></button>
+          <button class="rkr-btn rkr-swag rkr-hidden" data-p="4"><span><span class="rkr-kk">3</span><b class="rkr-swagt"></b></span><small></small></button>
         </div>
         <div class="rkr-touchonly rkr-touchhint">Put your thumb down anywhere and drag: a joystick appears under it and steers your kitty.</div>
         <div class="rkr-info rkr-desk">
@@ -910,7 +908,7 @@ function createUI(root) {
           </div>
           <div class="rkr-panel rkr-notes"><h3>What's new</h3>${notesHtml()}</div>
         </div>
-        <div class="rkr-foot rkr-desk">Press <span class="rkr-k">1</span>, <span class="rkr-k">2</span> or <span class="rkr-k">3</span> &middot; <span class="rkr-k rkr-wide">Enter</span> to start</div>
+        <div class="rkr-foot rkr-desk">Press <span class="rkr-k">1</span> or <span class="rkr-k">2</span> &middot; <span class="rkr-k rkr-wide">Enter</span> to start</div>
         ${NATIVE ? `<div class="rkr-legal"><a data-page="privacy">Privacy</a>&middot;<a data-page="terms">Terms</a>&middot;<a data-page="support">Support</a>&middot;<span>v${esc(APP_VERSION)}</span></div>` : ''}
       </div>`;
     o.prepend(paws);
@@ -1284,7 +1282,7 @@ function createUI(root) {
   function paintAccount() {
     if (!acctBtn) return;
     acctBtn.classList.toggle('rkr-hidden', !acctState);
-    acctBtn.parentNode.classList.toggle('rkr-four', !!acctState);
+    acctBtn.parentNode.classList.toggle('rkr-three', !!acctState);
     if (!acctState) return;
     const paid = acctState.paid || 0;
     // short title so it's the size of the other three; the rest goes in the small line
@@ -1315,7 +1313,7 @@ function createUI(root) {
     }
     if (state.title) {
       const order = titleOrder(), idx = order.indexOf(titleSel);
-      if (order[+k - 1] && /^[1-4]$/.test(k)) startGame(order[+k - 1]);
+      if (/^[1-9]$/.test(k) && order[+k - 1]) startGame(order[+k - 1]);
       else if (k === 'Enter' || k === ' ') { e.preventDefault(); startGame(titleSel); }
       else if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'a' || k === 'A' || k === 'w' || k === 'W') selectTitle(order[Math.max(0, idx - 1)]);
       else if (k === 'ArrowRight' || k === 'ArrowDown' || k === 'd' || k === 'D' || k === 's' || k === 'S') selectTitle(order[Math.min(order.length - 1, idx + 1)]);

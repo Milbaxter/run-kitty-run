@@ -5,7 +5,7 @@ import { accountApiUrl, NATIVE } from './platform.js';
 
 const CSS = `
 .rka-modal{z-index:40;}
-.rka-box{max-width:460px;text-align:center;background:linear-gradient(160deg,rgba(52,30,96,.97),rgba(26,12,52,.97)) !important;}
+.rka-box{max-width:460px;max-height:calc(100dvh - 24px);overflow-y:auto;overscroll-behavior:contain;text-align:center;background:linear-gradient(160deg,rgba(52,30,96,.97),rgba(26,12,52,.97)) !important;}
 .rka-box h2{font-size:clamp(30px,4.5vw,44px) !important;}
 .rka-big{font-size:clamp(40px,7vw,60px);font-weight:900;color:#ffd56b;text-shadow:0 3px 0 #3a1650;line-height:1;}
 .rka-amts{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;}
@@ -29,7 +29,15 @@ const CSS = `
 .rka-sec{align-self:stretch;display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 14px;border-radius:16px;background:rgba(10,4,30,.38);border:1px solid rgba(255,255,255,.12);}
 .rka-sech{align-self:flex-start;font-size:12px;font-weight:900;letter-spacing:.14em;opacity:.6;}
 .rka-note{font-size:14px;font-weight:700;opacity:.85;}
-.rka-soon{opacity:.55;}
+.rka-tabs{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;}
+.rka-amt.rka-tab{font-size:13px;padding:6px 12px;min-width:0;}
+.rka-stats{align-self:stretch;display:flex;flex-direction:column;gap:8px;}
+.rka-table{border-collapse:collapse;width:100%;font-size:14px;font-weight:800;}
+.rka-table th{font-size:11px;font-weight:900;letter-spacing:.08em;opacity:.6;padding:2px 4px;text-align:center;}
+.rka-table td{padding:3px 4px;text-align:center;border-top:1px solid rgba(255,255,255,.08);}
+.rka-table th:first-child,.rka-table td:first-child{text-align:left;}
+.rka-table td.rka-zero{opacity:.35;}
+.rka-tot{display:flex;gap:18px;justify-content:center;font-weight:900;color:#ffd56b;}
 `;
 
 const PRESETS = [50, 420, 1337];
@@ -40,6 +48,34 @@ const SYMBOLS = { eur: '€', usd: '$', gbp: '£' };
 let symbol = '€';
 const fmtPaid = (c) => symbol + (c / 100).toFixed(2);
 const fmtNum = (c) => (c / 100).toFixed(2);   // in game (lobby slots, player cards): just the number
+
+// Stats & progress in the account menu: times the team cleared each level, per mode, plus crowns and revives.
+// Level 9 (the final run) only gets a row once you've got that far in some mode, and a number only in modes you
+// have: no spoilers.
+let statsTab = 'online';   // 'online' | 'local'
+const STAT_COLS = [['run', 'RUN'], ['ice', 'SKATE'], ['mixed', 'RUN + SKATE']];
+function statsView(s) {
+  const clears = (s && s.clears) || {}, reached = (s && s.reached) || {};
+  const t = el('table', 'rka-table');
+  const head = el('tr');
+  head.append(el('th', null, 'LEVEL'), ...STAT_COLS.map(([, label]) => el('th', null, label)));
+  t.appendChild(head);
+  const last = STAT_COLS.some(([m]) => (reached[m] || 0) >= 9) ? 9 : 8;
+  for (let L = 1; L <= last; L++) {
+    const tr = el('tr');
+    tr.appendChild(el('td', null, String(L)));
+    for (const [m] of STAT_COLS) {
+      const n = (clears[m] || {})[L] || 0;
+      tr.appendChild(el('td', n ? null : 'rka-zero', L === 9 && (reached[m] || 0) < 9 ? '–' : String(n)));
+    }
+    t.appendChild(tr);
+  }
+  const tot = el('div', 'rka-tot');
+  tot.append(el('span', null, `CROWNS ${(s && s.crowns) || 0}`), el('span', null, `REVIVES ${(s && s.revives) || 0}`));
+  const wrap = el('div', 'rka-stats');
+  wrap.append(t, tot);
+  return wrap;
+}
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -202,10 +238,17 @@ function createAccount(root) {
         pick.addEventListener('click', () => open({ view: 'pay' }));
         swag.append(el('div', 'rka-note', `No swag yet. Chip in from ${fmtPaid(A.cfg.min)} and it shows next to your kitty for everyone online (can toggle it on and off).`), pick);
       }
-      // Stats & progress: not saved to accounts yet (wins, revives and rewards only last a run), so a placeholder
+      // Stats & progress: online (counted by the game server) or solo / local (reported by this browser), a tab each
       const stats = section('STATS & PROGRESS');
-      stats.classList.add('rka-soon');
-      stats.appendChild(el('div', 'rka-note', 'Coming soon: your wins, revives and rewards, saved to your account.'));
+      const tabs = el('div', 'rka-tabs');
+      for (const [k, label] of [['online', 'ONLINE'], ['local', 'SOLO & LOCAL']]) {
+        const t = el('button', 'rka-amt rka-tab' + (k === statsTab ? ' rka-on' : ''), label);
+        t.addEventListener('click', () => { statsTab = k; open({ fresh: true }); });
+        tabs.appendChild(t);
+      }
+      stats.append(tabs, statsView(a.stats && a.stats[statsTab]),
+        el('div', 'rka-fine', statsTab === 'online' ? 'Counted by the game server in online games.'
+          : 'Counted by your own browser in solo and local co-op games.'));
       const links = el('div', 'rka-links');
       const out = el('a', null, 'Sign out'), del = el('a', null, 'Delete account');
       out.addEventListener('click', async () => { try { await api('logout', {}); } catch { /* gone anyway */ } setSession('', null); close(); });
@@ -217,6 +260,11 @@ function createAccount(root) {
       box.append(swag, stats, msg, closeBtn, links, fine(`Signed in as ${a.email}. `));
       sayOpts();
       root.appendChild(modal);
+      // fresh numbers (a game may have counted since this page loaded): redraw if the menu is still the one showing
+      if (!opts.fresh) {
+        const mine = modal;
+        api('me').then((j) => { if (modal === mine && j.account) { A.account = j.account; open({ ...opts, fresh: true }); } }).catch(() => { /* keep what we have */ });
+      }
       return;
     }
 
@@ -265,8 +313,37 @@ function createAccount(root) {
     root.appendChild(modal);
   }
 
+  // Solo / local co-op stats: picked up from the local game's events and sent in small batches (server: 'progress').
+  // A cleared level counts for the team; crowns and revives only for kitty 1 (whoever is signed in on this device).
+  let local = null, localT = null;
+  function sendLocal() {
+    clearTimeout(localT); localT = null;
+    const p = local; local = null;
+    if (!p || !A.token || !A.account) return;
+    api('progress', p).then((j) => { if (j.account) A.account = j.account; }).catch(() => { /* best effort */ });
+  }
+  function noteLocal(sim, events) {
+    if (!A.enabled || !A.token || !A.account) return;
+    const me = sim.players[0];
+    for (const e of events) {
+      if (e.type === 'gameOver' || e.type === 'victory') { sendLocal(); continue; }
+      const t = e.type === 'levelStart' ? 'reached' : e.type === 'levelClear' ? 'clear'
+        : e.type === 'crown' && me && e.playerId === me.id ? 'crown' : e.type === 'revive' && me && e.by === me.id ? 'revive' : null;
+      if (!t) continue;
+      if (local && local.mode !== sim.mode) sendLocal();
+      local ||= { mode: sim.mode, reached: 0, clears: [], crowns: 0, revives: 0 };
+      const level = e.type === 'levelClear' ? e.level : (sim.levelData && sim.levelData.level) || sim.level;
+      if (t === 'reached') local.reached = Math.max(local.reached, level);
+      else if (t === 'clear') { local.reached = Math.max(local.reached, level); local.clears.push(level); }
+      else if (t === 'crown') local.crowns++;
+      else local.revives++;
+      if (t === 'clear' || local.crowns >= 3 || local.revives >= 100) sendLocal();
+      else if (!localT) localT = setTimeout(sendLocal, 5000);
+    }
+  }
+
   return {
-    init, open, close,
+    init, open, close, noteLocal,
     isOpen: () => !!modal,
     enabled: () => A.enabled,
     token: () => A.token,

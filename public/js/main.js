@@ -1969,7 +1969,7 @@ function tick(dt) {
         if (window.__bot) Object.assign(inputs, window.__bot(sim));
       }
       const events = stepSim(sim, inputs, CFG.TICK);
-      if (mode === 'play') handleEvents(events);
+      if (mode === 'play') { handleEvents(events); account.noteLocal(sim, events); }   // solo / local stats (account.js)
       else if (events.some((e) => e.type === 'levelStart')) { pregenNext(sim); buildView(); }
       accumulator -= CFG.TICK;
       steps++;

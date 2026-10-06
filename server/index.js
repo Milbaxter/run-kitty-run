@@ -582,7 +582,23 @@ function stepRoom(room) {
       legendsOnWin(room, e);
     }
   }
+  if (events.length) countForAccounts(room, events);
   if (k % NET.SNAP_EVERY === 0 || events.length) sendSnapshot(room);
+}
+
+// Account stats (accounts.js): a cleared level counts for every kitty in the game (down or not), a crown for the
+// kitty that grabbed it, a revive for the rescuer. Only signed-in players have an account to count on.
+function countForAccounts(room, events) {
+  const sim = room.sim;
+  const subOf = (id) => { const m = room.members.find((x) => x.id === id); return m ? m.acct : null; };
+  for (const e of events) {
+    if (e.type === 'levelStart' || e.type === 'levelClear') {
+      const level = e.type === 'levelClear' ? e.level : (sim.levelData && sim.levelData.level) || sim.level;
+      const ev = { type: e.type === 'levelClear' ? 'clear' : 'reached', mode: room.mode, level };
+      for (const p of sim.players) accounts.recordOnline(subOf(p.id), ev);
+    } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown' });
+    else if (e.type === 'revive') accounts.recordOnline(subOf(e.by), { type: 'revive' });
+  }
 }
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
@@ -719,6 +735,7 @@ wss.on('connection', (ws, req) => {
         client.ver = String(msg.ver ?? '').replace(/[^\w.+-]/g, '').slice(0, 16);
         if (typeof msg.tok === 'string' && /^[\w-]{8,64}$/.test(msg.tok)) client.tok = msg.tok; // reconnect grace (net.js)
         client.paid = accounts.paidFor(msg.acct);   // signed-in account: its total shows next to the name
+        client.acct = accounts.subFor(msg.acct);    // ...and its stats count this player's online games
         if (v < MIN_PROTOCOL) {
           send(ws, { t: 'outdated', msg: 'A new version of Run Kitty Run is out - update to keep playing online.' });
           ws.close(4000, 'outdated');
@@ -729,6 +746,7 @@ wss.on('connection', (ws, req) => {
         // signed in / out (or paid more) after connecting
         if (!take(client, 'lobby', LOBBY_RATE, LOBBY_BURST, Date.now())) return;
         const paid = accounts.paidFor(msg.acct);
+        client.acct = accounts.subFor(msg.acct);
         if (paid !== (client.paid || 0)) { client.paid = paid; if (room) sendRoom(room); }
         break;
       }

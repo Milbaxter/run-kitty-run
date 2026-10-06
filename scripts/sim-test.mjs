@@ -604,6 +604,25 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(hide.ok && hide.account.show === false && total > 0 && hide.account.paid === total && hiddenAfterRestart === 0
       && unhide.ok && unhide.account.show === true && accounts.paidFor(token) === total && !badShow.ok,
     'shown-online switch hides the total from the game server, is saved, and turns back on');
+    // stats: online games counted by the server (by account id), solo / local reported by the browser (capped)
+    accounts.recordOnline(sub, { type: 'reached', mode: 'run', level: 9 });
+    accounts.recordOnline(sub, { type: 'clear', mode: 'run', level: 2 });
+    accounts.recordOnline(sub, { type: 'clear', mode: 'run', level: 2 });
+    accounts.recordOnline(sub, { type: 'clear', mode: 'nope', level: 2 });
+    accounts.recordOnline(sub, { type: 'clear', mode: 'ice', level: 12 });
+    accounts.recordOnline(sub, { type: 'crown' });
+    accounts.recordOnline(sub, { type: 'revive' });
+    accounts.recordOnline('someone-else', { type: 'crown' });
+    const local = await request(accounts, 'progress', [Buffer.from(JSON.stringify({ mode: 'mixed', reached: 3, clears: [1, 2, 3, 4, 5], crowns: 50, revives: 500 }))]);
+    const me = await request(accounts, 'me');
+    const on = me.account.stats.online, lo = me.account.stats.local;
+    ok(accounts.subFor(token) === sub && on.clears.run[2] === 2 && on.reached.run === 9 && !on.clears.ice[12] && on.crowns === 1 && on.revives === 1
+      && local.ok && lo.clears.mixed[1] === 1 && lo.clears.mixed[3] === 1 && !lo.clears.mixed[4] && lo.crowns === 3 && lo.revives === 100
+      && lo.reached.mixed === 3 && !lo.clears.run[2],
+    'account stats: online counted per mode / level, bad modes and levels ignored, local reports capped and kept apart');
+    accounts.flush();
+    ok(createAccounts(file, env).subFor(token) === sub && JSON.parse(fs.readFileSync(file)).accounts[sub].stats.online.clears.run[2] === 2,
+      'account stats are saved on flush and survive a restart');
     const deleted = await request(accounts, 'delete');
     await new Promise((resolve) => setTimeout(resolve, 1100)); // any old delayed save must not resurrect this account
     ok(deleted.ok && createAccounts(file, env).paidFor(token) === 0 && !JSON.parse(fs.readFileSync(file)).accounts[sub],

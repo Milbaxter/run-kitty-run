@@ -42,7 +42,7 @@ function createAccounts(file, env = process.env) {
   const LIVE = /^(sk|rk)_live_/.test(stripeKey);   // a test-mode session never credits a live server, and vice versa
 
   // sub (Google user id) -> { sub, email, name, paid (cents), created, sessions: [sha256 of token], payments: [stripe session ids],
-  //   hide (true = the total isn't shown to other players) }
+  //   hide (true = the total isn't shown to other players), stats: { online, local } (see "stats" below) }
   let accounts = {};
   // Checkout Session id -> { sub, cents, at }: written when this server creates the session, removed once credited
   let checkouts = {};
@@ -76,7 +76,11 @@ function createAccounts(file, env = process.env) {
     try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
     dirty = false;
   }
-  function flush() { if (dirty) saveNow(); }
+  let statsT = null;   // stats are saved a moment after they change (a full synchronous save, so never a stale one)
+  function flush() {
+    if (statsT) { clearTimeout(statsT); statsT = null; dirty = true; }
+    if (dirty) saveNow();
+  }
   // payments.jsonl is the record of truth for money: credit any logged payment the account file missed (a crash
   // between the two writes). Deleted accounts stay deleted.
   (function recover() {
@@ -153,7 +157,8 @@ function createAccounts(file, env = process.env) {
   }
 
   // ---- accounts ----
-  const pub = (a) => (a ? { name: a.name, email: a.email, paid: Number(a.paid) || 0, show: !a.hide } : null);
+  const pub = (a) => (a ? { name: a.name, email: a.email, paid: Number(a.paid) || 0, show: !a.hide,
+    stats: { online: (a.stats && a.stats.online) || blankStats(), local: (a.stats && a.stats.local) || blankStats() } } : null);
   function newSession(a) {
     const token = crypto.randomBytes(24).toString('base64url');
     const h = sha(token);
@@ -170,6 +175,44 @@ function createAccounts(file, env = process.env) {
   };
   // total paid (cents) for a session token, 0 if none / unpaid / hidden: what the game server shows next to the name
   const paidFor = (token) => { const a = fromToken(token); return a && !a.hide ? Number(a.paid) || 0 : 0; };
+  // the account id behind a session token (the game server keeps this per player instead of the token itself)
+  const subFor = (token) => { const a = fromToken(token); return a ? a.sub : null; };
+
+  // ---- stats (the account menu) ----
+  // Two separate sets: 'online' is counted by this server from the online games it runs; 'local' (solo / local co-op)
+  // is reported by the player's own browser, so the menu shows it apart as numbers anyone could edit.
+  // { clears: { mode: { level: times the team cleared it } }, reached: { mode: highest level played }, crowns, revives }
+  function blankStats() { return { clears: { run: {}, ice: {}, mixed: {} }, reached: { run: 0, ice: 0, mixed: 0 }, crowns: 0, revives: 0 }; }
+  const STAT_MODES = ['run', 'ice', 'mixed'], MAX_LEVEL = 9;
+  function statsOf(a, kind) {
+    a.stats ||= {};
+    const s = a.stats[kind] ||= blankStats();
+    for (const m of STAT_MODES) { s.clears[m] ||= {}; s.reached[m] ||= 0; }
+    return s;
+  }
+  function statsChanged() {
+    if (statsT) return;
+    statsT = setTimeout(() => {
+      statsT = null;
+      try { saveNow(); } catch (e) { dirty = true; console.error('accounts save failed:', e.message); }
+    }, 2000);
+    statsT.unref();
+  }
+  // ev: { type: 'reached' | 'clear', mode, level } | { type: 'crown' } | { type: 'revive' }
+  function record(a, kind, ev, n = 1) {
+    if (!a || !ev || !(n > 0)) return;
+    const s = statsOf(a, kind);
+    if (ev.type === 'crown') s.crowns += n;
+    else if (ev.type === 'revive') s.revives += n;
+    else if (ev.type === 'reached' || ev.type === 'clear') {
+      if (!STAT_MODES.includes(ev.mode) || !Number.isInteger(ev.level) || ev.level < 1 || ev.level > MAX_LEVEL) return;
+      s.reached[ev.mode] = Math.max(s.reached[ev.mode], ev.level);
+      if (ev.type === 'clear') s.clears[ev.mode][ev.level] = (s.clears[ev.mode][ev.level] || 0) + n;
+    } else return;
+    statsChanged();
+  }
+  // online games: the game server calls this for each signed-in player (by account id)
+  const recordOnline = (sub, ev) => { if (sub && accounts[sub]) record(accounts[sub], 'online', ev); };
 
   // Is this paid session one of ours, unchanged? (a session from another project on the shared account, the other
   // mode, or one this server never created gets null, quietly: the webhook sees every project's checkouts)
@@ -292,6 +335,19 @@ function createAccounts(file, env = process.env) {
       try { saveNow(); } catch (e) { if (previous) a.hide = previous; else delete a.hide; throw e; }
       return { ok: true, account: pub(a) };
     }
+    if (name === 'progress') {
+      // solo / local co-op results, reported by the browser: { mode, reached, clears: [levels], crowns, revives }.
+      // Capped per report (the endpoint is rate limited per IP too); shown apart from the online numbers.
+      const mode = STAT_MODES.includes(m.mode) ? m.mode : null;
+      if (!mode) return { ok: false };
+      const lvl = (v) => (Number.isInteger(v) && v >= 1 && v <= MAX_LEVEL ? v : 0);
+      if (lvl(m.reached)) record(a, 'local', { type: 'reached', mode, level: lvl(m.reached) });
+      for (const v of (Array.isArray(m.clears) ? m.clears : []).slice(0, 3)) if (lvl(v)) record(a, 'local', { type: 'clear', mode, level: v });
+      const count = (v, max) => (Number.isInteger(v) && v > 0 ? Math.min(v, max) : 0);
+      record(a, 'local', { type: 'crown' }, count(m.crowns, 3));
+      record(a, 'local', { type: 'revive' }, count(m.revives, 100));
+      return { ok: true, account: pub(a) };
+    }
     if (name === 'logout') {
       const h = sha(bearer(req));
       const previous = a.sessions;
@@ -332,7 +388,7 @@ function createAccounts(file, env = process.env) {
   // /api/account/<name>; returns false if it isn't one of ours
   function handle(req, res, name) {
     if (name === 'config' && req.method === 'GET') { route('config', req).then((j) => reply(res, 200, j)); return true; }
-    if (!['google', 'me', 'pay', 'confirm', 'show', 'logout', 'delete'].includes(name)) return false;
+    if (!['google', 'me', 'pay', 'confirm', 'show', 'progress', 'logout', 'delete'].includes(name)) return false;
     if (req.method !== (name === 'me' ? 'GET' : 'POST')) { reply(res, 405, { ok: false }); return true; }
     const go = (body) => route(name, req, body)
       .then((j) => reply(res, j ? 200 : 404, j || { ok: false }))
@@ -341,7 +397,7 @@ function createAccounts(file, env = process.env) {
     return true;
   }
 
-  return { enabled, handle, webhook, paidFor, flush };
+  return { enabled, handle, webhook, paidFor, subFor, recordOnline, flush };
 }
 
 export { createAccounts };

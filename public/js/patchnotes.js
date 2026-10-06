@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
+      'Swag account stats: how many times you have beaten each level in Run only, Skate only and Run + Skate, plus your crowns and revives. Online and solo / local games are counted apart',
       'Tidier main menu: pick your kitty colour on the Local / Multiplayer screen next to your name, and choose the music (both songs or one on a loop) in the Esc menu while playing',
       'Security and reliability improvements for accounts, payments, shared game links and player reports',
       'Main menu: 1 Multiplayer, 2 Local, 3 Swag account. Local is single player and co-op in one: pick Solo or Co-op (2 players) on its setup screen (it remembers your pick)',

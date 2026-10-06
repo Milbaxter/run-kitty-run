@@ -595,6 +595,15 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const partialRetry = await request(accounts, 'webhook', [partialEvent], partialHeaders);
     ok(partialFailure.status === 500 && snapshotFailure.status === 500 && partialRetry.status === 200 && accounts.paidFor(token) === 200,
       'partial ledger append cannot swallow the retried payment during restart recovery');
+    // "shown online" switch: off = the game server gets 0 for this player, saved on disk (survives a restart)
+    const total = accounts.paidFor(token);
+    const hide = await request(accounts, 'show', [Buffer.from(JSON.stringify({ show: false }))]);
+    const hiddenAfterRestart = createAccounts(file, env).paidFor(token);
+    const unhide = await request(accounts, 'show', [Buffer.from(JSON.stringify({ show: true }))]);
+    const badShow = await request(accounts, 'show', [Buffer.from(JSON.stringify({ show: 'no' }))]);
+    ok(hide.ok && hide.account.show === false && total > 0 && hide.account.paid === total && hiddenAfterRestart === 0
+      && unhide.ok && unhide.account.show === true && accounts.paidFor(token) === total && !badShow.ok,
+    'shown-online switch hides the total from the game server, is saved, and turns back on');
     const deleted = await request(accounts, 'delete');
     await new Promise((resolve) => setTimeout(resolve, 1100)); // any old delayed save must not resurrect this account
     ok(deleted.ok && createAccounts(file, env).paidFor(token) === 0 && !JSON.parse(fs.readFileSync(file)).accounts[sub],

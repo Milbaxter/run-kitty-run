@@ -287,8 +287,9 @@ function createAccounts(file, env = process.env) {
     if (name === 'show') {
       // the player's own switch: show the total to other players online, or not (it stays on the account either way)
       if (typeof m.show !== 'boolean') return { ok: false };
+      const previous = a.hide;
       if (m.show) delete a.hide; else a.hide = true;
-      changed();
+      try { saveNow(); } catch (e) { if (previous) a.hide = previous; else delete a.hide; throw e; }
       return { ok: true, account: pub(a) };
     }
     if (name === 'logout') {

@@ -1282,8 +1282,9 @@ function createUI(root) {
     acctBtn.classList.toggle('rkr-hidden', !acctState);
     if (!acctState) return;
     const paid = acctState.paid || 0;
-    acctBtn.querySelector('.rkr-swagt').textContent = paid ? 'YOUR SWAG ACCOUNT' : 'CREATE PERSONAL SWAG ACCOUNT';
-    acctBtn.querySelector('small').textContent = paid ? `${fmtNum(paid)} under your cat · add more` : 'optional · your number under your cat';
+    // short title so it's the size of the other three; the rest goes in the small line
+    acctBtn.querySelector('.rkr-swagt').textContent = 'SWAG ACCOUNT';
+    acctBtn.querySelector('small').textContent = paid ? `${fmtNum(paid)} under your cat` : 'create a personal one';
   }
   function onMenuClick(fn) { menuHandler = fn; }
   function isOverlayOpen() { return state.title || state.pause || state.gameOver || state.victory; }

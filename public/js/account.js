@@ -25,6 +25,11 @@ const CSS = `
 .rka-msg.rka-err{color:#ff8fa3;}
 .rka-msg.rka-ok{color:#9dff7a;}
 .rka-gbtn{display:flex;justify-content:center;min-height:44px;}
+/* account menu: one card per section */
+.rka-sec{align-self:stretch;display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 14px;border-radius:16px;background:rgba(10,4,30,.38);border:1px solid rgba(255,255,255,.12);}
+.rka-sech{align-self:flex-start;font-size:12px;font-weight:900;letter-spacing:.14em;opacity:.6;}
+.rka-note{font-size:14px;font-weight:700;opacity:.85;}
+.rka-soon{opacity:.55;}
 `;
 
 const PRESETS = [50, 420, 1337];
@@ -121,7 +126,7 @@ function createAccount(root) {
     return d;
   }
 
-  // one modal, three states: signed out (Google button), signed in (pick an amount), paid (your total + add more)
+  // one modal: signed out (Google button); signed in: the account menu, or the amount picker (opts.view 'pay')
   function open(opts = {}) {
     if (!A.enabled) return;
     close();
@@ -153,7 +158,7 @@ function createAccount(root) {
             try {
               const j = await api('google', { credential: r.credential });
               setSession(j.token, j.account);
-              open();
+              open(Number(j.account && j.account.paid) > 0 ? {} : { view: 'pay' });
             } catch (e) { say(e.message, 'err'); }
           },
         });
@@ -164,21 +169,55 @@ function createAccount(root) {
     }
 
     const paid = Number(a.paid) || 0;
-    if (paid > 0) {
-      // the player's switch: show the total to other players online, or keep it to yourself (server: accounts.js 'show')
-      const shown = a.show !== false;
-      const sw = el('button', 'rka-amt' + (shown ? ' rka-on' : ''), shown ? 'SHOWN ONLINE: ON' : 'SHOWN ONLINE: OFF');
-      sw.addEventListener('click', async () => {
-        sw.disabled = true;
-        try { A.account = (await api('show', { show: !shown })).account; changed(); open(); } catch (e) { say(e.message, 'err'); sw.disabled = false; }
+    const shown = a.show !== false;
+    const section = (title) => { const s = el('div', 'rka-sec'); s.appendChild(el('div', 'rka-sech', title)); return s; };
+    const sayOpts = () => { if (opts.msg || opts.err) say(opts.err || opts.msg, opts.err ? 'err' : opts.thanks ? 'ok' : ''); };
+
+    // Signed in: the account menu, one section per thing (stats & progress go in here later). The amount picker is
+    // its own view (opts.view 'pay', with BACK).
+    if (opts.view !== 'pay') {
+      box.append(el('h2', null, opts.thanks ? 'THANK YOU!' : 'YOUR SWAG ACCOUNT'), el('div', 'rkr-gsub', `Hi ${a.name || 'there'}!`));
+      // Swag: your total, the "shown online" switch (server: accounts.js 'show') and adding more
+      const swag = section('SWAG');
+      if (paid > 0) {
+        const sw = el('button', 'rka-amt' + (shown ? ' rka-on' : ''), shown ? 'SHOWN ONLINE: ON' : 'SHOWN ONLINE: OFF');
+        sw.addEventListener('click', async () => {
+          sw.disabled = true;
+          try { A.account = (await api('show', { show: !shown })).account; changed(); open(); } catch (e) { say(e.message, 'err'); sw.disabled = false; }
+        });
+        const add = el('button', 'rka-amt', 'ADD MORE');
+        add.addEventListener('click', () => open({ view: 'pay' }));
+        const r = el('div', 'rka-row');
+        r.append(sw, add);
+        swag.append(el('div', 'rka-big', fmtPaid(paid)),
+          el('div', 'rka-note', shown ? 'Shows next to your kitty for everyone online.' : 'Hidden: other players don\'t see it right now.'), r);
+      } else {
+        const pick = el('button', 'rka-amt rka-on', 'PICK AN AMOUNT');
+        pick.addEventListener('click', () => open({ view: 'pay' }));
+        swag.append(el('div', 'rka-note', `No swag yet. Chip in from ${fmtPaid(A.cfg.min)} and it shows next to your kitty for everyone online (can toggle it on and off).`), pick);
+      }
+      // Stats & progress: not saved to accounts yet (wins, revives and rewards only last a run), so a placeholder
+      const stats = section('STATS & PROGRESS');
+      stats.classList.add('rka-soon');
+      stats.appendChild(el('div', 'rka-note', 'Coming soon: your wins, revives and rewards, saved to your account.'));
+      const links = el('div', 'rka-links');
+      const out = el('a', null, 'Sign out'), del = el('a', null, 'Delete account');
+      out.addEventListener('click', async () => { try { await api('logout', {}); } catch { /* gone anyway */ } setSession('', null); close(); });
+      del.addEventListener('click', async () => {
+        if (!confirm(`Delete your account${paid ? ` and your ${fmtPaid(paid)}` : ''}? This can't be undone, and payments aren't refunded.`)) return;
+        try { await api('delete', {}); setSession('', null); close(); } catch (e) { say(e.message, 'err'); }
       });
-      box.append(el('h2', null, opts.thanks ? 'THANK YOU!' : 'YOUR SWAG ACCOUNT'), el('div', 'rka-big', fmtPaid(paid)),
-        el('div', 'rkr-gsub', (shown ? 'Shows next to your kitty for everyone online.' : 'Hidden: other players don\'t see it right now.') + ' Add more any time, it only goes up.'),
-        sw);
-    } else {
-      box.append(el('h2', null, 'CREATE SWAG ACCOUNT'),
-        el('div', 'rkr-gsub', `Hi ${a.name || 'there'}! How much? Whatever you pick shows next to your kitty for everyone online (can toggle it on and off).`));
+      links.append(out, del);
+      box.append(swag, stats, msg, closeBtn, links, fine(`Signed in as ${a.email}. `));
+      sayOpts();
+      root.appendChild(modal);
+      return;
     }
+
+    // Amount picker
+    box.append(el('h2', null, paid > 0 ? 'ADD SWAG' : 'CREATE SWAG ACCOUNT'),
+      el('div', 'rkr-gsub', paid > 0 ? `You have ${fmtPaid(paid)}. Add more any time, it only goes up.`
+        : `Hi ${a.name || 'there'}! How much? Whatever you pick shows next to your kitty for everyone online (can toggle it on and off).`));
     let cents = 50;
     const amts = el('div', 'rka-amts');
     const btns = PRESETS.map((c) => {
@@ -209,20 +248,14 @@ function createAccount(root) {
       pay.disabled = true; say('Opening secure checkout…');
       try { location.href = (await api('pay', { cents, origin: location.origin })).url; } catch (e) { say(e.message, 'err'); pay.disabled = false; }
     });
+    const back = el('button', 'rkr-btn rkr-alt', 'BACK');
+    back.addEventListener('click', () => open());
     const row = el('div', 'rka-row');
-    row.append(pay, closeBtn);
-    const links = el('div', 'rka-links');
-    const out = el('a', null, 'Sign out'), del = el('a', null, 'Delete account');
-    out.addEventListener('click', async () => { try { await api('logout', {}); } catch { /* gone anyway */ } setSession('', null); close(); });
-    del.addEventListener('click', async () => {
-      if (!confirm(`Delete your account${paid ? ` and your ${fmtPaid(paid)}` : ''}? This can't be undone, and payments aren't refunded.`)) return;
-      try { await api('delete', {}); setSession('', null); close(); } catch (e) { say(e.message, 'err'); }
-    });
-    links.append(out, del);
+    row.append(pay, back);
     box.append(amts, custom, row, msg,
-      fine(`Signed in as ${a.email}. One-time payment through Stripe, no subscription. Your total shows right away, so payments can't be refunded. `), links);
+      fine(`Signed in as ${a.email}. One-time payment through Stripe, no subscription. Your total shows right away, so payments can't be refunded. `));
     sync();
-    if (opts.msg || opts.err) say(opts.err || opts.msg, opts.err ? 'err' : opts.thanks ? 'ok' : '');
+    sayOpts();
     root.appendChild(modal);
   }
 

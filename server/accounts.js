@@ -41,7 +41,8 @@ function createAccounts(file, env = process.env) {
   const paymentsFile = file.replace(/[^/]*$/, 'payments.jsonl');
   const LIVE = /^(sk|rk)_live_/.test(stripeKey);   // a test-mode session never credits a live server, and vice versa
 
-  // sub (Google user id) -> { sub, email, name, paid (cents), created, sessions: [sha256 of token], payments: [stripe session ids] }
+  // sub (Google user id) -> { sub, email, name, paid (cents), created, sessions: [sha256 of token], payments: [stripe session ids],
+  //   hide (true = the total isn't shown to other players) }
   let accounts = {};
   // Checkout Session id -> { sub, cents, at }: written when this server creates the session, removed once credited
   let checkouts = {};
@@ -152,7 +153,7 @@ function createAccounts(file, env = process.env) {
   }
 
   // ---- accounts ----
-  const pub = (a) => (a ? { name: a.name, email: a.email, paid: Number(a.paid) || 0 } : null);
+  const pub = (a) => (a ? { name: a.name, email: a.email, paid: Number(a.paid) || 0, show: !a.hide } : null);
   function newSession(a) {
     const token = crypto.randomBytes(24).toString('base64url');
     const h = sha(token);
@@ -167,8 +168,8 @@ function createAccounts(file, env = process.env) {
     const sub = byToken.get(sha(token));
     return (sub && accounts[sub]) || null;
   };
-  // total paid (cents) for a session token, 0 if none / unpaid: what the game server shows next to the name
-  const paidFor = (token) => { const a = fromToken(token); return a ? Number(a.paid) || 0 : 0; };
+  // total paid (cents) for a session token, 0 if none / unpaid / hidden: what the game server shows next to the name
+  const paidFor = (token) => { const a = fromToken(token); return a && !a.hide ? Number(a.paid) || 0 : 0; };
 
   // Is this paid session one of ours, unchanged? (a session from another project on the shared account, the other
   // mode, or one this server never created gets null, quietly: the webhook sees every project's checkouts)
@@ -283,6 +284,13 @@ function createAccounts(file, env = process.env) {
       credit(s);
       return { ok: true, paid: s.payment_status === 'paid', account: pub(a) };
     }
+    if (name === 'show') {
+      // the player's own switch: show the total to other players online, or not (it stays on the account either way)
+      if (typeof m.show !== 'boolean') return { ok: false };
+      if (m.show) delete a.hide; else a.hide = true;
+      changed();
+      return { ok: true, account: pub(a) };
+    }
     if (name === 'logout') {
       const h = sha(bearer(req));
       const previous = a.sessions;
@@ -323,7 +331,7 @@ function createAccounts(file, env = process.env) {
   // /api/account/<name>; returns false if it isn't one of ours
   function handle(req, res, name) {
     if (name === 'config' && req.method === 'GET') { route('config', req).then((j) => reply(res, 200, j)); return true; }
-    if (!['google', 'me', 'pay', 'confirm', 'logout', 'delete'].includes(name)) return false;
+    if (!['google', 'me', 'pay', 'confirm', 'show', 'logout', 'delete'].includes(name)) return false;
     if (req.method !== (name === 'me' ? 'GET' : 'POST')) { reply(res, 405, { ok: false }); return true; }
     const go = (body) => route(name, req, body)
       .then((j) => reply(res, j ? 200 : 404, j || { ok: false }))

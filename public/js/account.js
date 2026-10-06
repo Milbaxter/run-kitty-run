@@ -141,7 +141,7 @@ function createAccount(root) {
 
     if (!A.token || !a) {
       box.append(el('h2', null, 'CREATE SWAG ACCOUNT'),
-        el('div', 'rkr-gsub', `Totally optional. Chip in whatever you like (from ${fmtPaid(A.cfg.min)}) and the total shows next to your kitty for everyone online.`));
+        el('div', 'rkr-gsub', `Totally optional. Chip in whatever you like (from ${fmtPaid(A.cfg.min)}) and the total shows next to your kitty for everyone online (can toggle it on and off).`));
       const g = el('div', 'rka-gbtn');
       box.append(g, msg, fine('By signing in you agree to the '), closeBtn);
       loadGsi().then(() => {
@@ -165,11 +165,19 @@ function createAccount(root) {
 
     const paid = Number(a.paid) || 0;
     if (paid > 0) {
+      // the player's switch: show the total to other players online, or keep it to yourself (server: accounts.js 'show')
+      const shown = a.show !== false;
+      const sw = el('button', 'rka-amt' + (shown ? ' rka-on' : ''), shown ? 'SHOWN ONLINE: ON' : 'SHOWN ONLINE: OFF');
+      sw.addEventListener('click', async () => {
+        sw.disabled = true;
+        try { A.account = (await api('show', { show: !shown })).account; changed(); open(); } catch (e) { say(e.message, 'err'); sw.disabled = false; }
+      });
       box.append(el('h2', null, opts.thanks ? 'THANK YOU!' : 'YOUR SWAG ACCOUNT'), el('div', 'rka-big', fmtPaid(paid)),
-        el('div', 'rkr-gsub', 'Shows next to your kitty online. Add more any time, it only goes up.'));
+        el('div', 'rkr-gsub', (shown ? 'Shows next to your kitty for everyone online.' : 'Hidden: other players don\'t see it right now.') + ' Add more any time, it only goes up.'),
+        sw);
     } else {
       box.append(el('h2', null, 'CREATE SWAG ACCOUNT'),
-        el('div', 'rkr-gsub', `Hi ${a.name || 'there'}! How much? Whatever you pick shows next to your kitty for everyone online.`));
+        el('div', 'rkr-gsub', `Hi ${a.name || 'there'}! How much? Whatever you pick shows next to your kitty for everyone online (can toggle it on and off).`));
     }
     let cents = 50;
     const amts = el('div', 'rka-amts');
@@ -224,6 +232,7 @@ function createAccount(root) {
     enabled: () => A.enabled,
     token: () => A.token,
     paid: () => (A.account ? Number(A.account.paid) || 0 : 0),
+    shown: () => !A.account || A.account.show !== false,   // the player's "shown online" switch
     onChange(fn) { changeFn = fn; },
   };
 }

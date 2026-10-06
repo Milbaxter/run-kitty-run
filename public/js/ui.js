@@ -211,6 +211,8 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-credits{position:absolute;right:max(16px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));z-index:2;
   font-weight:800;font-size:14px;color:rgba(239,231,255,.75);}
 .rkr-credits a{color:#ffcf5a;text-decoration:none;}
+/* narrow windows: the bottom-left buttons (stats, feedback, music) need the whole line, so the credits go up a line */
+@media (max-width:900px){ .rkr-credits{bottom:calc(max(12px,env(safe-area-inset-bottom)) + 44px);} }
 .rkr-credits a:hover{text-decoration:underline;}
 .rkr-title.rkr-leaving{animation:rkr-fadeout .45s ease-in forwards;pointer-events:none;}
 .rkr-tcol{display:flex;flex-direction:column;align-items:center;gap:18px;max-width:980px;width:100%;margin:auto;}
@@ -927,6 +929,14 @@ function createUI(root) {
     fbBtn.addEventListener('click', () => { if (feedbackHandler) feedbackHandler(); });
     const footl = el('div', 'rkr-footl');
     footl.append(statsBtn, fbBtn);
+    // which songs play (main.js: all one after the other, or one on a loop); also in the Esc menu
+    if (musicCtl) {
+      const mb = el('button', 'rkr-statsbtn rkr-musicbtn', '🎵 ' + musicCtl.label());
+      mb.title = 'Which songs play: all of them, or one on a loop';
+      mb.addEventListener('mousedown', (e) => e.preventDefault());   // keep Enter / gamepad on the menu buttons
+      mb.addEventListener('click', () => { mb.textContent = '🎵 ' + musicCtl.cycle(); });
+      footl.appendChild(mb);
+    }
     // 4: optional account (account.js), hidden until accounts are on
     acctBtn = o.querySelector('.rkr-swag');
     paintAccount();

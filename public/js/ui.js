@@ -553,7 +553,7 @@ function createUI(root) {
     if (p.color !== v.color) { v.color = p.color; card.root.style.setProperty('--pc', hexColor(p.color)); }
     if (!!p.cool !== v.cool) { v.cool = !!p.cool; card.root.classList.toggle('rkr-cool', v.cool); }   // 5+ wins: sunglasses
     if (!!p.shimmer !== v.shimmer) { v.shimmer = !!p.shimmer; card.root.classList.toggle('rkr-shimmer', v.shimmer); }   // 12+ wins: rainbow name
-    if ((p.paid | 0) !== v.paid) { v.paid = p.paid | 0; card.paid.textContent = fmtPaid(v.paid); card.paid.classList.toggle('rkr-hidden', !v.paid); }
+    if ((p.paid || 0) !== v.paid) { v.paid = p.paid || 0; card.paid.textContent = fmtPaid(v.paid); card.paid.classList.toggle('rkr-hidden', !v.paid); }
     if (!!p.you !== v.you) { v.you = !!p.you; card.root.classList.toggle('rkr-you', v.you); }
     if (!!p.rainbow !== v.rainbow) { v.rainbow = !!p.rainbow; card.root.classList.toggle('rkr-rainbow', v.rainbow); }   // every reward
     const alive = !!p.alive;

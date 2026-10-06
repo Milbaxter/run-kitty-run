@@ -1468,7 +1468,7 @@ function updateHUD() {
     let h = hudPlayers[i];
     if (!h) h = hudPlayers[i] = {};
     h.name = p.name; h.color = p.color; h.cool = (p.finishes || 0) >= 5; h.shimmer = (p.finishes || 0) >= 12; h.rainbow = (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
-    h.paid = online.playing ? ((online.roster.get(p.id) || {}).paid | 0) : i === 0 ? account.paid() : 0;   // account total
+    h.paid = online.playing ? ((online.roster.get(p.id) || {}).paid || 0) : i === 0 ? account.paid() : 0;   // account total
   }
   if (dirty) ui.setScores(hudScores);
   hudData.level = sim.levelData.level || sim.level; hudData.time = sim.time; hudData.rescues = sim.stats.rescues;

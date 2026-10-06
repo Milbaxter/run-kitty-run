@@ -13,7 +13,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 
 const MIN_CENTS = 50;              // Stripe's minimum charge (EUR / USD; the account settles in EUR, so a USD charge must clear €0.50)
-const MAX_CENTS = 100000;          // per payment (1000): catches typos
+// No cap of our own: this is only the largest amount Stripe's API takes (8 digits); card / payment-method limits still apply
+const STRIPE_MAX_CENTS = 99999999;
 const MAX_SESSIONS = 10;           // signed-in devices per account
 const SAVE_DELAY_MS = 1000;
 const GOOGLE_ISS = ['accounts.google.com', 'https://accounts.google.com'];
@@ -39,6 +40,22 @@ function createAccounts(file, env = process.env) {
     const old = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (old && old.accounts && typeof old.accounts === 'object') accounts = old.accounts;
   } catch { /* first run */ }
+  // payments.jsonl is the record of truth for money: credit any logged payment the account file missed (a crash
+  // between the two writes). Deleted accounts stay deleted.
+  (function recover() {
+    let lines = [];
+    try { lines = fs.readFileSync(paymentsFile, 'utf8').split('\n'); } catch { return; }
+    let n = 0;
+    for (const l of lines) {
+      let p; try { p = JSON.parse(l); } catch { continue; }
+      const a = p && accounts[p.sub];
+      if (!a || (a.payments || []).includes(p.session)) continue;
+      a.payments = [...(a.payments || []), p.session];
+      a.paid = (Number(a.paid) || 0) + (Number(p.amount) || 0);
+      n++;
+    }
+    if (n) { console.log(`accounts: recovered ${n} payment(s) from payments.jsonl`); fs.writeFileSync(file, JSON.stringify({ accounts })); }
+  })();
   const byToken = new Map();   // sha256(token) -> sub
   const reindex = () => { byToken.clear(); for (const a of Object.values(accounts)) for (const h of a.sessions || []) byToken.set(h, a.sub); };
   reindex();
@@ -53,10 +70,16 @@ function createAccounts(file, env = process.env) {
     });
   }
   const changed = () => { if (!saveT) saveT = setTimeout(save, SAVE_DELAY_MS); };
+  // synchronous atomic save (payments, and on shutdown)
+  function saveNow() {
+    if (saveT) { clearTimeout(saveT); saveT = null; }
+    try {
+      fs.writeFileSync(file + '.tmp', JSON.stringify({ accounts }));
+      fs.renameSync(file + '.tmp', file);
+    } catch (e) { console.error('accounts save failed:', e.message); }
+  }
   function flush() {
-    if (!saveT) return;
-    clearTimeout(saveT); saveT = null;
-    try { fs.writeFileSync(file, JSON.stringify({ accounts })); } catch (e) { console.error('accounts flush failed:', e.message); }
+    if (saveT) saveNow();
   }
 
   // ---- Google ----
@@ -105,7 +128,7 @@ function createAccounts(file, env = process.env) {
   }
 
   // ---- accounts ----
-  const pub = (a) => (a ? { name: a.name, email: a.email, paid: a.paid | 0 } : null);
+  const pub = (a) => (a ? { name: a.name, email: a.email, paid: Number(a.paid) || 0 } : null);
   function newSession(a) {
     const token = crypto.randomBytes(24).toString('base64url');
     const h = sha(token);
@@ -120,7 +143,7 @@ function createAccounts(file, env = process.env) {
     return (sub && accounts[sub]) || null;
   };
   // total paid (cents) for a session token, 0 if none / unpaid: what the game server shows next to the name
-  const paidFor = (token) => { const a = fromToken(token); return a ? a.paid | 0 : 0; };
+  const paidFor = (token) => { const a = fromToken(token); return a ? Number(a.paid) || 0 : 0; };
 
   // credit a paid Checkout Session once (from the webhook or the return trip, whichever comes first)
   function credit(s) {
@@ -128,11 +151,14 @@ function createAccounts(file, env = process.env) {
     const a = accounts[s.client_reference_id];
     if (!a) { console.error('paid session for unknown account', s.id); return null; }
     if ((a.payments || []).includes(s.id)) return a;
+    const amount = Number(s.amount_total) || 0;
+    // Written to disk before anyone is told it worked (the webhook's 200, the confirm reply): the log line first (it
+    // replays on startup, see recover()), then the account file. A failed log write throws, so Stripe retries the webhook.
+    const line = { at: new Date().toISOString(), session: s.id, sub: a.sub, email: a.email, amount, currency: s.currency, total: (Number(a.paid) || 0) + amount };
+    fs.appendFileSync(paymentsFile, JSON.stringify(line) + '\n');
     a.payments = [...(a.payments || []), s.id];
-    a.paid = (a.paid | 0) + (s.amount_total | 0);
-    changed();
-    const line = { at: new Date().toISOString(), session: s.id, sub: a.sub, email: a.email, amount: s.amount_total, currency: s.currency, total: a.paid };
-    fs.appendFile(paymentsFile, JSON.stringify(line) + '\n', (e) => { if (e) console.error('payments log failed:', e.message); });
+    a.paid = line.total;
+    saveNow();
     console.log(`payment: ${a.email} +${(s.amount_total / 100).toFixed(2)} = ${(a.paid / 100).toFixed(2)}`);
     return a;
   }
@@ -147,7 +173,7 @@ function createAccounts(file, env = process.env) {
   const bearer = (req) => (/^Bearer (\S+)$/.exec(req.headers.authorization || '') || [])[1];
 
   async function route(name, req, body) {
-    if (name === 'config') return { ok: true, enabled, googleClientId: clientIds[0] || null, min: MIN_CENTS, max: MAX_CENTS, currency: CURRENCY };
+    if (name === 'config') return { ok: true, enabled, googleClientId: clientIds[0] || null, min: MIN_CENTS, max: STRIPE_MAX_CENTS, currency: CURRENCY };
     if (!enabled) return { ok: false, msg: 'Accounts are not open yet.' };
     let m = {};
     if (body) { try { m = JSON.parse(body) || {}; } catch { return { ok: false }; } }
@@ -164,10 +190,12 @@ function createAccounts(file, env = process.env) {
     if (!a) return { ok: false, signedOut: true };
     if (name === 'me') return { ok: true, account: pub(a) };
     if (name === 'pay') {
-      const cents = Math.round(+m.cents);
-      if (!(cents >= MIN_CENTS && cents <= MAX_CENTS)) return { ok: false, msg: `Pick between ${(MIN_CENTS / 100).toFixed(2)} and ${MAX_CENTS / 100}.` };
+      const cents = m.cents;
+      if (!Number.isSafeInteger(cents) || cents < MIN_CENTS) return { ok: false, msg: `The smallest amount is ${(MIN_CENTS / 100).toFixed(2)}.` };
+      if (cents > STRIPE_MAX_CENTS) return { ok: false, msg: 'That is more than one payment can take.' };
       const origin = origins.has(m.origin) ? m.origin : [...origins][0];
-      const s = await stripe('POST', '/checkout/sessions', {
+      let s;
+      try { s = await stripe('POST', '/checkout/sessions', {
         mode: 'payment', client_reference_id: a.sub, customer_email: a.email || undefined, submit_type: 'pay',
         line_items: { 0: { quantity: 1, price_data: { currency: CURRENCY, unit_amount: cents,
           product_data: { name: 'Run Kitty Run: your number', description: 'Adds to the total shown next to your kitty online. One-time, cosmetic only.' } } } },
@@ -175,7 +203,7 @@ function createAccounts(file, env = process.env) {
         payment_intent_data: { description: 'Run Kitty Run account', metadata: { sub: a.sub } },
         success_url: `${origin}/?paid={CHECKOUT_SESSION_ID}`,
         cancel_url: `${origin}/?paid=cancel`,
-      });
+      }); } catch (e) { console.error('checkout failed:', e.message); return { ok: false, msg: /amount/i.test(e.message) ? e.message : 'Checkout is not available right now, try again in a moment.' }; }
       return { ok: true, url: s.url };
     }
     if (name === 'confirm') {
@@ -213,7 +241,9 @@ function createAccounts(file, env = process.env) {
       if (!ok) return reply(res, 400, { ok: false });
       let ev;
       try { ev = JSON.parse(raw); } catch { return reply(res, 400, { ok: false }); }
-      if (ev.type === 'checkout.session.completed' || ev.type === 'checkout.session.async_payment_succeeded') credit(ev.data && ev.data.object);
+      if (ev.type === 'checkout.session.completed' || ev.type === 'checkout.session.async_payment_succeeded') {
+        try { credit(ev.data && ev.data.object); } catch (e) { console.error('credit failed:', e.message); return reply(res, 500, { ok: false }); }   // Stripe retries
+      }
       reply(res, 200, { ok: true });
     });
   }

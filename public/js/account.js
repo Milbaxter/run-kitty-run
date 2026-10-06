@@ -159,7 +159,7 @@ function createAccount(root) {
       return;
     }
 
-    const paid = a.paid | 0;
+    const paid = Number(a.paid) || 0;
     if (paid > 0) {
       box.append(el('h2', null, opts.thanks ? 'THANK YOU!' : 'YOUR NUMBER'), el('div', 'rka-big', fmtPaid(paid)),
         el('div', 'rkr-gsub', 'Shows next to your kitty online. Add more any time, it only goes up.'));
@@ -179,17 +179,18 @@ function createAccount(root) {
     const input = el('input');
     input.type = 'text'; input.inputMode = 'decimal'; input.placeholder = 'other';
     input.addEventListener('input', () => {
-      const v = Math.round(parseFloat(input.value.replace(',', '.')) * 100);
-      cents = Number.isFinite(v) ? v : 0; sync();
+      // whole units and up to 2 decimals ("13.37" / "13,37"); anything else is not an amount yet
+      const mm = /^\s*(\d{1,15})(?:[.,](\d{1,2}))?\s*$/.exec(input.value);
+      cents = mm ? +mm[1] * 100 + +(mm[2] || '0').padEnd(2, '0') : 0; sync();
     });
     custom.appendChild(input);
     const pay = el('button', 'rkr-btn');
-    const min = A.cfg.min, max = A.cfg.max;
+    const min = A.cfg.min, max = A.cfg.max;   // max: only Stripe's own per-payment limit
     function sync() {
       for (const [b, c] of btns) b.classList.toggle('rka-on', !input.value && c === cents);
-      const ok = cents >= min && cents <= max;
+      const ok = Number.isSafeInteger(cents) && cents >= min && cents <= max;
       pay.disabled = !ok;
-      pay.textContent = ok ? (paid > 0 ? 'ADD ' : 'PAY ') + fmtPaid(cents) : cents > max ? `MAX ${fmtPaid(max)}` : `MIN ${fmtPaid(min)}`;
+      pay.textContent = ok ? (paid > 0 ? 'ADD ' : 'PAY ') + fmtPaid(cents) : cents > max ? 'TOO MUCH FOR ONE PAYMENT' : `MIN ${fmtPaid(min)}`;
       if (paid > 0 && ok) say(`New total: ${fmtPaid(paid + cents)}`);
     }
     pay.addEventListener('click', async () => {
@@ -218,7 +219,7 @@ function createAccount(root) {
     isOpen: () => !!modal,
     enabled: () => A.enabled,
     token: () => A.token,
-    paid: () => (A.account ? A.account.paid | 0 : 0),
+    paid: () => (A.account ? Number(A.account.paid) || 0 : 0),
     onChange(fn) { changeFn = fn; },
   };
 }

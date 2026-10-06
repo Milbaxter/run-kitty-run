@@ -19,6 +19,12 @@ const MAX_SESSIONS = 10;           // signed-in devices per account
 const SAVE_DELAY_MS = 1000;
 const GOOGLE_ISS = ['accounts.google.com', 'https://accounts.google.com'];
 const JWKS_URL = 'https://www.googleapis.com/oauth2/v3/certs';
+// The Stripe account is shared with other projects, and a webhook endpoint gets every project's events: only sessions
+// this server created (bound in `checkouts`) and marked with APP are ever credited.
+const APP = 'run-kitty-run';
+const CHECKOUT_KEEP_MS = 30 * 864e5;   // an unpaid binding is forgotten after this (async methods like SEPA can take days)
+// Pinned per request so the shared account's default API version never matters (branding_settings needs 2025-09-30+)
+const STRIPE_VERSION = '2026-08-26.dahlia';
 
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const cleanName = (n) => String(n ?? '').replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, 40);
@@ -33,13 +39,18 @@ function createAccounts(file, env = process.env) {
   const enabled = !!(clientIds.length && stripeKey);
   const CURRENCY = /^[a-z]{3}$/.test(env.CURRENCY || '') ? env.CURRENCY : 'eur';   // one currency for everyone, so totals compare
   const paymentsFile = file.replace(/[^/]*$/, 'payments.jsonl');
+  const LIVE = /^(sk|rk)_live_/.test(stripeKey);   // a test-mode session never credits a live server, and vice versa
 
   // sub (Google user id) -> { sub, email, name, paid (cents), created, sessions: [sha256 of token], payments: [stripe session ids] }
   let accounts = {};
+  // Checkout Session id -> { sub, cents, at }: written when this server creates the session, removed once credited
+  let checkouts = {};
   try {
     const old = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (old && old.accounts && typeof old.accounts === 'object') accounts = old.accounts;
+    if (old && old.checkouts && typeof old.checkouts === 'object') checkouts = old.checkouts;
   } catch { /* first run */ }
+  const state = () => JSON.stringify({ accounts, checkouts });
   // payments.jsonl is the record of truth for money: credit any logged payment the account file missed (a crash
   // between the two writes). Deleted accounts stay deleted.
   (function recover() {
@@ -48,14 +59,20 @@ function createAccounts(file, env = process.env) {
     let n = 0;
     for (const l of lines) {
       let p; try { p = JSON.parse(l); } catch { continue; }
+      if (p && checkouts[p.session]) { delete checkouts[p.session]; n++; }
       const a = p && accounts[p.sub];
       if (!a || (a.payments || []).includes(p.session)) continue;
       a.payments = [...(a.payments || []), p.session];
       a.paid = (Number(a.paid) || 0) + (Number(p.amount) || 0);
       n++;
     }
-    if (n) { console.log(`accounts: recovered ${n} payment(s) from payments.jsonl`); fs.writeFileSync(file, JSON.stringify({ accounts })); }
+    if (n) { console.log('accounts: recovered payments from payments.jsonl'); fs.writeFileSync(file, state()); }
   })();
+  function pruneCheckouts() {
+    const old = Date.now() - CHECKOUT_KEEP_MS;
+    for (const [id, c] of Object.entries(checkouts)) if (!(c.at > old)) { delete checkouts[id]; changed(); }
+  }
+  setInterval(pruneCheckouts, 6 * 3600e3).unref();
   const byToken = new Map();   // sha256(token) -> sub
   const reindex = () => { byToken.clear(); for (const a of Object.values(accounts)) for (const h of a.sessions || []) byToken.set(h, a.sub); };
   reindex();
@@ -64,7 +81,7 @@ function createAccounts(file, env = process.env) {
   function save() {
     saveT = null;
     const tmp = file + '.tmp';
-    fs.writeFile(tmp, JSON.stringify({ accounts }), (err) => {
+    fs.writeFile(tmp, state(), (err) => {
       if (err) { console.error('accounts save failed:', err.message); return; }
       fs.rename(tmp, file, (e) => { if (e) console.error('accounts save failed:', e.message); });
     });
@@ -74,7 +91,7 @@ function createAccounts(file, env = process.env) {
   function saveNow() {
     if (saveT) { clearTimeout(saveT); saveT = null; }
     try {
-      fs.writeFileSync(file + '.tmp', JSON.stringify({ accounts }));
+      fs.writeFileSync(file + '.tmp', state());
       fs.renameSync(file + '.tmp', file);
     } catch (e) { console.error('accounts save failed:', e.message); }
   }
@@ -119,7 +136,7 @@ function createAccounts(file, env = process.env) {
   async function stripe(method, path, body) {
     const r = await fetch('https://api.stripe.com/v1' + path, {
       method,
-      headers: { Authorization: 'Bearer ' + stripeKey, ...(body ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}) },
+      headers: { Authorization: 'Bearer ' + stripeKey, 'Stripe-Version': STRIPE_VERSION, ...(body ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}) },
       body: body ? form(body) : undefined,
     });
     const j = await r.json();
@@ -145,19 +162,34 @@ function createAccounts(file, env = process.env) {
   // total paid (cents) for a session token, 0 if none / unpaid: what the game server shows next to the name
   const paidFor = (token) => { const a = fromToken(token); return a ? Number(a.paid) || 0 : 0; };
 
+  // Is this paid session one of ours, unchanged? (a session from another project on the shared account, the other
+  // mode, or one this server never created gets null, quietly: the webhook sees every project's checkouts)
+  function ours(s) {
+    if (!s || s.object !== 'checkout.session' || s.livemode !== LIVE || !s.metadata || s.metadata.app !== APP) return null;
+    const c = checkouts[s.id];
+    if (!c || c.sub !== s.client_reference_id || c.sub !== s.metadata.sub) return null;
+    if (s.mode !== 'payment' || s.payment_status !== 'paid' || s.currency !== CURRENCY || s.amount_total !== c.cents) {
+      if (s.payment_status === 'paid') console.error('checkout', s.id, 'paid but does not match what was created');
+      return null;
+    }
+    return c;
+  }
+
   // credit a paid Checkout Session once (from the webhook or the return trip, whichever comes first)
   function credit(s) {
-    if (!s || s.payment_status !== 'paid' || s.currency !== CURRENCY || s.mode !== 'payment') return null;
-    const a = accounts[s.client_reference_id];
-    if (!a) { console.error('paid session for unknown account', s.id); return null; }
-    if ((a.payments || []).includes(s.id)) return a;
-    const amount = Number(s.amount_total) || 0;
+    const c = ours(s);
+    if (!c) return null;
+    const a = accounts[c.sub];
+    if (!a) { console.error('paid session for a deleted account', s.id); return null; }
+    if ((a.payments || []).includes(s.id)) { delete checkouts[s.id]; return a; }
+    const amount = s.amount_total;
     // Written to disk before anyone is told it worked (the webhook's 200, the confirm reply): the log line first (it
     // replays on startup, see recover()), then the account file. A failed log write throws, so Stripe retries the webhook.
     const line = { at: new Date().toISOString(), session: s.id, sub: a.sub, email: a.email, amount, currency: s.currency, total: (Number(a.paid) || 0) + amount };
     fs.appendFileSync(paymentsFile, JSON.stringify(line) + '\n');
     a.payments = [...(a.payments || []), s.id];
     a.paid = line.total;
+    delete checkouts[s.id];
     saveNow();
     console.log(`payment: ${a.email} +${(s.amount_total / 100).toFixed(2)} = ${(a.paid / 100).toFixed(2)}`);
     return a;
@@ -199,17 +231,23 @@ function createAccounts(file, env = process.env) {
         mode: 'payment', client_reference_id: a.sub, customer_email: a.email || undefined, submit_type: 'pay',
         line_items: { 0: { quantity: 1, price_data: { currency: CURRENCY, unit_amount: cents,
           product_data: { name: 'Run Kitty Run: your number', description: 'Adds to the total shown next to your kitty online. One-time, cosmetic only.' } } } },
-        metadata: { sub: a.sub },
-        payment_intent_data: { description: 'Run Kitty Run account', metadata: { sub: a.sub } },
+        metadata: { app: APP, sub: a.sub },
+        payment_intent_data: { description: 'Run Kitty Run account', metadata: { app: APP, sub: a.sub } },
+        branding_settings: { display_name: 'Run Kitty Run' },   // the Checkout heading (the shared account keeps its name)
         success_url: `${origin}/?paid={CHECKOUT_SESSION_ID}`,
         cancel_url: `${origin}/?paid=cancel`,
       }); } catch (e) { console.error('checkout failed:', e.message); return { ok: false, msg: /amount/i.test(e.message) ? e.message : 'Checkout is not available right now, try again in a moment.' }; }
+      if (s.livemode !== LIVE || !s.url) return { ok: false, msg: 'Checkout is not available right now, try again in a moment.' };
+      // bind before the player can pay: only sessions in here are ever credited
+      checkouts[s.id] = { sub: a.sub, cents, at: Date.now() };
+      saveNow();
       return { ok: true, url: s.url };
     }
     if (name === 'confirm') {
       // back from Checkout: ask Stripe directly so it doesn't wait on the webhook
       if (!/^cs_[\w]+$/.test(String(m.session || ''))) return { ok: false };
       const s = await stripe('GET', '/checkout/sessions/' + m.session);
+      if (!checkouts[s.id] && !(a.payments || []).includes(s.id)) return { ok: false };   // not a checkout this player started here
       if (s.client_reference_id !== a.sub) return { ok: false };
       credit(s);
       return { ok: true, paid: s.payment_status === 'paid', account: pub(a) };

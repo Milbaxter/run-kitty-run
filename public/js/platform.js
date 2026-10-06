@@ -12,18 +12,40 @@ const STORE_URLS = {
   android: 'https://play.google.com/store/apps/details?id=io.runkittyrun.app',
 };
 
-// `?server=ws://host:port/ws` points the game at another server (dev / testing), on web and in the app.
-const SERVER_PARAM = new URLSearchParams(location.search).get('server');
-
 function originFromWs(ws) {
   try {
     const u = new URL(ws);
+    if (!['ws:', 'wss:'].includes(u.protocol) || u.username || u.password || u.hash) return null;
     return (u.protocol === 'wss:' ? 'https:' : 'http:') + '//' + u.host;
   } catch { return null; }
 }
 
+// Custom servers are a development feature, never a setting an invite link can change on the public site.
+// Keep loopback, LAN testing and locally bundled native apps working (see docs/MOBILE.md).
+function localHost(host) {
+  if (['localhost', '127.0.0.1', '[::1]'].includes(host)) return true;
+  const octets = host.split('.').map(Number);
+  return octets.length === 4 && octets.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)
+    && (octets[0] === 10 || (octets[0] === 192 && octets[1] === 168)
+      || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31));
+}
+const serverParam = new URLSearchParams(location.search).get('server');
+const SERVER_PARAM = (location.protocol === 'file:' || localHost(location.hostname))
+  && originFromWs(serverParam) ? serverParam : null;
+
+// Account credentials always belong to the page's own server, independently of any game-server override.
+const ACCOUNT_ORIGIN = NATIVE ? PROD_ORIGIN : location.protocol === 'file:' ? 'http://localhost:8080' : location.origin;
 const SERVER_ORIGIN = (SERVER_PARAM && originFromWs(SERVER_PARAM))
-  || (NATIVE ? PROD_ORIGIN : location.protocol === 'file:' ? 'http://localhost:8080' : location.origin);
+  || ACCOUNT_ORIGIN;
+
+function accountApiUrl(path) {
+  return ACCOUNT_ORIGIN + (path.startsWith('/') ? path : '/' + path);
+}
+
+function accountSocketTrusted(url) {
+  try { return new URL(url).href === new URL('/ws', ACCOUNT_ORIGIN.replace(/^http/, 'ws')).href; }
+  catch { return false; }
+}
 
 function apiUrl(path) {
   // web on the game's own server keeps relative URLs (works under a sub-path too)
@@ -100,5 +122,5 @@ function storeUrl() { return STORE_URLS[PLATFORM] || STORE_URLS.android; }
 
 export {
   NATIVE, PLATFORM, APP_VERSION, SERVER_ORIGIN, PROD_ORIGIN, STORE_URLS,
-  apiUrl, wsUrl, haptic, share, inviteUrl, plugin, call, openExternal, storeUrl,
+  apiUrl, accountApiUrl, accountSocketTrusted, wsUrl, haptic, share, inviteUrl, plugin, call, openExternal, storeUrl,
 };

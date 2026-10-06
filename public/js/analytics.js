@@ -161,7 +161,7 @@ function openStatsPage(root) {
       const tot = Object.values(obj).reduce((a, b) => a + b, 0) || 1;
       for (const [k, v] of Object.entries(obj)) {
         const p = el('span', 'rks-pill');
-        p.innerHTML = `${names[k] || k} <b>${Math.round((v / tot) * 100)}%</b>`;
+        p.append((Object.hasOwn(names, k) ? names[k] : k) + ' ', el('b', null, `${Math.round((v / tot) * 100)}%`));
         wrap.appendChild(p);
       }
       return [el('div', 'rks-h', title), wrap];
@@ -179,7 +179,7 @@ function openStatsPage(root) {
       fill.style.width = ((v || 0) / topRuns) * 100 + '%';
       track.appendChild(fill);
       const num = el('div', 'rks-num');
-      num.innerHTML = `${fmt(v || 0)} <small>${Math.round(((v || 0) / totalRuns) * 100)}%</small>`;
+      num.append(fmt(v || 0) + ' ', el('small', null, `${Math.round(((v || 0) / totalRuns) * 100)}%`));
       row.append(el('div', null, name), track, num);
       bars.appendChild(row);
     }

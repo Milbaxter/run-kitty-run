@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
+      'Security and reliability improvements for accounts, payments, shared game links and player reports',
       'Main menu: 1 Multiplayer, 2 Local, 3 Swag account. Local is single player and co-op in one: pick Solo or Co-op (2 players) on its setup screen (it remembers your pick)',
       'Optional, on the website: sign in with Google and chip in whatever you like (from €0.50). The total shows as a little number under your cat, on your card and in lobbies, for everyone online. Add more any time, it only goes up. Button 4 on the title screen: Swag account',
     ],

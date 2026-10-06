@@ -3,6 +3,7 @@
 //      back to the lobby, the win in /api/stats, a fresh game afterwards
 //   2. moderation / cross-play: hi/outdated gate, app badges, unfiltered chat, reports (apps), CORS, deep-link files
 //   3. lobby/server smoke: lobby limits, chat, host start/migration, inputs, snapshots, mode gating for old clients
+//   4. security: malformed HTTP bodies, report quotas across reconnects, bounded report storage
 // Usage: node scripts/server-test.mjs   (PORT=... to pick a port; default: a free one). Never point it at the live server.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -30,6 +31,7 @@ const srv = spawn(process.execPath, ['server/index.js'], {
   cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
   env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', RKR_TEST_HOOKS: '1', MAX_CONN_PER_IP: '100', REPORTS_FILE,
     FEEDBACK_FILE: path.join(tmp, 'feedback.jsonl'), STATS_FILE: path.join(tmp, 'stats.json'),
+    ACCOUNTS_FILE: path.join(tmp, 'accounts.json'), GOOGLE_CLIENT_ID: '', STRIPE_SECRET_KEY: '', STRIPE_WEBHOOK_SECRET: '',
     APPLE_TEAM_ID: 'TEAM123456', ANDROID_CERT_SHA256: 'AA:BB, CC:DD' },
 });
 let srvErr = '';
@@ -243,14 +245,14 @@ async function moderation() {
   host.send({ t: 'report', id: idOf(host), reason: 'spam' }); await sleep(100);
   ok(fs.readFileSync(REPORTS_FILE, 'utf8').trim().split('\n').length === 1, 'cannot report yourself');
 
-  // rate limit: 10 per hour per connection
+  // Repeated reports from one IP about the same player only create one record.
   const spammer = bot('Spammer'); await spammer.ready;
   spammer.send({ t: 'hi', v: PROTOCOL_VERSION, app: 'web' });
   spammer.send({ t: 'join', code, name: 'Spammer' }); await sleep(150);
   for (let i = 0; i < 12; i++) spammer.send({ t: 'report', id: idOf(legacy), reason: 'bogus' });
   await sleep(300);
   const all = fs.readFileSync(REPORTS_FILE, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  ok(all.filter((r) => r.reporter.name === 'Spammer').length === 10, 'reports rate limited to 10/hour');
+  ok(all.filter((r) => r.reporter.name === 'Spammer').length === 1, 'duplicate reports only create one record');
   ok(all.filter((r) => r.reporter.name === 'Spammer').every((r) => r.reason === 'other'), 'unknown reason stored as "other"');
 
   // no auto-mute: reports never silence anyone
@@ -404,9 +406,75 @@ async function lobby() {
   await sleep(100);
 }
 
+async function security() {
+  const post = (route, body, ip) => fetch(`${BASE}${route}`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip }, body: JSON.stringify(body), signal: AbortSignal.timeout(3000) });
+  const malformed = [
+    ['/api/event', { cid: { toString: null }, ev: 'visit' }],
+    ['/api/event', { cid: ['abcdefgh'], ev: 'visit' }],
+    ['/api/event', { cid: 'abcdefgh', ev: 'level_mismatch', mode: { toString: null } }],
+    ['/api/feedback', { text: { toString: null } }],
+    ['/api/feedback', { text: 'hello', name: { toString: null } }],
+    ['/api/feedback', []],
+  ];
+  for (let i = 0; i < malformed.length; i++) {
+    const [route, body] = malformed[i];
+    const r = await post(route, body, `10.20.0.${i + 1}`);
+    ok(r.status === 400, `${route} rejects malformed field types without crashing (${i + 1})`);
+  }
+  const visit = await post('/api/event', { cid: 'securitytest123', ev: 'visit', device: 'desktop' }, '10.20.1.1');
+  const feedback = await post('/api/feedback', { text: 'A valid feedback message', name: 'Tester' }, '10.20.1.2');
+  ok(visit.status === 200 && feedback.status === 200 && (await fetch(`${BASE}/healthz`)).status === 200,
+    'normal feedback, analytics and server health survive malformed requests');
+
+  const sockets = [];
+  async function connect(ip) {
+    const ws = new WebSocket(WS_URL, { headers: { 'x-forwarded-for': ip } }); sockets.push(ws);
+    const b = { ws, id: null };
+    await new Promise((resolve, reject) => {
+      ws.on('error', reject);
+      ws.on('message', (raw) => { const m = JSON.parse(raw); if (m.t === 'hello') { b.id = m.id; resolve(); } });
+      ws.on('open', () => ws.send(JSON.stringify({ t: 'hi', v: PROTOCOL_VERSION })));
+    });
+    return b;
+  }
+  const report = (b, target) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { b.ws.off('message', onMessage); reject(new Error('report reply timed out')); }, 3000);
+    const onMessage = (raw) => {
+      const m = JSON.parse(raw);
+      if (m.t !== 'chat' || !m.sys) return;
+      clearTimeout(timer); b.ws.off('message', onMessage); resolve(m.text);
+    };
+    b.ws.on('message', onMessage); b.ws.send(JSON.stringify({ t: 'report', id: target.id, reason: 'spam' }));
+  });
+  const lines = () => fs.readFileSync(REPORTS_FILE, 'utf8').trim().split('\n').filter(Boolean).length;
+  try {
+    const targets = [];
+    for (let i = 0; i < 11; i++) targets.push(await connect(`10.21.1.${i + 1}`));
+    const reporter = await connect('10.21.2.1');
+    const before = lines();
+    for (let i = 0; i < 10; i++) await report(reporter, targets[i]);
+    const after = lines(); reporter.ws.close();
+    const reconnected = await connect('10.21.2.1');
+    const reply = await report(reconnected, targets[10]);
+    ok(after === before + 10 && lines() === after && !reply.includes('report sent'), 'report quota survives reconnecting from the same IP');
+    const other = await connect('10.21.2.2');
+    await report(other, targets[0]); const once = lines(); other.ws.close();
+    const duplicate = await connect('10.21.2.2'); await report(duplicate, targets[0]);
+    ok(lines() === once, 'duplicate suppression survives reconnecting from the same IP');
+
+    const cap = 5 << 20;
+    fs.writeFileSync(REPORTS_FILE, Buffer.alloc(cap - 1, 0x20));
+    const full = await Promise.all([connect('10.21.3.1'), connect('10.21.3.2')]);
+    const fullReplies = await Promise.all(full.map((b) => report(b, targets[1])));
+    ok(fs.statSync(REPORTS_FILE).size === cap - 1 && fullReplies.every((text) => !text.includes('report sent')),
+      'concurrent reports cannot exceed the report-file size cap or claim a failed write succeeded');
+  } finally { for (const ws of sockets) ws.terminate(); }
+}
+
 const t0 = Date.now();
 try {
-  for (const [name, fn] of [['finale', victory], ['moderation', moderation], ['lobby', lobby]]) {
+  for (const [name, fn] of [['finale', victory], ['moderation', moderation], ['lobby', lobby], ['security', security]]) {
     console.log(`\n== ${name}`);
     await fn();
   }

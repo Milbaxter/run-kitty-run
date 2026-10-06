@@ -73,7 +73,11 @@ function createStats(file) {
 
   // ev: { cid, ev: 'visit' | 'run_start' | 'level' | 'run_end', ... }; ip (optional) caps new ids per IP
   function record(ev, ip) {
-    if (!ev || !CID.test(String(ev.cid || '')) || !EVENT_TYPES.includes(ev.ev)) return false;
+    if (!ev || typeof ev !== 'object' || Array.isArray(ev) || typeof ev.cid !== 'string' || !CID.test(ev.cid) || !EVENT_TYPES.includes(ev.ev)) return false;
+    // JSON fields are untrusted: even String({ toString: null }) throws. Validate before using any field.
+    if (['kind', 'mode', 'device', 'ver'].some((k) => ev[k] !== undefined && typeof ev[k] !== 'string')) return false;
+    if (['level', 'seconds', 'deaths', 'rescues'].some((k) => ev[k] !== undefined && !Number.isFinite(ev[k]))) return false;
+    if (ev.won !== undefined && typeof ev.won !== 'boolean') return false;
     if (ip && !s.players[ev.cid]) {
       const now = Date.now();
       const h = (newIds.get(ip) || []).filter((t) => now - t < 3600e3);
@@ -104,7 +108,7 @@ function createStats(file) {
       }
       case 'level_mismatch':   // an online client generated a level whose hash differs from the server's (desync tripwire)
         T.levelMismatches = (T.levelMismatches || 0) + 1;
-        console.warn(`level hash mismatch: mode ${String(ev.mode).slice(0, 8)} level ${num(ev.level, 999)} device ${String(ev.device).slice(0, 8)} ver ${String(ev.ver ?? '').slice(0, 16)}`);
+        console.warn(`level hash mismatch: mode ${(ev.mode || '').slice(0, 8)} level ${num(ev.level, 999)} device ${(ev.device || '').slice(0, 8)} ver ${(ev.ver || '').slice(0, 16)}`);
         break;
     }
     dirty = true;
@@ -136,7 +140,7 @@ function createStats(file) {
   }
 
   function handle(req, res, ip, onlineNow) {
-    const reply = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
+    const reply = (code, body) => { if (res.destroyed || res.writableEnded) return; res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
     if (req.method === 'GET') return reply(200, summary(onlineNow()));
     if (req.method !== 'POST') return reply(405, { ok: false });
     const now = Date.now();
@@ -145,11 +149,18 @@ function createStats(file) {
     h.push(now); hits.set(ip, h);
     let body = '';
     req.on('data', (c) => { body += c; if (body.length > 2048) req.destroy(); });
+    req.on('error', () => res.destroy());
     req.on('end', () => {
       let ev;
       try { ev = JSON.parse(body); } catch { return reply(400, { ok: false }); }
-      const ok = record(ev, ip);
-      reply(ok ? 200 : 400, { ok });
+      // This callback runs after the top-level HTTP handler's try/catch has returned.
+      try {
+        const ok = record(ev, ip);
+        reply(ok ? 200 : 400, { ok });
+      } catch (err) {
+        console.error('stats event failed:', err.message);
+        reply(500, { ok: false });
+      }
     });
   }
   // forget old rate-limit buckets now and then

@@ -1,6 +1,6 @@
 // Thin WebSocket client for online lobbies. Reconnects on drop; messages are JSON objects with a `t` type.
 import * as CONF from './shared/config.js';
-import { wsUrl, PLATFORM, APP_VERSION, NATIVE } from './platform.js';
+import { wsUrl, accountSocketTrusted, PLATFORM, APP_VERSION, NATIVE } from './platform.js';
 import { filterChat, filterName } from './shared/filter.js';
 
 // Sent in the 'hi' handshake; the server gates modes on it (MODE_MIN_PROTOCOL in server/index.js).
@@ -73,7 +73,8 @@ function createNet() {
         lastMsgAt = performance.now();
         // handshake first: lets the server tell old app builds to update
         if (!tok) tok = tabToken();
-        ws.send(JSON.stringify({ t: 'hi', v: PROTOCOL_VERSION, app: PLATFORM, ver: APP_VERSION, tok, acct: net.acct() || undefined }));
+        ws.send(JSON.stringify({ t: 'hi', v: PROTOCOL_VERSION, app: PLATFORM, ver: APP_VERSION, tok,
+          acct: accountSocketTrusted(sock.url) ? net.acct() || undefined : undefined }));
         while (queue.length) ws.send(queue.shift());
         emit('open', {});
         clearInterval(pingT);
@@ -137,6 +138,8 @@ function createNet() {
       }, 2500);
     },
     send(msg) {
+      // Account updates can also arrive after connect (sign-in / sign-out). Never forward them to a custom server.
+      if (Object.hasOwn(msg, 'acct') && !accountSocketTrusted(ws && ws.url)) msg = { ...msg, acct: undefined };
       const s = JSON.stringify(msg);
       if (ws && ws.readyState === 1) ws.send(s);
       else if (ws && ws.readyState === 0 && tries === 0 && msg.t !== 'in' && msg.t !== 'ping' && queue.length < 8) queue.push(s);

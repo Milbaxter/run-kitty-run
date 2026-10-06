@@ -9,6 +9,8 @@ WorkingDirectory=/opt/run-kitty-run/app
 Environment=NODE_ENV=production HOST=127.0.0.1 PORT=8080
 # player feedback is appended to $STATE_DIRECTORY/feedback.jsonl (= /var/lib/run-kitty-run)
 StateDirectory=run-kitty-run
+StateDirectoryMode=0700
+UMask=0077
 Environment=FEEDBACK_FILE=/var/lib/run-kitty-run/feedback.jsonl
 # player reports (chat moderation) go next to it
 Environment=REPORTS_FILE=/var/lib/run-kitty-run/reports.jsonl

@@ -1,7 +1,7 @@
 // Optional account (web only for now): sign in with Google, chip in what you like (from 0.50) through Stripe
 // Checkout, and your total shows next to your kitty's name online. Server side: server/accounts.js.
 // The session token lives in localStorage; main.js passes it to the game server ('hi' / 'acct').
-import { apiUrl, NATIVE } from './platform.js';
+import { accountApiUrl, NATIVE } from './platform.js';
 
 const CSS = `
 .rka-modal{z-index:40;}
@@ -63,13 +63,14 @@ function createAccount(root) {
   st.textContent = CSS;
   document.head.appendChild(st);
 
-  const A = { enabled: false, token: readToken(), account: null, cfg: null };
+  const A = { enabled: false, token: NATIVE ? '' : readToken(), account: null, cfg: null };
   let modal = null, changeFn = null;
   const changed = () => { if (changeFn) changeFn(); };
 
   async function api(name, body) {
-    const r = await fetch(apiUrl('/api/account/' + name), {
+    const r = await fetch(accountApiUrl('/api/account/' + name), {
       method: body === undefined ? 'GET' : 'POST',
+      redirect: 'error',   // credentials must never follow a redirect to another server
       headers: { 'Content-Type': 'application/json', ...(A.token ? { Authorization: 'Bearer ' + A.token } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
@@ -87,7 +88,7 @@ function createAccount(root) {
   async function init() {
     if (NATIVE) return;   // the apps get sign-in later (native Google / Apple sign-in); paying stays on the web
     try {
-      A.cfg = await fetch(apiUrl('/api/account/config')).then((r) => r.json());
+      A.cfg = await fetch(accountApiUrl('/api/account/config'), { redirect: 'error' }).then((r) => r.json());
       A.enabled = !!(A.cfg && A.cfg.enabled);
       if (A.cfg && A.cfg.currency) symbol = SYMBOLS[A.cfg.currency] || A.cfg.currency.toUpperCase() + ' ';
     } catch { A.enabled = false; }

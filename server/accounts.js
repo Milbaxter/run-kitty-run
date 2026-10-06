@@ -11,12 +11,12 @@
 // Without GOOGLE_CLIENT_ID + STRIPE_SECRET_KEY accounts are off and the client hides the button.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 
 const MIN_CENTS = 50;              // Stripe's minimum charge (EUR / USD; the account settles in EUR, so a USD charge must clear €0.50)
 // No cap of our own: this is only the largest amount Stripe's API takes (8 digits); card / payment-method limits still apply
 const STRIPE_MAX_CENTS = 99999999;
 const MAX_SESSIONS = 10;           // signed-in devices per account
-const SAVE_DELAY_MS = 1000;
 const GOOGLE_ISS = ['accounts.google.com', 'https://accounts.google.com'];
 const JWKS_URL = 'https://www.googleapis.com/oauth2/v3/certs';
 // The Stripe account is shared with other projects, and a webhook endpoint gets every project's events: only sessions
@@ -45,17 +45,42 @@ function createAccounts(file, env = process.env) {
   let accounts = {};
   // Checkout Session id -> { sub, cents, at }: written when this server creates the session, removed once credited
   let checkouts = {};
+  let dirty = false;
+  // Tighten files from older deployments too. An unreadable or corrupt store is not a new account store.
+  for (const p of [file, paymentsFile, file + '.tmp']) {
+    try {
+      if (!fs.lstatSync(p).isFile()) throw new Error('account storage must be a regular file: ' + p);
+      fs.chmodSync(p, 0o600);
+    } catch (e) { if (e.code !== 'ENOENT') throw e; }
+  }
   try {
     const old = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (old && old.accounts && typeof old.accounts === 'object') accounts = old.accounts;
     if (old && old.checkouts && typeof old.checkouts === 'object') checkouts = old.checkouts;
-  } catch { /* first run */ }
+  } catch (e) { if (e.code !== 'ENOENT') throw e; }
   const state = () => JSON.stringify({ accounts, checkouts });
+  // One synchronous writer: no old asynchronous snapshot can overwrite a newer payment or revocation.
+  // Failures propagate to the caller; a Checkout URL must never escape without its saved binding.
+  function saveNow() {
+    dirty = true;
+    const tmp = file + '.tmp';
+    const fd = fs.openSync(tmp, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW, 0o600);
+    try {
+      fs.fchmodSync(fd, 0o600);
+      fs.writeFileSync(fd, state());
+      fs.fsyncSync(fd);
+    } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, file);
+    const dir = fs.openSync(path.dirname(file), fs.constants.O_RDONLY);
+    try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
+    dirty = false;
+  }
+  function flush() { if (dirty) saveNow(); }
   // payments.jsonl is the record of truth for money: credit any logged payment the account file missed (a crash
   // between the two writes). Deleted accounts stay deleted.
   (function recover() {
     let lines = [];
-    try { lines = fs.readFileSync(paymentsFile, 'utf8').split('\n'); } catch { return; }
+    try { lines = fs.readFileSync(paymentsFile, 'utf8').split('\n'); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
     let n = 0;
     for (const l of lines) {
       let p; try { p = JSON.parse(l); } catch { continue; }
@@ -66,38 +91,20 @@ function createAccounts(file, env = process.env) {
       a.paid = (Number(a.paid) || 0) + (Number(p.amount) || 0);
       n++;
     }
-    if (n) { console.log('accounts: recovered payments from payments.jsonl'); fs.writeFileSync(file, state()); }
+    if (n) { console.log('accounts: recovered payments from payments.jsonl'); saveNow(); }
   })();
   function pruneCheckouts() {
     const old = Date.now() - CHECKOUT_KEEP_MS;
-    for (const [id, c] of Object.entries(checkouts)) if (!(c.at > old)) { delete checkouts[id]; changed(); }
+    let pruned = false;
+    for (const [id, c] of Object.entries(checkouts)) if (!(c.at > old)) { delete checkouts[id]; pruned = true; }
+    if (pruned || dirty) {
+      try { saveNow(); } catch (e) { console.error('accounts save failed:', e.message); }
+    }
   }
   setInterval(pruneCheckouts, 6 * 3600e3).unref();
   const byToken = new Map();   // sha256(token) -> sub
   const reindex = () => { byToken.clear(); for (const a of Object.values(accounts)) for (const h of a.sessions || []) byToken.set(h, a.sub); };
   reindex();
-
-  let saveT = null;
-  function save() {
-    saveT = null;
-    const tmp = file + '.tmp';
-    fs.writeFile(tmp, state(), (err) => {
-      if (err) { console.error('accounts save failed:', err.message); return; }
-      fs.rename(tmp, file, (e) => { if (e) console.error('accounts save failed:', e.message); });
-    });
-  }
-  const changed = () => { if (!saveT) saveT = setTimeout(save, SAVE_DELAY_MS); };
-  // synchronous atomic save (payments, and on shutdown)
-  function saveNow() {
-    if (saveT) { clearTimeout(saveT); saveT = null; }
-    try {
-      fs.writeFileSync(file + '.tmp', state());
-      fs.renameSync(file + '.tmp', file);
-    } catch (e) { console.error('accounts save failed:', e.message); }
-  }
-  function flush() {
-    if (saveT) saveNow();
-  }
 
   // ---- Google ----
   let jwks = { keys: new Map(), until: 0 };
@@ -149,9 +156,10 @@ function createAccounts(file, env = process.env) {
   function newSession(a) {
     const token = crypto.randomBytes(24).toString('base64url');
     const h = sha(token);
+    const previous = a.sessions;
     a.sessions = [...(a.sessions || []), h].slice(-MAX_SESSIONS);
+    try { saveNow(); } catch (e) { a.sessions = previous; throw e; }
     reindex();
-    changed();
     return token;
   }
   const fromToken = (token) => {
@@ -181,16 +189,29 @@ function createAccounts(file, env = process.env) {
     if (!c) return null;
     const a = accounts[c.sub];
     if (!a) { console.error('paid session for a deleted account', s.id); return null; }
-    if ((a.payments || []).includes(s.id)) { delete checkouts[s.id]; return a; }
+    if ((a.payments || []).includes(s.id)) {
+      delete checkouts[s.id];
+      try { saveNow(); } catch (e) { checkouts[s.id] = c; throw e; }
+      return a;
+    }
     const amount = s.amount_total;
     // Written to disk before anyone is told it worked (the webhook's 200, the confirm reply): the log line first (it
     // replays on startup, see recover()), then the account file. A failed log write throws, so Stripe retries the webhook.
     const line = { at: new Date().toISOString(), session: s.id, sub: a.sub, email: a.email, amount, currency: s.currency, total: (Number(a.paid) || 0) + amount };
-    fs.appendFileSync(paymentsFile, JSON.stringify(line) + '\n');
+    const fd = fs.openSync(paymentsFile, fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW, 0o600);
+    try {
+      fs.fchmodSync(fd, 0o600);
+      // A disk error can leave half a log entry. Separate it before retrying so recovery can read the new entry.
+      const size = fs.fstatSync(fd).size, tail = Buffer.alloc(1);
+      const separator = size && fs.readSync(fd, tail, 0, 1, size - 1) === 1 && tail[0] !== 10 ? '\n' : '';
+      fs.writeFileSync(fd, separator + JSON.stringify(line) + '\n');
+      fs.fsyncSync(fd);
+    } finally { fs.closeSync(fd); }
     a.payments = [...(a.payments || []), s.id];
     a.paid = line.total;
     delete checkouts[s.id];
-    saveNow();
+    // Keep the binding on failure so a webhook retry commits the snapshot without appending/crediting twice.
+    try { saveNow(); } catch (e) { checkouts[s.id] = c; throw e; }
     console.log(`payment: ${a.email} +${(s.amount_total / 100).toFixed(2)} = ${(a.paid / 100).toFixed(2)}`);
     return a;
   }
@@ -198,9 +219,18 @@ function createAccounts(file, env = process.env) {
   // ---- HTTP ----
   const reply = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
   function readBody(req, max, cb) {
-    let body = '';
-    req.on('data', (c) => { body += c; if (body.length > max) req.destroy(); });
-    req.on('end', () => cb(body));
+    const chunks = [];
+    let size = 0, stopped = false;
+    req.on('data', (c) => {
+      if (stopped) return;
+      const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
+      size += chunk.length;
+      if (size > max) { stopped = true; chunks.length = 0; req.destroy(); return; }
+      chunks.push(chunk);
+    });
+    req.on('error', () => { stopped = true; chunks.length = 0; });
+    req.on('aborted', () => { stopped = true; chunks.length = 0; });
+    req.on('end', () => { if (!stopped) cb(Buffer.concat(chunks, size)); });
   }
   const bearer = (req) => (/^Bearer (\S+)$/.exec(req.headers.authorization || '') || [])[1];
 
@@ -238,9 +268,10 @@ function createAccounts(file, env = process.env) {
         cancel_url: `${origin}/?paid=cancel`,
       }); } catch (e) { console.error('checkout failed:', e.message); return { ok: false, msg: /amount/i.test(e.message) ? e.message : 'Checkout is not available right now, try again in a moment.' }; }
       if (s.livemode !== LIVE || !s.url) return { ok: false, msg: 'Checkout is not available right now, try again in a moment.' };
+      if (accounts[a.sub] !== a || fromToken(bearer(req)) !== a) return { ok: false, signedOut: true };
       // bind before the player can pay: only sessions in here are ever credited
       checkouts[s.id] = { sub: a.sub, cents, at: Date.now() };
-      saveNow();
+      try { saveNow(); } catch (e) { delete checkouts[s.id]; throw e; }
       return { ok: true, url: s.url };
     }
     if (name === 'confirm') {
@@ -254,14 +285,17 @@ function createAccounts(file, env = process.env) {
     }
     if (name === 'logout') {
       const h = sha(bearer(req));
+      const previous = a.sessions;
       a.sessions = (a.sessions || []).filter((x) => x !== h);
-      reindex(); changed();
+      try { saveNow(); } catch (e) { a.sessions = previous; throw e; }
+      reindex();
       return { ok: true };
     }
     if (name === 'delete') {
       // personal data goes; payments.jsonl keeps its lines (bookkeeping)
       delete accounts[a.sub];
-      reindex(); changed();
+      try { saveNow(); } catch (e) { accounts[a.sub] = a; throw e; }
+      reindex();
       return { ok: true };
     }
     return null;
@@ -273,12 +307,12 @@ function createAccounts(file, env = process.env) {
       const sig = String(req.headers['stripe-signature'] || '');
       const t = (/(?:^|,)t=(\d+)/.exec(sig) || [])[1];
       const v1s = [...sig.matchAll(/(?:^|,)v1=([0-9a-f]+)/g)].map((x) => x[1]);
-      const want = hookSecret && t ? crypto.createHmac('sha256', hookSecret).update(`${t}.${raw}`).digest('hex') : '';
+      const want = hookSecret && t ? crypto.createHmac('sha256', hookSecret).update(t + '.').update(raw).digest('hex') : '';
       const ok = want && Math.abs(Date.now() / 1000 - +t) < 300
         && v1s.some((v) => v.length === want.length && crypto.timingSafeEqual(Buffer.from(v), Buffer.from(want)));
       if (!ok) return reply(res, 400, { ok: false });
       let ev;
-      try { ev = JSON.parse(raw); } catch { return reply(res, 400, { ok: false }); }
+      try { ev = JSON.parse(raw.toString('utf8')); } catch { return reply(res, 400, { ok: false }); }
       if (ev.type === 'checkout.session.completed' || ev.type === 'checkout.session.async_payment_succeeded') {
         try { credit(ev.data && ev.data.object); } catch (e) { console.error('credit failed:', e.message); return reply(res, 500, { ok: false }); }   // Stripe retries
       }
@@ -294,7 +328,7 @@ function createAccounts(file, env = process.env) {
     const go = (body) => route(name, req, body)
       .then((j) => reply(res, j ? 200 : 404, j || { ok: false }))
       .catch((e) => { console.error('account', name, 'failed:', e.message); reply(res, 502, { ok: false, msg: 'Something went wrong, try again in a moment.' }); });
-    if (req.method === 'GET') go(''); else readBody(req, 8192, go);
+    if (req.method === 'GET') go(''); else readBody(req, 8192, (raw) => go(raw.toString('utf8')));
     return true;
   }
 

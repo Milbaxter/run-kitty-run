@@ -1,4 +1,5 @@
-// Sim + rules tests (the bulk of `npm test`): pure, no server, ~6s (mostly the maze self-test). Add new checks here rather than new scripts.
+// Sim/rules and isolated security tests (the bulk of `npm test`): no server or external requests, ~7s.
+// Add new checks here rather than new scripts. Account checks use disposable temporary files and fake Stripe responses.
 // Exit code 1 if any check fails.
 import { createSim, stepSim } from '../public/js/shared/sim.js';
 import { CFG, SKATE_FINAL_LEVEL, FINAL_MODES, PLAYER_NAMES } from '../public/js/shared/config.js';
@@ -446,6 +447,163 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   const fin = generateLevel(17, 5, 'mixed', 13);
   ok(fin.finale && fin.level === SKATE_FINAL_LEVEL && fin.checkpoints.some((c) => c.medic), 'Run + Skate (v13): step 17 is the unchanged level 9 final run');
   ok(!generateLevel(2, 5, 'mixed', 12).night && generateLevel(2, 5, 'mixed', 12).level === 2, 'Run + Skate before v13: one level per level, as before');
+}
+
+// ======== browser trust boundaries (mock browser/socket; never connects to a server)
+{
+  const keys = ['window', 'location', 'WebSocket', 'sessionStorage'];
+  const saved = keys.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]);
+  try {
+    globalThis.window = {};
+    globalThis.location = new URL('https://runkittyrun.fun/?server=wss://untrusted.invalid/ws&room=ABCD');
+    globalThis.sessionStorage = { getItem: () => 'regression-tab-token', setItem() {} };
+    const prod = await import('../public/js/platform.js');
+    ok(prod.wsUrl() === 'wss://runkittyrun.fun/ws'
+      && prod.accountApiUrl('/api/account/me') === 'https://runkittyrun.fun/api/account/me',
+    'production invite cannot change the game or account server');
+    ok(!prod.accountSocketTrusted('wss://untrusted.invalid/ws')
+      && !prod.accountSocketTrusted('wss://runkittyrun.fun/other')
+      && prod.accountSocketTrusted('wss://runkittyrun.fun/ws'), 'account credentials require the trusted socket endpoint');
+
+    let socket, socketOverride;
+    globalThis.WebSocket = class {
+      constructor(url) { this.url = socketOverride || url; this.readyState = 0; this.sent = []; socket = this; }
+      send(data) { this.sent.push(JSON.parse(data)); }
+      close() { this.readyState = 3; }
+    };
+    const { createNet } = await import('../public/js/net.js');
+    for (const trusted of [true, false]) {
+      socketOverride = trusted ? null : 'wss://untrusted.invalid/ws';
+      const net = createNet(); net.acct = () => 'dummy-session-token';
+      try {
+        net.connect();
+        net.send({ t: 'acct', acct: 'dummy-session-token' }); // queued while connecting
+        socket.readyState = 1; socket.onopen();
+        net.send({ t: 'acct', acct: 'dummy-session-token' }); // later sign-in update
+        ok(socket.sent.length === 3 && socket.sent.every((m) => trusted ? m.acct === 'dummy-session-token' : !m.acct),
+          `account handshake and queued/live updates ${trusted ? 'reach only the trusted server' : 'omit credentials for custom servers'}`);
+      } finally { net.disconnect(); }
+    }
+    globalThis.location = new URL('http://localhost:8091/?server=ws://localhost:8092/ws');
+    const dev = await import('../public/js/platform.js?local-development-test');
+    ok(dev.wsUrl() === 'ws://localhost:8092/ws'
+      && dev.accountApiUrl('/api/account/me') === 'http://localhost:8091/api/account/me'
+      && !dev.accountSocketTrusted(dev.wsUrl()), 'local custom servers work without receiving account credentials');
+    globalThis.location = new URL('https://runkittyrun.fun/?server=javascript:alert(1)');
+    const invalid = await import('../public/js/platform.js?invalid-server-test');
+    ok(invalid.wsUrl() === 'wss://runkittyrun.fun/ws', 'invalid server URLs cannot override production');
+  } finally {
+    for (const [key, descriptor] of saved) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key];
+    }
+  }
+}
+
+// ======== account durability + webhook bytes (temporary files and fake Stripe; no external requests)
+{
+  const fs = (await import('node:fs')).default;
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const crypto = await import('node:crypto');
+  const { EventEmitter } = await import('node:events');
+  const { createAccounts } = await import('../server/accounts.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rkr-accounts-test-'));
+  const file = path.join(dir, 'accounts.json'), ledger = path.join(dir, 'payments.jsonl');
+  const token = 'dummy-session-token-for-regression', sub = 'test-google-sub';
+  const env = { GOOGLE_CLIENT_ID: 'test-client', STRIPE_SECRET_KEY: 'sk_test_dummy', STRIPE_WEBHOOK_SECRET: 'whsec_dummy', NODE_ENV: 'production' };
+  const session = { id: 'cs_test_regression', object: 'checkout.session', livemode: false, mode: 'payment',
+    client_reference_id: sub, metadata: { app: 'run-kitty-run', sub }, amount_total: 50, currency: 'eur',
+    payment_status: 'paid', url: 'https://checkout.stripe.com/test-only' };
+  const savedFetch = globalThis.fetch, savedRename = fs.renameSync, savedWrite = fs.writeFileSync, savedError = console.error;
+  const errors = [];
+  const request = (accounts, name, chunks = [], headers = {}) => new Promise((resolve, reject) => {
+    const req = new EventEmitter(); req.method = name === 'me' ? 'GET' : 'POST';
+    req.headers = { authorization: 'Bearer ' + token, ...headers }; req.destroy = () => reject(new Error('unexpected oversized request'));
+    let status;
+    const res = { writeHead(code) { status = code; }, end(body) { resolve({ status, ...JSON.parse(body) }); } };
+    if (name === 'webhook') accounts.webhook(req, res); else accounts.handle(req, res, name);
+    for (const chunk of chunks) req.emit('data', chunk);
+    req.emit('end');
+  });
+  const pay = (accounts) => request(accounts, 'pay', [Buffer.from(JSON.stringify({ cents: 50 }))]);
+  try {
+    fs.writeFileSync(file, JSON.stringify({ accounts: { [sub]: { sub, email: 'test@example.invalid', name: 'Test', paid: 0,
+      sessions: [crypto.createHash('sha256').update(token).digest('hex')], payments: [] } }, checkouts: {} }), { mode: 0o644 });
+    fs.writeFileSync(ledger, '', { mode: 0o644 });
+    globalThis.fetch = async (url) => {
+      if (!String(url).startsWith('https://api.stripe.com/v1/checkout/sessions')) throw new Error('unexpected network call');
+      return { ok: true, json: async () => ({ ...session }) };
+    };
+    console.error = (...args) => errors.push(args.join(' '));
+    let accounts = createAccounts(file, env);
+    ok((fs.statSync(file).mode & 0o777) === 0o600 && (fs.statSync(ledger).mode & 0o777) === 0o600,
+      'existing account and payment files become private');
+    fs.renameSync = (from, to) => { if (to === file) throw Object.assign(new Error('simulated storage failure'), { code: 'EIO' }); return savedRename(from, to); };
+    const failed = await pay(accounts);
+    ok(failed.status >= 400 && !failed.url && !JSON.parse(fs.readFileSync(file)).checkouts[session.id],
+      'failed checkout persistence never returns a payable URL');
+    fs.renameSync = savedRename;
+    const created = await pay(accounts);
+    ok(created.ok && created.url === session.url && JSON.parse(fs.readFileSync(file)).checkouts[session.id],
+      'checkout binding is on disk before returning its URL');
+
+    accounts = createAccounts(file, env); // simulate a restart before the player completes payment
+    const raw = Buffer.from(JSON.stringify({ type: 'checkout.session.completed', data: { object: { ...session, customer_details: { name: 'Mäxi 🐈' } } } }));
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = crypto.createHmac('sha256', env.STRIPE_WEBHOOK_SECRET).update(timestamp + '.').update(raw).digest('hex');
+    const headers = { 'stripe-signature': `t=${timestamp},v1=${signature}` };
+    const split = raw.indexOf(Buffer.from('ä')) + 1;
+    const credited = await request(accounts, 'webhook', [raw.subarray(0, split), raw.subarray(split)], headers);
+    const duplicate = await request(accounts, 'webhook', [raw], headers);
+    const bad = await request(accounts, 'webhook', [raw], { 'stripe-signature': `t=${timestamp},v1=${'0'.repeat(64)}` });
+    ok(credited.status === 200 && duplicate.status === 200 && accounts.paidFor(token) === 50
+      && fs.readFileSync(ledger, 'utf8').trim().split('\n').length === 1 && bad.status === 400,
+    'split Unicode webhook verifies exact bytes; duplicates credit once and bad signatures fail');
+    for (const restart of [false, true]) {
+      session.id = restart ? 'cs_test_snapshot_restart' : 'cs_test_snapshot_retry';
+      await pay(accounts);
+      const event = Buffer.from(JSON.stringify({ type: 'checkout.session.async_payment_succeeded', data: { object: session } }));
+      const digest = crypto.createHmac('sha256', env.STRIPE_WEBHOOK_SECRET).update(timestamp + '.').update(event).digest('hex');
+      const signed = { 'stripe-signature': `t=${timestamp},v1=${digest}` };
+      fs.renameSync = (from, to) => { if (to === file) throw Object.assign(new Error('simulated snapshot failure'), { code: 'EIO' }); return savedRename(from, to); };
+      const failedCredit = await request(accounts, 'webhook', [event], signed);
+      fs.renameSync = savedRename;
+      if (restart) accounts = createAccounts(file, env);
+      const retry = await request(accounts, 'webhook', [event], signed);
+      ok(failedCredit.status === 500 && retry.status === 200 && accounts.paidFor(token) === (restart ? 150 : 100)
+        && fs.readFileSync(ledger, 'utf8').trim().split('\n').length === (restart ? 3 : 2),
+      `failed credit snapshot recovers exactly once on ${restart ? 'restart and webhook retry' : 'webhook retry'}`);
+    }
+    session.id = 'cs_test_partial_ledger';
+    await pay(accounts);
+    const partialEvent = Buffer.from(JSON.stringify({ type: 'checkout.session.completed', data: { object: session } }));
+    const partialDigest = crypto.createHmac('sha256', env.STRIPE_WEBHOOK_SECRET).update(timestamp + '.').update(partialEvent).digest('hex');
+    const partialHeaders = { 'stripe-signature': `t=${timestamp},v1=${partialDigest}` };
+    fs.writeFileSync = (fd, data, ...options) => {
+      if (typeof fd === 'number' && String(data).includes('"session":"cs_test_partial_ledger"')) {
+        savedWrite(fd, String(data).slice(0, 23));
+        throw Object.assign(new Error('simulated partial ledger write'), { code: 'ENOSPC' });
+      }
+      return savedWrite(fd, data, ...options);
+    };
+    const partialFailure = await request(accounts, 'webhook', [partialEvent], partialHeaders);
+    fs.writeFileSync = savedWrite;
+    fs.renameSync = (from, to) => { if (to === file) throw Object.assign(new Error('simulated snapshot failure'), { code: 'EIO' }); return savedRename(from, to); };
+    const snapshotFailure = await request(accounts, 'webhook', [partialEvent], partialHeaders);
+    fs.renameSync = savedRename;
+    accounts = createAccounts(file, env);
+    const partialRetry = await request(accounts, 'webhook', [partialEvent], partialHeaders);
+    ok(partialFailure.status === 500 && snapshotFailure.status === 500 && partialRetry.status === 200 && accounts.paidFor(token) === 200,
+      'partial ledger append cannot swallow the retried payment during restart recovery');
+    const deleted = await request(accounts, 'delete');
+    await new Promise((resolve) => setTimeout(resolve, 1100)); // any old delayed save must not resurrect this account
+    ok(deleted.ok && createAccounts(file, env).paidFor(token) === 0 && !JSON.parse(fs.readFileSync(file)).accounts[sub],
+      'deleted account and session stay deleted after saves settle and restart');
+    ok(errors.some((e) => e.includes('simulated storage failure')), 'storage failure is logged');
+  } finally {
+    fs.renameSync = savedRename; fs.writeFileSync = savedWrite; globalThis.fetch = savedFetch; console.error = savedError;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 console.log(process.exitCode ? 'FAIL sim-test' : 'PASS sim-test');

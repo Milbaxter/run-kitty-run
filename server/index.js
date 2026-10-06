@@ -76,7 +76,9 @@ const LEGENDS_RATE = 0.5, LEGENDS_BURST = 3; // legends: ask for the board again
 const MIN_PROTOCOL = 4;   // 4: slim wolf resync format (every mode resyncs wolves; older clients would break)
 // Player reports (only the store apps have a Report button) are appended here as JSON lines, next to the feedback file by default.
 const REPORTS_FILE = process.env.REPORTS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'reports.jsonl');
-const REPORTS_PER_HOUR = 10;        // per connection
+const REPORTS_PER_HOUR = 10;        // per IP, including reconnects
+const REPORTS_GLOBAL_PER_HOUR = 500;
+const REPORTS_FILE_MAX = 5 << 20;   // retain evidence, refuse new reports when full
 const REPORT_REASONS = ['spam', 'abuse', 'name', 'other'];
 const CHAT_HISTORY = 10;            // recent lines kept per player, attached to reports
 // App deep links (Universal Links / Android App Links); set on the server, see deploy/run-kitty-run.service.
@@ -105,12 +107,34 @@ const WELL_KNOWN = {
 const PAGES = { '/privacy': '/privacy.html', '/terms': '/terms.html', '/support': '/support.html' };
 
 const server = http.createServer((req, res) => {
-  try { handleHttp(req, res); } catch (err) {
-    console.error('http handler failed:', err);
-    if (!res.headersSent) res.writeHead(500);
-    res.end();
-  }
+  req.on('error', () => res.destroy());
+  guardHttp(res, () => handleHttp(req, res))();
 });
+
+function httpFailed(res, err) {
+  console.error('http handler failed:', err.message);
+  if (res.destroyed || res.writableEnded) return;
+  if (!res.headersSent) res.writeHead(500);
+  res.end();
+}
+
+// Event and filesystem callbacks run outside createServer's call stack. Also catch returned promises.
+function guardHttp(res, fn) {
+  return (...args) => {
+    if (res.destroyed || res.writableEnded) return;
+    try {
+      const result = fn(...args);
+      if (result && typeof result.catch === 'function') result.catch((err) => httpFailed(res, err));
+    } catch (err) { httpFailed(res, err); }
+  };
+}
+
+function streamFile(file, res, options) {
+  const stream = fs.createReadStream(file, options);
+  stream.on('error', (err) => { console.error('static file read failed:', err.message); res.destroy(); });
+  res.on('close', () => stream.destroy());
+  stream.pipe(res);
+}
 
 // weak validator: size + mtime is enough for files that are only ever replaced by a deploy
 const etagOf = (st) => `W/"${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}"`;
@@ -164,7 +188,7 @@ function handleHttp(req, res) {
   if (p.endsWith('/')) p += 'index.html';
   const file = path.join(ROOT, p);
   if (!file.startsWith(ROOT + path.sep)) { res.writeHead(403).end(); return; }
-  fs.stat(file, (err, st) => {
+  fs.stat(file, guardHttp(res, (err, st) => {
     if (err || !st.isFile()) { res.writeHead(404).end('not found'); return; }
     // no-cache = revalidate every time, which the ETag makes a cheap 304 (vendor/ isn't versioned, so it gets the same)
     const etag = etagOf(st);
@@ -186,19 +210,43 @@ function handleHttp(req, res) {
       let end = m[1] && m[2] ? +m[2] : st.size - 1;
       if (start < 0) start = 0;
       end = Math.min(end, st.size - 1);
-      if (start > end) { res.writeHead(416, { 'Content-Range': `bytes */${st.size}` }).end(); return; }
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end) { res.writeHead(416, { 'Content-Range': `bytes */${st.size}` }).end(); return; }
       res.writeHead(206, { ...headers, 'Content-Range': `bytes ${start}-${end}/${st.size}`, 'Content-Length': end - start + 1 });
       if (req.method === 'HEAD') { res.end(); return; }
-      fs.createReadStream(file, { start, end }).pipe(res);
+      streamFile(file, res, { start, end });
       return;
     }
     res.writeHead(200, { ...headers, 'Content-Length': st.size });
     if (req.method === 'HEAD') { res.end(); return; }
-    fs.createReadStream(file).pipe(res);
-  });
+    streamFile(file, res);
+  }));
+}
+
+// One service process owns each JSONL file. Serialize size-check + append so simultaneous submissions
+// cannot overrun the cap; cap queued writes too. Existing evidence is kept until an operator archives it.
+function boundedJsonl(file, maxBytes) {
+  let tail = Promise.resolve(), pending = 0;
+  return (entry) => {
+    const line = JSON.stringify(entry) + '\n', bytes = Buffer.byteLength(line);
+    if (bytes > maxBytes) return Promise.resolve('full');
+    if (pending >= 32) return Promise.resolve('busy');
+    pending++;
+    const write = tail.then(async () => {
+      const handle = await fs.promises.open(file, 'a', 0o600);
+      try {
+        const st = await handle.stat();
+        if (st.size + bytes > maxBytes) return 'full';
+        await handle.appendFile(line, 'utf8');
+        return 'ok';
+      } finally { await handle.close(); }
+    });
+    tail = write.catch(() => {}).finally(() => { pending--; });
+    return write;
+  };
 }
 
 // ---------------- feedback ----------------
+const appendFeedback = boundedJsonl(FEEDBACK_FILE, FEEDBACK_FILE_MAX);
 const feedbackHits = new Map(); // ip -> [timestamps]
 setInterval(() => { const now = Date.now(); for (const [ip, h] of feedbackHits) if (!h.some((t) => now - t < 3600e3)) feedbackHits.delete(ip); }, 600e3).unref();
 
@@ -213,7 +261,7 @@ function clientIp(req) {
 }
 
 function handleFeedback(req, res) {
-  const reply = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
+  const reply = (code, body) => { if (res.destroyed || res.writableEnded) return; res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
   if (req.method !== 'POST') return reply(405, { ok: false });
   const ip = clientIp(req);
   const now = Date.now();
@@ -223,11 +271,13 @@ function handleFeedback(req, res) {
   hits.push(now); // counted up front: junk and oversized bodies use up the allowance too
   let body = '';
   req.on('data', (c) => { body += c; if (body.length > 8192) req.destroy(); });
-  req.on('end', () => {
+  req.on('end', guardHttp(res, async () => {
     let m;
     try { m = JSON.parse(body); } catch { return reply(400, { ok: false }); }
-    if (!m || typeof m !== 'object') return reply(400, { ok: false });
-    const clean = (v, n) => String(v ?? '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, n);
+    if (!m || typeof m !== 'object' || Array.isArray(m) || typeof m.text !== 'string' ||
+      ['name', 'mode', 'app', 'ver'].some((k) => m[k] !== undefined && typeof m[k] !== 'string') ||
+      (m.level != null && !Number.isFinite(m.level))) return reply(400, { ok: false });
+    const clean = (v, n) => (v || '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').trim().slice(0, n);
     const text = clean(m.text, FEEDBACK_MAX);
     if (text.length < 2) return reply(400, { ok: false, msg: 'Type a little more first.' });
     const entry = {
@@ -235,14 +285,10 @@ function handleFeedback(req, res) {
       name: clean(m.name, 20), mode: clean(m.mode, 12), app: clean(m.app, 8), ver: clean(m.ver, 16), level: Number.isFinite(m.level) ? m.level | 0 : null,
       ua: clean(req.headers['user-agent'], 160),
     };
-    fs.stat(FEEDBACK_FILE, (e, st) => {
-      if (!e && st.size > FEEDBACK_FILE_MAX) { console.error('feedback file full, dropping feedback'); return reply(503, { ok: false, msg: 'Feedback is full right now, try again later.' }); }
-      fs.appendFile(FEEDBACK_FILE, JSON.stringify(entry) + '\n', (err) => {
-        if (err) { console.error('feedback write failed:', err.message); return reply(500, { ok: false }); }
-        reply(200, { ok: true });
-      });
-    });
-  });
+    const result = await appendFeedback(entry);
+    if (result !== 'ok') return reply(503, { ok: false, msg: 'Feedback is full right now, try again later.' });
+    reply(200, { ok: true });
+  }));
 }
 
 // ---------------- legends board ----------------
@@ -645,7 +691,7 @@ wss.on('connection', (ws, req) => {
   connsPerIp.set(ip, n);
   stats.online(wss.clients.size);
   // v/app/ver/tok come from the client's 'hi' (sent before anything else); clients that never send one are old web tabs
-  const client = { id: nextClientId++, ws, room: null, name: '', app: 'web', ver: '', hi: false, v: 0, tok: '', ip, chatLog: [], reportTimes: [] };
+  const client = { id: nextClientId++, ws, room: null, name: '', app: 'web', ver: '', hi: false, v: 0, tok: '', ip, chatLog: [] };
   clients.set(client.id, client);
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
@@ -799,14 +845,31 @@ wss.on('connection', (ws, req) => {
 });
 
 // ---------------- moderation ----------------
+const appendReport = boundedJsonl(REPORTS_FILE, REPORTS_FILE_MAX);
+const reportHits = new Map(); // ip -> [timestamps], survives a reporter reconnect
+const reportDuplicates = new Map(); // ip + target id -> last report time
+let reportGlobalHits = [];
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, h] of reportHits) if (!h.some((t) => now - t < 3600e3)) reportHits.delete(ip);
+  for (const [key, at] of reportDuplicates) if (now - at >= 3600e3) reportDuplicates.delete(key);
+  reportGlobalHits = reportGlobalHits.filter((t) => now - t < 3600e3);
+}, 600e3).unref();
+
 function handleReport(client, msg) {
   const now = Date.now();
   const reply = (text) => send(client.ws, { t: 'chat', sys: true, text });
-  client.reportTimes = client.reportTimes.filter((t) => now - t < 3600e3);
-  if (client.reportTimes.length >= REPORTS_PER_HOUR) return reply('You have sent a lot of reports — try again later.');
-  const target = clients.get(msg.id | 0);
+  const target = Number.isSafeInteger(msg.id) ? clients.get(msg.id) : null;
   if (!target || target === client) return reply('Could not find that player.');
-  client.reportTimes.push(now);
+  const duplicateKey = client.ip + '\0' + target.id;
+  if (now - (reportDuplicates.get(duplicateKey) || 0) < 3600e3) return reply('You already reported that player.');
+  const hits = (reportHits.get(client.ip) || []).filter((t) => now - t < 3600e3);
+  if (hits.length >= REPORTS_PER_HOUR) return reply('You have sent a lot of reports — try again later.');
+  reportGlobalHits = reportGlobalHits.filter((t) => now - t < 3600e3);
+  if (reportGlobalHits.length >= REPORTS_GLOBAL_PER_HOUR) return reply('Reports are busy right now — try again later.');
+  // Reserve both quotas before starting async IO; concurrent reports cannot all pass the same check.
+  hits.push(now); reportHits.set(client.ip, hits); reportGlobalHits.push(now);
+  reportDuplicates.set(duplicateKey, now);
   const reason = REPORT_REASONS.includes(msg.reason) ? msg.reason : 'other';
   const room = client.room || target.room;
   const who = (c) => ({ id: c.id, name: c.name, app: c.app, ver: c.ver });
@@ -814,8 +877,12 @@ function handleReport(client, msg) {
     at: new Date(now).toISOString(), reason, room: room ? room.code : null,
     reporter: who(client), reported: { ...who(target), ip: target.ip, chat: target.chatLog.slice() },
   };
-  fs.appendFile(REPORTS_FILE, JSON.stringify(entry) + '\n', (err) => { if (err) console.error('report write failed:', err.message); });
-  reply('Thanks — report sent.');
+  const retryable = () => { if (reportDuplicates.get(duplicateKey) === now) reportDuplicates.delete(duplicateKey); };
+  appendReport(entry).then((result) => {
+    if (result === 'ok') return reply('Thanks — report sent.');
+    retryable(); // an unwritten report must not be presented as an already-sent duplicate
+    reply(result === 'full' ? 'Reports are full right now — try again later.' : 'Reports are busy right now — try again later.');
+  }).catch((err) => { retryable(); console.error('report write failed:', err.message); reply('Could not send that report — try again later.'); });
 }
 
 // Cross-play usage at a glance in the service log.

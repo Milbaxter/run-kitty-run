@@ -53,3 +53,4 @@ fastlane/Preview.html
 *.p8
 .bundle/
 .env.local
+.env.*.local

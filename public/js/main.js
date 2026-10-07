@@ -319,13 +319,14 @@ function drawJoy() {
   joyEl.style.display = joy.on ? 'block' : 'none';
   if (!joy.on) return;
   joyEl.style.transform = `translate(${joy.ox}px,${joy.oy}px)`;
-  joyEl.firstChild.style.transform = `translate(${joy.x - joy.ox}px,${joy.y - joy.oy}px)`;
+  // the knob follows the thumb but stops at the rim
+  const dx = joy.x - joy.ox, dy = joy.y - joy.oy, d = Math.hypot(dx, dy), k = d > JOY_R ? JOY_R / d : 1;
+  joyEl.firstChild.style.transform = `translate(${dx * k}px,${dy * k}px)`;
 }
 function joyMove(e) {
   joy.x = e.clientX; joy.y = e.clientY;
-  // the base trails the thumb once it is pulled past the rim
-  const dx = joy.x - joy.ox, dy = joy.y - joy.oy, d = Math.hypot(dx, dy);
-  if (d > JOY_R) { joy.ox = joy.x - dx / d * JOY_R; joy.oy = joy.y - dy / d * JOY_R; }
+  // the base stays where the thumb first landed (past the rim = full speed in that direction), so swinging the thumb
+  // around never brings it back near the middle and slows the kitty down
   drawJoy();
 }
 const _camRight = new THREE.Vector3(), _camFwd = new THREE.Vector3();

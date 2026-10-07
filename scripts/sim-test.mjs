@@ -682,10 +682,34 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     accounts.flush();
     ok(createAccounts(file, env).subFor(token) === sub && JSON.parse(fs.readFileSync(file)).accounts[sub].stats.online.clears.run[2] === 2,
       'account stats are saved on flush and survive a restart');
-    const deleted = await request(accounts, 'delete');
-    await new Promise((resolve) => setTimeout(resolve, 1100)); // any old delayed save must not resurrect this account
-    ok(deleted.ok && createAccounts(file, env).paidFor(token) === 0 && !JSON.parse(fs.readFileSync(file)).accounts[sub],
-      'deleted account and session stay deleted after saves settle and restart');
+    const unconfirmed = await request(accounts, 'delete');
+    const lowercase = await request(accounts, 'delete', [Buffer.from(JSON.stringify({ confirm: 'delete' }))]);
+    ok(!unconfirmed.ok && !lowercase.ok && accounts.paidFor(token) > 0, 'an account is only deleted with DELETE typed (capitals)');
+    const deleted = await request(accounts, 'delete', [Buffer.from(JSON.stringify({ confirm: 'DELETE' }))]);
+    await new Promise((resolve) => setTimeout(resolve, 1100)); // any old delayed save must not bring this account back
+    const kept = JSON.parse(fs.readFileSync(file)).accounts[sub];
+    ok(deleted.ok && createAccounts(file, env).paidFor(token) === 0 && kept && kept.deleting > 0 && !(kept.sessions || []).length,
+      'a deleted account is signed out everywhere and shows nothing, after saves settle and restart');
+    // within its 14 days: signed in again (a new session), it can only be restored, and then it's back as it was
+    const again = 'signed-in-again-token-for-the-grace-period';
+    const stored = JSON.parse(fs.readFileSync(file));
+    stored.accounts[sub].sessions = [crypto.createHash('sha256').update(again).digest('hex')];
+    fs.writeFileSync(file, JSON.stringify(stored), { mode: 0o600 });
+    const graced = createAccounts(file, env), as = { authorization: 'Bearer ' + again };
+    const meDel = await request(graced, 'me', [], as);
+    const payDel = await request(graced, 'pay', [Buffer.from(JSON.stringify({ cents: 50 }))], as);
+    const hiddenPaid = graced.paidFor(again);
+    const restored = await request(graced, 'restore', [Buffer.from('{}')], as);
+    ok(meDel.ok && meDel.account.deleting && meDel.account.active === false && !payDel.ok && hiddenPaid === 0
+      && restored.ok && !restored.account.deleting && restored.account.active === true && graced.paidFor(again) > 0,
+    'a deleted account can be restored within its 14 days (until then it cannot pay, and shows and counts nothing)');
+    // after 14 days it is gone for good
+    graced.flush();
+    const old = JSON.parse(fs.readFileSync(file));
+    old.accounts[sub].deleting = Date.now() - 15 * 864e5;
+    fs.writeFileSync(file, JSON.stringify(old), { mode: 0o600 });
+    const gone = await request(createAccounts(file, env), 'me', [], as);
+    ok(gone.signedOut === true, 'a deleted account is gone for good after 14 days');
     ok(errors.some((e) => e.includes('simulated storage failure')), 'storage failure is logged');
   } finally {
     fs.renameSync = savedRename; fs.writeFileSync = savedWrite; globalThis.fetch = savedFetch; console.error = savedError;

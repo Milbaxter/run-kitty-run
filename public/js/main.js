@@ -432,6 +432,7 @@ canvas.addEventListener('pointermove', (e) => {
 canvas.addEventListener('pointerdown', (e) => {
   audio.unlock();
   if (mode !== 'play' || paused || (e.button !== 0 && e.button !== 2)) return;
+  if (warming()) return;   // the new level isn't on screen yet: a click would steer the kitty somewhere unseen
   if (e.pointerType === 'touch') {
     if (touchId !== null) {   // a second finger: pinch to zoom
       if (pinch.id === null) { pinch.id = e.pointerId; pinch.x = e.clientX; pinch.y = e.clientY; pinch.d = fingerGap(); try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ } }
@@ -473,6 +474,9 @@ function mousePlayerIndex() {
 
 function mouseInput(p, kb) {
   if (Math.hypot(kb.x, kb.z) > 0.1 || !p.alive) { mouse.target = null; mouse.iceDir = null; return kb; }
+  // a new level still being prepared (the last picture stays up): no click steering, the kitty would walk off unseen
+  // and seem to teleport when the level shows
+  if (warming()) { mouse.target = null; mouse.iceDir = null; mouse.held = false; return kb; }
   if (joy.on) return joyInput();
   if (p.waitRelease) {
     // the sim holds the kitty until it reads "let go" once: a click (or a press held from before the checkpoint)
@@ -622,6 +626,7 @@ function buildView() {
 // a level start): keep showing the last picture instead, until they're ready (WARM_HOLD_MS at most).
 const WARM_HOLD_MS = 2000;
 let warmExtras = null, warmHoldUntil = 0;
+function warming() { return !!warmHoldUntil && performance.now() < warmHoldUntil; }   // drawing held for the shaders
 function warmShaders() {
   if (!warmExtras) {   // things that only exist later (a kitty down): one hidden copy of each, kept for this
     warmExtras = new THREE.Group();
@@ -2187,7 +2192,7 @@ function tick(dt) {
   }
 
   setKeepAwake(mode === 'play' && !paused && sim.state !== 'gameover');
-  if (!(warmHoldUntil && performance.now() < warmHoldUntil)) renderer.render(scene, camera);   // (not while shaders compile)
+  if (!warming()) renderer.render(scene, camera);   // (not while shaders compile)
   hideSplash(); // after the first rendered frame
 }
 

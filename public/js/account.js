@@ -23,6 +23,14 @@ const CSS = `
 .rka-links{display:flex;gap:14px;justify-content:center;font-size:13px;}
 .rka-links a{cursor:pointer;opacity:.7;text-decoration:underline;}
 .rka-links a:hover{opacity:1;}
+.rka-del{display:flex;flex-direction:column;gap:8px;align-items:center;padding:12px;border-radius:14px;border:2px solid rgba(255,143,163,.45);background:rgba(255,80,110,.08);}
+.rka-del input{font:inherit;font-weight:900;width:150px;text-align:center;letter-spacing:.12em;padding:8px 10px;border-radius:12px;border:2px solid rgba(255,255,255,.3);background:rgba(0,0,0,.3);color:#fff;outline:none;}
+.rka-del input:focus{border-color:#ff8fa3;}
+.rka-del .rka-amt:disabled{opacity:.35;cursor:default;}
+.rka-del .rka-delgo:not(:disabled){border-color:#ff8fa3;color:#ff8fa3;}
+.rka-del-sure{display:flex;flex-direction:column;gap:10px;align-items:center;}
+.rka-del[hidden],.rka-del [hidden]{display:none;}
+.rka-sure{font-weight:900;font-size:22px;letter-spacing:.06em;color:#ff8fa3;}
 .rka-msg{min-height:20px;font-weight:800;}
 .rka-msg.rka-err{color:#ff8fa3;}
 .rka-msg.rka-ok{color:#9dff7a;}
@@ -288,7 +296,7 @@ function createAccount(root) {
               const j = await api('google', { credential: r.credential });
               setSession(j.token, j.account);
               // always the account menu, never straight to paying (paying is only ever the player's own click)
-              open({ msg: Number(j.account && j.account.paid) > 0 ? 'Welcome back! Your swag is on this browser now.' : 'Signed in!', ok: true });
+              open(j.account && j.account.deleting ? {} : { msg: Number(j.account && j.account.paid) > 0 ? 'Welcome back! Your swag is on this browser now.' : 'Signed in!', ok: true });   // (deleted: the restore view says it all)
             } catch (e) { say(e.message, 'err'); }
           },
         });
@@ -296,6 +304,26 @@ function createAccount(root) {
         google.accounts.id.renderButton(gNew, { ...look, text: 'signup_with' });
         google.accounts.id.renderButton(gBack, { ...look, text: 'signin_with' });
       }).catch((e) => say(e.message, 'err'));
+      root.appendChild(modal);
+      return;
+    }
+
+    // a deleted account (signed in again within its 14 days): only a way back
+    if (a.deleting) {
+      const until = new Date(a.deleting).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+      const sec = section('ACCOUNT DELETED');
+      const back = el('button', 'rka-amt rka-on', 'RESTORE MY ACCOUNT');
+      back.addEventListener('click', async () => {
+        back.disabled = true;
+        try { const j = await api('restore', {}); A.account = j.account; changed(); open({ fresh: true, msg: 'Welcome back! Your account is restored.', ok: true }); }
+        catch (e) { back.disabled = false; say(e.message, 'err'); }
+      });
+      sec.append(el('div', 'rka-note', `You deleted this account. You can still restore this account within 14 days: it's gone for good on ${until}.`), back);
+      const links = el('div', 'rka-links'), out = el('a', null, 'Sign out');
+      out.addEventListener('click', async () => { try { await api('logout', {}); } catch { /* gone anyway */ } setSession('', null); close(); });
+      links.append(out);
+      box.append(el('h2', null, 'YOUR SWAG ACCOUNT'), sec, msg, closeBtn, links, fine(`Signed in as ${a.email}. `));
+      sayOpts();
       root.appendChild(modal);
       return;
     }
@@ -350,13 +378,43 @@ function createAccount(root) {
       const links = el('div', 'rka-links');
       const out = el('a', null, 'Sign out'), del = el('a', null, 'Delete account');
       out.addEventListener('click', async () => { try { await api('logout', {}); } catch { /* gone anyway */ } setSession('', null); close(); });
-      del.addEventListener('click', async () => {
-        if (!confirm(`Delete your account${paid ? ` and your ${fmtPaid(paid)}` : ''}? This can't be undone, and payments aren't refunded.`)) return;
-        try { await api('delete', {}); setSession('', null); close(); } catch (e) { say(e.message, 'err'); }
+      // deleting takes typing DELETE (in capitals), then a yes to ARE YOU SURE?: no account goes by an accidental click
+      const delBox = el('div', 'rka-del');
+      delBox.hidden = true;
+      const delIn = el('input'); delIn.type = 'text'; delIn.placeholder = 'DELETE'; delIn.autocomplete = 'off'; delIn.spellcheck = false;
+      const delGo = el('button', 'rka-amt rka-delgo', 'DELETE FOREVER'); delGo.disabled = true;
+      const delNo = el('button', 'rka-amt', 'KEEP MY ACCOUNT');
+      const delRow = el('div', 'rka-amts'); delRow.append(delNo, delGo);
+      const delNote = el('div', 'rka-note', `This deletes your account${paid ? `, your ${fmtPaid(paid)} total` : ''}, your stats and your unlocks. You can still restore this account within 14 days by signing in again; after that it's gone for good. Payments aren't refunded. Type DELETE to confirm.`);
+      // the last step: ARE YOU SURE?
+      const sure = el('div', 'rka-del-sure');
+      sure.hidden = true;
+      const sureYes = el('button', 'rka-amt rka-delgo', 'YES, DELETE IT'), sureNo = el('button', 'rka-amt', 'NO, KEEP IT');
+      const sureRow = el('div', 'rka-amts'); sureRow.append(sureNo, sureYes);
+      sure.append(el('div', 'rka-sure', 'ARE YOU SURE?'), sureRow);
+      delBox.append(delNote, delIn, delRow, sure);
+      const reset = () => { delBox.hidden = true; sure.hidden = true; delNote.hidden = delIn.hidden = delRow.hidden = false; delIn.value = ''; delGo.disabled = true; sureYes.disabled = false; };
+      delIn.addEventListener('input', () => { delGo.disabled = delIn.value.trim() !== 'DELETE'; });
+      delNo.addEventListener('click', reset);
+      sureNo.addEventListener('click', reset);
+      del.addEventListener('click', () => { reset(); delBox.hidden = false; delIn.focus(); });
+      delGo.addEventListener('click', () => {
+        if (delIn.value.trim() !== 'DELETE') return;
+        delNote.hidden = delIn.hidden = delRow.hidden = true;
+        sure.hidden = false;
+      });
+      sureYes.addEventListener('click', async () => {
+        if (delIn.value.trim() !== 'DELETE') return;
+        sureYes.disabled = true;
+        try {
+          await api('delete', { confirm: 'DELETE' });
+          setSession('', null);
+          open({ msg: 'Your account is deleted. You can still restore this account within 14 days: just sign in again.' });
+        } catch (e) { sureYes.disabled = false; say(e.message, 'err'); }
       });
       links.append(out, del);
       // stats and unlocks only on an active account (one that has paid; the server counts nothing before)
-      box.append(swag, ...(paid > 0 ? [unl, stats] : [guestBox()]), msg, closeBtn, links, fine(`Signed in as ${a.email}. `));
+      box.append(swag, ...(paid > 0 ? [unl, stats] : [guestBox()]), msg, closeBtn, links, delBox, fine(`Signed in as ${a.email}. `));
       sayOpts();
       root.appendChild(modal);
       // fresh numbers (a game may have counted since this page loaded): redraw if the menu is still the one showing

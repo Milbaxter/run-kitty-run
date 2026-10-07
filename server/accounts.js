@@ -72,8 +72,17 @@ function createAccounts(file, env = process.env) {
     for (const [k, g] of Object.entries(guests)) if (!g || !(Date.now() - (g.at || 0) < GUEST_KEEP_MS)) { delete guests[k]; n++; }
     return n;
   }
-  pruneGuests();
-  setInterval(() => { if (pruneGuests()) statsChanged(); }, 864e5).unref();
+  // a deleted account is kept (hidden, signed out everywhere) for DELETE_KEEP_MS so its owner can restore it by signing
+  // in again; then it goes for good (at start, then daily)
+  const DELETE_KEEP_MS = 14 * 864e5;
+  const deleteGone = (a) => a && a.deleting && !(Date.now() - a.deleting < DELETE_KEEP_MS);
+  function pruneDeleted() {
+    let n = 0;
+    for (const [k, a] of Object.entries(accounts)) if (deleteGone(a)) { delete accounts[k]; n++; }
+    return n;
+  }
+  pruneGuests(); pruneDeleted();
+  setInterval(() => { if (pruneGuests() + pruneDeleted()) { statsChanged(); reindex(); } }, 864e5).unref();
   // One synchronous writer: no old asynchronous snapshot can overwrite a newer payment or revocation.
   // Failures propagate to the caller; a Checkout URL must never escape without its saved binding.
   function saveNow() {
@@ -173,8 +182,10 @@ function createAccounts(file, env = process.env) {
   // ---- accounts ----
   // A swag account is active once it has paid (one payment of at least MIN_CENTS): only then are its stats and unlock
   // progress counted and its switched-on unlocks shown. Signing in alone is free (it's how the payment finds the account).
-  const active = (a) => (Number(a && a.paid) || 0) > 0;
+  // (a deleted account waiting out its grace period is not active: nothing shown or counted)
+  const active = (a) => (Number(a && a.paid) || 0) > 0 && !(a && a.deleting);
   const pub = (a) => (a ? { name: a.name, email: a.email, paid: Number(a.paid) || 0, active: active(a), show: !a.hide, unlocks: unlocksOf(a),
+    deleting: a.deleting ? new Date(a.deleting + DELETE_KEEP_MS).toISOString() : null,   // deleted: gone for good at this time
     stats: { online: (a.stats && a.stats.online) || blankStats(), local: (a.stats && a.stats.local) || blankStats() } } : null);
   function newSession(a) {
     const token = crypto.randomBytes(24).toString('base64url');
@@ -191,7 +202,7 @@ function createAccounts(file, env = process.env) {
     return (sub && accounts[sub]) || null;
   };
   // total paid (cents) for a session token, 0 if none / unpaid / hidden: what the game server shows next to the name
-  const paidFor = (token) => { const a = fromToken(token); return a && !a.hide ? Number(a.paid) || 0 : 0; };
+  const paidFor = (token) => { const a = fromToken(token); return a && !a.hide && !a.deleting ? Number(a.paid) || 0 : 0; };
   // the account id behind a session token (the game server keeps this per player instead of the token itself)
   const subFor = (token) => { const a = fromToken(token); return a ? a.sub : null; };
 
@@ -384,6 +395,7 @@ function createAccounts(file, env = process.env) {
       let c;
       try { c = await verifyGoogle(m.credential); } catch (e) { return { ok: false, msg: 'Google sign-in did not work, try again.' }; }
       if (c.email_verified === false) return { ok: false, msg: 'That Google account has no verified email.' };
+      if (deleteGone(accounts[c.sub])) delete accounts[c.sub];   // (its grace period is over: a new account)
       const a = accounts[c.sub] ||= { sub: c.sub, email: '', name: '', paid: 0, created: new Date().toISOString(), sessions: [], payments: [] };
       a.email = String(c.email || '').slice(0, 120);
       a.name = cleanName(c.given_name || c.name);
@@ -392,6 +404,15 @@ function createAccounts(file, env = process.env) {
     const a = fromToken(bearer(req));
     if (!a) return { ok: false, signedOut: true };
     if (name === 'me') return { ok: true, account: pub(a) };
+    if (name === 'restore') {
+      // a deleted account, signed in again within its grace period: back as it was
+      if (!a.deleting) return { ok: true, account: pub(a) };
+      const at = a.deleting;
+      delete a.deleting;
+      try { saveNow(); } catch (e) { a.deleting = at; throw e; }
+      return { ok: true, account: pub(a) };
+    }
+    if (a.deleting && name !== 'logout') return { ok: false, msg: 'This account is deleted. Restore it first.' };
     if (name === 'pay') {
       const cents = m.cents;
       if (!Number.isSafeInteger(cents) || cents < MIN_CENTS) return { ok: false, msg: `The smallest amount is ${(MIN_CENTS / 100).toFixed(2)}.` };
@@ -468,11 +489,15 @@ function createAccounts(file, env = process.env) {
       return { ok: true };
     }
     if (name === 'delete') {
-      // personal data goes; payments.jsonl keeps its lines (bookkeeping)
-      delete accounts[a.sub];
-      try { saveNow(); } catch (e) { accounts[a.sub] = a; throw e; }
+      // only with DELETE typed in the menu (no account goes by an accidental click, or an old page's one-click delete)
+      if (m.confirm !== 'DELETE') return { ok: false, msg: 'Type DELETE to delete your account.' };
+      // hidden and signed out everywhere now, gone for good after DELETE_KEEP_MS (pruneDeleted; signing in again within
+      // that time can restore it); payments.jsonl keeps its lines (bookkeeping)
+      const previous = a.sessions;
+      a.deleting = Date.now(); a.sessions = [];
+      try { saveNow(); } catch (e) { delete a.deleting; a.sessions = previous; throw e; }
       reindex();
-      return { ok: true };
+      return { ok: true, until: new Date(a.deleting + DELETE_KEEP_MS).toISOString() };
     }
     return null;
   }
@@ -499,7 +524,7 @@ function createAccounts(file, env = process.env) {
   // /api/account/<name>; returns false if it isn't one of ours
   function handle(req, res, name) {
     if (name === 'config' && req.method === 'GET') { route('config', req).then((j) => reply(res, 200, j)); return true; }
-    if (!['google', 'me', 'pay', 'confirm', 'show', 'equip', 'guest', 'guestequip', 'progress', 'logout', 'delete'].includes(name)) return false;
+    if (!['google', 'me', 'pay', 'confirm', 'show', 'equip', 'guest', 'guestequip', 'progress', 'logout', 'delete', 'restore'].includes(name)) return false;
     if (req.method !== (name === 'me' ? 'GET' : 'POST')) { reply(res, 405, { ok: false }); return true; }
     const go = (body) => route(name, req, body)
       .then((j) => reply(res, j ? 200 : 404, j || { ok: false }))

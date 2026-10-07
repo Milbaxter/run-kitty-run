@@ -38,6 +38,15 @@ function esc(s) {
 // ---------- inline SVG icons ----------
 const INK = '#2b1840';
 // sunglasses laid over the player card's cat icon (5+ wins), on the cat's eyes (same 40x40 frame)
+// 14+ wins: the lion's mane behind the card's cat face (the same tufts as caticon.js draws on the canvas cards); its
+// fill comes from the CSS (a deeper shade of the kitty's colour, or the 16-win looks)
+const MANE_D = (() => {
+  const c = (x, y, rr) => `M${(x + rr).toFixed(2)} ${y.toFixed(2)}a${rr} ${rr} 0 1 0 ${-2 * rr} 0a${rr} ${rr} 0 1 0 ${2 * rr} 0`;
+  let d = c(20, 21, 16);
+  for (let i = 0; i < 16; i++) { const a = (i / 16) * Math.PI * 2 + 0.2; d += c(20 + Math.cos(a) * 15.5, 21 + Math.sin(a) * 15.5, 6); }
+  return d;
+})();
+const MANE_SVG = `<svg viewBox="0 0 40 40" class="rkr-mane" aria-hidden="true"><path d="${MANE_D}"/></svg>`;
 const SHADES_SVG = `<svg viewBox="0 0 40 40" class="rkr-shades"><path d="M5 19.6 L10 18.8 M35 19.6 L30 18.8 M18.4 20.2 Q20 18.6 21.6 20.2" fill="none" stroke="#ffd34a" stroke-width="1.6" stroke-linecap="round"/><ellipse cx="14" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><ellipse cx="26" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><path d="M11.4 19.8 L14.6 19.1 M23.4 19.8 L26.6 19.1" stroke="#fff" stroke-width="1.2" stroke-linecap="round"/></svg>`;
 // ...and broken (5+ wins, kitty down): knocked crooked, both lenses cracked, a shard missing from the right one
 const SHADES_BROKEN_SVG = `<svg viewBox="0 0 40 40" class="rkr-shades-broken"><g transform="rotate(-9 20 21)"><path d="M5 19.6 L10 18.8 M35 19.6 L30 18.8 M18.4 20.2 Q20 18.6 21.6 20.2" fill="none" stroke="#ffd34a" stroke-width="1.6" stroke-linecap="round"/><ellipse cx="14" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><ellipse cx="26" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><path d="M26 21.6 L30.4 18.6 L30.9 21.2 Z" fill="currentColor" stroke="${INK}" stroke-width=".6" stroke-linejoin="round"/><path d="M10 19.5 L13.2 22 L12 25.4 M13.2 22 L17.4 20.8 M13.2 22 L16 25.2 M22 23.6 L26 21.6 L24.4 18 M26 21.6 L27.6 25.6" fill="none" stroke="#fff" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/></g></svg>`;
@@ -64,9 +73,10 @@ const CSS = `
 .rkr-root *{box-sizing:border-box;}
 .rkr-root svg{display:block;}
 .rkr-hidden{display:none !important;}
-/* account total (account.js): a little gold tag under the cat icon */
-.rkr-card .rkr-paid{position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);font-size:10px;font-weight:900;line-height:1;white-space:nowrap;
-  color:#ffd56b;background:rgba(20,8,40,.85);padding:2px 4px;border-radius:6px;text-shadow:none;}
+/* account total (account.js): a gold tag under the name, before the speed; as long as it needs to be (funny numbers) */
+.rkr-card .rkr-paid{font-size:13px;font-weight:900;line-height:1;white-space:nowrap;font-variant-numeric:tabular-nums;
+  color:#ffd56b;background:rgba(20,8,40,.6);padding:3px 7px;border-radius:7px;text-shadow:none;
+  margin-left:-7px;}   /* (its digits start right under the name) */
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you) .rkr-paid{display:none;}
 
 /* ---------------- HUD ---------------- */
@@ -139,6 +149,13 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-card.rkr-cool.rkr-down .rkr-shades-broken{display:block !important;}
 .rkr-card.rkr-cool.rkr-down .rkr-xeyes{display:none;}
 .rkr-card.rkr-rainbow .rkr-cat > path:first-child{fill:url(#rkr-rainbow-fur);}
+.rkr-card .rkr-mane{position:absolute;inset:0;width:100%;height:100%;overflow:visible;z-index:-1;display:none;}
+.rkr-card .rkr-mane path{fill:#a0522d;fill:color-mix(in srgb,currentColor 62%,#2b1840);stroke:#2b1840;stroke-width:3.2;paint-order:stroke fill;stroke-linejoin:round;}
+.rkr-card.rkr-lion .rkr-mane{display:block;}
+.rkr-card.rkr-rlion .rkr-mane path{fill:url(#rkr-rainbow-fur);}
+.rkr-card.rkr-chrome .rkr-mane path,.rkr-card.rkr-chrome .rkr-cat > path:first-child{fill:url(#rkr-chrome-fur);}
+.rkr-card.rkr-celestial .rkr-mane path,.rkr-card.rkr-celestial .rkr-cat > path:first-child{fill:url(#rkr-cosmic-fur);}
+.rkr-card.rkr-celestial .rkr-mane path{stroke:#8fb8ff;}
 .rkr-defs{position:absolute;width:0;height:0;overflow:hidden;}
 .rkr-xeyes{display:none;}
 .rkr-card.rkr-down .rkr-eyes{display:none;}
@@ -250,6 +267,7 @@ html.rkr-touch .rkr-touchonly{display:block;}
   transition:transform .12s,box-shadow .12s,filter .12s;display:flex;flex-direction:column;align-items:center;gap:2px;}
 .rkr-btn small{font-size:.55em;letter-spacing:.02em;opacity:.75;font-weight:800;}
 .rkr-btn.rkr-alt{background:linear-gradient(180deg,#e3f7ff,#7fd8ff 55%,#5b9dff);}
+.rkr-goshare{position:absolute;top:16px;right:16px;}   /* the game-over card's SHARE (share.js) */
 .rkr-btn.rkr-set{background:linear-gradient(180deg,#eafff0,#94f0b0 55%,#3ccf8e);}   /* the Esc menu's SETTINGS (settings.js) */
 .rkr-btn.rkr-swag{background:linear-gradient(180deg,#ffe1f4,#ff9ad5 55%,#c77dff);}   /* 4: optional account (account.js) */
 .rkr-btn:hover,.rkr-btn.rkr-sel{transform:translateY(-3px) scale(1.04);filter:brightness(1.08);box-shadow:0 10px 0 #3a1650,0 18px 30px rgba(0,0,0,.45),0 0 0 5px rgba(255,255,255,.35);}
@@ -533,7 +551,20 @@ function createUI(root) {
       <stop offset=".5" stop-color="#6ef08a"/><stop offset=".67" stop-color="#5ac8ff"/><stop offset=".83" stop-color="#b47cff"/>
       <stop offset="1" stop-color="#ff5a5a"/>
       <animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="-1 -0.6" dur="2.2s" repeatCount="indefinite"/>
-    </linearGradient></defs></svg>`);
+    </linearGradient>
+    <linearGradient id="rkr-chrome-fur" x1="0" y1="0" x2=".75" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset=".35" stop-color="#b9c2d0"/><stop offset=".5" stop-color="#f4f7fb"/>
+      <stop offset=".7" stop-color="#8c96a8"/><stop offset="1" stop-color="#dfe5ee"/>
+    </linearGradient>
+    <radialGradient id="rkr-cosmic-sky" gradientUnits="userSpaceOnUse" cx="20" cy="21" r="21" fx="20" fy="19">
+      <stop offset="0" stop-color="#a99bff"/><stop offset=".35" stop-color="#6a54e0"/><stop offset=".7" stop-color="#33208f"/><stop offset="1" stop-color="#141045"/>
+    </radialGradient>
+    <pattern id="rkr-cosmic-fur" patternUnits="userSpaceOnUse" width="40" height="40">
+      <rect width="40" height="40" fill="url(#rkr-cosmic-sky)"/>
+      <g fill="#fff"><circle cx="30" cy="8" r=".7"/><circle cx="12" cy="31" r=".7"/><circle cx="33" cy="23" r=".6"/><circle cx="7" cy="23" r=".6"/>
+      <circle cx="17" cy="34" r=".5"/><circle cx="24" cy="10" r=".5"/><circle cx="35" cy="30" r=".6"/><circle cx="4" cy="29" r=".6"/>
+      <path d="M9 6.8Q9 9 11.2 9Q9 9 9 11.2Q9 9 6.8 9Q9 9 9 6.8Z M28 28.6Q28 31 30.4 31Q28 31 28 33.4Q28 31 25.6 31Q28 31 28 28.6Z M36 12.2Q36 14 37.8 14Q36 14 36 15.8Q36 14 34.2 14Q36 14 36 12.2Z"/></g>
+    </pattern></defs></svg>`);
   root.append(hud, bannerEl, toastsEl, rainbowDefs);
 
   // ---- HUD state cache ----
@@ -544,10 +575,10 @@ function createUI(root) {
 
   function makeCard() {
     const c = el('div', 'rkr-card',
-      `<div class="rkr-head">${ICONS.cat}${SHADES_SVG}${SHADES_BROKEN_SVG}<span class="rkr-paid rkr-hidden"></span></div>
+      `<div class="rkr-head">${MANE_SVG}${ICONS.cat}${SHADES_SVG}${SHADES_BROKEN_SVG}</div>
        <div class="rkr-cbody">
          <div class="rkr-crow"><span class="rkr-name"></span><span class="rkr-status">ALIVE</span><span class="rkr-hearts"></span></div>
-         <div class="rkr-crow"><span class="rkr-boots">${ICONS.boots}<span>+0%</span></span></div>
+         <div class="rkr-crow"><span class="rkr-paid rkr-hidden"></span><span class="rkr-boots">${ICONS.boots}<span>+0%</span></span></div>
          <div class="rkr-shield rkr-hidden">${ICONS.shield}<div class="rkr-sbar"><div class="rkr-sfill"></div></div></div>
        </div>`);
     const refs = {
@@ -575,6 +606,14 @@ function createUI(root) {
     if ((p.paid || 0) !== v.paid) { v.paid = p.paid || 0; card.paid.textContent = fmtNum(v.paid); card.paid.classList.toggle('rkr-hidden', !v.paid); }
     if (!!p.you !== v.you) { v.you = !!p.you; card.root.classList.toggle('rkr-you', v.you); }
     if (!!p.rainbow !== v.rainbow) { v.rainbow = !!p.rainbow; card.root.classList.toggle('rkr-rainbow', v.rainbow); }   // every reward
+    // 14+ wins: the lion's mane; 16: the chrome, rainbow or celestial lion (main.js iconLook)
+    if (!!p.lion !== v.lion) { v.lion = !!p.lion; card.root.classList.toggle('rkr-lion', v.lion); }
+    if ((p.lionLook || '') !== v.lionLook) {
+      v.lionLook = p.lionLook || '';
+      card.root.classList.toggle('rkr-chrome', v.lionLook === 'chrome');
+      card.root.classList.toggle('rkr-rlion', v.lionLook === 'rainbow');
+      card.root.classList.toggle('rkr-celestial', v.lionLook === 'celestial');
+    }
     const alive = !!p.alive;
     if (alive !== v.alive) {
       v.alive = alive;
@@ -1097,6 +1136,7 @@ function createUI(root) {
     ];
     const line = GO_LINES[((stats.level | 0) + (stats.deaths | 0)) % GO_LINES.length];
     goEl.innerHTML = `<div class="rkr-glass rkr-gameover">
+        ${stats.onShare ? '<button class="rkr-statsbtn rkr-setbtn rkr-goshare">📤 SHARE</button>' : ''}
         <div class="rkr-gcat">${ICONS.cat}</div>
         <h2>GAME OVER</h2>
         <div class="rkr-gsub">${esc(line)}</div>
@@ -1113,6 +1153,12 @@ function createUI(root) {
     gcat.style.animation = 'rkr-wiggle 2.4s ease-in-out infinite';
     goEl.querySelector('.rkr-gomain').addEventListener('click', restart);
     if (onLeave) goEl.querySelector('.rkr-goleave').addEventListener('click', () => { if (!state.gameOver) return; hideGameOver(); onLeave(); });
+    // share the result (share.js: an image card + text); the card stays up
+    if (stats.onShare) {
+      const sb = goEl.querySelector('.rkr-goshare');
+      sb.addEventListener('mousedown', (e) => e.preventDefault());   // keep Enter on the main button
+      sb.addEventListener('click', () => stats.onShare());
+    }
     root.appendChild(goEl);
     state.gameOver = true;
     gameOverArmedAt = performance.now() + 700;
@@ -1150,8 +1196,8 @@ function createUI(root) {
   }
 
   // ================= victory (the final run is beaten) =================
-  // stats: { runTime, totalTime, deaths, rescues, first: {name, color} | null, players: [{name, color, first}] }
-  // buttons: [{ label, sub?, alt?, mini?, keep?, onClick }] (first = default selection; keep: the victory screen stays up)
+  // stats: { mode, runTime, totalTime, deaths, rescues, first: {name, color} | null, players: [{name, color, first}] }
+  // buttons: [{ label, sub?, alt?, green?, mini?, keep?, onClick }] (first = default selection; keep: the victory screen stays up)
   let vEl = null, vRaf = 0, vTimers = [], vBtns = [], vSel = 0, vArmedAt = 0, vFishRow = null;
   const V_LINES = [
     'Every wolf dodged. Every kitty home.',
@@ -1177,12 +1223,12 @@ function createUI(root) {
     const line = (stats.deaths | 0) === 0 ? 'Not a single kitty caught. Flawless!' : V_LINES[((stats.deaths | 0) + ps.length) % V_LINES.length];
     vEl.innerHTML = `<div class="rkr-glass">
         <div class="rkr-vcrown">${ICONS.crown}</div>
-        <h2>YOU BEAT<br>RUN KITTY RUN!</h2>
+        <h2>${stats.mode === 'run' ? 'YOU CLEARED<br>RUN MODE!' : stats.mode === 'ice' ? 'YOU CLEARED<br>SKATE MODE!' : 'YOU BEAT<br>RUN KITTY RUN!'}</h2>
         <div class="rkr-gsub">${esc(line)}</div>
         ${first && ps.length > 1 ? `<div class="rkr-vfirst">${ICONS.crown}<span>First to the goal: <span class="rkr-vname" style="color:${hexColor(first.color)}">${esc(first.name)}</span></span></div>` : ''}
         <div class="rkr-stats">${rows.map((r) => `<div class="rkr-stat"><div class="rkr-ico" style="color:${r.color || '#fff'}">${r.icon}</div><span class="rkr-sl">${r.label}</span><span class="rkr-sv">${r.fmt(0)}</span></div>`).join('')}</div>
         ${ps.length > 1 ? `<div class="rkr-party">${ps.map((p) => `<span class="rkr-chip" style="color:${hexColor(p.color)}">${ICONS.cat}<span>${p.first ? '👑 ' : ''}${esc(p.name)}</span></span>`).join('')}</div>` : ''}
-        <div class="rkr-vbtns">${(buttons || []).map((b) => `<button class="rkr-btn${b.alt ? ' rkr-alt' : ''}${b.mini ? ' rkr-mini' : ''}"><span>${esc(b.label)}</span>${b.sub ? `<small>${esc(b.sub)}</small>` : ''}</button>`).join('')}</div>
+        <div class="rkr-vbtns">${(buttons || []).map((b) => `<button class="rkr-btn${b.alt ? ' rkr-alt' : ''}${b.green ? ' rkr-set' : ''}${b.mini ? ' rkr-mini' : ''}"><span>${esc(b.label)}</span>${b.sub ? `<small>${esc(b.sub)}</small>` : ''}</button>`).join('')}</div>
         <div class="rkr-keyhint">press <span class="rkr-k rkr-wide">Enter</span></div>
       </div>`;
     vBtns = [...vEl.querySelectorAll('.rkr-vbtns .rkr-btn')];

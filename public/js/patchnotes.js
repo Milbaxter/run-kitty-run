@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
+      'Share your run: a SHARE button on the game over and victory screens makes a picture of your result (your kitty, level, time, crowns and revives) with a link to the game. Phones open the share menu, computers save the picture and copy the text, the apps share the text',
       'Phones and tablets: the joystick stays where your thumb first lands. Pull past its rim for full speed in any direction; swinging your thumb around no longer slows your kitty down',
       'New SETTINGS menu (on the main menu and in the Esc menu): music and sound effect volume, which songs play, graphics quality (Auto, High, Medium or Low: Low turns shadows off for slower computers) and your own keyboard controls',
       'Fixed: after a checkpoint, a new level or nightfall the camera jumps straight to your kitty, so you never run around unseen for a moment',

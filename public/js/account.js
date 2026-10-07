@@ -47,7 +47,9 @@ const TOKEN_KEY = 'rkr-acct';
 const SYMBOLS = { eur: '€', usd: '$', gbp: '£' };
 let symbol = '€';
 const fmtPaid = (c) => symbol + (c / 100).toFixed(2);
-const fmtNum = (c) => (c / 100).toFixed(2);   // in game (lobby slots, player cards): just the number
+// in game (lobby slots, player cards, the menu button): just the number, digit for digit as paid, so funny numbers
+// read as meant (1337, 80085, 69.69): no separators, and no .00 on whole amounts
+const fmtNum = (c) => (c % 100 ? (c / 100).toFixed(2) : String(Math.round(c / 100)));
 
 // Stats & progress in the account menu: times the team cleared each level, per mode, plus crowns and revives.
 // Level 9 (the final run) only gets a row once you've got that far in some mode, and a number only in modes you

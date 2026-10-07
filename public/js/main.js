@@ -18,6 +18,7 @@ import { createNet } from './net.js';
 import { createLobbyUI } from './lobby.js';
 import { createPadNav } from './padnav.js';
 import { prefColor, localSlots } from './kittycolor.js';
+import { shareResult } from './share.js';
 import { createChat } from './chat.js';
 import { createFeedback } from './feedback.js';
 import { createAccount } from './account.js';
@@ -737,7 +738,7 @@ function handleEvents(events) {
         const p = playerById(ev.playerId);
         const by = playerById(ev.by);
         if (mine(ev.playerId) || mine(ev.by)) haptic('medium');
-        if (by && (by.rescues || 0) >= 120) effects.callingCard(ev.x, ev.z, by.color, { cool: (by.finishes || 0) >= 5, rainbow: (by.finishes || 0) >= 8 });   // 120+ revives: the rescuer's calling card, as their player card looks
+        if (by && (by.rescues || 0) >= 120) effects.callingCard(ev.x, ev.z, by.color, iconLook(by));   // 120+ revives: the rescuer's calling card, as their player card looks
         effects.reviveBeam(ev.x, ev.z, p ? p.color : 0xffffff);
         effects.floatText(ev.x, 1.6, ev.z, 'SAVED!', p ? hexCss(p.color) : '#fff');
         audio.play('revive', { pan: panFor(ev.x) });
@@ -922,6 +923,33 @@ function updateVictory(dt) {
   }
 }
 
+// A kitty's icon looks (player card, share card, revive calling card), as its 3D model has them: sunglasses 5+ wins,
+// rainbow 8+ wins and 60+ revives, lion 14+ wins, and at 16 wins the chrome (under 60 revives), rainbow (60-119) or
+// celestial lion (120+)
+function iconLook(p) {
+  const wins = (p && p.finishes) || 0, res = (p && p.rescues) || 0;
+  return {
+    cool: wins >= 5, rainbow: wins >= 8 && res >= 60, lion: wins >= 14,
+    lionLook: wins >= 16 ? (res >= 120 ? 'celestial' : res >= 60 ? 'rainbow' : 'chrome') : null,
+  };
+}
+
+// Share the run's result (share.js: an image card of your kitty + a short text with the link). Your own kitty: the
+// one this device plays (online) or player 1; level / time / crowns / revives as the end screens show them.
+function shareRun(win, time) {
+  const me = (online.playing ? playerById(online.me) : null) || sim.players[0] || {};
+  const r = {
+    win, mode: sim.mode || 'mixed', level: sim.levelData.level || sim.level, time,
+    crowns: me.finishes || 0, revives: me.rescues || 0, name: me.name, color: me.color, team: sim.players.length,
+    ...iconLook(me),   // the face as your player card shows it
+  };
+  shareResult(r).then((how) => {
+    if (how === 'saved') ui.toast('Picture saved and text copied: paste it with your post', '#3ee08f');
+    else if (how === 'copied') ui.toast('Result copied: paste it anywhere', '#3ee08f');
+    else if (how === 'failed') ui.toast('Sharing is not available here', '#ff8fb8');
+  });
+}
+
 function showVictoryScreen() {
   const ev = victory.ev;
   const by = ev ? playerById(ev.by) : null;
@@ -929,7 +957,7 @@ function showVictoryScreen() {
   const stats = {
     runTime: ev && Number.isFinite(ev.time) ? ev.time : (wasOnline ? undefined : sim.levelTime),
     totalTime: Math.max(0, sim.time - victory.t), // time at the win (online, sim.time only arrives with the snapshots)
-    deaths: sim.stats.deaths, rescues: sim.stats.rescues,
+    deaths: sim.stats.deaths, rescues: sim.stats.rescues, mode: sim.mode || 'mixed',
     fish: view && view.fish ? Math.floor(view.fish.eaten() * 100) : undefined,
     first: by ? { name: by.name, color: by.color } : null,
     players: sim.players.map((p) => ({ name: p.name, color: p.color, first: !!by && p.id === by.id })),
@@ -943,6 +971,7 @@ function showVictoryScreen() {
   if (victory.legendsBtn) {
     buttons.push({ label: 'LEGENDS BOARD', sub: legends.canSign() ? 'sign your name' : 'see who did it', alt: true, mini: true, keep: true, onClick: () => legends.open() });
   }
+  buttons.push({ label: 'SHARE', sub: 'your result', green: true, mini: true, keep: true, onClick: () => shareRun(true, stats.totalTime) });
   ui.showVictory(stats, buttons);
 }
 
@@ -1517,7 +1546,7 @@ function updateHUD() {
     }
     let h = hudPlayers[i];
     if (!h) h = hudPlayers[i] = {};
-    h.name = p.name; h.color = p.color; h.cool = (p.finishes || 0) >= 5; h.shimmer = (p.finishes || 0) >= 12; h.rainbow = (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
+    h.name = p.name; h.color = p.color; h.cool = (p.finishes || 0) >= 5; h.shimmer = (p.finishes || 0) >= 12; h.rainbow = (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; const il = iconLook(p); h.lion = il.lion; h.lionLook = il.lionLook; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
     h.paid = online.playing ? ((online.roster.get(p.id) || {}).paid || 0) : i === 0 && account.shown() ? account.paid() : 0;   // account total (unless switched off)
   }
   if (dirty) ui.setScores(hudScores);
@@ -2034,6 +2063,7 @@ function tick(dt) {
         time: sim.time,
         // alone: nobody could revive you; nudge toward friends
         alone: sim.players.length === 1 ? (wasOnline ? 'online' : 'solo') : null,
+        onShare: () => shareRun(false, runSim.time),
       }, () => { ui.hideGameOver(); if (wasOnline) backToLobby(); else startGame(playerCount); }, wasOnline ? 'BACK TO LOBBY' : null,
       // LEAVE GAME: offline back to the title, online out of the lobby (to the lobby list)
       () => { if (wasOnline) net.send({ t: 'leave' }); else enterTitle(); });

@@ -701,6 +701,7 @@ function handleEvents(events) {
         const finale = !!sim.levelData.finale;
         const L = sim.levelData.level || ev.level, night = stageOf(sim.mode, sim.finales, sim.level).night;
         if (finale) ui.banner('WELCOME TO HELL', 'Think you can escape?', 4200, 'finale');
+        if (finale) { try { localStorage.setItem('rkr-seen9', '1'); } catch { /* ignore */ } }   // (the swag menu shows level 9's unlocks from now on)
         else if (night) ui.banner(`LEVEL ${L} · NIGHT`, 'Lace up your skates!', 2200);
         else ui.banner(`LEVEL ${L}`, levelSubtitle(L), 2200);
         if (audio.isMuted() && !soundHintShown) {

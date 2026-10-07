@@ -225,7 +225,14 @@ function createAccount(root) {
       const GOALS = { l8: 'Clear level 8 holding every win (8 wins, 16 in Run + Skate), in each mode:',
         l9: 'Beat level 9 with 8 crowns (16 in Run + Skate, the final crown counts) and reach the end yourself, in each mode:' };
       let lastFeat = '';
+      // no spoilers: level 9's unlocks only once this player has seen level 9 (this browser, the account's stats, or progress)
+      let seen9 = false;
+      try { seen9 = localStorage.getItem('rkr-seen9') === '1'; } catch { /* ignore */ }
+      const st = A.account && A.account.stats;
+      seen9 ||= ['online', 'local'].some((k) => st && st[k] && Object.values(st[k].reached || {}).some((v) => v >= 9));
+      seen9 ||= Object.values((prog && prog.l9) || {}).some((v) => v > 0);
       for (const u of UNLOCKS) {
+        if (u.feat === 'l9' && !seen9) continue;
         if (u.feat !== lastFeat) { lastFeat = u.feat; ulist.appendChild(el('div', 'rka-ugoal', GOALS[u.feat])); }
         const open_ = isUnlocked(prog, u);
         const row = el('div', 'rka-urow' + (open_ ? '' : ' rka-locked'));

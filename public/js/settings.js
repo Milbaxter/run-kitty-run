@@ -56,6 +56,7 @@ const CSS = `
 .rkst-seg button,.rkst-kbtn,.rkst-small{font:inherit;font-weight:900;font-size:13px;letter-spacing:.04em;cursor:pointer;color:#fff6d8;
   padding:6px 12px;border-radius:999px;border:2px solid rgba(255,255,255,.25);background:rgba(20,8,48,.55);}
 .rkst-seg button:hover,.rkst-kbtn:hover,.rkst-small:hover{background:rgba(60,30,110,.75);}
+.rkst-hint{font-size:13px;opacity:.7;}
 .rkst-seg button.rkst-on{border-color:#ffcf5a;background:rgba(255,207,90,.22);}
 .rkst-note{font-size:13px;font-weight:700;color:rgba(239,231,255,.7);}
 .rkst-keys{display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:center;font-weight:800;font-size:15px;}
@@ -78,7 +79,7 @@ function el(tag, cls, text) {
   return e;
 }
 
-// opts (main.js): music: { choices: [[id, label]], get(), set(id) }, onVolume(), onGraphics(id) -> true if smooth edges wait for a reload, onKeys(), onClose()
+// opts (main.js): music: { songs: [[i, label]], on(i), toggle(i), speed: null | { choices: [[x, label]], get(), set(x) } }, onVolume(), onGraphics(id) -> true if smooth edges wait for a reload, onKeys(), onClose()
 function openSettings(root, opts = {}) {
   if (!styled) { const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st); styled = true; }
   closeSettings();
@@ -104,16 +105,36 @@ function openSettings(root, opts = {}) {
   sound.append(slider('Music volume', 'music'), slider('Sound effects', 'sfx'));
   if (opts.music) {
     const seg = el('div', 'rkst-seg');
-    const paint = () => { for (const b of seg.children) b.classList.toggle('rkst-on', b.dataset.id === opts.music.get()); };
-    for (const [id, label] of opts.music.choices) {
-      const b = el('button', null, label); b.dataset.id = id; b.type = 'button';
-      b.addEventListener('click', () => { opts.music.set(id); paint(); });
+    // each song on or off: the ones on play one after the other on repeat (one: on a loop), none: no music
+    const hint = el('span', 'rkst-hint');
+    const paint = () => {
+      let n = 0;
+      for (const b of seg.children) { const on = opts.music.on(+b.dataset.id); b.classList.toggle('rkst-on', on); n += on; }
+      hint.textContent = n ? (n === 1 ? 'Plays on a loop' : 'Played one after the other') : 'No music';
+    };
+    for (const [i, label] of opts.music.songs) {
+      const b = el('button', null, label); b.dataset.id = String(i); b.type = 'button';
+      b.addEventListener('click', () => { opts.music.toggle(i); paint(); });
       seg.appendChild(b);
     }
     paint();
     const stack = el('div', 'rkst-stack');
-    stack.append(el('span', null, 'Songs'), seg);
+    stack.append(el('span', null, 'Songs (click to switch on / off)'), seg, hint);
     sound.appendChild(stack);
+    const sp = opts.music.speed;
+    if (sp) {
+      const sseg = el('div', 'rkst-seg');
+      const spaint = () => { for (const b of sseg.children) b.classList.toggle('rkst-on', +b.dataset.x === sp.get()); };
+      for (const [x, label] of sp.choices) {
+        const b = el('button', null, label); b.dataset.x = String(x); b.type = 'button';
+        b.addEventListener('click', () => { sp.set(x); spaint(); });
+        sseg.appendChild(b);
+      }
+      spaint();
+      const sstack = el('div', 'rkst-stack');
+      sstack.append(el('span', null, 'We Skate speed'), sseg);
+      sound.appendChild(sstack);
+    }
   }
   const cols = el('div', 'rkst-cols');
   const left = el('div', 'rkst-col');

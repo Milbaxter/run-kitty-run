@@ -12,7 +12,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { UNLOCKS, UNLOCK_MODES, isUnlocked } from '../public/js/shared/unlocks.js';
+import { UNLOCKS, UNLOCK_MODES, FEAT_IDS, isUnlocked } from '../public/js/shared/unlocks.js';
 
 const MIN_CENTS = 50;              // Stripe's minimum charge (EUR / USD; the account settles in EUR, so a USD charge must clear €0.50)
 // No cap of our own: this is only the largest amount Stripe's API takes (8 digits); card / payment-method limits still apply
@@ -244,7 +244,7 @@ function createAccounts(file, env = process.env) {
   // ---- permanent unlocks (shared/unlocks.js): feats done online, per mode, and the items switched off ----
   function unlocksOf(a) {
     const u = a.unlocks ||= {};
-    for (const f of ['l8', 'l9']) { u[f] ||= {}; for (const m of UNLOCK_MODES) u[f][m] = Number(u[f][m]) || 0; }
+    for (const f of FEAT_IDS) { u[f] ||= {}; for (const m of UNLOCK_MODES) u[f][m] = Number(u[f][m]) || 0; }
     u.off ||= {};
     return u;
   }
@@ -261,9 +261,9 @@ function createAccounts(file, env = process.env) {
     if (!guests[pid] && create) guests[pid] = { at: Date.now() };
     return guests[pid] || null;
   }
-  // the game server: this kitty did a feat ('l8' | 'l9') in a mode
+  // the game server: this kitty did a feat ('l8' | 'l9' | 'win') in a mode
   function recordFeat(who, feat, mode) {
-    if (!['l8', 'l9'].includes(feat) || !UNLOCK_MODES.includes(mode)) return;
+    if (!FEAT_IDS.includes(feat) || !UNLOCK_MODES.includes(mode)) return;
     const h = holderOf(who, true);
     if (!h) return;
     unlocksOf(h)[feat][mode]++;
@@ -273,7 +273,7 @@ function createAccounts(file, env = process.env) {
   const switchedOn = (h) => {
     if (!h) return [];
     const u = unlocksOf(h);
-    return UNLOCKS.filter((x) => isUnlocked(u, x) && !u.off[x.id]).map((x) => x.id);
+    return UNLOCKS.filter((x) => !x.song && isUnlocked(u, x) && !u.off[x.id]).map((x) => x.id);   // (a song isn't worn)
   };
   // the unlocked items switched on (the game server sends them to everyone in the room)
   const cosFor = (token) => { const a = fromToken(token); return a && active(a) ? switchedOn(a) : []; };
@@ -285,7 +285,7 @@ function createAccounts(file, env = process.env) {
     const a = sub && accounts[sub], g = (pid = validPid(pid)) && guests[pid];
     if (!a || !active(a) || !g || !g.unlocks) return;
     const u = unlocksOf(a), gu = unlocksOf(g);
-    for (const f of ['l8', 'l9']) for (const m of UNLOCK_MODES) u[f][m] += gu[f][m];
+    for (const f of FEAT_IDS) for (const m of UNLOCK_MODES) u[f][m] += gu[f][m];
     for (const k of Object.keys(gu.off)) if (!(k in u.off)) u.off[k] = gu.off[k];
     delete guests[pid];
     statsChanged();
@@ -296,7 +296,7 @@ function createAccounts(file, env = process.env) {
     if (!pid) return { ok: false };
     const g = guests[pid];
     if (name === 'guest') return { ok: true, unlocks: g ? unlocksOf(g) : null };
-    const item = UNLOCKS.find((x) => x.id === m.item);
+    const item = UNLOCKS.find((x) => x.id === m.item && !x.song);   // (a song has no switch: it's picked in the settings)
     if (!g || !item || typeof m.on !== 'boolean') return { ok: false };
     const u = unlocksOf(g);
     if (!isUnlocked(u, item)) return { ok: false, msg: 'Not unlocked yet.' };
@@ -426,7 +426,7 @@ function createAccounts(file, env = process.env) {
     }
     if (name === 'equip') {
       // an unlocked item on / off (the player's own switch)
-      const item = UNLOCKS.find((x) => x.id === m.item);
+      const item = UNLOCKS.find((x) => x.id === m.item && !x.song);
       if (!item || typeof m.on !== 'boolean') return { ok: false };
       const u = unlocksOf(a);
       if (!active(a)) return { ok: false, msg: 'Activate your swag account first.' };

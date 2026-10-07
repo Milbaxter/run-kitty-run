@@ -40,6 +40,8 @@ const DEBUG_WINS = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) 
 // crown and a kitten backpack without the other win rewards (the aura hides the kitty)
 const DEBUG_RESCUES = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? Math.max(0, parseInt(params.get('rescues') || '0', 10) || 0) : 0;
 const DEBUG_LOOK = new Set(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? (params.get('look') || '').split(',') : []);
+// ?song: We Skate as if unlocked (localhost only): its button and speed in the settings
+const DEBUG_SONG = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) && params.has('song');
 const DEBUG_PACK = [PLAYER_COLORS[1], PLAYER_COLORS[2], PLAYER_COLORS[3]];
 
 // ---------- renderer / scene ----------
@@ -71,9 +73,15 @@ const ui = createUI(document.getElementById('ui'));
 
 // Soundtrack: a playlist of mp3s next to index.html, played one after the other on repeat.
 // Plain <audio> element. A track that fails to load is skipped; if all fail, procedural music plays.
-const PLAYLIST = ['music/catjam2.mp3', 'music/catjam3.mp3', 'music/catjam4.mp3'];   // (catjam1.mp3 is resting for now)
+// The last one, We Skate, is an unlock (shared/unlocks.js 'song5': clear the final level online): it plays at every
+// victory party, and joins the songs (or plays on its own) once this player has it.
+const PLAYLIST = ['music/catjam2.mp3', 'music/catjam3.mp3', 'music/catjam4.mp3', 'music/catjam5.mp3'];   // (catjam1.mp3 is resting for now)
+const SONG5 = 3;
 let trackIdx = 0;
 const badTracks = new Set();
+let songUnlocked = false;   // We Skate (account.has('song5'), set when the account / this browser's unlocks load)
+let victorySong = false;    // We Skate is playing for the victory party (once; then the picked music goes on)
+const playable = (i) => !badTracks.has(i) && (i !== SONG5 || songUnlocked);
 // No src until the first real play(): nothing (4+ MB) is fetched at load, or ever while muted.
 const track = new Audio();
 const trackVol = () => 0.5 * musicVolume();   // the settings' music volume (100% = the usual 0.5)
@@ -82,24 +90,56 @@ track.preload = 'none';
 audio.attachTrack(track);   // played through the game's audio context (audio.js: no full-volume blip on Windows)
 let trackWanted = false, trackFailed = false, musicLevel = 1;
 let inBackground = false; // see setBackground()
+// We Skate's speed (the settings, remembered): faster, same pitch. A new src resets the rate (to the default one).
+const SKATE_SPEEDS = [1, 1.1];
+let skateSpeed = 1;
+try { const v = +localStorage.getItem('rkr-skate-speed'); if (SKATE_SPEEDS.includes(v)) skateSpeed = v; } catch { /* ignore */ }
+function setRate() {
+  const r = trackIdx === SONG5 ? skateSpeed : 1;
+  track.preservesPitch = true;
+  if (track.defaultPlaybackRate !== r) track.defaultPlaybackRate = r;
+  if (track.playbackRate !== r) track.playbackRate = r;
+}
+track.addEventListener('loadstart', setRate);
 function playTrack() {
   if (musicOff()) return;
   if (!track.getAttribute('src')) track.src = PLAYLIST[trackIdx];
+  setRate();
   track.play().catch(() => { /* needs a user gesture; retried on input */ });
 }
-// Which songs play (remembered): 'both' (one after the other), the index of one song (played on a loop), or 'off'
-// (no music at all, the game's sound effects keep playing; M still mutes everything)
-const MUSIC_CHOICES = ['both', ...PLAYLIST.map((_, i) => String(i)), 'off'];   // ('both': all songs, the old name kept for saved choices)
-let musicChoice = 'both';
-try { const v = localStorage.getItem('rkr-music'); if (MUSIC_CHOICES.includes(v)) musicChoice = v; } catch { /* ignore */ }
-const musicOff = () => musicChoice === 'off';
+// Which songs play (remembered): the songs the player switched on in the settings, one after the other on repeat (one
+// song: on a loop). null = all of them (new songs join when unlocked); none = no music at all (the game's sound effects
+// keep playing; M still mutes everything). Saved as 'both' (all, the old name kept), 'off', or the songs: '0,2'.
+let musicPick = null;
+try {
+  const v = localStorage.getItem('rkr-music');
+  if (v === 'off') musicPick = [];
+  else if (v && /^\d(,\d)*$/.test(v)) musicPick = [...new Set(v.split(',').map(Number))].filter((i) => i < PLAYLIST.length);
+} catch { /* ignore */ }
+const songsHere = () => PLAYLIST.map((_, i) => i).filter((i) => i !== SONG5 || songUnlocked);   // (the settings list them)
+const songOn = (i) => (musicPick || songsHere()).includes(i);
+const musicOff = () => !!musicPick && musicPick.length === 0;
+// the songs that play: the switched-on ones that load here (none of them: all that do)
+function picked() {
+  const all = PLAYLIST.map((_, i) => i).filter(playable), mine = all.filter(songOn);
+  return mine.length ? mine : all;
+}
+function toggleSong(i) {
+  const on = new Set(musicPick || songsHere());
+  if (on.has(i)) on.delete(i); else on.add(i);
+  const here = songsHere();
+  musicPick = here.every((x) => on.has(x)) ? null : [...on].sort((x, y) => x - y);
+  try { localStorage.setItem('rkr-music', !musicPick ? 'both' : musicPick.length ? musicPick.join(',') : 'off'); } catch { /* ignore */ }
+  victorySong = false;
+  applyMusicChoice();
+}
 function applyMusicChoice() {
   if (musicOff()) { track.pause(); audio.stopMusic(); return; }
-  const one = musicChoice === 'both' ? -1 : +musicChoice;
-  track.loop = one >= 0;
-  if (one >= 0 && one !== trackIdx && !badTracks.has(one)) {
-    trackIdx = one;   // switch now (the new song starts from the top)
-    if (trackWanted && !audio.isMuted() && !inBackground && !trackFailed) { track.src = PLAYLIST[one]; playTrack(); }
+  const set = picked();
+  track.loop = set.length === 1;
+  if (!set.includes(trackIdx)) {
+    trackIdx = set[0];   // switch now (the new song starts from the top)
+    if (trackWanted && !audio.isMuted() && !inBackground && !trackFailed) { track.src = PLAYLIST[trackIdx]; playTrack(); }
     else track.removeAttribute('src');
   }
   // (back on after 'off': pick the music up again if a game wants it)
@@ -107,20 +147,25 @@ function applyMusicChoice() {
   else syncTrack();
 }
 function nextTrack() {
+  const set = picked();
   for (let k = 1; k <= PLAYLIST.length; k++) {
     const i = (trackIdx + k) % PLAYLIST.length;
-    if (badTracks.has(i)) continue;
+    if (!set.includes(i)) continue;
     trackIdx = i;
     if (trackWanted && !audio.isMuted() && !inBackground) { track.src = PLAYLIST[i]; playTrack(); }
     else track.removeAttribute('src'); // loaded lazily by the next playTrack()
     return;
   }
 }
-track.addEventListener('ended', nextTrack);   // (one song on a loop: track.loop, 'ended' never fires)
+track.addEventListener('ended', () => {   // (one song on a loop: track.loop, 'ended' never fires)
+  // the victory party's We Skate is over: the switched-on songs go on (one: on its loop)
+  if (victorySong) { victorySong = false; track.loop = picked().length === 1; }
+  nextTrack();
+});
 applyMusicChoice();
 track.addEventListener('error', () => {
   badTracks.add(trackIdx);
-  if (badTracks.size >= PLAYLIST.length) { trackFailed = true; if (trackWanted && !musicOff()) audio.startMusic(musicLevel); return; }
+  if (PLAYLIST.every((_, i) => !playable(i))) { trackFailed = true; if (trackWanted && !musicOff()) audio.startMusic(musicLevel); return; }
   nextTrack();
 });
 
@@ -130,10 +175,22 @@ function musicPlay(level) {
   if (trackFailed) { if (!musicOff()) audio.startMusic(level); return; }
   if (!audio.isMuted() && !inBackground && track.paused) playTrack();
 }
-// after the victory fanfare the soundtrack comes back in softly (ramped in tick())
+// the soundtrack comes back in softly (ramped in tick()): the victory party when We Skate can't play
 function musicFadeIn(level) {
   track.volume = Math.min(0.04, trackVol());
   musicPlay(level);
+}
+// the victory party: We Skate from the top (the song this win unlocks online), once (no song: the music fades back in)
+function musicVictorySong(level) {
+  if (trackFailed || musicOff() || badTracks.has(SONG5)) { musicFadeIn(level); return; }
+  victorySong = true;
+  trackIdx = SONG5;
+  track.loop = false;
+  track.volume = trackVol();
+  track.src = PLAYLIST[SONG5];
+  musicLevel = level;
+  trackWanted = true;
+  if (!audio.isMuted() && !inBackground) playTrack();
 }
 function musicStop() {
   trackWanted = false;
@@ -163,7 +220,7 @@ function toggleSound() {
 }
 ui.onMuteClick(toggleSound);
 // Settings (settings.js): volumes, which songs, graphics, keys. From the main menu and the Esc menu.
-const MUSIC_NAMES = { both: 'ALL SONGS', off: 'OFF' };
+const SONG_NAMES = ['SONG 1', 'SONG 2', 'SONG 3', 'WE SKATE'];
 function applyVolumes() {
   audio.setVolumes(musicVolume(), sfxVolume());
   track.volume = trackVol();
@@ -194,9 +251,15 @@ ui.onSettingsClick(() => {
   releaseAllInput();
   openSettings(document.getElementById('ui'), {
     music: {
-      choices: MUSIC_CHOICES.map((id) => [id, MUSIC_NAMES[id] || `SONG ${+id + 1}`]),
-      get: () => musicChoice,
-      set: (id) => { musicChoice = id; try { localStorage.setItem('rkr-music', id); } catch { /* ignore */ } applyMusicChoice(); },
+      songs: songsHere().map((i) => [i, SONG_NAMES[i]]),
+      on: (i) => !musicOff() && songOn(i),
+      toggle: toggleSong,
+      // We Skate's speed (once it's unlocked)
+      speed: songUnlocked ? {
+        choices: SKATE_SPEEDS.map((x) => [x, x + '×']),
+        get: () => skateSpeed,
+        set: (x) => { skateSpeed = x; try { localStorage.setItem('rkr-skate-speed', String(x)); } catch { /* ignore */ } setRate(); },
+      } : null,
     },
     onVolume: applyVolumes,
     onGraphics: applyGraphics,
@@ -469,7 +532,7 @@ let localSetup = { mode: undefined, names: [] };   // single player / co-op: the
 let simTime = 0;         // presentation clock (seconds)
 let accumulator = 0;
 let gameOverShown = false;
-let victory = null;       // the final run is beaten: { sim, t, ev, shown, shownAt, lobbyAt, nextFw, musicBack } (presentation only)
+let victory = null;       // the final run is beaten: { sim, t, ev, shown, shownAt, lobbyAt, nextFw, song } (presentation only)
 let intro = null;         // the final run's opening fly-over: { sim, t }
 // the run is over: everyone down, or the final run was beaten (no pause menu, no game-over screen after a win)
 function runOver() { return sim.state === 'gameover' || sim.state === 'victory'; }
@@ -870,7 +933,7 @@ function launchFirework(fuse) {
 
 function startVictory(ev) {
   if (victory && victory.sim === sim) return;
-  victory = { sim, t: 0, ev: ev || null, shown: false, nextFw: 1.6, musicBack: false };
+  victory = { sim, t: 0, ev: ev || null, shown: false, nextFw: 1.6, song: false };
   intro = null;
   mouse.target = null; mouse.iceDir = null;
   if (online.menu) { online.menu = false; ui.hidePause(); } // the victory screen replaces the online menu
@@ -884,7 +947,8 @@ function startVictory(ev) {
     });
   }
   musicStop();
-  audio.play('victory');
+  audio.play('victory');   // a soft ta-daa, then We Skate (updateVictory)
+  if (online.playing) setTimeout(() => account.refresh(), 2000);   // the server counted the win: the new song may be unlocked
   effects.confetti(0, 0);
   effects.shake(0.6);
   effects.reviveBeam(0, 0, 0xffd34a);
@@ -910,8 +974,8 @@ function updateVictory(dt) {
     launchFirework();
     v.nextFw += v.t < 10 ? 0.25 + Math.random() * 0.4 : 0.9 + Math.random() * 1.5; // a big show, then a calmer one
   }
+  if (!v.song && v.t > 1.1) { v.song = true; musicVictorySong(sim.levelData.level || sim.level); }   // as the ta-daa ends
   if (v.t < 7) effects.confettiRain(0, 0, 10, Math.max(1, Math.round(3 * QUALITY.particles)));
-  if (!v.musicBack && v.t > 4.8) { v.musicBack = true; musicFadeIn(sim.levelData.level || sim.level); }
   if (view && view.fish) {
     if (!v.feastCue && v.t > 2.4) { v.feastCue = true; if (!view.fish.done()) { const h = view.fish.headPos(); effects.floatText(h.x * 0.75, 2.4, h.z * 0.75, 'FISH FEAST!', '#ffb27a'); } }
     if (v.shown) ui.updateVictoryFish(Math.floor(view.fish.eaten() * 100));
@@ -1585,6 +1649,12 @@ const net = createNet();
 const account = createAccount(document.getElementById('ui'));
 net.acct = account.token;
 account.onChange(() => {
+  const had = songUnlocked;
+  songUnlocked = account.has('song5') || DEBUG_SONG;
+  if (songUnlocked !== had) {
+    if (!victorySong) applyMusicChoice();
+    if (victory) ui.toast('New song unlocked: We Skate! Switch it on / off in Settings', '#ffd34a');
+  }
   ui.setAccountButton(account.enabled() ? { paid: account.paid(), hidden: !account.shown(), signedIn: account.signedIn() } : null);
   if (net.connected) net.send({ t: 'acct', acct: account.token() || '' });
 });

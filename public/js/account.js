@@ -223,7 +223,8 @@ function createAccount(root) {
       const ulist = el('div', 'rka-unl');
       const SHORT = { run: 'Run', ice: 'Skate', mixed: 'Run + Skate' };
       const GOALS = { l8: 'Clear level 8 holding every crown (8 crowns, 16 in Run + Skate), in each mode:',
-        l9: 'Beat level 9 with 8 crowns (16 in Run + Skate, the final crown counts) and reach the end yourself, in each mode:' };
+        l9: 'Beat level 9 with 8 crowns (16 in Run + Skate, the final crown counts) and reach the end yourself, in each mode:',
+        win: 'Clear the final level to unlock a new song (any mode):' };
       let lastFeat = '';
       // no spoilers: level 9's unlocks only once this player has seen level 9 (this browser, the account's stats, or progress)
       let seen9 = false;
@@ -236,8 +237,11 @@ function createAccount(root) {
         if (u.feat !== lastFeat) { lastFeat = u.feat; ulist.appendChild(el('div', 'rka-ugoal', GOALS[u.feat])); }
         const open_ = isUnlocked(prog, u);
         const row = el('div', 'rka-urow' + (open_ ? '' : ' rka-locked'));
-        row.appendChild(el('span', 'rka-uname', (open_ ? '' : '🔒 ') + u.name));
-        if (open_) {
+        row.appendChild(el('span', 'rka-uname', (open_ ? '' : '🔒 ') + (u.song && !open_ ? 'New song' : u.name)));
+        if (u.song) {
+          // a song has no switch: it joins the soundtrack, and the settings can play it on its own
+          row.appendChild(el('span', 'rka-uprog', open_ ? 'Switch it on / off in Settings' : ''));
+        } else if (open_) {
           const on = !(prog.off && prog.off[u.id]);
           const t = el('button', 'rka-amt rka-utog' + (on ? ' rka-on' : ''), on ? 'ON' : 'OFF');
           t.addEventListener('click', async () => {
@@ -451,11 +455,21 @@ function createAccount(root) {
     paid: () => (A.account ? Number(A.account.paid) || 0 : 0),
     shown: () => !A.account || A.account.show !== false,   // the player's "shown online" switch
     onChange(fn) { changeFn = fn; },
+    // an unlock this player has (an active account's, or this browser's), switched on or not (songs: settings.js)
+    // fresh unlocks (a game was just won online): the account's, or this browser's
+    async refresh() {
+      if (A.token && A.account) { try { const j = await api('me'); if (j.account) { A.account = j.account; changed(); } } catch { /* keep what we have */ } }
+      else loadGuest();
+    },
+    has(id) {
+      const u = (A.account && Number(A.account.paid) > 0 && A.account.unlocks) || A.guest;
+      return !!u && isUnlocked(u, id);
+    },
     equipped() {
       if (eqFor !== A.account || eqGuest !== A.guest) {
         eqFor = A.account; eqGuest = A.guest;
         const u = (A.account && Number(A.account.paid) > 0 && A.account.unlocks) || A.guest;
-        eqSet = new Set(u ? UNLOCKS.filter((x) => isUnlocked(u, x) && !(u.off && u.off[x.id])).map((x) => x.id) : []);
+        eqSet = new Set(u ? UNLOCKS.filter((x) => !x.song && isUnlocked(u, x) && !(u.off && u.off[x.id])).map((x) => x.id) : []);
       }
       return eqSet;
     },

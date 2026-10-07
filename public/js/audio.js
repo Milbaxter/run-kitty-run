@@ -368,39 +368,17 @@ function createAudio() {
       });
     },
 
-    // You beat Run Kitty Run: a brassy fanfare with timpani, cymbals and a sparkling final chord (~4.5 s).
+    // You beat Run Kitty Run: a soft ta-daa, two short warm brass chords (G, then a held C), low and rounded off
+    // (~1.3 s); We Skate starts as it ends (main.js).
     victory(g, o, t, p) {
-      const brass = (m, at, len, peak = 0.05) => {
-        const f = mtof(m) * p;
-        const lp = filt(g, o, 'lowpass', 700, 1.2, 3600, t + at, 0.09);
-        for (const det of [-7, 7]) tone(g, lp, { type: 'sawtooth', f, detune: det, t: t + at, a: 0.025, hold: len * 0.7, d: len * 0.3 + 0.12, peak });
-        tone(g, o, { type: 'triangle', f, t: t + at, a: 0.02, hold: len * 0.7, d: len * 0.3 + 0.12, peak: peak * 2.2 });
-        return f;
+      const chord = (ms, at, len, peak) => {
+        const lp = filt(g, o, 'lowpass', 700, 0.8, 1600, t + at, 0.1);
+        for (const m of ms) for (const det of [-7, 7]) tone(g, lp, { type: 'sawtooth', f: mtof(m) * p, detune: det, t: t + at, a: 0.03, hold: len, d: 0.5, peak });
+        for (const m of ms) tone(g, o, { type: 'triangle', f: mtof(m) * p, t: t + at, a: 0.03, hold: len, d: 0.5, peak: peak * 1.4 });
       };
-      const timp = (m, at, peak = 0.45) => {
-        tone(g, o, { type: 'sine', f: mtof(m) * p * 1.04, to: mtof(m) * p, slide: 0.08, t: t + at, a: 0.003, d: 0.55, peak });
-        noise(g, o, { t: t + at, a: 0.002, d: 0.09, peak: peak * 0.25, ft: 'lowpass', f: 900 });
-      };
-      const cymbal = (at, d = 1.4, peak = 0.08) => noise(g, o, { t: t + at, a: 0.004, d, peak, ft: 'highpass', f: 5200, Q: 0.6 });
-      // da-da-da DAAA / da-da-da DAAA (G G G C . E E E G) then up to the high C
-      const mel = [[67, 0, 0.1], [67, 0.13, 0.1], [67, 0.26, 0.1], [72, 0.4, 0.5],
-                   [76, 0.98, 0.1], [76, 1.11, 0.1], [76, 1.24, 0.1], [79, 1.38, 0.5],
-                   [77, 1.96, 0.16], [76, 2.14, 0.16], [74, 2.32, 0.16], [84, 2.52, 1.5]];
-      for (const [m, at, len] of mel) brass(m, at, len, m === 84 ? 0.06 : 0.05);
-      // harmony under the long notes
-      for (const [ms, at, len] of [[[60, 64], 0.4, 0.5], [[64, 67], 1.38, 0.5], [[72, 76, 79], 2.52, 1.5]]) for (const m of ms) brass(m - 12, at, len, 0.03);
-      // vibrato on the final high C
-      const fin = ctx.createOscillator(); fin.type = 'triangle'; fin.frequency.value = mtof(84) * p;
-      lfo(g, fin.frequency, 5.5, 9, t + 2.8, t + 4.2);
-      const fg = g.add(ctx.createGain()); env(fg.gain, t + 2.52, 0.05, 1.2, 0.6, 0.05);
-      fin.connect(fg); fg.connect(o); g.src(fin, t + 2.52, t + 4.4);
-      // bass + drums
-      for (const [m, at] of [[48, 0.4], [52, 1.38], [53, 1.96], [55, 2.32], [48, 2.52]]) tone(g, o, { type: 'sine', f: mtof(m - 12) * p, t: t + at, a: 0.005, hold: 0.25, d: 0.4, peak: 0.3 });
-      for (let i = 0; i < 6; i++) timp(43, 2.2 + i * 0.05, 0.12 + i * 0.03); // roll into the last chord
-      timp(43, 0.4); timp(48, 1.38); timp(36, 2.52, 0.6);
-      cymbal(0.4, 0.9, 0.06); cymbal(1.38, 0.9, 0.06); cymbal(2.52, 2.2, 0.12);
-      // sparkles over the last chord
-      for (let i = 0; i < 14; i++) fm(g, o, { f: mtof(84 + [0, 4, 7, 12][i % 4]) * p * 2, ratio: 3.01, index: 1.2, t: t + 2.6 + i * 0.11, a: 0.002, d: 0.35, peak: 0.03 });
+      chord([55, 59, 62, 67], 0, 0.1, 0.018);
+      chord([60, 64, 67, 72], 0.22, 0.5, 0.022);
+      tone(g, o, { type: 'sine', f: mtof(36) * p, t: t + 0.22, a: 0.02, hold: 0.4, d: 0.6, peak: 0.16 });
     },
 
     // Firework rocket going up (quiet whistle) and its bang + crackle.

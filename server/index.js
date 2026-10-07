@@ -618,6 +618,7 @@ function countForAccounts(room, events) {
       const party = Array.isArray(e.party) ? e.party : [];
       for (const p of sim.players) {
         if (!party.includes(p.id) && (p.finishes || 0) >= winsNeeded(room.mode)) featDone(p.id, 'l9');
+        featDone(p.id, 'win');   // and the new song: everyone who was there
       }
     } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown' });
     else if (e.type === 'revive') accounts.recordOnline(subOf(e.by), { type: 'revive' });

@@ -5,6 +5,7 @@ import { createSim, stepSim } from '../public/js/shared/sim.js';
 import { CFG, SKATE_FINAL_LEVEL, FINAL_MODES, PLAYER_NAMES } from '../public/js/shared/config.js';
 import { generateLevel, mazeSelfTest, collideCircle, onIce } from '../public/js/shared/maze.js';
 import { filterChat, filterName } from '../public/js/shared/filter.js';
+import { isUnlocked } from '../public/js/shared/unlocks.js';
 const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process.exitCode = 1; };
 
 // ======== rules: first kitty home clears the level, everyone respawns; wolves ramp toward the goal; pickups, crown, trees
@@ -669,6 +670,15 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(guestCos.join() === 'shades' && gOff.ok && gRead.unlocks.off.shades === true && !gBad.ok
       && merged.l8.run === beforeMerge + 1 && merged.l8.mixed >= 1 && (await request(accounts, 'guest', [Buffer.from(JSON.stringify({ pid }))])).unlocks === null,
     'unlocks without an account: kept under the progress id, switched there, moved onto the account once it is active');
+    // the new song: the final level cleared once, in any mode, unlocks it; it is never worn (not sent) and has no switch
+    const spid = 'songsongsongsongsongsong0123';
+    const songBefore = (await request(accounts, 'guest', [Buffer.from(JSON.stringify({ pid: spid }))])).unlocks;
+    accounts.recordFeat({ pid: spid }, 'win', 'ice');
+    const songAfter = (await request(accounts, 'guest', [Buffer.from(JSON.stringify({ pid: spid }))])).unlocks;
+    const songSwitch = await request(accounts, 'guestequip', [Buffer.from(JSON.stringify({ pid: spid, item: 'song5', on: false }))]);
+    ok(songBefore === null && songAfter && songAfter.win.ice === 1 && isUnlocked(songAfter, 'song5') && !isUnlocked(songAfter, 'shades')
+      && accounts.cosForPlayer({ pid: spid }).length === 0 && !songSwitch.ok,
+    'the new song unlocks by clearing the final level in any one mode, is not worn by the kitty and has no on / off switch');
     accounts.flush();
     ok(createAccounts(file, env).subFor(token) === sub && JSON.parse(fs.readFileSync(file)).accounts[sub].stats.online.clears.run[2] === 2,
       'account stats are saved on flush and survive a restart');

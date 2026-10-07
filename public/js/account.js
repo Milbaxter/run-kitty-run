@@ -202,7 +202,7 @@ function createAccount(root) {
       // account, so both buttons do the same thing: the same Google account always gets the same swag account back.
       const create = section('NEW HERE?'), back = section('ALREADY HAVE ONE?');
       const gNew = el('div', 'rka-gbtn'), gBack = el('div', 'rka-gbtn');
-      create.append(el('div', 'rka-note', `Totally optional, you do not need an account to play the game. Chip in whatever you like and the total shows next to your kitty for everyone online (can toggle it on and off).`), gNew);
+      create.append(el('div', 'rka-note', `Totally optional, you do not need an account to play the game. Sign up, then chip in whatever you like once to activate it: the total shows next to your kitty for everyone online (can toggle it on and off), and your account keeps your stats and earns unlocks in online games.`), gNew);
       back.append(el('div', 'rka-note', 'Sign in with the same Google account as before and your swag comes back, on any browser.'), gBack);
       box.append(el('h2', null, 'SWAG ACCOUNT'), create, back, msg, fine('By signing in you agree to the '), closeBtn);
       loadGsi().then(() => {
@@ -235,7 +235,7 @@ function createAccount(root) {
     if (opts.view !== 'pay') {
       box.append(el('h2', null, opts.thanks ? 'THANK YOU!' : 'YOUR SWAG ACCOUNT'), el('div', 'rkr-gsub', `Hi ${a.name || 'there'}!`));
       // Swag: your total, the "shown online" switch (server: accounts.js 'show') and adding more
-      const swag = section('SWAG');
+      const swag = section(paid > 0 ? 'SWAG' : 'ACTIVATE YOUR SWAG ACCOUNT');
       if (paid > 0) {
         const sw = el('button', 'rka-amt' + (shown ? ' rka-on' : ''), shown ? 'SHOWN ONLINE: ON' : 'SHOWN ONLINE: OFF');
         sw.addEventListener('click', async () => {
@@ -251,7 +251,7 @@ function createAccount(root) {
       } else {
         const pick = el('button', 'rka-amt rka-on', 'PICK AN AMOUNT');
         pick.addEventListener('click', () => open({ view: 'pay' }));
-        swag.append(el('div', 'rka-note', `No swag yet. Chip in from ${fmtPaid(A.cfg.min)} and it shows next to your kitty for everyone online (can toggle it on and off).`), pick);
+        swag.append(el('div', 'rka-note', `Chip in once, from ${fmtPaid(A.cfg.min)}, to activate your account: the total shows next to your kitty for everyone online (can toggle it on and off), the game keeps your stats and you can earn unlocks in online games.`), pick);
       }
       // Unlocks (shared/unlocks.js): earned online, kept forever, each switched on or off here
       const unl = section('UNLOCKS');
@@ -314,7 +314,8 @@ function createAccount(root) {
         try { await api('delete', {}); setSession('', null); close(); } catch (e) { say(e.message, 'err'); }
       });
       links.append(out, del);
-      box.append(swag, unl, stats, msg, closeBtn, links, fine(`Signed in as ${a.email}. `));
+      // stats and unlocks only on an active account (one that has paid; the server counts nothing before)
+      box.append(swag, ...(paid > 0 ? [unl, stats] : []), msg, closeBtn, links, fine(`Signed in as ${a.email}. `));
       sayOpts();
       root.appendChild(modal);
       // fresh numbers (a game may have counted since this page loaded): redraw if the menu is still the one showing
@@ -380,7 +381,7 @@ function createAccount(root) {
     api('progress', p).then((j) => { if (j.account) A.account = j.account; }).catch(() => { /* best effort */ });
   }
   function noteLocal(sim, events) {
-    if (!A.enabled || !A.token || !A.account) return;
+    if (!A.enabled || !A.token || !A.account || !(Number(A.account.paid) > 0)) return;
     const me = sim.players[0];
     for (const e of events) {
       if (e.type === 'gameOver' || e.type === 'victory') { sendLocal(); dayTime = null; continue; }
@@ -416,7 +417,7 @@ function createAccount(root) {
     equipped() {
       if (eqFor !== A.account) {
         eqFor = A.account;
-        const u = A.account && A.account.unlocks;
+        const u = A.account && Number(A.account.paid) > 0 && A.account.unlocks;
         eqSet = new Set(u ? UNLOCKS.filter((x) => isUnlocked(u, x) && !(u.off && u.off[x.id])).map((x) => x.id) : []);
       }
       return eqSet;

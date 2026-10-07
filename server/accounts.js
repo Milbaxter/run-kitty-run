@@ -158,7 +158,10 @@ function createAccounts(file, env = process.env) {
   }
 
   // ---- accounts ----
-  const pub = (a) => (a ? { name: a.name, email: a.email, paid: Number(a.paid) || 0, show: !a.hide, unlocks: unlocksOf(a),
+  // A swag account is active once it has paid (one payment of at least MIN_CENTS): only then are its stats and unlock
+  // progress counted and its switched-on unlocks shown. Signing in alone is free (it's how the payment finds the account).
+  const active = (a) => (Number(a && a.paid) || 0) > 0;
+  const pub = (a) => (a ? { name: a.name, email: a.email, paid: Number(a.paid) || 0, active: active(a), show: !a.hide, unlocks: unlocksOf(a),
     stats: { online: (a.stats && a.stats.online) || blankStats(), local: (a.stats && a.stats.local) || blankStats() } } : null);
   function newSession(a) {
     const token = crypto.randomBytes(24).toString('base64url');
@@ -204,7 +207,7 @@ function createAccounts(file, env = process.env) {
   }
   // ev: { type: 'reached' | 'clear', mode, level, time? (a clear's seconds) } | { type: 'crown' } | { type: 'revive' }
   function record(a, kind, ev, n = 1) {
-    if (!a || !ev || !(n > 0)) return;
+    if (!a || !ev || !(n > 0) || !active(a)) return;
     const s = statsOf(a, kind);
     if (ev.type === 'crown') s.crowns += n;
     else if (ev.type === 'revive') s.revives += n;
@@ -235,14 +238,14 @@ function createAccounts(file, env = process.env) {
   // the game server: this account's kitty did a feat ('l8' | 'l9') in a mode
   function recordFeat(sub, feat, mode) {
     const a = sub && accounts[sub];
-    if (!a || !['l8', 'l9'].includes(feat) || !UNLOCK_MODES.includes(mode)) return;
+    if (!a || !active(a) || !['l8', 'l9'].includes(feat) || !UNLOCK_MODES.includes(mode)) return;
     unlocksOf(a)[feat][mode]++;
     statsChanged();
   }
   // the unlocked items this account has switched on (the game server sends them to everyone in the room)
   const cosFor = (token) => {
     const a = fromToken(token);
-    if (!a) return [];
+    if (!a || !active(a)) return [];
     const u = unlocksOf(a);
     return UNLOCKS.filter((x) => isUnlocked(u, x) && !u.off[x.id]).map((x) => x.id);
   };
@@ -365,6 +368,7 @@ function createAccounts(file, env = process.env) {
       const item = UNLOCKS.find((x) => x.id === m.item);
       if (!item || typeof m.on !== 'boolean') return { ok: false };
       const u = unlocksOf(a);
+      if (!active(a)) return { ok: false, msg: 'Activate your swag account first.' };
       if (!isUnlocked(u, item)) return { ok: false, msg: 'Not unlocked yet.' };
       const previous = !!u.off[item.id];
       if (m.on) delete u.off[item.id]; else u.off[item.id] = true;

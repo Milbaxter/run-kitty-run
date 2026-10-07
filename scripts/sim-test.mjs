@@ -528,7 +528,10 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   const pay = (accounts) => request(accounts, 'pay', [Buffer.from(JSON.stringify({ cents: 50 }))]);
   try {
     fs.writeFileSync(file, JSON.stringify({ accounts: { [sub]: { sub, email: 'test@example.invalid', name: 'Test', paid: 0,
-      sessions: [crypto.createHash('sha256').update(token).digest('hex')], payments: [] } }, checkouts: {} }), { mode: 0o644 });
+      sessions: [crypto.createHash('sha256').update(token).digest('hex')], payments: [] },
+      // a second account that never pays (signing in is free, the swag account is only active once paid)
+      'unpaid-sub': { sub: 'unpaid-sub', email: 'unpaid@example.invalid', name: 'Unpaid', paid: 0,
+        sessions: [crypto.createHash('sha256').update('unpaid-session-token-for-regression').digest('hex')], payments: [] } }, checkouts: {} }), { mode: 0o644 });
     fs.writeFileSync(ledger, '', { mode: 0o644 });
     globalThis.fetch = async (url) => {
       if (!String(url).startsWith('https://api.stripe.com/v1/checkout/sessions')) throw new Error('unexpected network call');
@@ -538,6 +541,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     let accounts = createAccounts(file, env);
     ok((fs.statSync(file).mode & 0o777) === 0o600 && (fs.statSync(ledger).mode & 0o777) === 0o600,
       'existing account and payment files become private');
+
     fs.renameSync = (from, to) => { if (to === file) throw Object.assign(new Error('simulated storage failure'), { code: 'EIO' }); return savedRename(from, to); };
     const failed = await pay(accounts);
     ok(failed.status >= 400 && !failed.url && !JSON.parse(fs.readFileSync(file)).checkouts[session.id],
@@ -639,6 +643,12 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(!before.includes('shades') && after.join() === 'shades' && !lockedOn.ok && off.ok && accounts.cosFor(token).length === 0
       && off.account.unlocks.l8.mixed === 1 && off.account.unlocks.off.shades === true,
     'unlocks: an item unlocks once its feat is done in every mode, bad feats / modes are ignored, switched off it is not sent');
+    // never paid: signed in, but not active: no stats, no unlock progress, nothing sent to other players
+    accounts.recordOnline('unpaid-sub', { type: 'crown' }); for (const m of ['run', 'ice', 'mixed']) accounts.recordFeat('unpaid-sub', 'l8', m);
+    const unpaid = await request(accounts, 'me', [], { authorization: 'Bearer unpaid-session-token-for-regression' });
+    ok(unpaid.ok && unpaid.account.active === false && unpaid.account.stats.online.crowns === 0 && unpaid.account.unlocks.l8.run === 0
+      && accounts.cosFor('unpaid-session-token-for-regression').length === 0 && off.account.active === true,
+    'an account that has never paid is not active: nothing is counted or shown');
     accounts.flush();
     ok(createAccounts(file, env).subFor(token) === sub && JSON.parse(fs.readFileSync(file)).accounts[sub].stats.online.clears.run[2] === 2,
       'account stats are saved on flush and survive a restart');

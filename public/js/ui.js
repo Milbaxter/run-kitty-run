@@ -149,9 +149,9 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-card.rkr-cool.rkr-down .rkr-shades-broken{display:block !important;}
 .rkr-card.rkr-cool.rkr-down .rkr-xeyes{display:none;}
 .rkr-card.rkr-rainbow .rkr-cat > path:first-child{fill:url(#rkr-rainbow-fur);}
-.rkr-card .rkr-mane{position:absolute;inset:0;width:100%;height:100%;overflow:visible;z-index:-1;display:none;}
+.rkr-card .rkr-head .rkr-mane{position:absolute;inset:0;width:100%;height:100%;overflow:visible;z-index:-1;display:none;}   /* (beats .rkr-head svg{display:block}) */
 .rkr-card .rkr-mane path{fill:#a0522d;fill:color-mix(in srgb,currentColor 62%,#2b1840);stroke:#2b1840;stroke-width:3.2;paint-order:stroke fill;stroke-linejoin:round;}
-.rkr-card.rkr-lion .rkr-mane{display:block;}
+.rkr-card.rkr-lion .rkr-head .rkr-mane{display:block;}
 .rkr-card.rkr-rlion .rkr-mane path{fill:url(#rkr-rainbow-fur);}
 .rkr-card.rkr-chrome .rkr-mane path,.rkr-card.rkr-chrome .rkr-cat > path:first-child{fill:url(#rkr-chrome-fur);}
 .rkr-card.rkr-celestial .rkr-mane path,.rkr-card.rkr-celestial .rkr-cat > path:first-child{fill:url(#rkr-cosmic-fur);}

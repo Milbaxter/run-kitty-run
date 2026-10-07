@@ -1,17 +1,19 @@
 
 // Run Kitty Run — audio.js (WebAudio only, everything synthesized).
-// Contract: createAudio() -> { unlock, play, startMusic, stopMusic, setMuted, isMuted, setDanger }
+// Contract: createAudio() -> { unlock, play, startMusic, stopMusic, setMuted, isMuted, setDanger, setBackground, attachTrack }
 // Notes / interpretations:
 // - The AudioContext is created lazily inside unlock(). play() before the context runs is a silent no-op.
 // - startMusic(level) before unlock is remembered and starts automatically once unlocked.
 // - All helpers live inside the createAudio closure so the single-file bundler sees no top-level name clashes.
 // - Graph: sfx voices -> sfxBus ┐
 //          music instances -> musicFilter (danger lowpass) -> musicBus ┴-> compressor -> master -> destination
+//          soundtrack <audio> (attachTrack) -> trackGain -----------------------------------^
 
 function createAudio() {
   let ctx = null;
   let master = null, comp = null, sfxBus = null, musicBus = null, musicFilter = null;
   let noiseBuf = null;
+  let trackEl = null, trackSrc = null;   // the soundtrack's <audio> element, played through this context (attachTrack)
   let muted = false;
   let danger = 0;
   let pendingLevel = null;
@@ -56,8 +58,23 @@ function createAudio() {
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     // Leaving 'running' (suspended, or iOS 'interrupted') means the next unlock() must prime again.
     ctx.onstatechange = () => { if (ready()) onRunning(); else primed = false; };
+    connectTrack();
     return true;
   }
+
+  // The soundtrack is a plain <audio> element. Played on its own, every new song opens a fresh output stream, and
+  // Windows plays its first moment at full volume before the browser's volume-mixer setting kicks in. Through this
+  // context it shares the one long-lived stream with the sound effects. Straight into master (mute) at unity: no
+  // compressor or danger filter, the songs sound as mixed. Without WebAudio the element just plays by itself.
+  function connectTrack() {
+    if (!ctx || !trackEl || trackSrc) return;
+    try {
+      trackSrc = ctx.createMediaElementSource(trackEl);
+      const g = ctx.createGain(); g.gain.value = 1 / 0.9;   // (master is 0.9)
+      trackSrc.connect(g); g.connect(master);
+    } catch (e) { trackSrc = null; }
+  }
+  function attachTrack(el) { trackEl = el; connectTrack(); }
 
   function onRunning() {
     if (pendingLevel != null) { const l = pendingLevel; pendingLevel = null; startMusic(l); }
@@ -775,7 +792,7 @@ function createAudio() {
     if (danger > 0.6) ensureTimer();
   }
 
-  return { unlock, play, startMusic, stopMusic, setMuted, isMuted, setDanger, setBackground };
+  return { unlock, play, startMusic, stopMusic, setMuted, isMuted, setDanger, setBackground, attachTrack };
 }
 
 export { createAudio };

@@ -53,9 +53,11 @@ const fmtNum = (c) => (c / 100).toFixed(2);   // in game (lobby slots, player ca
 // Level 9 (the final run) only gets a row once you've got that far in some mode, and a number only in modes you
 // have: no spoilers.
 let statsTab = 'online';   // 'online' | 'local'
+let statsWhat = 'clears';  // 'clears' (times cleared) | 'best' (fastest clear)
+const fmtTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 const STAT_COLS = [['run', 'RUN'], ['ice', 'SKATE'], ['mixed', 'RUN + SKATE']];
 function statsView(s) {
-  const clears = (s && s.clears) || {}, reached = (s && s.reached) || {};
+  const clears = (s && s.clears) || {}, reached = (s && s.reached) || {}, best = (s && s.best) || {};
   const t = el('table', 'rka-table');
   const head = el('tr');
   head.append(el('th', null, 'LEVEL'), ...STAT_COLS.map(([, label]) => el('th', null, label)));
@@ -65,8 +67,9 @@ function statsView(s) {
     const tr = el('tr');
     tr.appendChild(el('td', null, String(L)));
     for (const [m] of STAT_COLS) {
-      const n = (clears[m] || {})[L] || 0;
-      tr.appendChild(el('td', n ? null : 'rka-zero', L === 9 && (reached[m] || 0) < 9 ? '–' : String(n)));
+      const n = (clears[m] || {})[L] || 0, b = (best[m] || {})[L];
+      const text = statsWhat === 'best' ? (b > 0 ? fmtTime(b) : '–') : String(n);
+      tr.appendChild(el('td', (statsWhat === 'best' ? b > 0 : n) ? null : 'rka-zero', L === 9 && (reached[m] || 0) < 9 ? '–' : text));
     }
     t.appendChild(tr);
   }
@@ -246,7 +249,14 @@ function createAccount(root) {
         t.addEventListener('click', () => { statsTab = k; open({ fresh: true }); });
         tabs.appendChild(t);
       }
-      stats.append(tabs, statsView(a.stats && a.stats[statsTab]),
+      // what the table shows: times cleared, or the fastest clear
+      const what = el('div', 'rka-tabs');
+      for (const [k, label] of [['clears', 'TIMES CLEARED'], ['best', 'FASTEST']]) {
+        const t = el('button', 'rka-amt rka-tab' + (k === statsWhat ? ' rka-on' : ''), label);
+        t.addEventListener('click', () => { statsWhat = k; open({ fresh: true }); });
+        what.appendChild(t);
+      }
+      stats.append(tabs, what, statsView(a.stats && a.stats[statsTab]),
         el('div', 'rka-fine', statsTab === 'online' ? 'Counted by the game server in online games.'
           : 'Counted by your own browser in solo and local co-op games.'));
       const links = el('div', 'rka-links');
@@ -315,7 +325,7 @@ function createAccount(root) {
 
   // Solo / local co-op stats: picked up from the local game's events and sent in small batches (server: 'progress').
   // A cleared level counts for the team; crowns and revives only for kitty 1 (whoever is signed in on this device).
-  let local = null, localT = null;
+  let local = null, localT = null, dayTime = null;
   function sendLocal() {
     clearTimeout(localT); localT = null;
     const p = local; local = null;
@@ -326,15 +336,20 @@ function createAccount(root) {
     if (!A.enabled || !A.token || !A.account) return;
     const me = sim.players[0];
     for (const e of events) {
-      if (e.type === 'gameOver' || e.type === 'victory') { sendLocal(); continue; }
+      if (e.type === 'gameOver' || e.type === 'victory') { sendLocal(); dayTime = null; continue; }
+      if (e.type === 'stageClear') { dayTime = { level: e.level, time: sim.levelTime }; continue; }   // Run + Skate's day half
       const t = e.type === 'levelStart' ? 'reached' : e.type === 'levelClear' ? 'clear'
         : e.type === 'crown' && me && e.playerId === me.id ? 'crown' : e.type === 'revive' && me && e.by === me.id ? 'revive' : null;
       if (!t) continue;
       if (local && local.mode !== sim.mode) sendLocal();
-      local ||= { mode: sim.mode, reached: 0, clears: [], crowns: 0, revives: 0 };
+      local ||= { mode: sim.mode, reached: 0, clears: [], times: [], crowns: 0, revives: 0 };
       const level = e.type === 'levelClear' ? e.level : (sim.levelData && sim.levelData.level) || sim.level;
       if (t === 'reached') local.reached = Math.max(local.reached, level);
-      else if (t === 'clear') { local.reached = Math.max(local.reached, level); local.clears.push(level); }
+      else if (t === 'clear') {
+        local.reached = Math.max(local.reached, level); local.clears.push(level);
+        local.times.push(sim.levelTime + (dayTime && dayTime.level === level ? dayTime.time : 0));
+        dayTime = null;
+      }
       else if (t === 'crown') local.crowns++;
       else local.revives++;
       if (t === 'clear' || local.crowns >= 3 || local.revives >= 100) sendLocal();

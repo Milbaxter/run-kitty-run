@@ -592,9 +592,16 @@ function countForAccounts(room, events) {
   const sim = room.sim;
   const subOf = (id) => { const m = room.members.find((x) => x.id === id); return m ? m.acct : null; };
   for (const e of events) {
+    if (e.type === 'stageClear') { room.dayTime = { level: e.level, time: sim.levelTime }; continue; }
+    if (e.type === 'gameOver') { room.dayTime = null; continue; }
     if (e.type === 'levelStart' || e.type === 'levelClear') {
       const level = e.type === 'levelClear' ? e.level : (sim.levelData && sim.levelData.level) || sim.level;
       const ev = { type: e.type === 'levelClear' ? 'clear' : 'reached', mode: room.mode, level };
+      if (e.type === 'levelClear') {
+        const day = room.dayTime && room.dayTime.level === level ? room.dayTime.time : 0;
+        ev.time = sim.levelTime + day;   // the team's time for the level
+        room.dayTime = null;
+      }
       for (const p of sim.players) accounts.recordOnline(subOf(p.id), ev);
     } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown' });
     else if (e.type === 'revive') accounts.recordOnline(subOf(e.by), { type: 'revive' });

@@ -76,6 +76,7 @@ const badTracks = new Set();
 const track = new Audio();
 track.volume = 0.5;
 track.preload = 'none';
+audio.attachTrack(track);   // played through the game's audio context (audio.js: no full-volume blip on Windows)
 let trackWanted = false, trackFailed = false, musicLevel = 1;
 let inBackground = false; // see setBackground()
 function playTrack() {

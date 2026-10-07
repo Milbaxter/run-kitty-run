@@ -182,12 +182,15 @@ function createAccounts(file, env = process.env) {
   // Two separate sets: 'online' is counted by this server from the online games it runs; 'local' (solo / local co-op)
   // is reported by the player's own browser, so the menu shows it apart as numbers anyone could edit.
   // { clears: { mode: { level: times the team cleared it } }, reached: { mode: highest level played }, crowns, revives }
-  function blankStats() { return { clears: { run: {}, ice: {}, mixed: {} }, reached: { run: 0, ice: 0, mixed: 0 }, crowns: 0, revives: 0 }; }
+  // best: the fastest clear per mode and level, in seconds (Run + Skate: the day and night halves together)
+  function blankStats() { return { clears: { run: {}, ice: {}, mixed: {} }, reached: { run: 0, ice: 0, mixed: 0 }, best: { run: {}, ice: {}, mixed: {} }, crowns: 0, revives: 0 }; }
   const STAT_MODES = ['run', 'ice', 'mixed'], MAX_LEVEL = 9;
+  const MIN_TIME = 5, MAX_TIME = 4 * 3600;   // a clear time outside this is ignored (seconds)
   function statsOf(a, kind) {
     a.stats ||= {};
     const s = a.stats[kind] ||= blankStats();
-    for (const m of STAT_MODES) { s.clears[m] ||= {}; s.reached[m] ||= 0; }
+    s.best ||= {};
+    for (const m of STAT_MODES) { s.clears[m] ||= {}; s.reached[m] ||= 0; s.best[m] ||= {}; }
     return s;
   }
   function statsChanged() {
@@ -198,7 +201,7 @@ function createAccounts(file, env = process.env) {
     }, 2000);
     statsT.unref();
   }
-  // ev: { type: 'reached' | 'clear', mode, level } | { type: 'crown' } | { type: 'revive' }
+  // ev: { type: 'reached' | 'clear', mode, level, time? (a clear's seconds) } | { type: 'crown' } | { type: 'revive' }
   function record(a, kind, ev, n = 1) {
     if (!a || !ev || !(n > 0)) return;
     const s = statsOf(a, kind);
@@ -207,7 +210,14 @@ function createAccounts(file, env = process.env) {
     else if (ev.type === 'reached' || ev.type === 'clear') {
       if (!STAT_MODES.includes(ev.mode) || !Number.isInteger(ev.level) || ev.level < 1 || ev.level > MAX_LEVEL) return;
       s.reached[ev.mode] = Math.max(s.reached[ev.mode], ev.level);
-      if (ev.type === 'clear') s.clears[ev.mode][ev.level] = (s.clears[ev.mode][ev.level] || 0) + n;
+      if (ev.type === 'clear') {
+        s.clears[ev.mode][ev.level] = (s.clears[ev.mode][ev.level] || 0) + n;
+        const t = Number(ev.time);
+        if (Number.isFinite(t) && t >= MIN_TIME && t <= MAX_TIME) {
+          const r = Math.round(t * 10) / 10, old = s.best[ev.mode][ev.level];
+          if (!(old <= r)) s.best[ev.mode][ev.level] = r;
+        }
+      }
     } else return;
     statsChanged();
   }
@@ -336,13 +346,15 @@ function createAccounts(file, env = process.env) {
       return { ok: true, account: pub(a) };
     }
     if (name === 'progress') {
-      // solo / local co-op results, reported by the browser: { mode, reached, clears: [levels], crowns, revives }.
+      // solo / local co-op results, reported by the browser: { mode, reached, clears: [levels], times: [seconds per
+      // clear, newer browsers], crowns, revives }.
       // Capped per report (the endpoint is rate limited per IP too); shown apart from the online numbers.
       const mode = STAT_MODES.includes(m.mode) ? m.mode : null;
       if (!mode) return { ok: false };
       const lvl = (v) => (Number.isInteger(v) && v >= 1 && v <= MAX_LEVEL ? v : 0);
       if (lvl(m.reached)) record(a, 'local', { type: 'reached', mode, level: lvl(m.reached) });
-      for (const v of (Array.isArray(m.clears) ? m.clears : []).slice(0, 3)) if (lvl(v)) record(a, 'local', { type: 'clear', mode, level: v });
+      const times = Array.isArray(m.times) ? m.times : [];
+      (Array.isArray(m.clears) ? m.clears : []).slice(0, 3).forEach((v, i) => { if (lvl(v)) record(a, 'local', { type: 'clear', mode, level: v, time: times[i] }); });
       const count = (v, max) => (Number.isInteger(v) && v > 0 ? Math.min(v, max) : 0);
       record(a, 'local', { type: 'crown' }, count(m.crowns, 3));
       record(a, 'local', { type: 'revive' }, count(m.revives, 100));

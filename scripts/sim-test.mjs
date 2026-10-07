@@ -620,6 +620,15 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
       && local.ok && lo.clears.mixed[1] === 1 && lo.clears.mixed[3] === 1 && !lo.clears.mixed[4] && lo.crowns === 3 && lo.revives === 100
       && lo.reached.mixed === 3 && !lo.clears.run[2],
     'account stats: online counted per mode / level, bad modes and levels ignored, local reports capped and kept apart');
+    // fastest clear per mode / level: only a faster time replaces it, times out of range are ignored
+    accounts.recordOnline(sub, { type: 'clear', mode: 'run', level: 3, time: 95.04 });
+    accounts.recordOnline(sub, { type: 'clear', mode: 'run', level: 3, time: 120 });
+    accounts.recordOnline(sub, { type: 'clear', mode: 'run', level: 4, time: 1 });
+    await request(accounts, 'progress', [Buffer.from(JSON.stringify({ mode: 'ice', reached: 2, clears: [2], times: [61.26], crowns: 0, revives: 0 }))]);
+    const fast = await request(accounts, 'me');
+    ok(fast.account.stats.online.best.run[3] === 95 && !fast.account.stats.online.best.run[4] && fast.account.stats.local.best.ice[2] === 61.3
+      && !fast.account.stats.online.best.ice[2],
+    'account stats: fastest clear per mode and level (online and local apart), slower and implausible times ignored');
     accounts.flush();
     ok(createAccounts(file, env).subFor(token) === sub && JSON.parse(fs.readFileSync(file)).accounts[sub].stats.online.clears.run[2] === 2,
       'account stats are saved on flush and survive a restart');

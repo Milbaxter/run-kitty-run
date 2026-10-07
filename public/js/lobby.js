@@ -9,9 +9,9 @@ const CAT = `<svg viewBox="0 0 40 40"><path d="M5 4 L15 12 Q20 10.5 25 12 L35 4 
 const CROWN = `<svg viewBox="0 0 40 30"><path d="M3 26 L6 7 L14 16 L20 3 L26 16 L34 7 L37 26 Z" fill="#ffcf5a" stroke="#7a4b00" stroke-width="2.4" stroke-linejoin="round"/></svg>`;
 
 const MODES = [
+  { id: 'mixed', label: 'Run + Skate', tip: 'Every level twice: on foot by day, then on skates by night.' },
   { id: 'run', label: 'Run only', tip: 'Run only (no ice); Get through 8 levels of the labyrinth.' },
   { id: 'ice', label: 'Skate only', tip: 'Ice only (no run); Get through 8 levels of the labyrinth.' },
-  { id: 'mixed', label: 'Run + Skate', tip: 'Every level twice: on foot by day, then on skates by night.' },
 ];
 const modeLabel = (id) => (MODES.find((m) => m.id === id) || MODES[0]).label;
 const MAX_KITTIES = 32;   // a lobby's player cap (NET.MAX_PLAYERS)
@@ -184,9 +184,9 @@ function createLobbyUI(root, cb) {
   let br = null; // lobby browser refs
   let refreshT = 0;
 
-  // the last mode picked (single player, co-op or a new lobby: one memory for all three); Run only until one is picked
+  // the last mode picked (single player, co-op or a new lobby: one memory for all three); Run + Skate until one is picked
   function savedMode() {
-    try { const m = localStorage.getItem('rkr-mode'); return MODES.some((x) => x.id === m) ? m : 'run'; } catch { return 'run'; }
+    try { const m = localStorage.getItem('rkr-mode'); return MODES.some((x) => x.id === m) ? m : 'mixed'; } catch { return 'mixed'; }
   }
   function saveMode(m) {
     try { localStorage.setItem('rkr-mode', m); } catch { /* ignore */ }

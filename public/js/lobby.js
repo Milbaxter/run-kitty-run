@@ -27,21 +27,29 @@ const CSS = `
 .rkl-small{font-size:15px!important;padding:10px 16px!important;}
 .rkl-err{min-height:20px;color:#ff8fa3;font-weight:800;}
 .rkl-label{font-size:13px;font-weight:900;letter-spacing:.14em;color:#ffcf5a;text-transform:uppercase;margin-top:4px;}
-.rkl-slots{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;width:100%;max-height:34vh;overflow:auto;}
+.rkl-slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;width:100%;max-height:34vh;overflow:auto;}
 .rkl-slot{min-width:0;}
 .rkl-slot{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:14px;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.12);
   font-weight:800;min-height:46px;text-align:left;}
 .rkl-slot.rkl-open{opacity:.35;border-style:dashed;}
 .rkl-slot .rkl-cat{width:30px;height:30px;flex:none;}
-.rkl-slot .rkl-pn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.rkl-slot .rkl-crown{width:22px;height:18px;flex:none;}
+/* name on top; (you) and the swag number under it */
+.rkl-slot .rkl-pinfo{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;line-height:1.15;}
+.rkl-slot .rkl-pn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.rkl-slot .rkl-psub{display:flex;flex-wrap:wrap;align-items:center;gap:2px 4px;min-width:0;}   /* (the number wraps under (you) if it must) */
+.rkl-slot .rkl-psub .rkl-you{margin-left:0;}
+.rkl-slot .rkl-psub .rkl-paid{font-size:10px;padding:2px 4px;max-width:100%;overflow:hidden;text-overflow:ellipsis;}
+/* the host's crown on the cat's head, the platform badge in its corner: they take no room from the name */
+.rkl-slot .rkl-crown{position:absolute;left:50%;top:-10px;width:18px;height:14px;transform:translateX(-50%);pointer-events:none;}
+.rkl-slot .rkl-crown svg{width:100%;height:100%;display:block;}
+.rkl-cat .rkl-plat{position:absolute;right:-7px;bottom:-5px;font-size:11px;line-height:1;opacity:1;}
 .rkl-slot.rkl-me{border-color:rgba(255,207,90,.8);}
 .rkl-you{font-size:11px;opacity:.7;margin-left:4px;}
 .rkl-bigcode{font-size:44px;font-weight:900;letter-spacing:.25em;color:#fff6d8;line-height:1;margin-right:-.25em;}
 .rkl-wait{font-weight:800;opacity:.85;}
 @media (max-height:500px){
   .rkl-box h2{font-size:28px !important;}
-  .rkl-slots{grid-template-columns:repeat(4,1fr);gap:5px;}
+  .rkl-slots{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:5px;}
   .rkl-slot{min-height:36px;padding:3px 6px;font-size:13px;}
   .rkl-slot .rkl-cat{width:22px;height:22px;}
   .rkl-bigcode{font-size:30px;}
@@ -608,18 +616,26 @@ function createLobbyUI(root, cb) {
       const s = el('div', 'rkl-slot' + (m ? '' : ' rkl-open') + (m && m.id === info.you ? ' rkl-me' : ''));
       const cat = el('div', 'rkl-cat', CAT);
       cat.style.color = m ? hex(m.color) : '#888';
+      const who = el('div', 'rkl-pinfo');
       const pn = el('span', 'rkl-pn');
       pn.textContent = m ? m.name : 'open';
-      if (m && m.id === info.you) pn.appendChild(el('span', 'rkl-you', '(you)'));
-      s.append(cat, pn);
-      if (m && m.paid > 0) s.appendChild(el('span', 'rkl-paid', fmtNum(m.paid)));
+      who.appendChild(pn);
+      // under the name: (you) and the swag number
+      if (m && (m.id === info.you || m.paid > 0)) {
+        const sub = el('div', 'rkl-psub');
+        if (m.id === info.you) sub.appendChild(el('span', 'rkl-you', '(you)'));
+        if (m.paid > 0) sub.appendChild(el('span', 'rkl-paid', fmtNum(m.paid)));
+        who.appendChild(sub);
+      }
+      s.append(cat, who);
+      // which platform (🌐 browser, 🍎 iPhone / iPad, 🤖 Android) and the host's crown: on the cat icon
       if (m && PLAT[m.app]) {
         const b = el('span', 'rkl-plat');
         b.textContent = PLAT[m.app][0];
         b.title = PLAT[m.app][1];
-        s.appendChild(b);
+        cat.appendChild(b);
       }
-      if (m && m.id === info.host) s.appendChild(el('div', 'rkl-crown', CROWN));
+      if (m && m.id === info.host) cat.appendChild(el('div', 'rkl-crown', CROWN));
       r.slots.appendChild(s);
     }
     const isHost = info.host === info.you;

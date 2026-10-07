@@ -698,7 +698,7 @@ function createEffects(scene) {
   }
   const cards = [];
   const CARD_GEO = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
-  const CARD_LIFE = 3.6;
+  const CARD_LIFE = 3;   // seconds on the ground (pops in 0.3 s, fades out over the last 0.6 s)
   function callingCard(x, z, color, look = {}) {
     const map = cardTexture(color, look);
     const mat = new THREE.MeshBasicMaterial({ map, transparent: true, opacity: 0, depthWrite: false });

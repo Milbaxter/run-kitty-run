@@ -45,7 +45,7 @@ const canvas = document.getElementById('game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: QUALITY.antialias, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatio));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = QUALITY.shadows;
+renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = QUALITY.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
@@ -1947,51 +1947,12 @@ function applySnapshot(m) {
 let last = performance.now();
 let minimapT = 0;
 
-// Frame pacing: on 120 Hz+ screens only every 2nd (3rd, 4th) refresh is drawn, so about 60 fps. The game steps at a
-// fixed 60 Hz either way (offline and online), so this only saves GPU work and heat. An evenly spaced skip, no judder.
-let vsyncPrev = last, vsyncMs = 1000 / 60, every = 1, skipped = 0;
-
-// Resolution follows the frame rate: after a second of slow frames it steps down (to 1x at the least), after a few
-// seconds of full-speed frames it steps back up. A step up that turns slow again caps it there. Looks only.
-const PR_MAX = Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatio), PR_MIN = Math.min(1, PR_MAX);
-let pr = PR_MAX, prCeil = PR_MAX, prBefore = PR_MAX, raisedAt = -1e9, ft = 1000 / 60, slowT = 0, fastT = 0, floorT = 0;
-function adaptResolution(now, ms, dt) {
-  if (ms > 100 || inBackground || (warmHoldUntil && now < warmHoldUntil)) return;   // level loads, shader compiles
-  ft += (ms - ft) * 0.1;
-  const target = 1000 / 60;   // (not the measured refresh: on a slow device that drifts up with the slow frames)
-  if (ft > target * 1.3) { slowT += dt; fastT = 0; } else if (ft < target * 1.1) { fastT += dt; slowT = 0; } else slowT = fastT = 0;
-  if (slowT > 1 && pr > PR_MIN) {
-    if (now - raisedAt < 6000) { prCeil = prBefore; setPR(prBefore); }   // the last step up was too much
-    else setPR(Math.max(PR_MIN, Math.round(pr * 0.85 * 100) / 100));
-  } else if (fastT > 4 && pr < prCeil) {
-    prBefore = pr; raisedAt = now;
-    setPR(Math.min(prCeil, pr + 0.15));
-  }
-  // still slow at 1x: start with the light renderer (no antialiasing) next time (device.js)
-  floorT = pr <= PR_MIN && ft > target * 1.3 ? floorT + dt : 0;
-  if (floorT > 5 && !QUALITY.low) { floorT = -Infinity; try { localStorage.setItem('rkr-lowgfx', '1'); } catch { /* ignore */ } }
-}
-function setPR(v) {
-  pr = v; slowT = fastT = 0; ft = 1000 / 60;
-  renderer.setPixelRatio(pr);
-}
-
 function frame(now) {
   requestAnimationFrame(frame);
-  const iv = now - vsyncPrev;
-  vsyncPrev = now;
-  if (iv > 3 && iv < 40) {
-    vsyncMs += (iv - vsyncMs) * (iv < vsyncMs ? 0.1 : 0.02);   // leans to the short intervals (the real refresh)
-    every = Math.max(1, Math.round(1000 / 60 / vsyncMs - 0.25));   // 120 Hz: 2, 144: 2, 90: 1, 240: 4
-  }
-  if (++skipped < every) return;
-  skipped = 0;
-  const ms = now - last;
-  let dt = ms / 1000;
+  let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.1) dt = 0.1;
   tick(dt);
-  adaptResolution(now, ms, dt);
 }
 
 function tick(dt) {

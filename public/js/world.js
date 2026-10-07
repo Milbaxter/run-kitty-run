@@ -1062,44 +1062,6 @@ function makeInstancedChunks(geo, mat, items, opts, chunk) {
   return out.length ? out : [makeInstanced(geo, mat, [], opts)];
 }
 
-// Splits every big InstancedMesh of the finished world into size x size cells, so the off-screen ones are frustum-culled
-// (in the shadow pass too). An InstancedMesh is culled as a whole, so one mesh of trees spread over the level was drawn
-// in full every frame. Same geometry, material, matrices and colours: looks the same. Runs after nightDress (which
-// treats each mesh as a whole); meshes animated per instance afterwards (userData.live) stay as they are.
-function chunkInstances(root, size) {
-  const M = new THREE.Matrix4(), C = new THREE.Color();
-  const jobs = [];
-  root.traverse((o) => { if (o.isInstancedMesh && !o.userData.live && o.frustumCulled && o.count > 16) jobs.push(o); });
-  for (const o of jobs) {
-    const a = o.instanceMatrix.array, cells = new Map();
-    for (let i = 0; i < o.count; i++) {
-      const k = Math.floor(a[i * 16 + 12] / size) + ',' + Math.floor(a[i * 16 + 14] / size);
-      if (!cells.has(k)) cells.set(k, []);
-      cells.get(k).push(i);
-    }
-    if (cells.size < 2) continue;
-    const parent = o.parent, at = parent.children.indexOf(o);
-    const parts = [];
-    for (const list of cells.values()) {
-      const m = new THREE.InstancedMesh(o.geometry, o.material, list.length);
-      list.forEach((i, j) => {
-        o.getMatrixAt(i, M); m.setMatrixAt(j, M);
-        if (o.instanceColor) { o.getColorAt(i, C); m.setColorAt(j, C); }
-      });
-      m.name = o.name;
-      m.castShadow = o.castShadow; m.receiveShadow = o.receiveShadow; m.renderOrder = o.renderOrder; m.visible = o.visible;
-      m.position.copy(o.position); m.quaternion.copy(o.quaternion); m.scale.copy(o.scale);
-      m.userData = { ...o.userData };
-      m.computeBoundingSphere();
-      parts.push(m);
-    }
-    parent.remove(o);
-    o.dispose();
-    parent.children.splice(at, 0, ...parts);
-    for (const m of parts) { m.parent = parent; m.dispatchEvent({ type: 'added' }); }
-  }
-}
-
 // ---------------------------------------------------------------- swept wall geometry
 
 function linePath(ax, az, bx, bz, segLen) {
@@ -1519,7 +1481,6 @@ function buildLanterns(levelData, theme, T, rng) {
   };
   update(0);
 
-  orbs.userData.live = glows.userData.live = true;   // flickered per instance in update (see chunkInstances)
   return { meshes: [pillars, orbs, glows], update };
 }
 
@@ -2515,7 +2476,6 @@ function buildFinale(levelData, theme, T, rng) {
     outerF.instanceMatrix.needsUpdate = innerF.instanceMatrix.needsUpdate = true;
     room.update(time);
   };
-  outerF.userData.live = innerF.userData.live = true;
   update(0);
   return { meshes, update };
 }
@@ -2580,7 +2540,6 @@ function buildRewardRoom(levelData, T, rng, glowGeo, glowMat) {
   const spMat = T.m(new THREE.MeshBasicMaterial({ color: 0xffd98a, transparent: true, opacity: 0.9, depthWrite: false }));
   const spMesh = new THREE.InstancedMesh(spGeo, spMat, N);
   spMesh.frustumCulled = false;
-  spMesh.userData.live = true;
   meshes.push(spMesh);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), s = new THREE.Vector3();
   const update = (time) => {
@@ -2635,7 +2594,6 @@ function buildWorld(scene, levelData) {
   }
   const parts = buildParticles(theme, rng, levelData.outerRadius + 14, T, levelData.finale ? { w: 96, d: 80 } : null);
   group.add(parts.points);
-  chunkInstances(group, 24);
 
   scene.add(group);
 
@@ -2659,7 +2617,6 @@ function buildWorld(scene, levelData) {
       if (disposed) return;
       disposed = true;
       if (group.parent) group.parent.remove(group);
-      group.traverse((o) => { if (o.isInstancedMesh) o.dispose(); });   // their instance buffers
       T.dispose();
     },
   };
@@ -2671,7 +2628,7 @@ function setupLighting(scene) {
 
   const sun = new THREE.DirectionalLight(0xffffff, 2);
   const EXT = 30, MAP = QUALITY.shadowMap, DIST = 60;
-  sun.castShadow = QUALITY.shadows;
+  sun.castShadow = true;
   sun.shadow.mapSize.set(MAP, MAP);
   const sc = sun.shadow.camera;
   sc.left = -EXT; sc.right = EXT; sc.top = EXT; sc.bottom = -EXT;

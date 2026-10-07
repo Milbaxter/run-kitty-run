@@ -4,7 +4,6 @@ const PATCH_NOTES = [
   {
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
-      'Smoother on slower computers and phones: scenery out of view is no longer drawn, the picture gets a little softer when a device struggles (and sharper again when it can), 120 Hz screens draw 60 frames a second, and shadows are off for now',
       'Run + Skate is the default mode again: first in the mode list and picked until you choose another one',
       'Swag account stats: a FASTEST tab shows the best team time on every level in each mode (Run + Skate counts the day and night halves together)',
       'Soundtrack: a third song, CATJAM 4 Meow',

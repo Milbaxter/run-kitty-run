@@ -14,28 +14,9 @@ function detectTouch() {
   return mm('(pointer: coarse)') || ((navigator.maxTouchPoints || 0) > 1 && !mm('(any-pointer: fine)'));
 }
 
-// Weak computers get the phone renderer too: few cores / little memory, a software or old Intel HD GPU, or a run that
-// already had to drop to the lowest resolution here before (main.js remembers that in 'rkr-lowgfx'). ?gfx=low / ?gfx=high
-// force it either way (high also forgets the remembered drop). Looks only: gameplay is the same on every tier.
-const gfx = params.get('gfx');
-if (gfx === 'high') { try { localStorage.removeItem('rkr-lowgfx'); } catch { /* ignore */ } }
-const LOW_GFX = TOUCH || (gfx ? gfx === 'low' : weakDevice());
-function weakDevice() {
-  try { if (localStorage.getItem('rkr-lowgfx') === '1') return true; } catch { /* ignore */ }
-  if ((navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 4) return true;
-  try {
-    const gl = document.createElement('canvas').getContext('webgl2');
-    const ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
-    const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
-    if (gl) gl.getExtension('WEBGL_lose_context')?.loseContext();
-    return /SwiftShader|llvmpipe|Software|Basic Render|Intel.*HD Graphics/i.test(name);
-  } catch { return false; }
-}
-
-// shadows: off for everyone for now (the shadow pass drew the scene a second time every frame)
-const QUALITY = LOW_GFX
-  ? { pixelRatio: 1.5, antialias: false, shadows: false, shadowMap: 1024, softShadows: false, propShadows: false, particles: 0.45, low: true }
-  : { pixelRatio: 2, antialias: true, shadows: false, shadowMap: 2048, softShadows: true, propShadows: true, particles: 1, low: false };
+const QUALITY = TOUCH
+  ? { pixelRatio: 1.5, antialias: false, shadowMap: 1024, softShadows: false, propShadows: false, particles: 0.45 }
+  : { pixelRatio: 2, antialias: true, shadowMap: 2048, softShadows: true, propShadows: true, particles: 1 };
 
 const root = document.documentElement;
 if (TOUCH) root.classList.add('rkr-touch');

@@ -185,6 +185,14 @@ function createAudio() {
     return os;
   }
 
+  // a warm wooden marimba note (levelClear): a sine with a quick soft knock (a short partial four times up)
+  function marimba(g, dest, m, t, peak, p = 1, d = 0.45) {
+    const f = mtof(m) * p;
+    tone(g, dest, { type: 'sine', f, t, a: 0.004, d, peak });
+    tone(g, dest, { type: 'sine', f: f * 4, t, a: 0.002, d: 0.05, peak: peak * 0.25 });
+    tone(g, dest, { type: 'triangle', f: f / 2, t, a: 0.006, d: d * 0.6, peak: peak * 0.3 });
+  }
+
   // Simple 2-op FM bell. o: {f, ratio, index, t, a, d, peak}
   function fm(g, dest, o) {
     const t = o.t, a = o.a ?? 0.003, d = o.d ?? 0.4, end = t + a + d;
@@ -285,34 +293,19 @@ function createAudio() {
     },
 
 
+    // A level (or Run + Skate's day half) is cleared: a soft, warm major chord that swells, low and round, with one wooden note.
     levelClear(g, o, t, p) {
-      const lp = filt(g, o, 'lowpass', 3500);
-      const mel = [[67, 0, 0.09, 0], [72, 0.09, 0.09, 0], [76, 0.18, 0.09, 0], [79, 0.27, 0.12, 0],
-                   [76, 0.4, 0.1, 0], [79, 0.5, 0.1, 0], [84, 0.62, 0.6, 0.3]];
-      for (const [m, dt, d, hold] of mel) {
-        const f = mtof(m) * p;
-        const a = tone(g, o, { type: 'triangle', f, t: t + dt, a: 0.006, hold, d, peak: 0.14 });
-        const b = tone(g, lp, { type: 'square', f, t: t + dt, a: 0.006, hold, d, peak: 0.045 });
-        if (m === 84) { lfo(g, a.frequency, 6, 8, t + 0.8, t + 1.55); lfo(g, b.frequency, 6, 8, t + 0.8, t + 1.55); }
-      }
-      for (const m of [60, 64, 67, 72]) tone(g, o, { type: 'triangle', f: mtof(m) * p, t: t + 0.62, a: 0.01, hold: 0.45, d: 0.45, peak: 0.06 });
-      tone(g, o, { type: 'sine', f: mtof(48) * p, t: t + 0.62, a: 0.005, hold: 0.3, d: 0.5, peak: 0.18 });
-      noise(g, o, { t: t + 0.62, a: 0.003, d: 0.7, peak: 0.05, ft: 'highpass', f: 6000 });
+      const lp = filt(g, o, 'lowpass', 1300, 0.6);
+      for (const m of [60, 64, 67, 72]) for (const det of [-6, 6]) tone(g, lp, { type: 'triangle', f: mtof(m) * p, detune: det, t, a: 0.15, hold: 0.3, d: 0.7, peak: 0.028 });
+      tone(g, o, { type: 'sine', f: mtof(48) * p, t, a: 0.1, hold: 0.3, d: 0.7, peak: 0.08 });
+      marimba(g, lp, 72, t + 0.05, 0.06, p);
     },
 
+    // A level starts (or restarts): one soft, round "bloop" going up.
     levelStart(g, o, t, p) {
-      const lp = filt(g, o, 'lowpass', 3000);
-      const f1 = mtof(69) * p;
-      tone(g, o, { type: 'triangle', f: f1, t, a: 0.005, hold: 0.1, d: 0.12, peak: 0.15 });
-      tone(g, lp, { type: 'square', f: f1, t, a: 0.005, hold: 0.1, d: 0.12, peak: 0.04 });
-      noise(g, o, { t, d: 0.04, peak: 0.05, ft: 'highpass', f: 4000 });
-      const t2 = t + 0.45;
-      for (const m of [81, 88]) {
-        const f = mtof(m) * p;
-        tone(g, o, { type: 'triangle', f, t: t2, a: 0.005, hold: 0.2, d: 0.35, peak: m === 81 ? 0.16 : 0.07 });
-        tone(g, lp, { type: 'square', f, t: t2, a: 0.005, hold: 0.2, d: 0.35, peak: m === 81 ? 0.05 : 0.02 });
-      }
-      noise(g, o, { t: t2, d: 0.25, peak: 0.05, ft: 'highpass', f: 6000 });
+      const lp = filt(g, o, 'lowpass', 1400, 0.6);
+      tone(g, lp, { type: 'sine', f: 220 * p, to: 440 * p, slide: 0.12, t, a: 0.01, hold: 0.04, d: 0.25, peak: 0.182 });
+      tone(g, lp, { type: 'triangle', f: 110 * p, to: 220 * p, slide: 0.12, t, a: 0.01, d: 0.25, peak: 0.07 });
     },
 
     teleport(g, o, t, p) {
@@ -361,26 +354,18 @@ function createAudio() {
       tone(g, o, { type: 'sine', f: 800 * p, to: 2400 * p, slide: 0.08, t, a: 0.003, d: 0.15, peak: 0.06 });
     },
 
-    // The final run starts: a deep hit, three ominous minor stabs, a rising swell and a bright "go" bell.
+    // The final run starts: a hell bell, a deep bell tolling three times over a low drone, the last strike lower.
     finale(g, o, t, p) {
-      tone(g, o, { type: 'sine', f: 70 * p, to: 32 * p, slide: 0.6, t, a: 0.004, d: 1.1, peak: 0.6 });
-      noise(g, o, { t, a: 0.002, d: 0.9, peak: 0.16, ft: 'lowpass', f: 600, to: 120, Q: 0.8 });
-      const lp = filt(g, o, 'lowpass', 1400, 0.9);
-      [[0, 50], [0.42, 50], [0.84, 53]].forEach(([dt, root], i) => {
-        for (const m of [root, root + 3, root + 7, root + 12]) {
-          for (const det of [-9, 9]) tone(g, lp, { type: 'sawtooth', f: mtof(m) * p, detune: det, t: t + dt, a: 0.01, hold: i === 2 ? 0.3 : 0.08, d: i === 2 ? 0.5 : 0.22, peak: 0.035 });
-        }
-        tone(g, o, { type: 'sine', f: mtof(root - 12) * p, t: t + dt, a: 0.004, d: 0.35, peak: 0.25 });
-        noise(g, o, { t: t + dt, a: 0.002, d: 0.08, peak: 0.08, ft: 'bandpass', f: 1800, Q: 0.8 });
+      const lp = filt(g, o, 'lowpass', 420, 0.7);
+      tone(g, lp, { type: 'triangle', f: mtof(38) * p, t, a: 0.8, hold: 1.8, d: 1.2, peak: 0.12 });
+      tone(g, o, { type: 'sine', f: mtof(26) * p, t, a: 0.6, hold: 2, d: 1.2, peak: 0.16 });
+      [[0, 50], [1.0, 50], [2.0, 45]].forEach(([dt, m]) => {
+        const fb = mtof(m) * p;
+        fm(g, o, { f: fb, ratio: 2.41, index: 2.6, t: t + dt, a: 0.004, d: 2.2, peak: 0.12 });
+        fm(g, o, { f: fb * 2.76, ratio: 1.41, index: 1.1, t: t + dt, a: 0.003, d: 1.2, peak: 0.04 });
+        tone(g, o, { type: 'sine', f: fb / 2, t: t + dt, a: 0.004, d: 1.6, peak: 0.14 });
+        noise(g, o, { t: t + dt, a: 0.002, d: 0.05, peak: 0.05, ft: 'bandpass', f: 2200, Q: 1 });
       });
-      noise(g, o, { t: t + 1.1, a: 0.9, d: 0.08, peak: 0.09, ft: 'bandpass', f: 400, to: 7000, Q: 1.5 });
-      const sw = tone(g, o, { type: 'triangle', f: mtof(62) * p, to: mtof(74) * p, slide: 0.9, t: t + 1.1, a: 0.6, hold: 0.3, d: 0.1, peak: 0.07 });
-      lfo(g, sw.frequency, 9, 6, t + 1.1, t + 2.1);
-      const tb = t + 2.05;
-      fm(g, o, { f: mtof(86) * p, ratio: 3.5, index: 2, t: tb, a: 0.003, d: 1.2, peak: 0.09 });
-      for (const m of [62, 69, 74, 78]) tone(g, o, { type: 'triangle', f: mtof(m) * p, t: tb, a: 0.008, hold: 0.25, d: 0.9, peak: 0.07 });
-      tone(g, o, { type: 'sine', f: 90 * p, to: 45 * p, t: tb, a: 0.003, d: 0.4, peak: 0.4 });
-      noise(g, o, { t: tb, a: 0.003, d: 1.1, peak: 0.06, ft: 'highpass', f: 6500 });
     },
 
     // You beat Run Kitty Run: a brassy fanfare with timpani, cymbals and a sparkling final chord (~4.5 s).

@@ -65,8 +65,15 @@ function createAccounts(file, env = process.env) {
     if (old && old.guests && typeof old.guests === 'object') guests = old.guests;
   } catch (e) { if (e.code !== 'ENOENT') throw e; }
   const state = () => JSON.stringify({ accounts, checkouts, guests });
-  // guest progress nobody has used for over a year goes
-  for (const [k, g] of Object.entries(guests)) if (!g || !(Date.now() - (g.at || 0) < 400 * 864e5)) delete guests[k];
+  // guest progress nobody has played online with for two months goes (at start, then daily)
+  const GUEST_KEEP_MS = 61 * 864e5;
+  function pruneGuests() {
+    let n = 0;
+    for (const [k, g] of Object.entries(guests)) if (!g || !(Date.now() - (g.at || 0) < GUEST_KEEP_MS)) { delete guests[k]; n++; }
+    return n;
+  }
+  pruneGuests();
+  setInterval(() => { if (pruneGuests()) statsChanged(); }, 864e5).unref();
   // One synchronous writer: no old asynchronous snapshot can overwrite a newer payment or revocation.
   // Failures propagate to the caller; a Checkout URL must never escape without its saved binding.
   function saveNow() {
@@ -271,6 +278,8 @@ function createAccounts(file, env = process.env) {
   // the unlocked items switched on (the game server sends them to everyone in the room)
   const cosFor = (token) => { const a = fromToken(token); return a && active(a) ? switchedOn(a) : []; };
   const cosForPlayer = (who) => switchedOn(holderOf(who));
+  // this browser plays online: its guest progress (if any) is kept another two months from now
+  function seenGuest(pid) { const g = (pid = validPid(pid)) && guests[pid]; if (g) { g.at = Date.now(); statsChanged(); } }
   // an account that is active now takes over this browser's guest progress (counts add up; its own switches stay)
   function mergeGuest(sub, pid) {
     const a = sub && accounts[sub], g = (pid = validPid(pid)) && guests[pid];
@@ -499,7 +508,7 @@ function createAccounts(file, env = process.env) {
     return true;
   }
 
-  return { enabled, handle, webhook, paidFor, subFor, cosFor, cosForPlayer, mergeGuest, validPid, recordOnline, recordFeat, flush };
+  return { enabled, handle, webhook, paidFor, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
 }
 
 export { createAccounts };

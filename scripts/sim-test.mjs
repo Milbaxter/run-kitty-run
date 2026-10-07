@@ -531,7 +531,9 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
       sessions: [crypto.createHash('sha256').update(token).digest('hex')], payments: [] },
       // a second account that never pays (signing in is free, the swag account is only active once paid)
       'unpaid-sub': { sub: 'unpaid-sub', email: 'unpaid@example.invalid', name: 'Unpaid', paid: 0,
-        sessions: [crypto.createHash('sha256').update('unpaid-session-token-for-regression').digest('hex')], payments: [] } }, checkouts: {} }), { mode: 0o644 });
+        sessions: [crypto.createHash('sha256').update('unpaid-session-token-for-regression').digest('hex')], payments: [] } }, checkouts: {},
+      // guest unlock progress: one not played with for 70 days (dropped), one from yesterday (kept)
+      guests: { oldguestprogressid0123456789: { at: Date.now() - 70 * 864e5, unlocks: { l8: { run: 1 } } }, newguestprogressid0123456789: { at: Date.now() - 864e5, unlocks: { l8: { run: 1 } } } } }), { mode: 0o644 });
     fs.writeFileSync(ledger, '', { mode: 0o644 });
     globalThis.fetch = async (url) => {
       if (!String(url).startsWith('https://api.stripe.com/v1/checkout/sessions')) throw new Error('unexpected network call');
@@ -649,6 +651,9 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(unpaid.ok && unpaid.account.active === false && unpaid.account.stats.online.crowns === 0 && unpaid.account.unlocks.l8.run === 0
       && accounts.cosFor('unpaid-session-token-for-regression').length === 0 && off.account.active === true,
     'an account that has never paid is not active: nothing is counted or shown');
+    const oldG = await request(accounts, 'guest', [Buffer.from(JSON.stringify({ pid: 'oldguestprogressid0123456789' }))]);
+    const newG = await request(accounts, 'guest', [Buffer.from(JSON.stringify({ pid: 'newguestprogressid0123456789' }))]);
+    ok(oldG.ok && oldG.unlocks === null && newG.ok && newG.unlocks && newG.unlocks.l8.run === 1, 'guest unlock progress unused for two months is dropped, recent progress is kept');
     // no active account: the progress is kept under the browser's progress id, switched there, and moves onto the
     // account once it is active (counts add up)
     const pid = 'abcdefghijklmnopqrstuvwxyz0123';

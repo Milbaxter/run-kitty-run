@@ -256,7 +256,7 @@ function createAccount(root) {
     // this browser's own progress (no active account), kept by the server under its progress id
     const guestBox = () => unlocksBox('YOUR UNLOCKS (THIS BROWSER)', A.guest || {},
       async (id, on) => { A.guest = (await guestApi('guestequip', { pid: progressId(), item: id, on })).unlocks; },
-      'Earned in online games and saved on this browser only: clearing its data or another device loses them. Activate a swag account to keep them safe.');
+      'Earned in online games and saved on this browser only: clearing its data, another device or two months without playing online loses them. Activate a swag account to keep them safe.');
     const sayOpts = () => { if (opts.msg || opts.err) say(opts.err || opts.msg, opts.err ? 'err' : opts.thanks || opts.ok ? 'ok' : ''); };
 
     if (!A.token || !a) {

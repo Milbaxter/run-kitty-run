@@ -770,6 +770,7 @@ wss.on('connection', (ws, req) => {
         client.acct = accounts.subFor(msg.acct);    // ...and its stats count this player's online games
         client.pid = accounts.validPid(msg.pid);    // the browser's unlock progress id (players without an active account)
         accounts.mergeGuest(client.acct, client.pid);   // an active account takes over this browser's guest progress
+        accounts.seenGuest(client.pid);                 // (or the guest progress is kept another two months)
         client.cos = accounts.cosForPlayer({ sub: client.acct, pid: client.pid });   // switched-on unlocks on its kitty
         if (v < MIN_PROTOCOL) {
           send(ws, { t: 'outdated', msg: 'A new version of Run Kitty Run is out - update to keep playing online.' });

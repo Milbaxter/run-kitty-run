@@ -629,6 +629,16 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(fast.account.stats.online.best.run[3] === 95 && !fast.account.stats.online.best.run[4] && fast.account.stats.local.best.ice[2] === 61.3
       && !fast.account.stats.online.best.ice[2],
     'account stats: fastest clear per mode and level (online and local apart), slower and implausible times ignored');
+    // permanent unlocks: a feat in every mode unlocks the item (on by default); it can be switched off; locked ones can't
+    accounts.recordFeat(sub, 'l8', 'run'); accounts.recordFeat(sub, 'l8', 'ice');
+    const before = accounts.cosFor(token);
+    accounts.recordFeat(sub, 'l8', 'mixed'); accounts.recordFeat(sub, 'l8', 'nope'); accounts.recordFeat(sub, 'l7', 'run');
+    const after = accounts.cosFor(token);
+    const lockedOn = await request(accounts, 'equip', [Buffer.from(JSON.stringify({ item: 'rboots', on: true }))]);
+    const off = await request(accounts, 'equip', [Buffer.from(JSON.stringify({ item: 'shades', on: false }))]);
+    ok(!before.includes('shades') && after.join() === 'shades' && !lockedOn.ok && off.ok && accounts.cosFor(token).length === 0
+      && off.account.unlocks.l8.mixed === 1 && off.account.unlocks.off.shades === true,
+    'unlocks: an item unlocks once its feat is done in every mode, bad feats / modes are ignored, switched off it is not sent');
     accounts.flush();
     ok(createAccounts(file, env).subFor(token) === sub && JSON.parse(fs.readFileSync(file)).accounts[sub].stats.online.clears.run[2] === 2,
       'account stats are saved on flush and survive a restart');

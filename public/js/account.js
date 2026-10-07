@@ -2,6 +2,7 @@
 // Checkout, and your total shows next to your kitty's name online. Server side: server/accounts.js.
 // The session token lives in localStorage; main.js passes it to the game server ('hi' / 'acct').
 import { accountApiUrl, NATIVE } from './platform.js';
+import { UNLOCKS, UNLOCK_MODES, isUnlocked } from './shared/unlocks.js';
 
 const CSS = `
 .rka-modal{z-index:40;}
@@ -37,6 +38,14 @@ const CSS = `
 .rka-table td{padding:3px 4px;text-align:center;border-top:1px solid rgba(255,255,255,.08);}
 .rka-table th:first-child,.rka-table td:first-child{text-align:left;}
 .rka-table td.rka-zero{opacity:.35;}
+.rka-unl{align-self:stretch;display:flex;flex-direction:column;gap:6px;}
+.rka-ugoal{font-size:12px;font-weight:800;opacity:.7;text-align:left;margin-top:4px;}
+.rka-urow{display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:12px;background:rgba(255,255,255,.05);text-align:left;}
+.rka-uname{flex:1;font-weight:900;font-size:15px;}
+.rka-urow.rka-locked .rka-uname{opacity:.55;}
+.rka-uprog{font-size:12px;font-weight:800;opacity:.75;white-space:nowrap;}
+.rka-uprog b{color:#9dff7a;}
+.rka-amt.rka-utog{font-size:13px;padding:5px 12px;min-width:58px;}
 .rka-tot{display:flex;gap:18px;justify-content:center;font-weight:900;color:#ffd56b;}
 `;
 
@@ -111,6 +120,7 @@ function createAccount(root) {
 
   const A = { enabled: false, token: NATIVE ? '' : readToken(), account: null, cfg: null };
   let modal = null, changeFn = null;
+  let eqFor, eqSet = new Set();   // equipped(): made once per account object
   const changed = () => { if (changeFn) changeFn(); };
 
   async function api(name, body) {
@@ -243,6 +253,41 @@ function createAccount(root) {
         pick.addEventListener('click', () => open({ view: 'pay' }));
         swag.append(el('div', 'rka-note', `No swag yet. Chip in from ${fmtPaid(A.cfg.min)} and it shows next to your kitty for everyone online (can toggle it on and off).`), pick);
       }
+      // Unlocks (shared/unlocks.js): earned online, kept forever, each switched on or off here
+      const unl = section('UNLOCKS');
+      const ulist = el('div', 'rka-unl');
+      const prog = a.unlocks || {};
+      const SHORT = { run: 'Run', ice: 'Skate', mixed: 'Run + Skate' };
+      const GOALS = { l8: 'Clear level 8 holding every win (8 wins, 16 in Run + Skate), in each mode:',
+        l9: 'Beat level 9 holding every win and reach the end yourself, in each mode:' };
+      let lastFeat = '';
+      for (const u of UNLOCKS) {
+        if (u.feat !== lastFeat) { lastFeat = u.feat; ulist.appendChild(el('div', 'rka-ugoal', GOALS[u.feat])); }
+        const open_ = isUnlocked(prog, u);
+        const row = el('div', 'rka-urow' + (open_ ? '' : ' rka-locked'));
+        row.appendChild(el('span', 'rka-uname', (open_ ? '' : '🔒 ') + u.name));
+        if (open_) {
+          const on = !(prog.off && prog.off[u.id]);
+          const t = el('button', 'rka-amt rka-utog' + (on ? ' rka-on' : ''), on ? 'ON' : 'OFF');
+          t.addEventListener('click', async () => {
+            t.disabled = true;
+            try { const j = await api('equip', { item: u.id, on: !on }); A.account = j.account; changed(); open({ fresh: true }); }
+            catch (e) { t.disabled = false; say(e.message, 'err'); }
+          });
+          row.appendChild(t);
+        } else {
+          const p = el('span', 'rka-uprog');
+          UNLOCK_MODES.forEach((m, i) => {
+            const n = Math.min(u.times, ((prog[u.feat] || {})[m]) || 0);
+            if (i) p.append(' · ');
+            const v = el(n >= u.times ? 'b' : 'span', null, `${SHORT[m]} ${n}/${u.times}`);
+            p.appendChild(v);
+          });
+          row.appendChild(p);
+        }
+        ulist.appendChild(row);
+      }
+      unl.append(ulist, el('div', 'rka-fine', 'Earned in online games. Switched on, they show on your kitty in every game, for everyone.'));
       // Stats & progress: online (counted by the game server) or solo / local (reported by this browser), a tab each
       const stats = section('STATS & PROGRESS');
       const tabs = el('div', 'rka-tabs');
@@ -269,7 +314,7 @@ function createAccount(root) {
         try { await api('delete', {}); setSession('', null); close(); } catch (e) { say(e.message, 'err'); }
       });
       links.append(out, del);
-      box.append(swag, stats, msg, closeBtn, links, fine(`Signed in as ${a.email}. `));
+      box.append(swag, unl, stats, msg, closeBtn, links, fine(`Signed in as ${a.email}. `));
       sayOpts();
       root.appendChild(modal);
       // fresh numbers (a game may have counted since this page loaded): redraw if the menu is still the one showing
@@ -368,6 +413,14 @@ function createAccount(root) {
     paid: () => (A.account ? Number(A.account.paid) || 0 : 0),
     shown: () => !A.account || A.account.show !== false,   // the player's "shown online" switch
     onChange(fn) { changeFn = fn; },
+    equipped() {
+      if (eqFor !== A.account) {
+        eqFor = A.account;
+        const u = A.account && A.account.unlocks;
+        eqSet = new Set(u ? UNLOCKS.filter((x) => isUnlocked(u, x) && !(u.off && u.off[x.id])).map((x) => x.id) : []);
+      }
+      return eqSet;
+    },
   };
 }
 

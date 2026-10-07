@@ -12,6 +12,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { UNLOCKS, UNLOCK_MODES, isUnlocked } from '../public/js/shared/unlocks.js';
 
 const MIN_CENTS = 50;              // Stripe's minimum charge (EUR / USD; the account settles in EUR, so a USD charge must clear €0.50)
 // No cap of our own: this is only the largest amount Stripe's API takes (8 digits); card / payment-method limits still apply
@@ -157,7 +158,7 @@ function createAccounts(file, env = process.env) {
   }
 
   // ---- accounts ----
-  const pub = (a) => (a ? { name: a.name, email: a.email, paid: Number(a.paid) || 0, show: !a.hide,
+  const pub = (a) => (a ? { name: a.name, email: a.email, paid: Number(a.paid) || 0, show: !a.hide, unlocks: unlocksOf(a),
     stats: { online: (a.stats && a.stats.online) || blankStats(), local: (a.stats && a.stats.local) || blankStats() } } : null);
   function newSession(a) {
     const token = crypto.randomBytes(24).toString('base64url');
@@ -223,6 +224,28 @@ function createAccounts(file, env = process.env) {
   }
   // online games: the game server calls this for each signed-in player (by account id)
   const recordOnline = (sub, ev) => { if (sub && accounts[sub]) record(accounts[sub], 'online', ev); };
+
+  // ---- permanent unlocks (shared/unlocks.js): feats done online, per mode, and the items switched off ----
+  function unlocksOf(a) {
+    const u = a.unlocks ||= {};
+    for (const f of ['l8', 'l9']) { u[f] ||= {}; for (const m of UNLOCK_MODES) u[f][m] = Number(u[f][m]) || 0; }
+    u.off ||= {};
+    return u;
+  }
+  // the game server: this account's kitty did a feat ('l8' | 'l9') in a mode
+  function recordFeat(sub, feat, mode) {
+    const a = sub && accounts[sub];
+    if (!a || !['l8', 'l9'].includes(feat) || !UNLOCK_MODES.includes(mode)) return;
+    unlocksOf(a)[feat][mode]++;
+    statsChanged();
+  }
+  // the unlocked items this account has switched on (the game server sends them to everyone in the room)
+  const cosFor = (token) => {
+    const a = fromToken(token);
+    if (!a) return [];
+    const u = unlocksOf(a);
+    return UNLOCKS.filter((x) => isUnlocked(u, x) && !u.off[x.id]).map((x) => x.id);
+  };
 
   // Is this paid session one of ours, unchanged? (a session from another project on the shared account, the other
   // mode, or one this server never created gets null, quietly: the webhook sees every project's checkouts)
@@ -337,6 +360,17 @@ function createAccounts(file, env = process.env) {
       credit(s);
       return { ok: true, paid: s.payment_status === 'paid', account: pub(a) };
     }
+    if (name === 'equip') {
+      // an unlocked item on / off (the player's own switch)
+      const item = UNLOCKS.find((x) => x.id === m.item);
+      if (!item || typeof m.on !== 'boolean') return { ok: false };
+      const u = unlocksOf(a);
+      if (!isUnlocked(u, item)) return { ok: false, msg: 'Not unlocked yet.' };
+      const previous = !!u.off[item.id];
+      if (m.on) delete u.off[item.id]; else u.off[item.id] = true;
+      try { saveNow(); } catch (e) { if (previous) u.off[item.id] = true; else delete u.off[item.id]; throw e; }
+      return { ok: true, account: pub(a) };
+    }
     if (name === 'show') {
       // the player's own switch: show the total to other players online, or not (it stays on the account either way)
       if (typeof m.show !== 'boolean') return { ok: false };
@@ -400,7 +434,7 @@ function createAccounts(file, env = process.env) {
   // /api/account/<name>; returns false if it isn't one of ours
   function handle(req, res, name) {
     if (name === 'config' && req.method === 'GET') { route('config', req).then((j) => reply(res, 200, j)); return true; }
-    if (!['google', 'me', 'pay', 'confirm', 'show', 'progress', 'logout', 'delete'].includes(name)) return false;
+    if (!['google', 'me', 'pay', 'confirm', 'show', 'equip', 'progress', 'logout', 'delete'].includes(name)) return false;
     if (req.method !== (name === 'me' ? 'GET' : 'POST')) { reply(res, 405, { ok: false }); return true; }
     const go = (body) => route(name, req, body)
       .then((j) => reply(res, j ? 200 : 404, j || { ok: false }))
@@ -409,7 +443,7 @@ function createAccounts(file, env = process.env) {
     return true;
   }
 
-  return { enabled, handle, webhook, paidFor, subFor, recordOnline, flush };
+  return { enabled, handle, webhook, paidFor, subFor, cosFor, recordOnline, recordFeat, flush };
 }
 
 export { createAccounts };

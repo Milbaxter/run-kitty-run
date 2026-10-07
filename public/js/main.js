@@ -927,11 +927,26 @@ function updateVictory(dt) {
 // rainbow 8+ wins and 60+ revives, lion 14+ wins, and at 16 wins the chrome (under 60 revives), rainbow (60-119) or
 // celestial lion (120+)
 function iconLook(p) {
-  const wins = (p && p.finishes) || 0, res = (p && p.rescues) || 0;
+  const wins = (p && p.finishes) || 0, res = (p && p.rescues) || 0, cos = cosOf(p);
+  const rainbow = wins >= 8 && res >= 60;
   return {
-    cool: wins >= 5, rainbow: wins >= 8 && res >= 60, lion: wins >= 14,
-    lionLook: wins >= 16 ? (res >= 120 ? 'celestial' : res >= 60 ? 'rainbow' : 'chrome') : null,
+    cool: wins >= 5 || cos.has('shades'), rainbow, lion: wins >= 14 || cos.has('lion') || cos.has('chrome'),
+    // the 16-win looks come first; a switched-on chrome lion otherwise (but not over the rainbow cat's own rainbow)
+    lionLook: wins >= 16 ? (res >= 120 ? 'celestial' : res >= 60 ? 'rainbow' : 'chrome') : cos.has('chrome') && !rainbow ? 'chrome' : null,
   };
+}
+// A kitty's switched-on account unlocks (shared/unlocks.js): online from the room info (the server checked the
+// account), offline player 1's own signed-in account. Looks only.
+const NO_COS = new Set();
+function cosOf(p) {
+  if (!p) return NO_COS;
+  if (online.playing) {
+    const r = online.roster.get(p.id);
+    if (!r || !r.cos) return NO_COS;
+    if (r._cosFrom !== r.cos) { r._cosFrom = r.cos; r._cos = new Set(r.cos); }
+    return r._cos;
+  }
+  return p === sim.players[0] && account.signedIn() ? account.equipped() : NO_COS;
 }
 
 // Share the run's result (share.js: an image card of your kitty + a short text with the link). Your own kitty: the
@@ -1432,26 +1447,28 @@ function syncVisuals(dt, alpha) {
     const gliding = onIce(sim.levelData, p.x, p.z); // skating: hold still, no steps or dust
     // run rewards (finishes = runs won): 2+ paw prints + coloured skate marks, 3+ flame aura, 4+ aura trail,
     // 6+ all of them cycle through the cat colours (the fur keeps its own); wins 2-6 also set stones in the crown
-    const wins = p.finishes || 0, paws = wins >= 2;
+    const wins = p.finishes || 0, paws = wins >= 2, cos = cosOf(p);   // cos: switched-on account unlocks
     if (wins >= 6) cycleColor(t + p.id * 2.3, k.fx);
     const ka = _kitArgs;
     ka.speed01 = gliding ? 0 : eat && eat.walking ? 0.45 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2));
     ka.moving = (p.moving && !gliding) || !!(eat && eat.walking); ka.munch = !!(eat && eat.munch); ka.bites = k.bites | 0;
     ka.skates = !!sim.levelData.ice && !(sim.levelData.iceZMax != null && z > sim.levelData.iceZMax);   // (not on Run + Skate level 9's run half)
     ka.boots = Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST); ka.invuln = p.invuln; ka.shield = p.shield; ka.time = t;
-    ka.crown = !!p.crowned; ka.crownStones = Math.max(0, Math.min(5, wins - 1)); ka.aura = wins >= 3; ka.auraColor = k.fx; ka.sunglasses = wins >= 5; ka.rainbowBoots = wins >= 7; ka.auraCycle = wins >= 6;
+    ka.crown = !!p.crowned; ka.crownStones = Math.max(0, Math.min(5, wins - 1)); ka.aura = wins >= 3; ka.auraColor = k.fx; ka.sunglasses = wins >= 5 || cos.has('shades'); ka.rainbowBoots = wins >= 7 || cos.has('rboots'); ka.auraCycle = wins >= 6;
     ka.backpack = wins >= 8; ka.packColors = ka.backpack ? packColors(k, p) : null;
     // wins 9-16: night crown (9) and its stars (10-14), golden skates (10), fluffy tail
     // with a glowing tip (11), a rainbow name (12, ui.js), backpack kittens turning rainbow (13: one, 14: two, 15: all),
     // lion (14; at 16 a celestial or silver lion, see below). 120 revives: medevac rotor blades on the back
     ka.moonCrown = wins >= 9; ka.crownStars = Math.max(0, Math.min(5, wins - 9));
-    ka.goldSkates = wins >= 10; ka.fluffyTail = wins >= 11;
+    ka.goldSkates = wins >= 10 || cos.has('gskates'); ka.fluffyTail = wins >= 11 || cos.has('tail');
     ka.packRainbow = wins >= 15 ? 99 : wins >= 14 ? 2 : wins >= 13 ? 1 : 0;
     // 14: the lion (and the crown's moon lights up); 16: celestial lion with 120 revives, the rainbow cat stays rainbow
     // (60+ revives), otherwise the chrome moon lion; 120 revives: the medevac rotor
     const res = p.rescues || 0;
-    ka.lion = wins >= 14; ka.moonGlow = wins >= 14; ka.moonCat = wins >= 15;   // 15: the crown's moon becomes a moon cat
-    ka.celestial = wins >= 16 && res >= 120; ka.silver = wins >= 16 && res < 60; ka.rotor = res >= 120;
+    ka.lion = wins >= 14 || cos.has('lion') || cos.has('chrome'); ka.moonGlow = wins >= 14; ka.moonCat = wins >= 15;   // 15: the crown's moon becomes a moon cat
+    ka.celestial = wins >= 16 && res >= 120; ka.rotor = res >= 120;
+    // chrome: the 16-win look, or the switched-on unlock (never over a look earned this run: celestial, rainbow)
+    ka.silver = wins >= 16 ? res < 60 : cos.has('chrome') && !(wins >= 8 && res >= 60);
     // revive rewards (rescues this run): 10+ medic cape, 30+ a trail of little stars of life, 60+ angel wings (they add up)
     const saves = p.rescues || 0;
     ka.cape = saves >= 10; ka.wings = saves >= 60;
@@ -1546,7 +1563,7 @@ function updateHUD() {
     }
     let h = hudPlayers[i];
     if (!h) h = hudPlayers[i] = {};
-    h.name = p.name; h.color = p.color; h.cool = (p.finishes || 0) >= 5; h.shimmer = (p.finishes || 0) >= 12; h.rainbow = (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; const il = iconLook(p); h.lion = il.lion; h.lionLook = il.lionLook; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
+    h.name = p.name; h.color = p.color; h.shimmer = (p.finishes || 0) >= 12; h.rainbow = (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; const il = iconLook(p); h.cool = il.cool; h.lion = il.lion; h.lionLook = il.lionLook; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
     h.paid = online.playing ? ((online.roster.get(p.id) || {}).paid || 0) : i === 0 && account.shown() ? account.paid() : 0;   // account total (unless switched off)
   }
   if (dirty) ui.setScores(hudScores);

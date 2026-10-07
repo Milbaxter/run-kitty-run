@@ -14,6 +14,7 @@ import { createStats } from './stats.js';
 import { createLegends } from './legends.js';
 import { createAccounts } from './accounts.js';
 import { pregenNext } from './levelgen.js';
+import { winsNeeded } from '../public/js/shared/unlocks.js';
 
 const PORT = +process.env.PORT || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -397,7 +398,8 @@ function roomInfo(room) {
   return {
     t: 'room', code: room.code, host: room.hostId, phase: room.phase, mode: room.mode, max: room.max || NET.MAX_PLAYERS,
     locked: !!room.pass, pass: room.pass || undefined,   // private lobby: its members see the password (to pass it on)
-    members: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color, app: m.app, paid: m.paid || undefined })),   // paid: cents (accounts.js)
+    members: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color, app: m.app, paid: m.paid || undefined,   // paid: cents (accounts.js)
+      cos: m.cos && m.cos.length ? m.cos : undefined })),   // cos: switched-on unlocks (shared/unlocks.js)
   };
 }
 
@@ -603,6 +605,16 @@ function countForAccounts(room, events) {
         room.dayTime = null;
       }
       for (const p of sim.players) accounts.recordOnline(subOf(p.id), ev);
+      // unlocks: level 8 cleared by a kitty holding every win of the run so far (8, or 16 in Run + Skate)
+      if (e.type === 'levelClear' && e.level === 8) {
+        for (const p of sim.players) if ((p.finishes || 0) >= winsNeeded(room.mode)) accounts.recordFeat(subOf(p.id), 'l8', room.mode);
+      }
+    } else if (e.type === 'victory') {
+      // unlocks: the final run won; a kitty with every win that got to the end itself (not carried in for the party)
+      const party = Array.isArray(e.party) ? e.party : [];
+      for (const p of sim.players) {
+        if (!party.includes(p.id) && (p.finishes || 0) >= winsNeeded(room.mode)) accounts.recordFeat(subOf(p.id), 'l9', room.mode);
+      }
     } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown' });
     else if (e.type === 'revive') accounts.recordOnline(subOf(e.by), { type: 'revive' });
   }
@@ -742,6 +754,7 @@ wss.on('connection', (ws, req) => {
         client.ver = String(msg.ver ?? '').replace(/[^\w.+-]/g, '').slice(0, 16);
         if (typeof msg.tok === 'string' && /^[\w-]{8,64}$/.test(msg.tok)) client.tok = msg.tok; // reconnect grace (net.js)
         client.paid = accounts.paidFor(msg.acct);   // signed-in account: its total shows next to the name
+        client.cos = accounts.cosFor(msg.acct);     // ...and its switched-on unlocks on its kitty
         client.acct = accounts.subFor(msg.acct);    // ...and its stats count this player's online games
         if (v < MIN_PROTOCOL) {
           send(ws, { t: 'outdated', msg: 'A new version of Run Kitty Run is out - update to keep playing online.' });
@@ -752,9 +765,11 @@ wss.on('connection', (ws, req) => {
       case 'acct': {
         // signed in / out (or paid more) after connecting
         if (!take(client, 'lobby', LOBBY_RATE, LOBBY_BURST, Date.now())) return;
-        const paid = accounts.paidFor(msg.acct);
+        const paid = accounts.paidFor(msg.acct), cos = accounts.cosFor(msg.acct);
         client.acct = accounts.subFor(msg.acct);
-        if (paid !== (client.paid || 0)) { client.paid = paid; if (room) sendRoom(room); }
+        const cosChanged = cos.join() !== (client.cos || []).join();
+        client.cos = cos;
+        if (paid !== (client.paid || 0) || cosChanged) { client.paid = paid; if (room) sendRoom(room); }
         break;
       }
       case 'report':

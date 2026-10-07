@@ -222,7 +222,7 @@ function createAccount(root) {
       const box_ = section(title);
       const ulist = el('div', 'rka-unl');
       const SHORT = { run: 'Run', ice: 'Skate', mixed: 'Run + Skate' };
-      const GOALS = { l8: 'Clear level 8 holding every win (8 wins, 16 in Run + Skate), in each mode:',
+      const GOALS = { l8: 'Clear level 8 holding every crown (8 crowns, 16 in Run + Skate), in each mode:',
         l9: 'Beat level 9 with 8 crowns (16 in Run + Skate, the final crown counts) and reach the end yourself, in each mode:' };
       let lastFeat = '';
       // no spoilers: level 9's unlocks only once this player has seen level 9 (this browser, the account's stats, or progress)

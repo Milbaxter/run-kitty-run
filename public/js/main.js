@@ -1553,13 +1553,13 @@ function updateHUD() {
   if (dirty) { hudScores.length = ps.length; hudPlayers.length = ps.length; }
   for (let i = 0; i < ps.length; i++) {
     const p = ps[i];
-    const score = p.rescues + (p.bonus || 0) - p.deaths + 20 * (p.finishes || 0), crown = !!p.crowned;
+    const score = p.rescues + (p.bonus || 0) - p.deaths + 20 * (p.finishes || 0), crown = !!p.crowned, crowns = p.finishes || 0;
     const me = online.playing ? p.id === online.me : true, you = online.playing && p.id === online.me;
     let r = hudScores[i];
     if (!r) r = hudScores[i] = {};
     const shimmer = (p.finishes || 0) >= 12;   // 12+ wins: a rainbow name on the scoreboard
-    if (r.name !== p.name || r.color !== p.color || r.score !== score || r.crown !== crown || r.me !== me || r.you !== you || r.shimmer !== shimmer) {
-      r.name = p.name; r.color = p.color; r.score = score; r.crown = crown; r.me = me; r.you = you; r.shimmer = shimmer;
+    if (r.name !== p.name || r.color !== p.color || r.score !== score || r.crown !== crown || r.me !== me || r.you !== you || r.shimmer !== shimmer || r.crowns !== crowns) {
+      r.name = p.name; r.color = p.color; r.score = score; r.crown = crown; r.crowns = crowns; r.me = me; r.you = you; r.shimmer = shimmer;
       dirty = true;
     }
     let h = hudPlayers[i];

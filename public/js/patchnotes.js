@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
+      'The scoreboard shows how many crowns each kitty has won this run',
       'Legends board on the main menu (LEGENDS, bottom left): everyone can see the teams that beat Run Kitty Run, with a board for each mode',
       'Share your run: a SHARE button on the game over and victory screens makes a picture of your result (your kitty, level, time, crowns and revives) with a link to the game. Phones open the share menu, computers save the picture and copy the text, the apps share the text',
       'Phones and tablets: the joystick stays where your thumb first lands. Pull past its rim for full speed in any direction; swinging your thumb around no longer slows your kitty down',

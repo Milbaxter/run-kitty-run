@@ -118,6 +118,8 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-scores .rkr-sh{font-size:10px;letter-spacing:.14em;color:#ffcf5a;opacity:.9;margin-bottom:2px;}
 .rkr-scores .rkr-sr{display:flex;gap:8px;align-items:center;line-height:1.5;}
 .rkr-scores .rkr-sr span:first-child{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.rkr-scores .rkr-scr{display:flex;align-items:center;gap:2px;flex:none;font-size:12px;font-weight:900;color:#ffd56b;font-variant-numeric:tabular-nums;}
+.rkr-scores .rkr-scr svg{width:13px;height:13px;}
 .rkr-scores .rkr-sr.rkr-me{text-decoration:underline;text-underline-offset:3px;}
 .rkr-scores .rkr-best{opacity:.65;font-size:11px;margin-top:2px;}
 .rkr-cards.rkr-many .rkr-card{zoom:.68;}
@@ -1328,17 +1330,20 @@ function createUI(root) {
     const rows = all.slice(0, 8);
     const meRow = all.find((p) => p.you);
     if (meRow && !rows.includes(meRow)) rows.push(meRow);
-    const key = rows.map((p) => `${p.name}|${p.score}|${p.me}|${p.crown}|${p.shimmer}`).join(',') + '#' + best;
+    const key = rows.map((p) => `${p.name}|${p.score}|${p.me}|${p.crown}|${p.crowns}|${p.shimmer}`).join(',') + '#' + best;
     if (key === scoresKey) return;
     scoresKey = key;
     scoresEl.textContent = '';
     scoresEl.appendChild(el('div', 'rkr-sh', 'SCORE'));
     for (const p of rows) {
       const r = el('div', 'rkr-sr' + (p.you ? ' rkr-me' : ''));
-      const n = el('span'); n.textContent = (p.crown ? '👑 ' : '') + p.name; n.style.color = hexColor(p.color);
+      const n = el('span'); n.textContent = p.name; n.style.color = hexColor(p.color);
       if (p.shimmer) n.classList.add('rkr-shim');   // 12+ wins
       const v = el('span'); v.textContent = (p.score > 0 ? '+' : '') + p.score;
-      r.append(n, v);
+      r.append(n);
+      // the crowns this kitty has won this run: a little crown and the count
+      if (p.crowns > 0) { const c = el('span', 'rkr-scr', ICONS.crown); c.appendChild(document.createTextNode(String(p.crowns))); c.title = p.crowns + (p.crowns === 1 ? ' crown' : ' crowns'); r.appendChild(c); }
+      r.appendChild(v);
       scoresEl.appendChild(r);
     }
     if (all.length > rows.length) { const more = el('div', 'rkr-best'); more.textContent = `+${all.length - rows.length} more`; scoresEl.appendChild(more); }

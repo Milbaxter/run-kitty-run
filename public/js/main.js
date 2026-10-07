@@ -91,7 +91,7 @@ audio.attachTrack(track);   // played through the game's audio context (audio.js
 let trackWanted = false, trackFailed = false, musicLevel = 1;
 let inBackground = false; // see setBackground()
 // We Skate's speed (the settings, remembered): faster, same pitch. A new src resets the rate (to the default one).
-const SKATE_SPEEDS = [1, 1.1];
+const SKATE_SPEEDS = [1, 1.05, 1.1];
 let skateSpeed = 1;
 try { const v = +localStorage.getItem('rkr-skate-speed'); if (SKATE_SPEEDS.includes(v)) skateSpeed = v; } catch { /* ignore */ }
 function setRate() {

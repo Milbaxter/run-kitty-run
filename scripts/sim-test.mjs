@@ -643,4 +643,22 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   }
 }
 
+// ======== legends board: the newest wins of each mode (a busy mode can't push another off the board)
+{
+  const { createLegends } = await import('../server/legends.js');
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rkr-legends-test-'));
+  try {
+    const lg = createLegends(path.join(dir, 'legends.json'));
+    lg.recordWin('run', 1200, [{ id: 1, name: 'Shadow', color: 1 }]);
+    for (let i = 0; i < 105; i++) lg.recordWin('mixed', 1500, [{ id: 10 + i, name: 'Tofu', color: 2 }]);
+    const wins = JSON.parse(lg.boardJson()).wins;
+    ok(wins.filter((w) => w.mode === 'mixed').length === 100 && wins.some((w) => w.mode === 'run') && wins[0].mode === 'mixed',
+      'legends board: the newest 100 of each mode, newest first (an older win of a quieter mode stays on)');
+    lg.flush();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 console.log(process.exitCode ? 'FAIL sim-test' : 'PASS sim-test');

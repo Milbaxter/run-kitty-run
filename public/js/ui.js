@@ -981,6 +981,13 @@ function createUI(root) {
     fbBtn.addEventListener('click', () => { if (feedbackHandler) feedbackHandler(); });
     const footl = el('div', 'rkr-footl');
     footl.append(statsBtn, fbBtn);
+    // the legends board (legends.js), for everyone to look at
+    if (legendsHandler) {
+      const lb = el('button', 'rkr-statsbtn', '📜 LEGENDS');
+      lb.addEventListener('mousedown', (e) => e.preventDefault());   // keep Enter / gamepad on the menu buttons
+      lb.addEventListener('click', () => legendsHandler());
+      footl.appendChild(lb);
+    }
     // settings (settings.js: volume, songs, graphics, keys); also in the Esc menu
     if (settingsHandler) {
       const sb = el('button', 'rkr-statsbtn rkr-setbtn', '⚙️ SETTINGS');
@@ -1352,6 +1359,8 @@ function createUI(root) {
   // the title screen's music button: { label() -> text, cycle() -> next choice's text } (main.js)
   let settingsHandler = null;
   function onSettingsClick(fn) { settingsHandler = fn; }
+  let legendsHandler = null;
+  function onLegendsClick(fn) { legendsHandler = fn; }
   // keycaps marked data-act show the key picked for that action in the settings
   function paintKeys(node) {
     for (const k of node.querySelectorAll('[data-act]')) {
@@ -1413,7 +1422,7 @@ function createUI(root) {
 
   return {
     showTitle, hideTitle, setHUD, updateMinimap, banner, toast, setScores,
-    showPause, hidePause, showGameOver, hideGameOver, onSettingsClick, refreshKeys, gameOverSlot: () => (goEl ? goEl.querySelector('.rkr-goslot') : null), setMutedIcon, isOverlayOpen, onMuteClick, onFeedbackClick, onAccountClick, setAccountButton, onMenuClick,
+    showPause, hidePause, showGameOver, hideGameOver, onSettingsClick, onLegendsClick, refreshKeys, gameOverSlot: () => (goEl ? goEl.querySelector('.rkr-goslot') : null), setMutedIcon, isOverlayOpen, onMuteClick, onFeedbackClick, onAccountClick, setAccountButton, onMenuClick,
     showVictory, hideVictory, updateVictoryFish, isVictoryOpen: () => state.victory, navigate, hideHUD,
     showNotice, hideNotice, setBlocker, setVictoryHidden,
     isTitleOpen: () => state.title, isGameOverOpen: () => state.gameOver,

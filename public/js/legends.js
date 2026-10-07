@@ -2,7 +2,8 @@
 // it from the server over ws ('legends', live 'legend' updates) and sign over ws; offline (solo / local co-op) winners
 // read it with GET /api/legends and sign with POST /api/legends (one line per local kitty). Either way lines can be
 // changed for 15 minutes after the win. Opened from the victory screen (and, while an online winner can still sign,
-// from a small button in the lobby). All player text goes in with textContent; the apps mask it like chat (net.js).
+// from a small button in the lobby), and by anyone from the main menu (showPublic: read only, GET /api/legends). One tab
+// per mode. All player text goes in with textContent; the apps mask it like chat (net.js).
 import { apiUrl, NATIVE } from './platform.js';
 import { cleanForApp } from './net.js';
 import { TOUCH } from './device.js';
@@ -44,6 +45,12 @@ const CSS = `
 .rkg-n{font-weight:900;-webkit-text-stroke:3px #2b1840;paint-order:stroke fill;white-space:nowrap;}
 .rkg-also{font-size:13px;font-weight:800;opacity:.85;margin-top:3px;}
 .rkg-empty{text-align:center;font-weight:700;opacity:.7;padding:14px;}
+.rkg-tabs{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;}
+.rkg-tab{font:inherit;font-weight:900;font-size:13px;letter-spacing:.04em;cursor:pointer;color:#fff6d8;padding:6px 12px;border-radius:999px;
+  border:2px solid rgba(255,255,255,.25);background:rgba(20,8,48,.55);}
+.rkg-tab:hover{background:rgba(60,30,110,.75);}
+.rkg-tab.rkg-on{border-color:#ffcf5a;background:rgba(255,207,90,.22);}
+.rkg-tab small{font-size:11px;opacity:.75;margin-left:4px;}
 .rkg-close{align-self:center;font-size:16px !important;padding:8px 22px !important;}
 .rkg-fab{position:absolute;z-index:44;right:max(16px,env(safe-area-inset-right));top:max(14px,env(safe-area-inset-top));pointer-events:auto;cursor:pointer;
   font:inherit;font-weight:900;font-size:14px;letter-spacing:.04em;color:#2b1840;padding:8px 14px;border-radius:999px;border:0;
@@ -88,6 +95,8 @@ function createLegends(root, { send, isOnline, onOpenChange }) {
   let offline = false;      // the board of an offline win (HTTP)
   let loadErr = '';
   let wrap = null, refs = null;
+  let tab = 'mixed';        // the mode whose legends show (a tab each)
+  const modeOf = (w) => (MODES[w && w.mode] ? w.mode : 'mixed');
 
   const fab = el('button', 'rkg-fab', '📜 LEGENDS BOARD');
   fab.addEventListener('click', () => open());
@@ -171,17 +180,21 @@ function createLegends(root, { send, isOnline, onOpenChange }) {
     x.addEventListener('click', close);
     const h = el('h2', null, 'LEGENDS BOARD');
     const sub = el('div', 'rkg-sub', 'Every team that beat Run Kitty Run, in their own words.');
+    const tabs = el('div', 'rkg-tabs');
     const signSlot = el('div');
     const list = el('div', 'rkg-list');
     const closeBtn = el('button', 'rkr-btn rkr-alt rkg-close', 'CLOSE');
     closeBtn.addEventListener('click', close);
-    box.append(x, h, sub, signSlot, list, closeBtn);
+    box.append(x, h, sub, tabs, signSlot, list, closeBtn);
     wrap.appendChild(box);
     // typing must not move the kitty / trigger game keys (the board's own keys stop here, after the input saw them)
     wrap.addEventListener('keydown', (e) => e.stopPropagation());
     wrap.addEventListener('keyup', (e) => e.stopPropagation());
     root.appendChild(wrap);
-    refs = { box, signSlot, list, signKey: '' };
+    refs = { box, tabs, signSlot, list, signKey: '' };
+    // a winner sees the mode they just won first, everyone else Run + Skate
+    const own = can && wins && wins.find((w) => w.id === can.id);
+    tab = own ? modeOf(own) : can && can.ctx && MODES[can.ctx.mode] ? can.ctx.mode : 'mixed';
     window.addEventListener('keydown', onKey, true);
     fab.classList.remove('rkg-on');
     render();
@@ -289,16 +302,32 @@ function createLegends(root, { send, isOnline, onOpenChange }) {
     }));
   }
 
+  function renderTabs() {
+    refs.tabs.textContent = '';
+    for (const [id, label] of Object.entries(MODES)) {
+      const n = wins ? wins.filter((w) => modeOf(w) === id).length : 0;
+      const b = el('button', 'rkg-tab' + (id === tab ? ' rkg-on' : ''), label.toUpperCase());
+      if (wins) b.appendChild(el('small', null, String(n)));
+      b.addEventListener('click', () => { tab = id; refs.list.scrollTop = 0; render(); });
+      refs.tabs.appendChild(b);
+    }
+  }
   function render() {
     if (!refs) return;
+    renderTabs();
     renderSign();
     const list = refs.list;
     const top = list.scrollTop;
     list.textContent = '';
     if (!wins) { list.appendChild(el('div', 'rkg-empty', loadErr || 'Unrolling the scroll…')); return; }
-    if (!wins.length) { list.appendChild(el('div', 'rkg-empty', 'No legends yet. Be the first team to sign!')); return; }
+    const shown = wins.filter((w) => modeOf(w) === tab);
+    if (!shown.length) {
+      list.appendChild(el('div', 'rkg-empty', can ? 'No legends yet. Be the first team to sign!'
+        : 'Currently no legends have made it all the way to the end, will you be the first?'));
+      return;
+    }
     const mine = can && can.id;
-    for (const w of wins) {
+    for (const w of shown) {
       const card = el('div', 'rkg-card' + (w.id === mine ? ' rkg-mine' : ''));
       const head = el('div', 'rkg-head');
       head.appendChild(el('span', null, fmtDate(w.at)));
@@ -339,9 +368,11 @@ function createLegends(root, { send, isOnline, onOpenChange }) {
   // lobby shortcut while you can still sign (set from main.js)
   function setFab(on) { fab.classList.toggle('rkg-on', !!on && !wrap); }
   function reset() { close(); if (offline) { wins = null; can = null; offline = false; loadErr = ''; } } // a new run: offline boards are per win
+  // the main menu's LEGENDS: anyone can look (read only); a winner who can still sign gets their own board as it is
+  function showPublic() { if (canSign()) { open(); return; } fetchOffline(null); open(); }
 
   return {
-    onBoard, onLegend, onSigned, fetchOffline, open, close, isOpen: () => !!wrap, scrollBy, setFab, reset,
+    onBoard, onLegend, onSigned, fetchOffline, open, showPublic, close, isOpen: () => !!wrap, scrollBy, setFab, reset,
     canSign, available: () => offline || !!wins,
   };
 }

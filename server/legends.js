@@ -2,8 +2,8 @@
 // leave a line for SIGN_WINDOW_MS. Online wins are server-verified: everyone in the room at the moment of the win is on
 // it and signs over ws. Offline (solo / local co-op) wins can't be verified, so they're signed over HTTP
 // (POST /api/legends) with light checks: final-run mode, a plausible game time, one per IP per 10 minutes (index.js),
-// edits by the id + secret key the server hands back. Only finishers ever see the board (ws to the online winners;
-// GET /api/legends is the soft-gated read the client makes after an offline win).
+// edits by the id + secret key the server hands back. Online winners get the board over ws; anyone can read it with
+// GET /api/legends (after an offline win, and from the main menu's LEGENDS button), the newest wins of each mode.
 import crypto from 'node:crypto';
 // State is one JSON file (newest MAX_WINS wins), saved atomically a moment after each change.
 import fs from 'node:fs';
@@ -61,7 +61,15 @@ function createLegends(file) {
 
   const keysOf = (c) => (c.tok ? [c.tok, 'id:' + c.id] : ['id:' + c.id]);
   // newest first, capped; cached as a string for the HTTP read
-  const board = () => wins.slice(-SEND_WINS).reverse();
+  // the newest SEND_WINS wins of each mode, newest first (the board has a tab per mode)
+  const board = () => {
+    const out = [], per = {};
+    for (let i = wins.length - 1; i >= 0; i--) {
+      const m = wins[i].mode || 'mixed';
+      if ((per[m] = (per[m] || 0) + 1) <= SEND_WINS) out.push(wins[i]);
+    }
+    return out;
+  };
   function boardJson() { return (cache ||= JSON.stringify({ ok: true, wins: board() })); }
 
   const newId = (now) => now.toString(36) + crypto.randomBytes(3).toString('hex');

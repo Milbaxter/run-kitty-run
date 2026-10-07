@@ -1598,6 +1598,7 @@ const legends = createLegends(document.getElementById('ui'), {
   onOpenChange: (on) => { ui.setVictoryHidden(on); keys.clear(); },
 });
 ui.setBlocker(() => legends.isOpen());
+ui.onLegendsClick(() => legends.showPublic());   // the main menu's LEGENDS button
 net.on('legends', (m) => {
   legends.onBoard(m);
   // arrived after the victory screen went up without the button (reconnect): put it up again with the button

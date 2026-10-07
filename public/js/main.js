@@ -23,7 +23,8 @@ import { createFeedback } from './feedback.js';
 import { createAccount } from './account.js';
 import { createLegends } from './legends.js';
 import { analytics, openStatsPage } from './analytics.js';
-import { TOUCH, QUALITY, goFullscreenLandscape, setKeepAwake, hideSplash } from './device.js';
+import { TOUCH, QUALITY, setQuality, goFullscreenLandscape, setKeepAwake, hideSplash } from './device.js';
+import { openSettings, settingsOpen, key, musicVolume, sfxVolume } from './settings.js';
 import { NATIVE, haptic, plugin, call, storeUrl, openExternal, APP_VERSION } from './platform.js';
 
 // Integration: renderer, input, camera, presentation of the pure sim.
@@ -45,7 +46,7 @@ const canvas = document.getElementById('game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: QUALITY.antialias, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatio));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = QUALITY.shadows;   // (graphics: Low turns them off)
 renderer.shadowMap.type = QUALITY.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
@@ -74,7 +75,8 @@ let trackIdx = 0;
 const badTracks = new Set();
 // No src until the first real play(): nothing (4+ MB) is fetched at load, or ever while muted.
 const track = new Audio();
-track.volume = 0.5;
+const trackVol = () => 0.5 * musicVolume();   // the settings' music volume (100% = the usual 0.5)
+track.volume = trackVol();
 track.preload = 'none';
 audio.attachTrack(track);   // played through the game's audio context (audio.js: no full-volume blip on Windows)
 let trackWanted = false, trackFailed = false, musicLevel = 1;
@@ -90,7 +92,6 @@ const MUSIC_CHOICES = ['both', ...PLAYLIST.map((_, i) => String(i)), 'off'];   /
 let musicChoice = 'both';
 try { const v = localStorage.getItem('rkr-music'); if (MUSIC_CHOICES.includes(v)) musicChoice = v; } catch { /* ignore */ }
 const musicOff = () => musicChoice === 'off';
-function musicLabel() { return musicOff() ? 'MUSIC: OFF' : musicChoice === 'both' ? (PLAYLIST.length === 2 ? 'MUSIC: BOTH SONGS' : 'MUSIC: ALL SONGS') : `MUSIC: SONG ${+musicChoice + 1} ON LOOP`; }
 function applyMusicChoice() {
   if (musicOff()) { track.pause(); audio.stopMusic(); return; }
   const one = musicChoice === 'both' ? -1 : +musicChoice;
@@ -103,12 +104,6 @@ function applyMusicChoice() {
   // (back on after 'off': pick the music up again if a game wants it)
   if (trackWanted && trackFailed && !audio.isMuted()) audio.startMusic(musicLevel);
   else syncTrack();
-}
-function cycleMusic() {
-  musicChoice = MUSIC_CHOICES[(MUSIC_CHOICES.indexOf(musicChoice) + 1) % MUSIC_CHOICES.length];
-  try { localStorage.setItem('rkr-music', musicChoice); } catch { /* ignore */ }
-  applyMusicChoice();
-  return musicLabel();
 }
 function nextTrack() {
   for (let k = 1; k <= PLAYLIST.length; k++) {
@@ -136,7 +131,7 @@ function musicPlay(level) {
 }
 // after the victory fanfare the soundtrack comes back in softly (ramped in tick())
 function musicFadeIn(level) {
-  track.volume = 0.04;
+  track.volume = Math.min(0.04, trackVol());
   musicPlay(level);
 }
 function musicStop() {
@@ -166,7 +161,47 @@ function toggleSound() {
   syncTrack();
 }
 ui.onMuteClick(toggleSound);
-ui.setMusicControl({ label: musicLabel, cycle: cycleMusic });
+// Settings (settings.js): volumes, which songs, graphics, keys. From the main menu and the Esc menu.
+const MUSIC_NAMES = { both: 'ALL SONGS', off: 'OFF' };
+function applyVolumes() {
+  audio.setVolumes(musicVolume(), sfxVolume());
+  track.volume = trackVol();
+}
+applyVolumes();
+// graphics quality picked in the settings, switched on the spot (mid-run too): resolution, shadows (on / off, map size,
+// soft or hard), particles (new effects; a level's weather from the next level). Antialiasing only on the next load
+// (the browser fixes it when the renderer is made). Returns whether this pick wants different antialiasing.
+function applyGraphics(pick) {
+  const wantAA = setQuality(pick);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatio));
+  const type = QUALITY.softShadows ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
+  const relink = renderer.shadowMap.enabled !== QUALITY.shadows || renderer.shadowMap.type !== type;
+  renderer.shadowMap.enabled = QUALITY.shadows;
+  renderer.shadowMap.type = type;
+  const sun = lighting.sun;
+  if (sun.shadow.mapSize.x !== QUALITY.shadowMap) {
+    sun.shadow.mapSize.set(QUALITY.shadowMap, QUALITY.shadowMap);
+    if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }   // (made again at the new size)
+  }
+  sun.shadow.radius = QUALITY.softShadows ? 1 : 1.5;
+  // shadows on / off or another kind: every material builds its shader again (a short hitch, once)
+  if (relink) scene.traverse((o) => { const m = o.material; if (m) for (const x of Array.isArray(m) ? m : [m]) x.needsUpdate = true; });
+  renderer.shadowMap.needsUpdate = true;
+  return wantAA !== QUALITY.antialias;
+}
+ui.onSettingsClick(() => {
+  releaseAllInput();
+  openSettings(document.getElementById('ui'), {
+    music: {
+      choices: MUSIC_CHOICES.map((id) => [id, MUSIC_NAMES[id] || `SONG ${+id + 1}`]),
+      get: () => musicChoice,
+      set: (id) => { musicChoice = id; try { localStorage.setItem('rkr-music', id); } catch { /* ignore */ } applyMusicChoice(); },
+    },
+    onVolume: applyVolumes,
+    onGraphics: applyGraphics,
+    onKeys: () => ui.refreshKeys(),
+  });
+});
 ui.onMenuClick(() => {
   if (mode !== 'play' || runOver()) return;
   if (online.playing) toggleOnlineMenu(); else togglePause();
@@ -186,13 +221,10 @@ function zoomBy(f) {
 
 // ---------- input ----------
 const keys = new Set();
-// Co-op: P1 is mouse-driven (see below); P2 moves with WASD or the arrows.
-const KEYMAP = [
-  null,
-  { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'] },
-];
-const SOLO_KEYMAP = { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'] };
-const SPECTATE_KEYS = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1, Tab: 1 };
+// Movement: the keys picked in the settings (WASD unless changed), the arrows always too. Co-op: P1 is mouse-driven
+// (see below), P2 uses these keys.
+const moveKeys = () => ({ up: [key('up'), 'ArrowUp'], down: [key('down'), 'ArrowDown'], left: [key('left'), 'ArrowLeft'], right: [key('right'), 'ArrowRight'] });
+const spectateDir = (code) => (code === 'ArrowLeft' || code === key('left') ? -1 : code === 'ArrowRight' || code === key('right') || code === 'Tab' ? 1 : 0);
 
 window.addEventListener('keydown', (e) => {
   if (!e.code) return;   // a synthetic event (the controller's B in the lobby): not a key to hold
@@ -202,27 +234,27 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   audio.unlock();
-  if (e.code !== 'KeyM') syncTrack(); // browsers only start media after a user gesture
+  if (e.code !== key('sound')) syncTrack(); // browsers only start media after a user gesture
   if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
   // spectating (online, your kitty down): Left/Right/A/D/Tab switch the watched kitty. These presses are kept out
   // of `keys` so they don't count as movement held from before a revive (keyup deletes them harmlessly).
-  if (SPECTATE_KEYS[e.code] && spectating() && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input, textarea')) {
+  if (spectateDir(e.code) && spectating() && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input, textarea')) {
     e.preventDefault();
-    if (!e.repeat) cycleWatch(e.code === 'Tab' && e.shiftKey ? -1 : SPECTATE_KEYS[e.code]);
+    if (!e.repeat) cycleWatch(e.code === 'Tab' && e.shiftKey ? -1 : spectateDir(e.code));
     return;
   }
   // zoom: + / - (also the number pad), not while typing
-  if ((e.code === 'Equal' || e.code === 'NumpadAdd' || e.code === 'Minus' || e.code === 'NumpadSubtract') && mode === 'play'
-    && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input, textarea')) {
+  const zoomIn = e.code === key('zoomIn') || e.code === 'NumpadAdd', zoomOut = e.code === key('zoomOut') || e.code === 'NumpadSubtract';
+  if ((zoomIn || zoomOut) && mode === 'play' && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input, textarea')) {
     e.preventDefault();
-    zoomBy(e.code === 'Equal' || e.code === 'NumpadAdd' ? 0.9 : 1 / 0.9);
+    zoomBy(zoomIn ? 0.9 : 1 / 0.9);
     return;
   }
   if (e.repeat) { keys.add(e.code); return; }
   keys.add(e.code);
-  if (e.code === 'KeyM') {
+  if (e.code === key('sound')) {
     toggleSound();
-  } else if ((e.code === 'KeyP' || e.code === 'Escape') && mode === 'play' && !runOver()) {
+  } else if ((e.code === key('pause') || e.code === 'Escape') && mode === 'play' && !runOver()) {
     if (online.playing) toggleOnlineMenu();
     else togglePause();
   }
@@ -241,7 +273,7 @@ let framePads = [];
 function anyKey(list) { for (const k of list) if (keys.has(k)) return true; return false; }
 
 function readInput(index, playerCount) {
-  const map = playerCount === 1 ? SOLO_KEYMAP : KEYMAP[index];
+  const map = playerCount === 1 || index === 1 ? moveKeys() : null;
   let x = 0, z = 0;
   if (map) {
     if (anyKey(map.left)) x -= 1;
@@ -676,7 +708,7 @@ function handleEvents(events) {
         audio.play(finale ? 'finale' : 'levelStart');
         if (finale) effects.shake(0.35);
         musicPlay(L);
-        cameraSnap = cameraSnap || L === DEBUG_LEVEL;
+        cameraSnap = true;   // everyone is back at the start: no glide from the old goal while you can already move
         // the final run: the camera stays on the start square, pushing in, until you touch anything
         intro = finale ? { sim, t: 0 } : null;
         break;
@@ -727,6 +759,9 @@ function handleEvents(events) {
         // the kitties gathered there (ev.moved; older servers: everyone but the one that reached it) drop their old heading
         const mp = sim.players[mousePlayerIndex()];
         if (!mp || (ev.moved ? ev.moved.includes(mp.id) : mp.id !== ev.by)) { mouse.target = null; mouse.iceDir = null; }
+        // one of the kitties the camera follows was moved there: show it at once (no glide while it can already run)
+        const wasMoved = (id) => (ev.moved ? ev.moved.includes(id) : id !== ev.by);
+        if (sim.players.some((p) => (!online.playing || p.id === online.me) && wasMoved(p.id))) cameraSnap = true;
         if (ev.medic) {   // the broken checkpoint, repaired by a kitty with 60+ revives
           ui.banner('MEDICAT TO THE RESCUE!!!', ev.revived.length ? `${by ? by.name : 'A medicat'} fixed the checkpoint: everyone is back on their paws` : `${by ? by.name : 'A medicat'} fixed the checkpoint`, 2600);
           if (view && view.world.repairCheckpoint) view.world.repairCheckpoint(ev.index);
@@ -2008,7 +2043,7 @@ function tick(dt) {
   updateVictory(vdt);
   updateIntro(vdt);
   pollPadNav();
-  if (track.volume < 0.5) track.volume = Math.min(0.5, track.volume + dt * 0.15); // musicFadeIn
+  if (track.volume < trackVol()) track.volume = Math.min(trackVol(), track.volume + dt * 0.15); // musicFadeIn
   syncVisuals(vdt, alpha);
   updateTargetMarker(vdt);
   effects.update(vdt);

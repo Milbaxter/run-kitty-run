@@ -1,6 +1,6 @@
 
 // Run Kitty Run — audio.js (WebAudio only, everything synthesized).
-// Contract: createAudio() -> { unlock, play, startMusic, stopMusic, setMuted, isMuted, setDanger, setBackground, attachTrack }
+// Contract: createAudio() -> { unlock, play, startMusic, stopMusic, setMuted, isMuted, setDanger, setBackground, attachTrack, setVolumes }
 // Notes / interpretations:
 // - The AudioContext is created lazily inside unlock(). play() before the context runs is a silent no-op.
 // - startMusic(level) before unlock is remembered and starts automatically once unlocked.
@@ -13,7 +13,8 @@ function createAudio() {
   let ctx = null;
   let master = null, comp = null, sfxBus = null, musicBus = null, musicFilter = null;
   let noiseBuf = null;
-  let trackEl = null, trackSrc = null;   // the soundtrack's <audio> element, played through this context (attachTrack)
+  let trackEl = null, trackSrc = null;
+  let musicVol = 1, sfxVol = 1;          // the settings' volumes (setVolumes), 1 = as mixed   // the soundtrack's <audio> element, played through this context (attachTrack)
   let muted = false;
   let danger = 0;
   let pendingLevel = null;
@@ -46,8 +47,8 @@ function createAudio() {
     comp.threshold.value = -14; comp.knee.value = 10; comp.ratio.value = 4;
     comp.attack.value = 0.004; comp.release.value = 0.2;
     comp.connect(master); master.connect(ctx.destination);
-    sfxBus = ctx.createGain(); sfxBus.gain.value = 0.8; sfxBus.connect(comp);
-    musicBus = ctx.createGain(); musicBus.gain.value = MUSIC_VOL; musicBus.connect(comp);
+    sfxBus = ctx.createGain(); sfxBus.gain.value = 0.8 * sfxVol; sfxBus.connect(comp);
+    musicBus = ctx.createGain(); musicBus.gain.value = MUSIC_VOL * musicVol; musicBus.connect(comp);
     musicFilter = ctx.createBiquadFilter(); musicFilter.type = 'lowpass';
     musicFilter.Q.value = 0.8; musicFilter.frequency.value = dangerFreq(danger);
     musicFilter.connect(musicBus);
@@ -75,6 +76,13 @@ function createAudio() {
     } catch (e) { trackSrc = null; }
   }
   function attachTrack(el) { trackEl = el; connectTrack(); }
+  // music (the synthesized fallback music; the soundtrack's volume is main.js's) and sound effects, 0..1
+  function setVolumes(music, sfx) {
+    musicVol = clamp(+music || 0, 0, 1); sfxVol = clamp(+sfx || 0, 0, 1);
+    if (!ctx) return;
+    sfxBus.gain.setTargetAtTime(0.8 * sfxVol, ctx.currentTime, 0.03);
+    musicBus.gain.setTargetAtTime(MUSIC_VOL * musicVol, ctx.currentTime, 0.03);
+  }
 
   function onRunning() {
     if (pendingLevel != null) { const l = pendingLevel; pendingLevel = null; startMusic(l); }
@@ -792,7 +800,7 @@ function createAudio() {
     if (danger > 0.6) ensureTimer();
   }
 
-  return { unlock, play, startMusic, stopMusic, setMuted, isMuted, setDanger, setBackground, attachTrack };
+  return { unlock, play, startMusic, stopMusic, setMuted, isMuted, setDanger, setBackground, attachTrack, setVolumes };
 }
 
 export { createAudio };

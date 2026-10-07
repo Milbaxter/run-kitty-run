@@ -5,6 +5,7 @@ import { NATIVE, APP_VERSION, SERVER_ORIGIN, openExternal } from './platform.js'
 import { PATCH_NOTES } from './patchnotes.js';
 import { openStatsPage } from './analytics.js';
 import { localSlots } from './kittycolor.js';
+import { key, keyName } from './settings.js';
 
 // Run Kitty Run — UI layer (DOM + injected CSS + 2D canvas minimap).
 // Contract notes / interpretations:
@@ -203,16 +204,26 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:auto;overflow:auto;padding:20px 16px;}
 .rkr-title{background:radial-gradient(ellipse at 50% 35%,rgba(70,30,120,.3),rgba(14,6,34,.72) 75%),linear-gradient(180deg,rgba(20,8,48,.15),rgba(8,2,22,.6));
   animation:rkr-fadein .6s ease-out;}
-.rkr-footl{position:absolute;left:max(16px,env(safe-area-inset-left));bottom:max(12px,env(safe-area-inset-bottom));z-index:2;display:flex;gap:8px;}
+/* the title's bottom row (stats / feedback / music on the left, credits on the right): in the bottom corners while the
+   menu fits on screen; when it doesn't (zoomed in, small screens: rkr-tight, set in buildTitle) it moves into the page
+   flow under the panels, so it scrolls with them instead of landing on top of them */
+.rkr-title{flex-direction:column;justify-content:flex-start;}
+.rkr-title > .rkr-tcol{margin:auto 0;}
+.rkr-tfoot{position:absolute;z-index:2;left:max(16px,env(safe-area-inset-left));right:max(16px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));
+  display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;pointer-events:none;}
+.rkr-tfoot > *{pointer-events:auto;}
+.rkr-title.rkr-tight .rkr-tfoot{position:relative;left:auto;right:auto;bottom:auto;width:100%;margin-top:14px;flex:none;}
+.rkr-footl{display:flex;gap:8px;flex-wrap:wrap;}
 .rkr-statsbtn{
   pointer-events:auto;cursor:pointer;font:inherit;font-weight:900;font-size:14px;letter-spacing:.06em;color:#fff6d8;
   padding:7px 14px;border-radius:999px;border:2px solid rgba(255,255,255,.25);background:rgba(20,8,48,.55);}
 .rkr-statsbtn:hover{background:rgba(60,30,110,.75);}
-.rkr-credits{position:absolute;right:max(16px,env(safe-area-inset-right));bottom:max(12px,env(safe-area-inset-bottom));z-index:2;
+/* the main menu's SETTINGS: in the green of the Esc menu's SETTINGS button */
+.rkr-statsbtn.rkr-setbtn{color:#3a1650;border-color:#3a1650;background:linear-gradient(180deg,#eafff0,#94f0b0 55%,#3ccf8e);box-shadow:0 3px 0 #3a1650;}
+.rkr-statsbtn.rkr-setbtn:hover{background:linear-gradient(180deg,#f4fff7,#a8f5c0 55%,#52d99c);}
+.rkr-credits{margin-left:auto;
   font-weight:800;font-size:14px;color:rgba(239,231,255,.75);}
 .rkr-credits a{color:#ffcf5a;text-decoration:none;}
-/* narrow windows: the bottom-left buttons (stats, feedback, music) need the whole line, so the credits go up a line */
-@media (max-width:900px){ .rkr-credits{bottom:calc(max(12px,env(safe-area-inset-bottom)) + 44px);} }
 .rkr-credits a:hover{text-decoration:underline;}
 .rkr-title.rkr-leaving{animation:rkr-fadeout .45s ease-in forwards;pointer-events:none;}
 .rkr-tcol{display:flex;flex-direction:column;align-items:center;gap:18px;max-width:980px;width:100%;margin:auto;}
@@ -239,6 +250,7 @@ html.rkr-touch .rkr-touchonly{display:block;}
   transition:transform .12s,box-shadow .12s,filter .12s;display:flex;flex-direction:column;align-items:center;gap:2px;}
 .rkr-btn small{font-size:.55em;letter-spacing:.02em;opacity:.75;font-weight:800;}
 .rkr-btn.rkr-alt{background:linear-gradient(180deg,#e3f7ff,#7fd8ff 55%,#5b9dff);}
+.rkr-btn.rkr-set{background:linear-gradient(180deg,#eafff0,#94f0b0 55%,#3ccf8e);}   /* the Esc menu's SETTINGS (settings.js) */
 .rkr-btn.rkr-swag{background:linear-gradient(180deg,#ffe1f4,#ff9ad5 55%,#c77dff);}   /* 4: optional account (account.js) */
 .rkr-btn:hover,.rkr-btn.rkr-sel{transform:translateY(-3px) scale(1.04);filter:brightness(1.08);box-shadow:0 10px 0 #3a1650,0 18px 30px rgba(0,0,0,.45),0 0 0 5px rgba(255,255,255,.35);}
 .rkr-btn:active{transform:translateY(4px) scale(.98);box-shadow:0 3px 0 #3a1650,0 6px 14px rgba(0,0,0,.4);}
@@ -468,7 +480,8 @@ function createUI(root) {
   tc.append(rescEl);
 
   const tr = el('div', 'rkr-tr');
-  const hintEl = el('div', 'rkr-hint', '<span class="rkr-k">P</span>pause <span class="rkr-k">H</span>hud <span class="rkr-k">M</span><span class="rkr-snd">mute</span>');
+  const hintEl = el('div', 'rkr-hint', '<span class="rkr-k" data-act="pause"></span>pause <span class="rkr-k" data-act="hud"></span>hud <span class="rkr-k" data-act="sound"></span><span class="rkr-snd">mute</span>');
+  paintKeys(hintEl);   // (the keys picked in the settings)
   const muteEl = el('button', 'rkr-mute', ICONS.speaker);
   const hudBtn = el('button', 'rkr-hudbtn', ICONS.eye);
   hudBtn.title = 'Show / hide the HUD (H)';
@@ -900,12 +913,12 @@ function createUI(root) {
             <div class="rkr-ctlgrid">
               <div class="rkr-krow"><span class="rkr-k rkr-wide">Mouse</span></div>
               <div class="rkr-lab"><em class="rkr-p1">Player 1</em><br>click to run there · hold to steer</div>
-              <div class="rkr-keys"><span class="rkr-k">W</span><span class="rkr-k">A</span><span class="rkr-k">S</span><span class="rkr-k">D</span></div>
+              <div class="rkr-keys"><span class="rkr-k" data-act="up"></span><span class="rkr-k" data-act="left"></span><span class="rkr-k" data-act="down"></span><span class="rkr-k" data-act="right"></span></div>
               <div class="rkr-lab">or move with the keys<br><em class="rkr-p2">Player 2</em> in co-op</div>
-              <div class="rkr-krow"><span class="rkr-k">M</span></div><div class="rkr-lab">sound on / off</div>
-              <div class="rkr-krow"><span class="rkr-k">P</span><span class="rkr-k rkr-wide">Esc</span></div><div class="rkr-lab">pause</div>
+              <div class="rkr-krow"><span class="rkr-k" data-act="sound"></span></div><div class="rkr-lab">sound on / off</div>
+              <div class="rkr-krow"><span class="rkr-k" data-act="pause"></span><span class="rkr-k rkr-wide">Esc</span></div><div class="rkr-lab">pause</div>
               <div class="rkr-krow"><span class="rkr-k rkr-wide">Enter</span></div><div class="rkr-lab">chat (online)</div>
-              <div class="rkr-krow"><span class="rkr-k">H</span></div><div class="rkr-lab">show / hide the HUD</div>
+              <div class="rkr-krow"><span class="rkr-k" data-act="hud"></span></div><div class="rkr-lab">show / hide the HUD</div>
             </div>
           </div>
           <div class="rkr-panel rkr-notes"><h3>What's new</h3>${notesHtml()}</div>
@@ -914,13 +927,13 @@ function createUI(root) {
         ${NATIVE ? `<div class="rkr-legal"><a data-page="privacy">Privacy</a>&middot;<a data-page="terms">Terms</a>&middot;<a data-page="support">Support</a>&middot;<span>v${esc(APP_VERSION)}</span></div>` : ''}
       </div>`;
     o.prepend(paws);
+    paintKeys(o);
     // the controls panel shows players 1 and 2 in their preferred kitty colours (picked on the setup / online screens)
     const s = localSlots(2);
     o.querySelector('.rkr-p1').style.color = hexColor(PLAYER_COLORS[s[0]]);
     o.querySelector('.rkr-p2').style.color = hexColor(PLAYER_COLORS[s[1]]);
     o.querySelectorAll('.rkr-legal a').forEach((a) => a.addEventListener('click', () => openExternal(`${SERVER_ORIGIN}/${a.dataset.page}.html`)));
     const credits = el('div', 'rkr-credits', 'made by <a href="https://www.instagram.com/ben.bhc/" target="_blank" rel="noopener">Benjamin</a> and <a href="https://x.com/milimithrandir" target="_blank" rel="noopener">Maximilian</a>');
-    o.appendChild(credits);
     // desktop: anonymous play stats page
     const statsBtn = el('button', 'rkr-statsbtn rkr-desk', '📊 STATS');
     statsBtn.addEventListener('click', () => openStatsPage(root));
@@ -929,18 +942,37 @@ function createUI(root) {
     fbBtn.addEventListener('click', () => { if (feedbackHandler) feedbackHandler(); });
     const footl = el('div', 'rkr-footl');
     footl.append(statsBtn, fbBtn);
-    // which songs play (main.js: all one after the other, or one on a loop); also in the Esc menu
-    if (musicCtl) {
-      const mb = el('button', 'rkr-statsbtn rkr-musicbtn', '🎵 ' + musicCtl.label());
-      mb.title = 'Which songs play: all of them, or one on a loop';
-      mb.addEventListener('mousedown', (e) => e.preventDefault());   // keep Enter / gamepad on the menu buttons
-      mb.addEventListener('click', () => { mb.textContent = '🎵 ' + musicCtl.cycle(); });
-      footl.appendChild(mb);
+    // settings (settings.js: volume, songs, graphics, keys); also in the Esc menu
+    if (settingsHandler) {
+      const sb = el('button', 'rkr-statsbtn rkr-setbtn', '⚙️ SETTINGS');
+      sb.addEventListener('mousedown', (e) => e.preventDefault());   // keep Enter / gamepad on the menu buttons
+      sb.addEventListener('click', () => settingsHandler());
+      footl.prepend(sb);   // (leftmost)
     }
     // 4: optional account (account.js), hidden until accounts are on
     acctBtn = o.querySelector('.rkr-swag');
     paintAccount();
-    o.appendChild(footl);
+    const tfoot = el('div', 'rkr-tfoot');
+    tfoot.append(footl, credits);
+    o.appendChild(tfoot);
+    // In the corners the bottom row would cover part of the menu, or the menu doesn't fit on screen at all (zoomed in,
+    // small window)? Then it goes into the flow under the panels (rkr-tight, see the CSS). Measured in the corners.
+    const tcol = o.querySelector('.rkr-tcol');
+    const blocks = [...tcol.children].filter((c) => !c.classList.contains('rkr-foot'));   // ('Press 1 or 2' sits between the corners)
+    const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    const fit = () => {
+      if (!o.isConnected) return;
+      o.classList.remove('rkr-tight');
+      const corners = [...tfoot.children].map((c) => c.getBoundingClientRect());
+      const covers = blocks.some((b) => { const r = b.getBoundingClientRect(); return r.height > 0 && corners.some((c) => hit(c, r)); });
+      const box = o.getBoundingClientRect(), menu = tcol.getBoundingClientRect();   // (its padding may overflow a little)
+      const top = menu.top - box.top + o.scrollTop, bottom = menu.bottom - box.top + o.scrollTop;   // (scroll-independent)
+      if (covers || bottom > o.clientHeight + 1 || top < -1) o.classList.add('rkr-tight');
+    };
+    if (typeof ResizeObserver !== 'undefined') { const ro = new ResizeObserver(fit); ro.observe(o); ro.observe(tcol); }
+    window.addEventListener('resize', fit);
+    requestAnimationFrame(() => requestAnimationFrame(fit));   // once it's on screen and laid out
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);   // (the web fonts change its size)
     titleBtns = [...o.querySelectorAll('.rkr-btn')];
     titleBtns.forEach((b) => {
       b.addEventListener('click', () => startGame(+b.dataset.p));
@@ -997,17 +1029,16 @@ function createUI(root) {
         <div class="rkr-gsub">${online ? 'Online games keep running. Watch out!' : 'The kitties are taking a little nap.'}</div>
         <button class="rkr-btn">RESUME</button>
         ${onLeave ? '<button class="rkr-btn rkr-alt rkr-leave">LEAVE GAME</button>' : ''}
-        ${musicCtl ? '<button class="rkr-statsbtn rkr-musicbtn" title="Which songs play: both, or one on a loop"></button>' : ''}
-        <div class="rkr-keyhint"><span class="rkr-k rkr-wide">Enter</span> or <span class="rkr-k">P</span> to resume &middot; <span class="rkr-k">M</span> mute</div>
+        ${settingsHandler ? '<button class="rkr-btn rkr-set rkr-setbtn">SETTINGS</button>' : ''}
+        <div class="rkr-keyhint"><span class="rkr-k rkr-wide">Enter</span> or <span class="rkr-k" data-act="pause"></span> to resume &middot; <span class="rkr-k" data-act="sound"></span> mute</div>
       </div>`;
     pauseEl.querySelector('.rkr-btn').addEventListener('click', resume);
     if (onLeave) pauseEl.querySelector('.rkr-leave').addEventListener('click', () => { hidePause(); onLeave(); });
-    // which songs play (main.js: both one after the other, or one on a loop)
-    const mb = pauseEl.querySelector('.rkr-musicbtn');
-    if (mb) {
-      mb.textContent = '🎵 ' + musicCtl.label();
-      mb.addEventListener('mousedown', (e) => e.preventDefault());   // keep Enter on RESUME
-      mb.addEventListener('click', () => { mb.textContent = '🎵 ' + musicCtl.cycle(); });
+    paintKeys(pauseEl);
+    const sb = pauseEl.querySelector('.rkr-setbtn');
+    if (sb) {
+      sb.addEventListener('mousedown', (e) => e.preventDefault());   // keep Enter on RESUME
+      sb.addEventListener('click', () => settingsHandler());
     }
     root.appendChild(pauseEl);
     state.pause = true;
@@ -1273,8 +1304,17 @@ function createUI(root) {
   muteEl.addEventListener('click', () => { if (muteHandler) muteHandler(); });
   function onMuteClick(fn) { muteHandler = fn; }
   // the title screen's music button: { label() -> text, cycle() -> next choice's text } (main.js)
-  let musicCtl = null;
-  function setMusicControl(c) { musicCtl = c; }
+  let settingsHandler = null;
+  function onSettingsClick(fn) { settingsHandler = fn; }
+  // keycaps marked data-act show the key picked for that action in the settings
+  function paintKeys(node) {
+    for (const k of node.querySelectorAll('[data-act]')) {
+      const name = keyName(key(k.dataset.act));
+      k.textContent = name;
+      k.classList.toggle('rkr-wide', name.length > 1);
+    }
+  }
+  function refreshKeys() { for (const n of [titleEl, pauseEl, hintEl]) if (n) paintKeys(n); }
   let feedbackHandler = null;
   function onFeedbackClick(fn) { feedbackHandler = fn; }
   function onAccountClick(fn) { accountHandler = fn; }
@@ -1299,7 +1339,7 @@ function createUI(root) {
     if (e.repeat) return;
     const k = e.key;
     if (blocker && blocker()) return;
-    if ((k === 'h' || k === 'H') && !state.title && !e.target.closest?.('input')) { setHudMin(!hudMin); return; }
+    if (e.code === key('hud') && !state.title && !e.target.closest?.('input')) { setHudMin(!hudMin); return; }
     if (state.victory) {
       if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'a' || k === 'A' || k === 'w' || k === 'W') selectVictory(vSel - 1);
       else if (k === 'ArrowRight' || k === 'ArrowDown' || k === 'd' || k === 'D' || k === 's' || k === 'S') selectVictory(vSel + 1);
@@ -1327,7 +1367,7 @@ function createUI(root) {
 
   return {
     showTitle, hideTitle, setHUD, updateMinimap, banner, toast, setScores,
-    showPause, hidePause, showGameOver, hideGameOver, setMusicControl, gameOverSlot: () => (goEl ? goEl.querySelector('.rkr-goslot') : null), setMutedIcon, isOverlayOpen, onMuteClick, onFeedbackClick, onAccountClick, setAccountButton, onMenuClick,
+    showPause, hidePause, showGameOver, hideGameOver, onSettingsClick, refreshKeys, gameOverSlot: () => (goEl ? goEl.querySelector('.rkr-goslot') : null), setMutedIcon, isOverlayOpen, onMuteClick, onFeedbackClick, onAccountClick, setAccountButton, onMenuClick,
     showVictory, hideVictory, updateVictoryFish, isVictoryOpen: () => state.victory, navigate, hideHUD,
     showNotice, hideNotice, setBlocker, setVictoryHidden,
     isTitleOpen: () => state.title, isGameOverOpen: () => state.gameOver,

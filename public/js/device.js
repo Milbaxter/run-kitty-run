@@ -14,9 +14,19 @@ function detectTouch() {
   return mm('(pointer: coarse)') || ((navigator.maxTouchPoints || 0) > 1 && !mm('(any-pointer: fine)'));
 }
 
-const QUALITY = TOUCH
-  ? { pixelRatio: 1.5, antialias: false, shadowMap: 1024, softShadows: false, propShadows: false, particles: 0.45 }
-  : { pixelRatio: 2, antialias: true, shadowMap: 2048, softShadows: true, propShadows: true, particles: 1 };
+// Graphics quality: the player's pick in the settings (settings.js) or 'auto' (phones and tablets get medium,
+// everything else high). Looks only: the game plays the same on every one. setQuality() switches it live (main.js
+// applies it); only antialiasing is fixed when the page loads.
+const PROFILES = {
+  high: { pixelRatio: 2, antialias: true, shadows: true, shadowMap: 2048, softShadows: true, propShadows: true, particles: 1 },
+  medium: { pixelRatio: 1.5, antialias: false, shadows: true, shadowMap: 1024, softShadows: false, propShadows: false, particles: 0.45 },
+  low: { pixelRatio: 1, antialias: false, shadows: false, shadowMap: 1024, softShadows: false, propShadows: false, particles: 0.3 },
+};
+let gfxPick = 'auto';
+try { gfxPick = (JSON.parse(localStorage.getItem('rkr-settings') || '{}') || {}).gfx || 'auto'; } catch { /* auto */ }
+const profileFor = (pick) => PROFILES[pick] || (TOUCH ? PROFILES.medium : PROFILES.high);
+const QUALITY = { ...profileFor(gfxPick) };
+function setQuality(pick) { Object.assign(QUALITY, profileFor(pick), { antialias: QUALITY.antialias }); return profileFor(pick).antialias; }
 
 const root = document.documentElement;
 if (TOUCH) root.classList.add('rkr-touch');
@@ -62,4 +72,4 @@ function hideSplash() {
   if (NATIVE) call('SplashScreen', 'hide', { fadeOutDuration: 250 });
 }
 
-export { TOUCH, QUALITY, NATIVE, goFullscreenLandscape, setKeepAwake, hideSplash };
+export { TOUCH, QUALITY, NATIVE, setQuality, goFullscreenLandscape, setKeepAwake, hideSplash };

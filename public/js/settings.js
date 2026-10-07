@@ -1,0 +1,225 @@
+// Settings (remembered per browser): music and sound-effect volume, which songs play (main.js owns that choice),
+// graphics quality (device.js reads it at load, main.js switches it live) and the keyboard controls. The window is
+// opened from the main menu's SETTINGS button and the Esc menu (ui.js); main.js passes in what only it knows (the
+// songs, applying the volumes and the graphics).
+import { TOUCH } from './device.js';
+
+const KEY = 'rkr-settings';
+const DEFAULT_KEYS = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', pause: 'KeyP', sound: 'KeyM', hud: 'KeyH', zoomIn: 'Equal', zoomOut: 'Minus' };
+const ACTIONS = [
+  ['up', 'Move up'], ['down', 'Move down'], ['left', 'Move left'], ['right', 'Move right'],
+  ['pause', 'Pause / menu'], ['sound', 'Sound on / off'], ['hud', 'Show / hide the HUD'], ['zoomIn', 'Zoom in'], ['zoomOut', 'Zoom out'],
+];
+// keys that keep their fixed job (arrows move, Esc pauses and cancels, Enter chats and confirms, Tab switches the watched kitty)
+const RESERVED = new Set(['Escape', 'Enter', 'NumpadEnter', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'MetaLeft', 'MetaRight']);
+const GFX = [['auto', 'AUTO'], ['high', 'HIGH'], ['medium', 'MEDIUM'], ['low', 'LOW']];
+
+const S = { music: 1, sfx: 1, gfx: 'auto', keys: { ...DEFAULT_KEYS } };
+try {
+  const v = JSON.parse(localStorage.getItem(KEY) || '{}');
+  const pct = (x, d) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : d);
+  S.music = pct(v.music, 1); S.sfx = pct(v.sfx, 1);
+  if (GFX.some(([id]) => id === v.gfx)) S.gfx = v.gfx;
+  for (const [a] of ACTIONS) if (typeof (v.keys || {})[a] === 'string' && !RESERVED.has(v.keys[a])) S.keys[a] = v.keys[a];
+} catch { /* defaults */ }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* ignore */ } }
+
+const key = (action) => S.keys[action];
+// a key's name on a keycap: KeyW -> W, Digit1 -> 1, Equal -> =
+const NAMES = { Equal: '=', Minus: '-', BracketLeft: '[', BracketRight: ']', Semicolon: ';', Quote: "'", Backquote: '`', Backslash: '\\',
+  Comma: ',', Period: '.', Slash: '/', Space: 'Space', ShiftLeft: 'Shift', ShiftRight: 'R-Shift', ControlLeft: 'Ctrl', ControlRight: 'R-Ctrl',
+  AltLeft: 'Alt', AltRight: 'AltGr', CapsLock: 'Caps', Backspace: 'Bksp', Delete: 'Del', Insert: 'Ins', PageUp: 'PgUp', PageDown: 'PgDn',
+  NumpadAdd: 'Num +', NumpadSubtract: 'Num -', NumpadMultiply: 'Num *', NumpadDivide: 'Num /', NumpadDecimal: 'Num .' };
+function keyName(code) {
+  if (!code) return '?';
+  if (NAMES[code]) return NAMES[code];
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  if (/^Digit\d$/.test(code)) return code.slice(5);
+  if (/^Numpad\d$/.test(code)) return 'Num ' + code.slice(6);
+  return code;
+}
+
+const CSS = `
+.rkr-glass.rkst-box{width:min(880px,100%);max-width:880px;max-height:calc(100% - 8px);overflow:hidden auto;text-align:left;gap:14px;background:rgba(22,10,50,.94);}
+.rkst-cols{display:grid;grid-template-columns:1fr 1fr;gap:18px 32px;align-self:stretch;align-items:start;}
+.rkst-col{display:flex;flex-direction:column;gap:18px;}
+@media (max-width:720px){ .rkst-cols{grid-template-columns:1fr;} }
+.rkr-glass.rkst-box h2{margin:0;text-align:center;font-size:clamp(30px,4vw,42px);}
+.rkst-sec{display:flex;flex-direction:column;gap:10px;align-self:stretch;}
+.rkst-sec h3{margin:0;font-size:13px;font-weight:900;letter-spacing:.1em;color:#ffcf5a;}
+.rkst-row{display:flex;align-items:center;gap:12px;font-weight:800;font-size:15px;}
+.rkst-row > span:first-child{flex:0 0 120px;}
+.rkst-stack{display:flex;flex-direction:column;gap:8px;font-weight:800;font-size:15px;}
+.rkst-row input[type=range]{flex:1;accent-color:#ffcf5a;min-width:0;cursor:pointer;}
+.rkst-row output{flex:0 0 44px;text-align:right;font-variant-numeric:tabular-nums;}
+.rkst-seg{display:flex;flex-wrap:wrap;gap:6px;}
+.rkst-seg button,.rkst-kbtn,.rkst-small{font:inherit;font-weight:900;font-size:13px;letter-spacing:.04em;cursor:pointer;color:#fff6d8;
+  padding:6px 12px;border-radius:999px;border:2px solid rgba(255,255,255,.25);background:rgba(20,8,48,.55);}
+.rkst-seg button:hover,.rkst-kbtn:hover,.rkst-small:hover{background:rgba(60,30,110,.75);}
+.rkst-seg button.rkst-on{border-color:#ffcf5a;background:rgba(255,207,90,.22);}
+.rkst-note{font-size:13px;font-weight:700;color:rgba(239,231,255,.7);}
+.rkst-keys{display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:center;font-weight:800;font-size:15px;}
+.rkst-kbtn{min-width:86px;border-radius:10px;}
+.rkst-kbtn.rkst-wait{border-color:#ffcf5a;animation:rkst-pulse 1s ease-in-out infinite;}
+@keyframes rkst-pulse{50%{background:rgba(255,207,90,.25);}}
+.rkst-foot{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;}
+.rkst-sec > .rkst-small{align-self:flex-start;}
+`;
+
+let styled = false;
+let modal = null;
+let capture = null;   // { action, button }: waiting for a key
+const isOpen = () => !!modal;
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+// opts (main.js): music: { choices: [[id, label]], get(), set(id) }, onVolume(), onGraphics(id) -> true if smooth edges wait for a reload, onKeys(), onClose()
+function openSettings(root, opts = {}) {
+  if (!styled) { const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st); styled = true; }
+  closeSettings();
+  modal = el('div', 'rkr-overlay rkr-dim');
+  const box = el('div', 'rkr-glass rkst-box');
+  box.appendChild(el('h2', null, 'SETTINGS'));
+
+  // ---- sound
+  const sound = el('div', 'rkst-sec');
+  sound.appendChild(el('h3', null, 'SOUND'));
+  const slider = (label, prop) => {
+    const row = el('label', 'rkst-row');
+    const input = el('input'); input.type = 'range'; input.min = '0'; input.max = '100'; input.step = '5';
+    input.value = String(Math.round(S[prop] * 100));
+    const out = el('output', null, input.value + '%');
+    input.addEventListener('input', () => {
+      S[prop] = +input.value / 100; out.textContent = input.value + '%'; save();
+      if (opts.onVolume) opts.onVolume();
+    });
+    row.append(el('span', null, label), input, out);
+    return row;
+  };
+  sound.append(slider('Music volume', 'music'), slider('Sound effects', 'sfx'));
+  if (opts.music) {
+    const seg = el('div', 'rkst-seg');
+    const paint = () => { for (const b of seg.children) b.classList.toggle('rkst-on', b.dataset.id === opts.music.get()); };
+    for (const [id, label] of opts.music.choices) {
+      const b = el('button', null, label); b.dataset.id = id; b.type = 'button';
+      b.addEventListener('click', () => { opts.music.set(id); paint(); });
+      seg.appendChild(b);
+    }
+    paint();
+    const stack = el('div', 'rkst-stack');
+    stack.append(el('span', null, 'Songs'), seg);
+    sound.appendChild(stack);
+  }
+  const cols = el('div', 'rkst-cols');
+  const left = el('div', 'rkst-col');
+  cols.appendChild(left);
+  box.appendChild(cols);
+  left.appendChild(sound);
+
+  // ---- graphics
+  const gfx = el('div', 'rkst-sec');
+  gfx.appendChild(el('h3', null, 'GRAPHICS'));
+  const gseg = el('div', 'rkst-seg');
+  const note = el('div', 'rkst-note');
+  // switched on the spot (main.js applyGraphics), mid-run too; only the edge smoothing waits for the next load
+  const paintGfx = (edgesLater) => {
+    for (const b of gseg.children) b.classList.toggle('rkst-on', b.dataset.id === S.gfx);
+    note.textContent = 'Auto picks for your device. Lower settings run smoother on slower computers: Low turns shadows off.'
+      + (edgesLater ? ' Smooth edges change the next time the game opens.' : '');
+  };
+  for (const [id, label] of GFX) {
+    const b = el('button', null, label); b.dataset.id = id; b.type = 'button';
+    b.addEventListener('click', () => { S.gfx = id; save(); paintGfx(opts.onGraphics ? opts.onGraphics(id) : false); });
+    gseg.appendChild(b);
+  }
+  paintGfx(false);
+  gfx.append(gseg, note);
+  left.appendChild(gfx);
+
+  // ---- controls (keyboards only)
+  if (!TOUCH) {
+    const ctl = el('div', 'rkst-sec');
+    ctl.appendChild(el('h3', null, 'CONTROLS'));
+    const grid = el('div', 'rkst-keys');
+    const btns = {};
+    const paintKeys = () => { for (const [a] of ACTIONS) btns[a].textContent = keyName(S.keys[a]); };
+    for (const [a, label] of ACTIONS) {
+      const b = el('button', 'rkst-kbtn'); b.type = 'button';
+      b.addEventListener('click', () => {
+        if (capture) capture.button.classList.remove('rkst-wait');
+        capture = { action: a, button: b, paint: paintKeys };
+        b.classList.add('rkst-wait'); b.textContent = 'press a key';
+      });
+      btns[a] = b;
+      grid.append(el('span', null, label), b);
+    }
+    paintKeys();
+    const reset = el('button', 'rkst-small', 'RESET KEYS');
+    reset.type = 'button';
+    reset.addEventListener('click', () => { S.keys = { ...DEFAULT_KEYS }; save(); cancelCapture(); paintKeys(); if (opts.onKeys) opts.onKeys(); });
+    ctl.append(grid, el('div', 'rkst-note', 'The arrow keys always move too, Esc always pauses and Enter opens the chat online.'), reset);
+    cols.appendChild(ctl);
+  }
+
+  const foot = el('div', 'rkst-foot');
+  const done = el('button', 'rkr-btn', 'DONE');
+  done.type = 'button';
+  done.addEventListener('click', () => closeSettings());
+  foot.appendChild(done);
+  box.appendChild(foot);
+
+  modal.appendChild(box);
+  modal.addEventListener('pointerdown', (e) => { if (e.target === modal) closeSettings(); });
+  modal._opts = opts;
+  root.appendChild(modal);
+}
+
+function cancelCapture() {
+  if (!capture) return;
+  capture.button.classList.remove('rkst-wait');
+  const p = capture.paint;
+  capture = null;
+  p();
+}
+
+function closeSettings() {
+  if (!modal) return;
+  cancelCapture();
+  const opts = modal._opts || {};
+  modal.remove();
+  modal = null;
+  if (opts.onClose) opts.onClose();
+}
+
+// While the window is open it gets the keys first (capture phase): binding a key, Esc to cancel or close. Nothing
+// reaches the game, so a kitty can't walk off while you pick a key.
+window.addEventListener('keydown', (e) => {
+  if (!modal) return;
+  if (capture) {
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (e.code === 'Escape' || !e.code) { cancelCapture(); return; }
+    if (RESERVED.has(e.code)) return;   // keep waiting
+    const { action, paint } = capture;
+    const other = Object.keys(S.keys).find((a) => a !== action && S.keys[a] === e.code);
+    if (other) S.keys[other] = S.keys[action];   // that key was taken: the two swap
+    S.keys[action] = e.code;
+    save();
+    capture.button.classList.remove('rkst-wait');
+    capture = null;
+    paint();
+    if (modal._opts && modal._opts.onKeys) modal._opts.onKeys();
+    return;
+  }
+  e.stopImmediatePropagation();
+  if (e.code === 'Escape') { e.preventDefault(); closeSettings(); }
+}, true);   // (key releases still reach the game: nothing stays held)
+
+const musicVolume = () => S.music;
+const sfxVolume = () => S.sfx;
+
+export { openSettings, closeSettings, isOpen as settingsOpen, key, keyName, musicVolume, sfxVolume, KEY as SETTINGS_KEY };

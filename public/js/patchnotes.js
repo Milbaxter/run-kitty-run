@@ -4,6 +4,9 @@ const PATCH_NOTES = [
   {
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
+      'New SETTINGS menu (on the main menu and in the Esc menu): music and sound effect volume, which songs play, graphics quality (Auto, High, Medium or Low: Low turns shadows off for slower computers) and your own keyboard controls',
+      'Fixed: after a checkpoint, a new level or nightfall the camera jumps straight to your kitty, so you never run around unseen for a moment',
+      'Fixed: on small or zoomed-in screens the Stats, Feedback and Settings buttons and the credits no longer cover the main menu',
       'Run + Skate is the default mode again: first in the mode list and picked until you choose another one',
       'Swag account stats: a FASTEST tab shows the best team time on every level in each mode (Run + Skate counts the day and night halves together)',
       'Soundtrack: a third song, CATJAM 4 Meow',

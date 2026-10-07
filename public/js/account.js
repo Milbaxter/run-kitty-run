@@ -190,7 +190,7 @@ function createAccount(root) {
       // account, so both buttons do the same thing: the same Google account always gets the same swag account back.
       const create = section('NEW HERE?'), back = section('ALREADY HAVE ONE?');
       const gNew = el('div', 'rka-gbtn'), gBack = el('div', 'rka-gbtn');
-      create.append(el('div', 'rka-note', `Totally optional, you do not need an account to play the game. Chip in whatever you like (from ${fmtPaid(A.cfg.min)}) and the total shows next to your kitty for everyone online (can toggle it on and off).`), gNew);
+      create.append(el('div', 'rka-note', `Totally optional, you do not need an account to play the game. Chip in whatever you like and the total shows next to your kitty for everyone online (can toggle it on and off).`), gNew);
       back.append(el('div', 'rka-note', 'Sign in with the same Google account as before and your swag comes back, on any browser.'), gBack);
       box.append(el('h2', null, 'SWAG ACCOUNT'), create, back, msg, fine('By signing in you agree to the '), closeBtn);
       loadGsi().then(() => {

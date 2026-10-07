@@ -1,6 +1,7 @@
 // Run Kitty Run online server: serves the static client and runs authoritative lobbies over WebSockets.
 // One Room = one lobby (max NET.MAX_PLAYERS). The first player in the lobby is its host and decides when to start.
 import http from 'node:http';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,6 +56,15 @@ const FEEDBACK_FILE_MAX = 5 << 20;  // bytes; stop appending past this (someone 
 const MAX_CONN_PER_IP = +process.env.MAX_CONN_PER_IP || 10;
 const MSG_RATE = 150, MSG_BURST = 300;   // any message; ~60 inputs/s + pings is normal play. Over it: disconnect
 const LOBBY_RATE = 1, LOBBY_BURST = 5;   // create / join / leave / list / start
+// Invites (protocol 18+): a player's public friend id is a hash of its browser's progress id (which stays secret: it's
+// the key to its unlock progress), so it can't be faked. Lobby members see each other's; a client remembers the people
+// it played with, asks who of them is online ('seen'), and invites them into its lobby ('invite').
+const INVITE_PROTOCOL = 18;
+const SEEN_RATE = 0.5, SEEN_BURST = 4, SEEN_MAX = 30;   // who's online: one look every 2 s, up to 30 friends
+const INVITE_RATE = 0.5, INVITE_BURST = 4;              // invites sent
+const INVITE_AGAIN_MS = 15e3;                           // the same inviter, the same friend: once per 15 s
+const friendId = (pid) => (pid ? crypto.createHash('sha256').update('rkr-friend:' + pid).digest('base64url').slice(0, 16) : '');
+const FID = /^[\w-]{16}$/;
 const LOBBY_MSGS = new Set(['create', 'join', 'leave', 'list', 'start']);
 // A client that stops reading would make us buffer its messages forever. Snapshots are ~1-10 KB at 20 Hz,
 // so 1 MB is many seconds behind: it can't play anyway, drop it (it reconnects).
@@ -394,11 +404,53 @@ function broadcast(room, msg) {
   for (const m of room.members) send(m.ws, s);
 }
 
+// the open, invitable client with this friend id (the same browser may have more tabs: one not playing first)
+function friendClient(fid) {
+  let best = null;
+  for (const c of clients.values()) {
+    if (c.fid !== fid || c.v < INVITE_PROTOCOL || !c.ws || c.ws.readyState !== 1) continue;
+    if (!c.room || c.room.phase !== 'playing') return c;
+    best ||= c;
+  }
+  return best;
+}
+const friendState = (c) => (!c ? 'off' : !c.room ? 'online' : c.room.phase === 'playing' ? 'playing' : 'lobby');
+// who of these friends is online now: 'online' (the Multiplayer menu), 'lobby', 'playing' (missing: not online)
+function handleSeen(client, msg) {
+  if (!take(client, 'seen', SEEN_RATE, SEEN_BURST, Date.now()) || !Array.isArray(msg.fids)) return;
+  const list = [];
+  for (const fid of msg.fids.slice(0, SEEN_MAX)) {
+    if (typeof fid !== 'string' || !FID.test(fid) || fid === client.fid) continue;
+    const st = friendState(friendClient(fid));
+    if (st !== 'off') list.push({ fid, st });
+  }
+  send(client.ws, { t: 'seen', list });
+}
+// an invite into the inviter's lobby: the friend gets the code (and a private lobby's password) and a JOIN button
+function handleInvite(client, msg) {
+  const fid = typeof msg.fid === 'string' && FID.test(msg.fid) ? msg.fid : '';
+  const reply = (ok, text) => send(client.ws, { t: 'invited', fid, ok, msg: text });
+  if (!fid || !client.room || client.v < INVITE_PROTOCOL) return reply(false, 'Join or start a lobby first.');
+  if (!take(client, 'invite', INVITE_RATE, INVITE_BURST, Date.now())) return reply(false, 'Slow down a little!');
+  const room = client.room, to = friendClient(fid);
+  if (!to || to === client) return reply(false, 'Not online right now.');
+  if (to.room === room) return reply(false, 'Already in your lobby.');
+  if (to.room && to.room.phase === 'playing') return reply(false, 'In a game right now.');
+  if (room.members.length >= (room.max || NET.MAX_PLAYERS)) return reply(false, 'Your lobby is full.');
+  const key = client.fid || 'c' + client.id, last = (to.invitedBy ||= new Map()).get(key) || 0;
+  if (Date.now() - last < INVITE_AGAIN_MS) return reply(false, 'Invited! Give them a moment.');
+  to.invitedBy.set(key, Date.now());
+  if (to.invitedBy.size > 50) to.invitedBy.delete(to.invitedBy.keys().next().value);
+  send(to.ws, { t: 'invite', name: client.name || 'A kitty', color: client.color, code: room.code, mode: room.mode, pass: room.pass || undefined });
+  reply(true, 'Invite sent!');
+}
+
 function roomInfo(room) {
   return {
     t: 'room', code: room.code, host: room.hostId, phase: room.phase, mode: room.mode, max: room.max || NET.MAX_PLAYERS,
     locked: !!room.pass, pass: room.pass || undefined,   // private lobby: its members see the password (to pass it on)
     members: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color, app: m.app, paid: m.paid || undefined,   // paid: cents (accounts.js)
+      fid: m.fid || undefined,   // public friend id (invites)
       cos: m.cos && m.cos.length ? m.cos : undefined })),   // cos: switched-on unlocks (shared/unlocks.js)
   };
 }
@@ -770,6 +822,7 @@ wss.on('connection', (ws, req) => {
         client.paid = accounts.paidFor(msg.acct);   // signed-in account: its total shows next to the name
         client.acct = accounts.subFor(msg.acct);    // ...and its stats count this player's online games
         client.pid = accounts.validPid(msg.pid);    // the browser's unlock progress id (players without an active account)
+        client.fid = v >= INVITE_PROTOCOL ? friendId(client.pid) : '';   // public friend id (invites), from the secret pid
         accounts.mergeGuest(client.acct, client.pid);   // an active account takes over this browser's guest progress
         accounts.seenGuest(client.pid);                 // (or the guest progress is kept another two months)
         client.cos = accounts.cosForPlayer({ sub: client.acct, pid: client.pid });   // switched-on unlocks on its kitty
@@ -807,6 +860,8 @@ wss.on('connection', (ws, req) => {
       case 'list':
         send(ws, { t: 'lobbies', list: lobbyList(client) });
         break;
+      case 'seen': handleSeen(client, msg); break;
+      case 'invite': handleInvite(client, msg); break;
       case 'create': {
         if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', msg: 'Server is full, try again later.' });
         const mode = GAME_MODES.includes(msg.mode) ? msg.mode : 'mixed';

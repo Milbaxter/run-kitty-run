@@ -139,6 +139,6 @@ const stageStep = (mode, fv, level, night = false) => (mode === 'mixed' && (fv |
 //  15 = items: 8 a level (autumn 4 + the tree boots), at most 2 hearts and 3 shields, level 9's tree has big boots (finale version 11, rf 11)
 //  16 = Skate only's levels 1-8: the seasons from winter, as floodlit night levels (finale version 12, rf 12)
 //  17 = Run + Skate: every level by day (Run only's) then by night (Skate only's), see DAY_NIGHT_FV (finale version 13, rf 13)
-const PROTOCOL_VERSION = 17;
+const PROTOCOL_VERSION = 18;   // 18: friend ids, who's online, invites (server/index.js 'seen' / 'invite')
 
 export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION, DAY_NIGHT_FV, stageOf, stageStep };

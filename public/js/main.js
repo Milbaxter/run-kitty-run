@@ -1673,6 +1673,12 @@ const lobbyUI = createLobbyUI(document.getElementById('ui'), {
   onLeave: () => net.send({ t: 'leave' }),
   onStart: () => net.send({ t: 'start' }),
   onRefresh: () => net.send({ t: 'list' }),
+  // the invite panel: the players you played with, who of them is online, and inviting them
+  recent: () => recentPlayers(),
+  onRecentOpen: () => askSeen(),
+  onFriend: (fid) => toggleFriend(fid),
+  get friendsMax() { return FRIENDS_MAX; },   // (defined further down)
+  onInvite: (fid) => net.send({ t: 'invite', fid }),
   onBack: () => leaveOnline(),
 });
 
@@ -1809,6 +1815,70 @@ net.on('room', (m) => {
   if (!online.playing || mode !== 'play') lobbyUI.showRoom(m);
   else if (m.phase === 'lobby' && victory) victory.lobbyAt = victory.t; // the party is over on the server: head back soon
 });
+// ---------- invites (protocol 18): the players you played Multiplayer with, kept on this browser only ----------
+// Each has the public friend id the server gave them (a hash, not their progress id); newest first. Starred ones
+// (fav: friends) always stay; of the others, the newest RECENT_MAX.
+const RECENT_KEY = 'rkr-recent', RECENT_MAX = 20, FRIENDS_MAX = 50;
+function recentPlayers() {
+  try {
+    const v = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
+    return Array.isArray(v) ? v.filter((p) => p && typeof p.fid === 'string' && typeof p.name === 'string') : [];
+  } catch { return []; }
+}
+function saveRecent(list) {
+  let rest = 0, favs = 0;
+  const kept = list.filter((p) => (p.fav ? ++favs <= FRIENDS_MAX : ++rest <= RECENT_MAX));
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(kept)); } catch { /* ignore */ }
+}
+// the star: a friend stays on the list (and shows first); false when the friends list is full
+function toggleFriend(fid) {
+  const list = recentPlayers(), p = list.find((x) => x.fid === fid);
+  if (!p) return true;
+  if (p.fav) delete p.fav;
+  else if (list.filter((x) => x.fav).length >= FRIENDS_MAX) return false;
+  else p.fav = true;
+  saveRecent(list);
+  return true;
+}
+// a Multiplayer game starts: everyone else in the lobby goes to the top of the list
+function rememberPlayers(members) {
+  const me = members.find((m) => m.id === online.me), list = recentPlayers();
+  for (const m of members) {
+    if (!m.fid || m.id === online.me || (me && m.fid === me.fid)) continue;   // (not you, not your own other tab)
+    const i = list.findIndex((p) => p.fid === m.fid);
+    const fav = i >= 0 && list[i].fav;
+    if (i >= 0) list.splice(i, 1);
+    list.unshift({ fid: m.fid, name: m.name, color: m.color, ...(fav ? { fav: true } : {}) });   // (the name they use now)
+  }
+  saveRecent(list);
+}
+// who of them is online: asked when the invite panel opens, then every few seconds while it's open
+function askSeen() {
+  const fids = recentPlayers().map((p) => p.fid);
+  if (fids.length && net.connected) net.send({ t: 'seen', fids });
+}
+setInterval(() => { if (lobbyUI.recentOpen()) askSeen(); }, 3000);
+net.on('seen', (m) => lobbyUI.setSeen(Array.isArray(m.list) ? m.list : []));
+net.on('invited', (m) => lobbyUI.inviteResult(m.fid, !!m.ok, typeof m.msg === 'string' ? m.msg : ''));
+// someone invites you into their lobby: JOIN (or not). Not from a player you muted, not over another notice.
+const MODE_NAMES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
+net.on('invite', (m) => {
+  if (typeof m.code !== 'string' || !/^[A-Z]{4,8}$/.test(m.code) || ui.isNoticeOpen()) return;
+  if (online.room && online.room.code === m.code) return;
+  if (online.playing && mode === 'play') return;   // (the server doesn't send these mid-game anyway)
+  const name = String(m.name || 'A kitty').slice(0, 14);
+  try { if (JSON.parse(localStorage.getItem('rkr-blocked') || '[]').includes(name)) return; } catch { /* ignore */ }
+  haptic('success');
+  audio.play('click');
+  ui.showNotice({
+    title: 'INVITE!',
+    text: `${name} invites you to their lobby (${MODE_NAMES[m.mode] || 'Run + Skate'}).`,
+    button: 'JOIN',
+    onClick: () => { ui.hideNotice(); joinFromLink(m.code, typeof m.pass === 'string' ? m.pass : ''); },
+    alt: 'NO THANKS',
+    onAlt: () => ui.hideNotice(),
+  });
+});
 net.on('left', () => { online.room = null; chat.setEnabled(false); setRoomInUrl(null); if (online.playing) enterTitle(false); lobbyUI.showBrowser(); });
 net.on('open', () => {
   // back after a dropped connection (or the app was in the background): rejoin the same lobby
@@ -1863,6 +1933,7 @@ function beginOnlineGame(m) {
   mode = 'play';
   paused = false;
   for (const p of m.players) online.roster.set(p.id, { ...online.roster.get(p.id), ...p });   // (keeps the room's paid totals)
+  if (online.room) rememberPlayers(online.room.members);   // (for the invite panel)
   playerCount = m.players.length;
   removeKitties();
   sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode, finales: +m.rf || 0 });

@@ -50,6 +50,29 @@ const CSS = `
 .rkl-roommode{font-weight:900;color:#bfe8ff;}
 .rkl-link{font-size:13px;font-weight:700;opacity:.75;word-break:break-all;user-select:text;-webkit-user-select:text;}
 .rkl-invite{min-width:220px;}
+/* invite panel: the players you played with (who's online), and the lobby link */
+.rkl-recent{width:100%;max-width:520px;display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:16px;
+  background:rgba(20,8,40,.45);border:2px solid rgba(255,255,255,.14);text-align:left;}
+.rkl-recent[hidden]{display:none;}
+.rkl-rh{font-size:12px;font-weight:900;letter-spacing:.08em;color:#ffcf5a;}
+.rkl-rlist{display:flex;flex-direction:column;gap:5px;max-height:210px;overflow-y:auto;}
+.rkl-rrow{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:10px;background:rgba(255,255,255,.05);}
+.rkl-rrow .rkl-cat{width:24px;height:24px;flex:none;}
+.rkl-rname{flex:1;min-width:0;font-weight:900;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.rkl-rst{flex:none;font-size:12px;font-weight:800;opacity:.75;display:flex;align-items:center;gap:5px;}
+.rkl-rst i{width:8px;height:8px;border-radius:50%;background:#888;}
+.rkl-rst.rkl-on{opacity:1;color:#b6ffb0;}
+.rkl-rst.rkl-on i{background:#4fe36a;box-shadow:0 0 6px #4fe36a;}
+.rkl-rst.rkl-busy{opacity:1;color:#ffd56b;}
+.rkl-rst.rkl-busy i{background:#ffb347;}
+.rkl-rrow .rkr-btn.rkl-mini:disabled{opacity:.35;cursor:default;filter:grayscale(1);}
+.rkl-rnote{font-size:13px;font-weight:700;opacity:.75;}
+.rkl-star{flex:none;font:inherit;font-size:20px;line-height:1;padding:0 2px;background:none;border:0;cursor:pointer;color:rgba(255,255,255,.4);}
+.rkl-star:hover{color:#ffd56b;}
+.rkl-star.rkl-fav{color:#ffd56b;text-shadow:0 0 8px rgba(255,213,107,.6);}
+.rkl-rtip{font-size:12px;font-weight:700;opacity:.6;}
+.rkl-rres{font-size:12px;font-weight:800;color:#b6ffb0;flex:none;}
+.rkl-rres.rkl-bad{color:#ff8fa3;}
 .rkl-plat{font-size:13px;flex:none;opacity:.85;}
 .rkl-slot .rkl-cat{position:relative;}
 /* account total (account.js): a gold tag after the name, like on the in-game card; as long as it needs to be */
@@ -531,19 +554,31 @@ function createLobbyUI(root, cb) {
       const code = el('div', 'rkl-bigcode');
       const roomMode = el('div', 'rkl-roommode');
       const link = el('div', 'rkl-link');
+      // INVITE FRIENDS opens the invite panel: the players you played with (invite the ones online), and the link
+      const copy = el('button', 'rkr-btn rkr-alt rkl-invite', '<span>INVITE FRIENDS</span><small>players you played with, or the link</small>');
+      const recent = el('div', 'rkl-recent');
+      recent.hidden = true;
+      copy.addEventListener('click', () => {
+        recent.hidden = !recent.hidden;
+        if (!recent.hidden) { renderRecent(); if (cb.onRecentOpen) cb.onRecentOpen(); }
+      });
       // share sheet in the app / on phones, clipboard on desktop
-      const copy = el('button', 'rkr-btn rkr-alt rkl-invite', '<span>INVITE FRIENDS</span><small>send the lobby link</small>');
+      const linkBtn = el('button', 'rkr-btn rkr-alt rkl-mini', 'SEND THE LINK');
       let copyT = 0;
-      copy.addEventListener('click', async () => {
+      linkBtn.addEventListener('click', async () => {
         if (!roomRefs) return;
         const c = roomRefs.code.textContent;
         // a private lobby's link carries its password, so friends get straight in
         const res = await share({ title: 'Run Kitty Run', text: `Join my Run Kitty Run lobby! Code ${c}`, url: inviteUrl(c, roomRefs.pass) });
         if (res !== 'copied' && res !== 'failed') return;
-        copy.firstChild.textContent = res === 'copied' ? 'LINK COPIED!' : 'COPY FAILED';
+        linkBtn.textContent = res === 'copied' ? 'LINK COPIED!' : 'COPY FAILED';
         clearTimeout(copyT);
-        copyT = setTimeout(() => { copy.firstChild.textContent = 'INVITE FRIENDS'; }, 1400);
+        copyT = setTimeout(() => { linkBtn.textContent = 'SEND THE LINK'; }, 1400);
       });
+      const rlist = el('div', 'rkl-rlist');
+      const linkRow = el('div', 'rkl-row');
+      linkRow.append(linkBtn);
+      recent.append(el('div', 'rkl-rh', 'FRIENDS & PLAYERS YOU PLAYED WITH'), rlist, el('div', 'rkl-rtip', '★ a player to keep them as a friend: friends stay on the list.'), linkRow);
       const slots = el('div', 'rkl-slots');
       const wait = el('div', 'rkl-wait');
       const start = el('button', 'rkr-btn', '<span>START GAME</span>');
@@ -555,8 +590,8 @@ function createLobbyUI(root, cb) {
       row.append(copy);
       const row2 = el('div', 'rkl-row');
       row2.append(start, leave);
-      mount([h, code, roomMode, link, row, slots, wait, row2, errEl]);
-      roomRefs = { code, roomMode, link, slots, wait, start };
+      mount([h, code, roomMode, link, row, recent, slots, wait, row2, errEl]);
+      roomRefs = { code, roomMode, link, slots, wait, start, recent, rlist };
     }
     const r = roomRefs;
     r.code.textContent = info.code;
@@ -564,6 +599,8 @@ function createLobbyUI(root, cb) {
     r.pass = info.locked ? info.pass || '' : '';
     r.link.textContent = inviteUrl(info.code, r.pass);
     r.slots.textContent = '';
+    r.fids = new Set(info.members.map((m) => m.fid).filter(Boolean));
+    renderRecent();
     // everyone in the lobby + one open slot (up to info.max)
     const max = info.max || 32;
     for (let i = 0; i < Math.min(max, info.members.length + 1); i++) {
@@ -592,6 +629,62 @@ function createLobbyUI(root, cb) {
       ? 'A run is in progress. Joining…'
       : isHost ? `You're the host. Start whenever you're ready (${info.members.length}/${max}).`
         : `Waiting for ${host ? host.name : 'the host'} to start…`;
+  }
+
+  // ---- the invite panel (main.js keeps the list: cb.recent() -> [{ fid, name, color, fav? }], newest first) ----
+  let seen = new Map();          // fid -> 'online' | 'lobby' | 'playing' (what the server said last; missing: offline)
+  const results = new Map();     // fid -> { ok, msg, until } (the answer to an invite, shown for a moment)
+  const ST = { online: ['Online', 'rkl-on'], lobby: ['In a lobby', 'rkl-on'], playing: ['In a game', 'rkl-busy'] };
+  function recentOpen() { return view === 'room' && !!roomRefs && !!roomRefs.recent && !roomRefs.recent.hidden; }
+  function renderRecent() {
+    if (!recentOpen()) return;
+    const list = (cb.recent ? cb.recent() : []).filter((p) => !(roomRefs.fids && roomRefs.fids.has(p.fid)));   // (not the ones already here)
+    const box = roomRefs.rlist;
+    box.textContent = '';
+    if (!list.length) { box.appendChild(el('div', 'rkl-rnote', 'The players you play Multiplayer games with show up here, so you can invite them next time.')); return; }
+    // friends (starred) first, online ones first, then the most recent
+    const rank = (p) => (p.fav ? 0 : 3) + (seen.get(p.fid) === 'online' || seen.get(p.fid) === 'lobby' ? 0 : seen.get(p.fid) === 'playing' ? 1 : 2);
+    const sorted = list.map((p, i) => [p, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map((x) => x[0]);
+    const now = performance.now();
+    for (const p of sorted) {
+      const row = el('div', 'rkl-rrow');
+      const cat = el('div', 'rkl-cat', CAT);
+      cat.style.color = hex(p.color);
+      const name = el('span', 'rkl-rname');
+      name.textContent = p.name;
+      const stv = seen.get(p.fid), st = ST[stv] || ['Offline', ''];
+      const stEl = el('span', 'rkl-rst ' + st[1], '<i></i>');
+      stEl.append(st[0]);
+      const star = el('button', 'rkl-star' + (p.fav ? ' rkl-fav' : ''), p.fav ? '★' : '☆');
+      star.title = p.fav ? 'Friend (stays on the list): click to unstar' : 'Keep as a friend';
+      star.addEventListener('click', () => {
+        if (cb.onFriend && cb.onFriend(p.fid) === false) { inviteResult(p.fid, false, `Friends list is full (${cb.friendsMax || 50})`); return; }
+        renderRecent();
+      });
+      row.append(star, cat, name);
+      const res = results.get(p.fid);
+      if (res && res.until > now) {
+        const r = el('span', 'rkl-rres' + (res.ok ? '' : ' rkl-bad'));
+        r.textContent = res.msg;
+        row.appendChild(r);
+      } else row.appendChild(stEl);
+      const inv = el('button', 'rkr-btn rkl-mini', 'INVITE');
+      inv.disabled = stv !== 'online' && stv !== 'lobby';
+      inv.addEventListener('click', () => { inv.disabled = true; if (cb.onInvite) cb.onInvite(p.fid); });
+      row.appendChild(inv);
+      box.appendChild(row);
+    }
+  }
+  // the server's answer to 'seen': [{ fid, st }]
+  function setSeen(list) {
+    seen = new Map((list || []).map((x) => [x.fid, x.st]));
+    renderRecent();
+  }
+  // the server's answer to an invite
+  function inviteResult(fid, ok, msg) {
+    results.set(fid, { ok, msg: msg || (ok ? 'Invite sent!' : 'Could not invite'), until: performance.now() + 3000 });
+    renderRecent();
+    setTimeout(renderRecent, 3100);
   }
 
   // a private lobby: fill in its code and ask for the password in the "Got a code?" row
@@ -626,7 +719,8 @@ function createLobbyUI(root, cb) {
     localNav = null;
   }
 
-  return { showBrowser, setLobbies, showRoom, showLocal, askPassword, showError, hide, isOpen: () => !!node, view: () => view, root: () => node };
+  return { showBrowser, setLobbies, showRoom, showLocal, askPassword, showError, hide, isOpen: () => !!node, view: () => view, root: () => node,
+    recentOpen, setSeen, inviteResult };
 }
 
 export { createLobbyUI };

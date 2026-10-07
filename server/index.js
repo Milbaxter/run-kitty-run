@@ -13,7 +13,7 @@ import { serializeEnemies } from '../public/js/shared/enemies.js';
 import { levelHash } from '../public/js/shared/maze.js';
 import { createStats } from './stats.js';
 import { createLegends } from './legends.js';
-import { createAccounts } from './accounts.js';
+import { createAccounts, onePerPlayer, samePlayer } from './accounts.js';
 import { pregenNext } from './levelgen.js';
 import { winsNeeded } from '../public/js/shared/unlocks.js';
 
@@ -63,6 +63,7 @@ const INVITE_PROTOCOL = 18;
 const SEEN_RATE = 0.5, SEEN_BURST = 4, SEEN_MAX = 30;   // who's online: one look every 2 s, up to 30 friends
 const INVITE_RATE = 0.5, INVITE_BURST = 4;              // invites sent
 const INVITE_AGAIN_MS = 15e3;                           // the same inviter, the same friend: once per 15 s
+const invitedAt = new Map();                            // 'inviter>friend' -> when (oldest dropped past 5000)
 const friendId = (pid) => (pid ? crypto.createHash('sha256').update('rkr-friend:' + pid).digest('base64url').slice(0, 16) : '');
 const FID = /^[\w-]{16}$/;
 const LOBBY_MSGS = new Set(['create', 'join', 'leave', 'list', 'start']);
@@ -404,16 +405,14 @@ function broadcast(room, msg) {
   for (const m of room.members) send(m.ws, s);
 }
 
-// the open, invitable client with this friend id (the same browser may have more tabs: one not playing first)
-function friendClient(fid) {
-  let best = null;
-  for (const c of clients.values()) {
-    if (c.fid !== fid || c.v < INVITE_PROTOCOL || !c.ws || c.ws.readyState !== 1) continue;
-    if (!c.room || c.room.phase !== 'playing') return c;
-    best ||= c;
-  }
-  return best;
+// the open, invitable clients with this friend id (the same browser may have more tabs open)
+function friendClients(fid) {
+  const out = [];
+  for (const c of clients.values()) if (c.fid === fid && c.v >= INVITE_PROTOCOL && c.ws && c.ws.readyState === 1) out.push(c);
+  return out;
 }
+// the one that tells where they are: a tab not playing first
+const friendClient = (fid) => { const cs = friendClients(fid); return cs.find((c) => !c.room || c.room.phase !== 'playing') || cs[0] || null; };
 const friendState = (c) => (!c ? 'off' : !c.room ? 'online' : c.room.phase === 'playing' ? 'playing' : 'lobby');
 // who of these friends is online now: 'online' (the Multiplayer menu), 'lobby', 'playing' (missing: not online)
 function handleSeen(client, msg) {
@@ -432,16 +431,20 @@ function handleInvite(client, msg) {
   const reply = (ok, text) => send(client.ws, { t: 'invited', fid, ok, msg: text });
   if (!fid || !client.room || client.v < INVITE_PROTOCOL) return reply(false, 'Join or start a lobby first.');
   if (!take(client, 'invite', INVITE_RATE, INVITE_BURST, Date.now())) return reply(false, 'Slow down a little!');
-  const room = client.room, to = friendClient(fid);
-  if (!to || to === client) return reply(false, 'Not online right now.');
-  if (to.room === room) return reply(false, 'Already in your lobby.');
-  if (to.room && to.room.phase === 'playing') return reply(false, 'In a game right now.');
+  const room = client.room, all = friendClients(fid).filter((c) => c !== client);
+  if (!all.length) return reply(false, 'Not online right now.');
+  if (all.some((c) => c.room === room)) return reply(false, 'Already in your lobby.');
+  const to = all.filter((c) => !c.room || c.room.phase !== 'playing');   // (every tab of theirs that isn't mid-game)
+  if (!to.length) return reply(false, 'In a game right now.');
   if (room.members.length >= (room.max || NET.MAX_PLAYERS)) return reply(false, 'Your lobby is full.');
-  const key = client.fid || 'c' + client.id, last = (to.invitedBy ||= new Map()).get(key) || 0;
+  // the same inviter, the same friend: once per INVITE_AGAIN_MS (kept per friend id, whichever tab)
+  const key = (client.fid || 'c' + client.id) + '>' + fid, last = invitedAt.get(key) || 0;
   if (Date.now() - last < INVITE_AGAIN_MS) return reply(false, 'Invited! Give them a moment.');
-  to.invitedBy.set(key, Date.now());
-  if (to.invitedBy.size > 50) to.invitedBy.delete(to.invitedBy.keys().next().value);
-  send(to.ws, { t: 'invite', name: client.name || 'A kitty', color: client.color, code: room.code, mode: room.mode, pass: room.pass || undefined });
+  invitedAt.set(key, Date.now());
+  if (invitedAt.size > 5000) invitedAt.delete(invitedAt.keys().next().value);
+  const json = JSON.stringify({ t: 'invite', name: client.name || 'A kitty', color: client.color, code: room.code, mode: room.mode,
+    pass: room.pass || undefined, fid: client.fid || undefined });   // (fid: who it's from: the friend can block their invites)
+  for (const c of to) send(c.ws, json);
   reply(true, 'Invite sent!');
 }
 
@@ -642,10 +645,15 @@ function stepRoom(room) {
 
 // Account stats (accounts.js): a cleared level counts for every kitty in the game (down or not), a crown for the
 // kitty that grabbed it, a revive for the rescuer. Only signed-in players have an account to count on.
+// Every credit is once per player (onePerPlayer): the same account or browser in several tabs of one lobby counts once,
+// and reviving your own other tab doesn't count.
 function countForAccounts(room, events) {
   const sim = room.sim;
-  const subOf = (id) => { const m = room.members.find((x) => x.id === id); return m ? m.acct : null; };
-  const whoOf = (id) => { const m = room.members.find((x) => x.id === id); return m ? { sub: m.acct, pid: m.pid } : null; };
+  const memberOf = (id) => room.members.find((x) => x.id === id) || null;
+  const subOf = (id) => { const m = memberOf(id); return m ? m.acct : null; };
+  const whoOf = (id) => { const m = memberOf(id); return m ? { sub: m.acct, pid: m.pid } : null; };
+  // of these kitties (ids), the ones that count: one per player
+  const once = (ids) => { const ms = ids.map(memberOf).filter(Boolean); return onePerPlayer(ms).map((m) => m.id); };
   const featDone = (id, feat) => { accounts.recordFeat(whoOf(id), feat, room.mode); feats.add(id); };
   const feats = new Set();
   for (const e of events) {
@@ -659,21 +667,20 @@ function countForAccounts(room, events) {
         ev.time = sim.levelTime + day;   // the team's time for the level
         room.dayTime = null;
       }
-      for (const p of sim.players) accounts.recordOnline(subOf(p.id), ev);
+      for (const id of once(sim.players.map((p) => p.id))) accounts.recordOnline(subOf(id), ev);
       // unlocks: level 8 cleared by a kitty holding every win of the run so far (8, or 16 in Run + Skate)
       if (e.type === 'levelClear' && e.level === 8) {
-        for (const p of sim.players) if ((p.finishes || 0) >= winsNeeded(room.mode)) featDone(p.id, 'l8');
+        for (const id of once(sim.players.filter((p) => (p.finishes || 0) >= winsNeeded(room.mode)).map((p) => p.id))) featDone(id, 'l8');
       }
     } else if (e.type === 'victory') {
       // unlocks: the final run won; a kitty that got to the end itself (not carried in for the party) holding 8 crowns
       // (16 in Run + Skate), the final run's own crown included (it's the hardest one: it may make up for a missed one)
       const party = Array.isArray(e.party) ? e.party : [];
-      for (const p of sim.players) {
-        if (!party.includes(p.id) && (p.finishes || 0) >= winsNeeded(room.mode)) featDone(p.id, 'l9');
-        featDone(p.id, 'win');   // and the new song: everyone who was there
-      }
+      const l9 = sim.players.filter((p) => !party.includes(p.id) && (p.finishes || 0) >= winsNeeded(room.mode));
+      for (const id of once(l9.map((p) => p.id))) featDone(id, 'l9');
+      for (const id of once(sim.players.map((p) => p.id))) featDone(id, 'win');   // and the new song: everyone who was there
     } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown' });
-    else if (e.type === 'revive') accounts.recordOnline(subOf(e.by), { type: 'revive' });
+    else if (e.type === 'revive' && !samePlayer(memberOf(e.by), memberOf(e.playerId))) accounts.recordOnline(subOf(e.by), { type: 'revive' });
   }
   // a feat may have unlocked something: the room shows it right away
   let changed = false;

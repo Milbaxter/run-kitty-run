@@ -5,6 +5,7 @@ const PATCH_NOTES = [
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
       'Invite friends: INVITE FRIENDS in a lobby lists the players you played Multiplayer with and who of them is online, so you can invite them with one click (they get a JOIN button). Star ★ players to keep them as friends',
+      'Too many invites? Block invites from a player right in the invite, or choose who may invite you in Settings: everyone, friends only or nobody',
       'Settings: switch each song on or off; the ones on play one after the other',
       'Softer level start and level clear sounds',
       'Deleting a swag account now asks you to type DELETE and confirm, and you can still restore it within 14 days by signing in again',

@@ -331,6 +331,8 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-glass .rkr-gcat{width:74px;height:74px;color:#ffb347;margin-bottom:-6px;animation:rkr-wiggle 2.4s ease-in-out infinite;}
 .rkr-gameover h2{color:#ffd6e3;text-shadow:0 5px 0 #3a1650,0 0 30px rgba(255,80,120,.55);}
 .rkr-gsub{font-weight:700;font-size:16px;color:#efe7ff;opacity:.9;}
+.rkr-nlink{font:inherit;font-size:13px;font-weight:700;color:#efe7ff;opacity:.65;background:none;border:0;cursor:pointer;text-decoration:underline;margin-top:2px;}
+.rkr-nlink:hover{opacity:1;}
 .rkr-alone{display:flex;gap:10px;align-items:center;text-align:left;max-width:420px;padding:10px 14px;border-radius:16px;font-weight:700;font-size:14px;line-height:1.35;color:#fff6d8;
   background:rgba(255,207,90,.14);border:2px solid rgba(255,207,90,.55);}
 .rkr-alone svg{width:30px;height:30px;flex:none;}
@@ -1104,7 +1106,7 @@ function createUI(root) {
 
   // ================= notice (e.g. "update the app") =================
   let noticeEl = null;
-  function showNotice({ title, text, button, onClick, alt, onAlt }) {
+  function showNotice({ title, text, button, onClick, alt, onAlt, link, onLink }) {
     hideNotice();
     noticeEl = el('div', 'rkr-overlay rkr-dim');
     noticeEl.style.zIndex = '60';
@@ -1114,9 +1116,11 @@ function createUI(root) {
         <div class="rkr-gsub">${esc(text)}</div>
         <button class="rkr-btn">${esc(button)}</button>
         ${alt ? `<button class="rkr-btn rkr-alt rkr-nalt">${esc(alt)}</button>` : ''}
+        ${link ? `<button class="rkr-nlink">${esc(link)}</button>` : ''}
       </div>`;
     noticeEl.querySelector('.rkr-btn').addEventListener('click', () => onClick && onClick());
     if (alt) noticeEl.querySelector('.rkr-nalt').addEventListener('click', () => onAlt && onAlt());
+    if (link) noticeEl.querySelector('.rkr-nlink').addEventListener('click', () => onLink && onLink());
     root.appendChild(noticeEl);
   }
   function hideNotice() {

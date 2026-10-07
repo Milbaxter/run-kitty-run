@@ -507,7 +507,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   const path = await import('node:path');
   const crypto = await import('node:crypto');
   const { EventEmitter } = await import('node:events');
-  const { createAccounts } = await import('../server/accounts.js');
+  const { createAccounts, onePerPlayer, samePlayer } = await import('../server/accounts.js');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rkr-accounts-test-'));
   const file = path.join(dir, 'accounts.json'), ledger = path.join(dir, 'payments.jsonl');
   const token = 'dummy-session-token-for-regression', sub = 'test-google-sub';
@@ -682,6 +682,12 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     accounts.flush();
     ok(createAccounts(file, env).subFor(token) === sub && JSON.parse(fs.readFileSync(file)).accounts[sub].stats.online.clears.run[2] === 2,
       'account stats are saved on flush and survive a restart');
+    // one credit per player: several tabs of the same account or browser in one lobby count once; reviving them doesn't count
+    const tabs = [{ id: 1, acct: 'A', pid: 'p1' }, { id: 2, acct: 'A', pid: 'p1' }, { id: 3, acct: null, pid: 'p1' }, { id: 4, acct: 'A', pid: 'p2' },
+      { id: 5, acct: 'B', pid: 'p3' }, { id: 6, acct: null, pid: 'p4' }, { id: 7, acct: null, pid: 'p4' }, { id: 8, acct: null, pid: '' }, { id: 9, acct: null, pid: '' }];
+    ok(onePerPlayer(tabs).map((m) => m.id).join() === '1,5,6,8,9' && samePlayer(tabs[0], tabs[2]) && samePlayer(tabs[0], tabs[3])
+      && !samePlayer(tabs[0], tabs[4]) && !samePlayer(tabs[7], tabs[8]),
+    'stats and unlocks count once per player (account or browser), however many of its tabs are in the lobby');
     const unconfirmed = await request(accounts, 'delete');
     const lowercase = await request(accounts, 'delete', [Buffer.from(JSON.stringify({ confirm: 'delete' }))]);
     ok(!unconfirmed.ok && !lowercase.ok && accounts.paidFor(token) > 0, 'an account is only deleted with DELETE typed (capitals)');

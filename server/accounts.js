@@ -536,4 +536,19 @@ function createAccounts(file, env = process.env) {
   return { enabled, handle, webhook, paidFor, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
 }
 
-export { createAccounts };
+// One credit per player, however many of its tabs are in the game: of these kitties (members: { acct, pid }), the
+// ones that count, in order. A kitty doesn't when one before it has the same account or the same browser (progress
+// id): 10 tabs in one lobby still clear a level once. (Kitties with neither have nothing to count on anyway.)
+function onePerPlayer(members) {
+  const seen = new Set();
+  return members.filter((m) => {
+    const keys = [m && m.acct && 'a:' + m.acct, m && m.pid && 'p:' + m.pid].filter(Boolean);
+    if (keys.some((k) => seen.has(k))) return false;
+    for (const k of keys) seen.add(k);
+    return true;
+  });
+}
+// the same player (account or browser) behind both kitties: reviving your own other tab doesn't count
+const samePlayer = (a, b) => !!(a && b && ((a.acct && a.acct === b.acct) || (a.pid && a.pid === b.pid)));
+
+export { createAccounts, onePerPlayer, samePlayer };

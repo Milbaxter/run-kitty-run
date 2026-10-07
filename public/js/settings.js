@@ -65,6 +65,7 @@ const CSS = `
 @keyframes rkst-pulse{50%{background:rgba(255,207,90,.25);}}
 .rkst-foot{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;}
 .rkst-sec > .rkst-small{align-self:flex-start;}
+.rkst-small[hidden]{display:none;}
 `;
 
 let styled = false;
@@ -79,7 +80,8 @@ function el(tag, cls, text) {
   return e;
 }
 
-// opts (main.js): music: { songs: [[i, label]], on(i), toggle(i), speed: null | { choices: [[x, label]], get(), set(x) } }, onVolume(), onGraphics(id) -> true if smooth edges wait for a reload, onKeys(), onClose()
+// opts (main.js): music: { songs: [[i, label]], on(i), toggle(i), speed: null | { choices: [[x, label]], get(), set(x) } },
+//   invites: { choices: [[id, label]], get(), set(id), blocked() -> count, clearBlocked() }, onVolume(), onGraphics(id) -> true if smooth edges wait for a reload, onKeys(), onClose()
 function openSettings(root, opts = {}) {
   if (!styled) { const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st); styled = true; }
   closeSettings();
@@ -161,6 +163,32 @@ function openSettings(root, opts = {}) {
   paintGfx(false);
   gfx.append(gseg, note);
   left.appendChild(gfx);
+
+  // ---- invites (Multiplayer): who may invite you, and unblocking the players you blocked
+  if (opts.invites) {
+    const iv = opts.invites;
+    const inv = el('div', 'rkst-sec');
+    inv.appendChild(el('h3', null, 'INVITES'));
+    const iseg = el('div', 'rkst-seg');
+    const inote = el('div', 'rkst-note');
+    const clear = el('button', 'rkst-small', 'UNBLOCK ALL'); clear.type = 'button';
+    const NOTES = { on: 'Players you played Multiplayer with can invite you to their lobby.', friends: 'Only your ★ friends can invite you.', off: 'Nobody can invite you.' };
+    const paintInv = () => {
+      for (const b of iseg.children) b.classList.toggle('rkst-on', b.dataset.id === iv.get());
+      const n = iv.blocked();
+      inote.textContent = NOTES[iv.get()] + (n ? ` You blocked invites from ${n} player${n === 1 ? '' : 's'}.` : '');
+      clear.hidden = !n;
+    };
+    for (const [id, label] of iv.choices) {
+      const b = el('button', null, label); b.dataset.id = id; b.type = 'button';
+      b.addEventListener('click', () => { iv.set(id); paintInv(); });
+      iseg.appendChild(b);
+    }
+    clear.addEventListener('click', () => { iv.clearBlocked(); paintInv(); });
+    paintInv();
+    inv.append(iseg, inote, clear);
+    left.appendChild(inv);
+  }
 
   // ---- controls (keyboards only)
   if (!TOUCH) {

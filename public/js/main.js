@@ -261,6 +261,14 @@ ui.onSettingsClick(() => {
         set: (x) => { skateSpeed = x; try { localStorage.setItem('rkr-skate-speed', String(x)); } catch { /* ignore */ } setRate(); },
       } : null,
     },
+    // who may invite you, and the players whose invites you blocked
+    invites: {
+      choices: [['on', 'ON'], ['friends', 'FRIENDS ONLY'], ['off', 'OFF']],
+      get: invitesFrom,
+      set: setInvitesFrom,
+      blocked: () => blockedInviters().length,
+      clearBlocked: () => setBlockedInviters([]),
+    },
     onVolume: applyVolumes,
     onGraphics: applyGraphics,
     onKeys: () => ui.refreshKeys(),
@@ -1860,13 +1868,26 @@ function askSeen() {
 setInterval(() => { if (lobbyUI.recentOpen()) askSeen(); }, 3000);
 net.on('seen', (m) => lobbyUI.setSeen(Array.isArray(m.list) ? m.list : []));
 net.on('invited', (m) => lobbyUI.inviteResult(m.fid, !!m.ok, typeof m.msg === 'string' ? m.msg : ''));
-// someone invites you into their lobby: JOIN (or not). Not from a player you muted, not over another notice.
+// Who may invite you (Settings, remembered): 'on' (anyone you played with), 'friends' (starred friends only) or 'off';
+// and the players whose invites you blocked (their friend ids). Quietly: the inviter still sees "Invite sent!".
+const INVITES_KEY = 'rkr-invites', NOINVITE_KEY = 'rkr-noinvite', NOINVITE_MAX = 200;
+function invitesFrom() { try { const v = localStorage.getItem(INVITES_KEY); return v === 'friends' || v === 'off' ? v : 'on'; } catch { return 'on'; } }
+function setInvitesFrom(v) { try { localStorage.setItem(INVITES_KEY, v); } catch { /* ignore */ } }
+function blockedInviters() {
+  try { const v = JSON.parse(localStorage.getItem(NOINVITE_KEY) || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []; } catch { return []; }
+}
+function setBlockedInviters(list) { try { localStorage.setItem(NOINVITE_KEY, JSON.stringify(list.slice(-NOINVITE_MAX))); } catch { /* ignore */ } }
+// someone invites you into their lobby: JOIN (or not). Not from a player you muted or blocked, not over another notice.
 const MODE_NAMES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
 net.on('invite', (m) => {
   if (typeof m.code !== 'string' || !/^[A-Z]{4,8}$/.test(m.code) || ui.isNoticeOpen()) return;
   if (online.room && online.room.code === m.code) return;
   if (online.playing && mode === 'play') return;   // (the server doesn't send these mid-game anyway)
   const name = String(m.name || 'A kitty').slice(0, 14);
+  const fid = typeof m.fid === 'string' ? m.fid : '';
+  const from = invitesFrom();
+  if (from === 'off' || (fid && blockedInviters().includes(fid))) return;
+  if (from === 'friends' && !(fid && recentPlayers().some((p) => p.fid === fid && p.fav))) return;
   try { if (JSON.parse(localStorage.getItem('rkr-blocked') || '[]').includes(name)) return; } catch { /* ignore */ }
   haptic('success');
   audio.play('click');
@@ -1877,6 +1898,14 @@ net.on('invite', (m) => {
     onClick: () => { ui.hideNotice(); joinFromLink(m.code, typeof m.pass === 'string' ? m.pass : ''); },
     alt: 'NO THANKS',
     onAlt: () => ui.hideNotice(),
+    ...(fid ? {
+      link: `Block invites from ${name}`,
+      onLink: () => {
+        setBlockedInviters([...blockedInviters().filter((x) => x !== fid), fid]);
+        ui.hideNotice();
+        ui.toast(`No more invites from ${name} (Settings: Invites)`, '#b9a4ff');
+      },
+    } : {}),
   });
 });
 net.on('left', () => { online.room = null; chat.setEnabled(false); setRoomInUrl(null); if (online.playing) enterTitle(false); lobbyUI.showBrowser(); });

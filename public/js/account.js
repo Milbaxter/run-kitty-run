@@ -256,7 +256,7 @@ function createAccount(root) {
     // this browser's own progress (no active account), kept by the server under its progress id
     const guestBox = () => unlocksBox('YOUR UNLOCKS (THIS BROWSER)', A.guest || {},
       async (id, on) => { A.guest = (await guestApi('guestequip', { pid: progressId(), item: id, on })).unlocks; },
-      'Earned in online games and saved on this browser only: clearing its data, another device or two months without playing online loses them. Activate a swag account to keep them safe.');
+      'Earned in Multiplayer games and saved on this browser only: clearing its data, another device or two months without playing Multiplayer loses them. Activate a swag account to keep them safe.');
     const sayOpts = () => { if (opts.msg || opts.err) say(opts.err || opts.msg, opts.err ? 'err' : opts.thanks || opts.ok ? 'ok' : ''); };
 
     if (!A.token || !a) {
@@ -264,7 +264,7 @@ function createAccount(root) {
       // account, so both buttons do the same thing: the same Google account always gets the same swag account back.
       const create = section('NEW HERE?'), back = section('ALREADY HAVE ONE?');
       const gNew = el('div', 'rka-gbtn'), gBack = el('div', 'rka-gbtn');
-      create.append(el('div', 'rka-note', `Totally optional, you do not need an account to play the game. Sign up, then chip in whatever you like once to activate it: the total shows next to your kitty for everyone online (can toggle it on and off), and your account keeps your stats and earns unlocks in online games.`), gNew);
+      create.append(el('div', 'rka-note', `Totally optional, you do not need an account to play the game. Sign up, then chip in whatever you like once to activate it: the total shows next to your kitty for everyone online (can toggle it on and off), and your account keeps your stats and earns unlocks in Multiplayer games.`), gNew);
       back.append(el('div', 'rka-note', 'Sign in with the same Google account as before and your swag comes back, on any browser.'), gBack);
       box.append(el('h2', null, 'SWAG ACCOUNT'), create, back, guestBox(), msg, fine('By signing in you agree to the '), closeBtn);
       loadGsi().then(() => {
@@ -313,11 +313,11 @@ function createAccount(root) {
       } else {
         const pick = el('button', 'rka-amt rka-on', 'PICK AN AMOUNT');
         pick.addEventListener('click', () => open({ view: 'pay' }));
-        swag.append(el('div', 'rka-note', `Chip in once, from ${fmtPaid(A.cfg.min)}, to activate your account: the total shows next to your kitty for everyone online (can toggle it on and off), the game keeps your stats and you can earn unlocks in online games.`), pick);
+        swag.append(el('div', 'rka-note', `Chip in once, from ${fmtPaid(A.cfg.min)}, to activate your account: the total shows next to your kitty for everyone online (can toggle it on and off), the game keeps your stats and you can earn unlocks in Multiplayer games.`), pick);
       }
       // Unlocks (shared/unlocks.js): earned online, kept forever, each switched on or off here
       const unl = unlocksBox('UNLOCKS', a.unlocks || {}, async (id, on) => { A.account = (await api('equip', { item: id, on })).account; },
-        'Earned in online games. Switched on, they show on your kitty in every game, for everyone.');
+        'Earned in Multiplayer games. Switched on, they show on your kitty in every game, for everyone.');
       // Stats & progress: online (counted by the game server) or solo / local (reported by this browser), a tab each
       const stats = section('STATS & PROGRESS');
       const tabs = el('div', 'rka-tabs');
@@ -334,7 +334,7 @@ function createAccount(root) {
         what.appendChild(t);
       }
       stats.append(tabs, what, statsView(a.stats && a.stats[statsTab]),
-        el('div', 'rka-fine', statsTab === 'online' ? 'Counted by the game server in online games.'
+        el('div', 'rka-fine', statsTab === 'online' ? 'Counted by the game server in Multiplayer games.'
           : 'Counted by your own browser in solo and local co-op games.'));
       const links = el('div', 'rka-links');
       const out = el('a', null, 'Sign out'), del = el('a', null, 'Delete account');

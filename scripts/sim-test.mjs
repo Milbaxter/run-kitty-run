@@ -649,6 +649,21 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(unpaid.ok && unpaid.account.active === false && unpaid.account.stats.online.crowns === 0 && unpaid.account.unlocks.l8.run === 0
       && accounts.cosFor('unpaid-session-token-for-regression').length === 0 && off.account.active === true,
     'an account that has never paid is not active: nothing is counted or shown');
+    // no active account: the progress is kept under the browser's progress id, switched there, and moves onto the
+    // account once it is active (counts add up)
+    const pid = 'abcdefghijklmnopqrstuvwxyz0123';
+    for (const m of ['run', 'ice', 'mixed']) accounts.recordFeat({ sub: 'unpaid-sub', pid }, 'l8', m);
+    accounts.recordFeat({ pid: 'too-short' }, 'l8', 'run');
+    const guestCos = accounts.cosForPlayer({ sub: 'unpaid-sub', pid });
+    const gOff = await request(accounts, 'guestequip', [Buffer.from(JSON.stringify({ pid, item: 'shades', on: false }))]);
+    const gRead = await request(accounts, 'guest', [Buffer.from(JSON.stringify({ pid }))]);
+    const gBad = await request(accounts, 'guestequip', [Buffer.from(JSON.stringify({ pid, item: 'rboots', on: true }))]);
+    const beforeMerge = (await request(accounts, 'me')).account.unlocks.l8.run;
+    accounts.mergeGuest(sub, pid);
+    const merged = (await request(accounts, 'me')).account.unlocks;
+    ok(guestCos.join() === 'shades' && gOff.ok && gRead.unlocks.off.shades === true && !gBad.ok
+      && merged.l8.run === beforeMerge + 1 && merged.l8.mixed >= 1 && (await request(accounts, 'guest', [Buffer.from(JSON.stringify({ pid }))])).unlocks === null,
+    'unlocks without an account: kept under the progress id, switched there, moved onto the account once it is active');
     accounts.flush();
     ok(createAccounts(file, env).subFor(token) === sub && JSON.parse(fs.readFileSync(file)).accounts[sub].stats.online.clears.run[2] === 2,
       'account stats are saved on flush and survive a restart');

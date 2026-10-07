@@ -41,6 +41,18 @@ function tabToken() {
   } catch { return fresh(); }
 }
 
+// This browser's unlock progress id (shared/unlocks.js): the server keeps the progress of a player without an active
+// swag account under it (it moves onto the account when one is activated). localStorage: kept until the site's data is
+// cleared. Like the account token, only ever sent to the game's own server.
+function progressId() {
+  const fresh = () => Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => (b % 36).toString(36)).join('');
+  try {
+    let p = localStorage.getItem('rkr-pid');
+    if (!p || !/^[a-z0-9]{24,40}$/.test(p)) { p = fresh(); localStorage.setItem('rkr-pid', p); }
+    return p;
+  } catch { return ''; }
+}
+
 function createNet() {
   const handlers = new Map();
   let ws = null;
@@ -74,7 +86,8 @@ function createNet() {
         // handshake first: lets the server tell old app builds to update
         if (!tok) tok = tabToken();
         ws.send(JSON.stringify({ t: 'hi', v: PROTOCOL_VERSION, app: PLATFORM, ver: APP_VERSION, tok,
-          acct: accountSocketTrusted(sock.url) ? net.acct() || undefined : undefined }));
+          acct: accountSocketTrusted(sock.url) ? net.acct() || undefined : undefined,
+          pid: accountSocketTrusted(sock.url) ? progressId() || undefined : undefined }));
         while (queue.length) ws.send(queue.shift());
         emit('open', {});
         clearInterval(pingT);
@@ -152,4 +165,4 @@ function createNet() {
   return net;
 }
 
-export { createNet, cleanForApp };
+export { createNet, cleanForApp, progressId };

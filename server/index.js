@@ -593,6 +593,9 @@ function stepRoom(room) {
 function countForAccounts(room, events) {
   const sim = room.sim;
   const subOf = (id) => { const m = room.members.find((x) => x.id === id); return m ? m.acct : null; };
+  const whoOf = (id) => { const m = room.members.find((x) => x.id === id); return m ? { sub: m.acct, pid: m.pid } : null; };
+  const featDone = (id, feat) => { accounts.recordFeat(whoOf(id), feat, room.mode); feats.add(id); };
+  const feats = new Set();
   for (const e of events) {
     if (e.type === 'stageClear') { room.dayTime = { level: e.level, time: sim.levelTime }; continue; }
     if (e.type === 'gameOver') { room.dayTime = null; continue; }
@@ -607,18 +610,27 @@ function countForAccounts(room, events) {
       for (const p of sim.players) accounts.recordOnline(subOf(p.id), ev);
       // unlocks: level 8 cleared by a kitty holding every win of the run so far (8, or 16 in Run + Skate)
       if (e.type === 'levelClear' && e.level === 8) {
-        for (const p of sim.players) if ((p.finishes || 0) >= winsNeeded(room.mode)) accounts.recordFeat(subOf(p.id), 'l8', room.mode);
+        for (const p of sim.players) if ((p.finishes || 0) >= winsNeeded(room.mode)) featDone(p.id, 'l8');
       }
     } else if (e.type === 'victory') {
       // unlocks: the final run won; a kitty that got to the end itself (not carried in for the party) holding 8 crowns
       // (16 in Run + Skate), the final run's own crown included (it's the hardest one: it may make up for a missed one)
       const party = Array.isArray(e.party) ? e.party : [];
       for (const p of sim.players) {
-        if (!party.includes(p.id) && (p.finishes || 0) >= winsNeeded(room.mode)) accounts.recordFeat(subOf(p.id), 'l9', room.mode);
+        if (!party.includes(p.id) && (p.finishes || 0) >= winsNeeded(room.mode)) featDone(p.id, 'l9');
       }
     } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown' });
     else if (e.type === 'revive') accounts.recordOnline(subOf(e.by), { type: 'revive' });
   }
+  // a feat may have unlocked something: the room shows it right away
+  let changed = false;
+  for (const id of feats) {
+    const m = room.members.find((x) => x.id === id);
+    if (!m) continue;
+    const cos = accounts.cosForPlayer({ sub: m.acct, pid: m.pid });
+    if (cos.join() !== (m.cos || []).join()) { m.cos = cos; changed = true; }
+  }
+  if (changed) sendRoom(room);
 }
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
@@ -755,8 +767,10 @@ wss.on('connection', (ws, req) => {
         client.ver = String(msg.ver ?? '').replace(/[^\w.+-]/g, '').slice(0, 16);
         if (typeof msg.tok === 'string' && /^[\w-]{8,64}$/.test(msg.tok)) client.tok = msg.tok; // reconnect grace (net.js)
         client.paid = accounts.paidFor(msg.acct);   // signed-in account: its total shows next to the name
-        client.cos = accounts.cosFor(msg.acct);     // ...and its switched-on unlocks on its kitty
         client.acct = accounts.subFor(msg.acct);    // ...and its stats count this player's online games
+        client.pid = accounts.validPid(msg.pid);    // the browser's unlock progress id (players without an active account)
+        accounts.mergeGuest(client.acct, client.pid);   // an active account takes over this browser's guest progress
+        client.cos = accounts.cosForPlayer({ sub: client.acct, pid: client.pid });   // switched-on unlocks on its kitty
         if (v < MIN_PROTOCOL) {
           send(ws, { t: 'outdated', msg: 'A new version of Run Kitty Run is out - update to keep playing online.' });
           ws.close(4000, 'outdated');
@@ -766,8 +780,10 @@ wss.on('connection', (ws, req) => {
       case 'acct': {
         // signed in / out (or paid more) after connecting
         if (!take(client, 'lobby', LOBBY_RATE, LOBBY_BURST, Date.now())) return;
-        const paid = accounts.paidFor(msg.acct), cos = accounts.cosFor(msg.acct);
+        const paid = accounts.paidFor(msg.acct);
         client.acct = accounts.subFor(msg.acct);
+        accounts.mergeGuest(client.acct, client.pid);
+        const cos = accounts.cosForPlayer({ sub: client.acct, pid: client.pid });
         const cosChanged = cos.join() !== (client.cos || []).join();
         client.cos = cos;
         if (paid !== (client.paid || 0) || cosChanged) { client.paid = paid; if (room) sendRoom(room); }

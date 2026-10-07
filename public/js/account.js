@@ -3,6 +3,7 @@
 // The session token lives in localStorage; main.js passes it to the game server ('hi' / 'acct').
 import { accountApiUrl, NATIVE } from './platform.js';
 import { UNLOCKS, UNLOCK_MODES, isUnlocked } from './shared/unlocks.js';
+import { progressId } from './net.js';
 
 const CSS = `
 .rka-modal{z-index:40;}
@@ -120,7 +121,7 @@ function createAccount(root) {
 
   const A = { enabled: false, token: NATIVE ? '' : readToken(), account: null, cfg: null };
   let modal = null, changeFn = null;
-  let eqFor, eqSet = new Set();   // equipped(): made once per account object
+  let eqFor, eqGuest, eqSet = new Set();   // equipped(): made once per account / guest progress object
   const changed = () => { if (changeFn) changeFn(); };
 
   async function api(name, body) {
@@ -135,6 +136,24 @@ function createAccount(root) {
     if (!j.ok) throw new Error(j.msg || 'Something went wrong, try again in a moment.');
     return j;
   }
+  // the guest unlock routes: no sign-in, just this browser's progress id
+  async function guestApi(name, body) {
+    const r = await fetch(accountApiUrl('/api/account/' + name), { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!j.ok) throw new Error(j.msg || 'Something went wrong, try again in a moment.');
+    return j;
+  }
+  async function loadGuest() {
+    const pid = progressId();
+    if (!pid) return false;
+    try {
+      const j = await guestApi('guest', { pid });
+      const before = JSON.stringify(A.guest || null);
+      A.guest = j.unlocks || null;
+      if (JSON.stringify(A.guest) !== before) { changed(); return true; }
+    } catch { /* offline */ }
+    return false;
+  }
   function setSession(token, account) {
     A.token = token; A.account = account;
     writeToken(token);
@@ -148,6 +167,7 @@ function createAccount(root) {
       A.enabled = !!(A.cfg && A.cfg.enabled);
       if (A.cfg && A.cfg.currency) symbol = SYMBOLS[A.cfg.currency] || A.cfg.currency.toUpperCase() + ' ';
     } catch { A.enabled = false; }
+    loadGuest();   // this browser's unlocks (no account needed: its own kitty wears them in solo games too)
     if (!A.enabled) { changed(); return; }
     const q = new URLSearchParams(location.search), paid = q.get('paid');
     if (paid) {
@@ -179,6 +199,8 @@ function createAccount(root) {
 
   // one modal: signed out (create one, or sign back in); signed in: the account menu, or the amount picker (opts.view 'pay')
   function open(opts = {}) {
+    // no active account: the guest progress may have moved on (an online game): fetch it, redraw if it did
+    if (!opts.fresh && !(A.account && Number(A.account.paid) > 0)) loadGuest().then((ch) => { if (ch && modal) open({ ...opts, fresh: true }); });
     if (!A.enabled) return;
     close();
     modal = el('div', 'rkr-overlay rkr-dim rka-modal');
@@ -195,6 +217,46 @@ function createAccount(root) {
     closeBtn.addEventListener('click', close);
     const a = A.account;
     const section = (title) => { const s = el('div', 'rka-sec'); s.appendChild(el('div', 'rka-sech', title)); return s; };
+    // the unlocks with their progress per mode and on / off switches: an account's, or this browser's (no account)
+    const unlocksBox = (title, prog, toggle, note) => {
+      const box_ = section(title);
+      const ulist = el('div', 'rka-unl');
+      const SHORT = { run: 'Run', ice: 'Skate', mixed: 'Run + Skate' };
+      const GOALS = { l8: 'Clear level 8 holding every win (8 wins, 16 in Run + Skate), in each mode:',
+        l9: 'Beat level 9 with 8 crowns (16 in Run + Skate, the final crown counts) and reach the end yourself, in each mode:' };
+      let lastFeat = '';
+      for (const u of UNLOCKS) {
+        if (u.feat !== lastFeat) { lastFeat = u.feat; ulist.appendChild(el('div', 'rka-ugoal', GOALS[u.feat])); }
+        const open_ = isUnlocked(prog, u);
+        const row = el('div', 'rka-urow' + (open_ ? '' : ' rka-locked'));
+        row.appendChild(el('span', 'rka-uname', (open_ ? '' : '🔒 ') + u.name));
+        if (open_) {
+          const on = !(prog.off && prog.off[u.id]);
+          const t = el('button', 'rka-amt rka-utog' + (on ? ' rka-on' : ''), on ? 'ON' : 'OFF');
+          t.addEventListener('click', async () => {
+            t.disabled = true;
+            try { await toggle(u.id, !on); changed(); open({ fresh: true }); }
+            catch (e) { t.disabled = false; say(e.message, 'err'); }
+          });
+          row.appendChild(t);
+        } else {
+          const p = el('span', 'rka-uprog');
+          UNLOCK_MODES.forEach((m, i) => {
+            const n = Math.min(u.times, ((prog[u.feat] || {})[m]) || 0);
+            if (i) p.append(' · ');
+            p.appendChild(el(n >= u.times ? 'b' : 'span', null, `${SHORT[m]} ${n}/${u.times}`));
+          });
+          row.appendChild(p);
+        }
+        ulist.appendChild(row);
+      }
+      box_.append(ulist, el('div', 'rka-fine', note));
+      return box_;
+    };
+    // this browser's own progress (no active account), kept by the server under its progress id
+    const guestBox = () => unlocksBox('YOUR UNLOCKS (THIS BROWSER)', A.guest || {},
+      async (id, on) => { A.guest = (await guestApi('guestequip', { pid: progressId(), item: id, on })).unlocks; },
+      'Earned in online games and saved on this browser only: clearing its data or another device loses them. Activate a swag account to keep them safe.');
     const sayOpts = () => { if (opts.msg || opts.err) say(opts.err || opts.msg, opts.err ? 'err' : opts.thanks || opts.ok ? 'ok' : ''); };
 
     if (!A.token || !a) {
@@ -204,7 +266,7 @@ function createAccount(root) {
       const gNew = el('div', 'rka-gbtn'), gBack = el('div', 'rka-gbtn');
       create.append(el('div', 'rka-note', `Totally optional, you do not need an account to play the game. Sign up, then chip in whatever you like once to activate it: the total shows next to your kitty for everyone online (can toggle it on and off), and your account keeps your stats and earns unlocks in online games.`), gNew);
       back.append(el('div', 'rka-note', 'Sign in with the same Google account as before and your swag comes back, on any browser.'), gBack);
-      box.append(el('h2', null, 'SWAG ACCOUNT'), create, back, msg, fine('By signing in you agree to the '), closeBtn);
+      box.append(el('h2', null, 'SWAG ACCOUNT'), create, back, guestBox(), msg, fine('By signing in you agree to the '), closeBtn);
       loadGsi().then(() => {
         if (!modal || !gNew.isConnected) return;
         google.accounts.id.initialize({
@@ -254,40 +316,8 @@ function createAccount(root) {
         swag.append(el('div', 'rka-note', `Chip in once, from ${fmtPaid(A.cfg.min)}, to activate your account: the total shows next to your kitty for everyone online (can toggle it on and off), the game keeps your stats and you can earn unlocks in online games.`), pick);
       }
       // Unlocks (shared/unlocks.js): earned online, kept forever, each switched on or off here
-      const unl = section('UNLOCKS');
-      const ulist = el('div', 'rka-unl');
-      const prog = a.unlocks || {};
-      const SHORT = { run: 'Run', ice: 'Skate', mixed: 'Run + Skate' };
-      const GOALS = { l8: 'Clear level 8 holding every win (8 wins, 16 in Run + Skate), in each mode:',
-        l9: 'Beat level 9 with 8 crowns (16 in Run + Skate, the final crown counts) and reach the end yourself, in each mode:' };
-      let lastFeat = '';
-      for (const u of UNLOCKS) {
-        if (u.feat !== lastFeat) { lastFeat = u.feat; ulist.appendChild(el('div', 'rka-ugoal', GOALS[u.feat])); }
-        const open_ = isUnlocked(prog, u);
-        const row = el('div', 'rka-urow' + (open_ ? '' : ' rka-locked'));
-        row.appendChild(el('span', 'rka-uname', (open_ ? '' : '🔒 ') + u.name));
-        if (open_) {
-          const on = !(prog.off && prog.off[u.id]);
-          const t = el('button', 'rka-amt rka-utog' + (on ? ' rka-on' : ''), on ? 'ON' : 'OFF');
-          t.addEventListener('click', async () => {
-            t.disabled = true;
-            try { const j = await api('equip', { item: u.id, on: !on }); A.account = j.account; changed(); open({ fresh: true }); }
-            catch (e) { t.disabled = false; say(e.message, 'err'); }
-          });
-          row.appendChild(t);
-        } else {
-          const p = el('span', 'rka-uprog');
-          UNLOCK_MODES.forEach((m, i) => {
-            const n = Math.min(u.times, ((prog[u.feat] || {})[m]) || 0);
-            if (i) p.append(' · ');
-            const v = el(n >= u.times ? 'b' : 'span', null, `${SHORT[m]} ${n}/${u.times}`);
-            p.appendChild(v);
-          });
-          row.appendChild(p);
-        }
-        ulist.appendChild(row);
-      }
-      unl.append(ulist, el('div', 'rka-fine', 'Earned in online games. Switched on, they show on your kitty in every game, for everyone.'));
+      const unl = unlocksBox('UNLOCKS', a.unlocks || {}, async (id, on) => { A.account = (await api('equip', { item: id, on })).account; },
+        'Earned in online games. Switched on, they show on your kitty in every game, for everyone.');
       // Stats & progress: online (counted by the game server) or solo / local (reported by this browser), a tab each
       const stats = section('STATS & PROGRESS');
       const tabs = el('div', 'rka-tabs');
@@ -315,7 +345,7 @@ function createAccount(root) {
       });
       links.append(out, del);
       // stats and unlocks only on an active account (one that has paid; the server counts nothing before)
-      box.append(swag, ...(paid > 0 ? [unl, stats] : []), msg, closeBtn, links, fine(`Signed in as ${a.email}. `));
+      box.append(swag, ...(paid > 0 ? [unl, stats] : [guestBox()]), msg, closeBtn, links, fine(`Signed in as ${a.email}. `));
       sayOpts();
       root.appendChild(modal);
       // fresh numbers (a game may have counted since this page loaded): redraw if the menu is still the one showing
@@ -415,9 +445,9 @@ function createAccount(root) {
     shown: () => !A.account || A.account.show !== false,   // the player's "shown online" switch
     onChange(fn) { changeFn = fn; },
     equipped() {
-      if (eqFor !== A.account) {
-        eqFor = A.account;
-        const u = A.account && Number(A.account.paid) > 0 && A.account.unlocks;
+      if (eqFor !== A.account || eqGuest !== A.guest) {
+        eqFor = A.account; eqGuest = A.guest;
+        const u = (A.account && Number(A.account.paid) > 0 && A.account.unlocks) || A.guest;
         eqSet = new Set(u ? UNLOCKS.filter((x) => isUnlocked(u, x) && !(u.off && u.off[x.id])).map((x) => x.id) : []);
       }
       return eqSet;

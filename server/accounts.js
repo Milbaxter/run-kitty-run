@@ -47,6 +47,9 @@ function createAccounts(file, env = process.env) {
   let accounts = {};
   // Checkout Session id -> { sub, cents, at }: written when this server creates the session, removed once credited
   let checkouts = {};
+  // players without an active account: unlock progress under their browser's random progress id (shared/unlocks.js),
+  // { unlocks, at (last seen, ms) }; moved onto their account when they activate one (mergeGuest)
+  let guests = {};
   let dirty = false;
   // Tighten files from older deployments too. An unreadable or corrupt store is not a new account store.
   for (const p of [file, paymentsFile, file + '.tmp']) {
@@ -59,8 +62,11 @@ function createAccounts(file, env = process.env) {
     const old = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (old && old.accounts && typeof old.accounts === 'object') accounts = old.accounts;
     if (old && old.checkouts && typeof old.checkouts === 'object') checkouts = old.checkouts;
+    if (old && old.guests && typeof old.guests === 'object') guests = old.guests;
   } catch (e) { if (e.code !== 'ENOENT') throw e; }
-  const state = () => JSON.stringify({ accounts, checkouts });
+  const state = () => JSON.stringify({ accounts, checkouts, guests });
+  // guest progress nobody has used for over a year goes
+  for (const [k, g] of Object.entries(guests)) if (!g || !(Date.now() - (g.at || 0) < 400 * 864e5)) delete guests[k];
   // One synchronous writer: no old asynchronous snapshot can overwrite a newer payment or revocation.
   // Failures propagate to the caller; a Checkout URL must never escape without its saved binding.
   function saveNow() {
@@ -235,20 +241,61 @@ function createAccounts(file, env = process.env) {
     u.off ||= {};
     return u;
   }
-  // the game server: this account's kitty did a feat ('l8' | 'l9') in a mode
-  function recordFeat(sub, feat, mode) {
+  // who's playing: { sub (account id, maybe not active), pid (the browser's progress id) } or just an account id.
+  // An active account keeps its own progress; anyone else keeps it under their progress id.
+  const PID = /^[a-z0-9]{24,40}$/;
+  const validPid = (p) => (typeof p === 'string' && PID.test(p) ? p : '');
+  function holderOf(who, create = false) {
+    const sub = typeof who === 'string' ? who : who && who.sub;
     const a = sub && accounts[sub];
-    if (!a || !active(a) || !['l8', 'l9'].includes(feat) || !UNLOCK_MODES.includes(mode)) return;
-    unlocksOf(a)[feat][mode]++;
+    if (a && active(a)) return a;
+    const pid = validPid(who && who.pid);
+    if (!pid) return null;
+    if (!guests[pid] && create) guests[pid] = { at: Date.now() };
+    return guests[pid] || null;
+  }
+  // the game server: this kitty did a feat ('l8' | 'l9') in a mode
+  function recordFeat(who, feat, mode) {
+    if (!['l8', 'l9'].includes(feat) || !UNLOCK_MODES.includes(mode)) return;
+    const h = holderOf(who, true);
+    if (!h) return;
+    unlocksOf(h)[feat][mode]++;
+    if (h.sub == null) h.at = Date.now();
     statsChanged();
   }
-  // the unlocked items this account has switched on (the game server sends them to everyone in the room)
-  const cosFor = (token) => {
-    const a = fromToken(token);
-    if (!a || !active(a)) return [];
-    const u = unlocksOf(a);
+  const switchedOn = (h) => {
+    if (!h) return [];
+    const u = unlocksOf(h);
     return UNLOCKS.filter((x) => isUnlocked(u, x) && !u.off[x.id]).map((x) => x.id);
   };
+  // the unlocked items switched on (the game server sends them to everyone in the room)
+  const cosFor = (token) => { const a = fromToken(token); return a && active(a) ? switchedOn(a) : []; };
+  const cosForPlayer = (who) => switchedOn(holderOf(who));
+  // an account that is active now takes over this browser's guest progress (counts add up; its own switches stay)
+  function mergeGuest(sub, pid) {
+    const a = sub && accounts[sub], g = (pid = validPid(pid)) && guests[pid];
+    if (!a || !active(a) || !g || !g.unlocks) return;
+    const u = unlocksOf(a), gu = unlocksOf(g);
+    for (const f of ['l8', 'l9']) for (const m of UNLOCK_MODES) u[f][m] += gu[f][m];
+    for (const k of Object.keys(gu.off)) if (!(k in u.off)) u.off[k] = gu.off[k];
+    delete guests[pid];
+    statsChanged();
+  }
+  // a guest's own menu (no sign-in): its progress, and its switches
+  function guestRoute(name, m) {
+    const pid = validPid(m.pid);
+    if (!pid) return { ok: false };
+    const g = guests[pid];
+    if (name === 'guest') return { ok: true, unlocks: g ? unlocksOf(g) : null };
+    const item = UNLOCKS.find((x) => x.id === m.item);
+    if (!g || !item || typeof m.on !== 'boolean') return { ok: false };
+    const u = unlocksOf(g);
+    if (!isUnlocked(u, item)) return { ok: false, msg: 'Not unlocked yet.' };
+    if (m.on) delete u.off[item.id]; else u.off[item.id] = true;
+    g.at = Date.now();
+    statsChanged();
+    return { ok: true, unlocks: u };
+  }
 
   // Is this paid session one of ours, unchanged? (a session from another project on the shared account, the other
   // mode, or one this server never created gets null, quietly: the webhook sees every project's checkouts)
@@ -316,6 +363,11 @@ function createAccounts(file, env = process.env) {
 
   async function route(name, req, body) {
     if (name === 'config') return { ok: true, enabled, googleClientId: clientIds[0] || null, min: MIN_CENTS, max: STRIPE_MAX_CENTS, currency: CURRENCY };
+    if (name === 'guest' || name === 'guestequip') {
+      let gm = {};
+      if (body) { try { gm = JSON.parse(body) || {}; } catch { return { ok: false }; } }
+      return guestRoute(name, gm);
+    }
     if (!enabled) return { ok: false, msg: 'Accounts are not open yet.' };
     let m = {};
     if (body) { try { m = JSON.parse(body) || {}; } catch { return { ok: false }; } }
@@ -438,7 +490,7 @@ function createAccounts(file, env = process.env) {
   // /api/account/<name>; returns false if it isn't one of ours
   function handle(req, res, name) {
     if (name === 'config' && req.method === 'GET') { route('config', req).then((j) => reply(res, 200, j)); return true; }
-    if (!['google', 'me', 'pay', 'confirm', 'show', 'equip', 'progress', 'logout', 'delete'].includes(name)) return false;
+    if (!['google', 'me', 'pay', 'confirm', 'show', 'equip', 'guest', 'guestequip', 'progress', 'logout', 'delete'].includes(name)) return false;
     if (req.method !== (name === 'me' ? 'GET' : 'POST')) { reply(res, 405, { ok: false }); return true; }
     const go = (body) => route(name, req, body)
       .then((j) => reply(res, j ? 200 : 404, j || { ok: false }))
@@ -447,7 +499,7 @@ function createAccounts(file, env = process.env) {
     return true;
   }
 
-  return { enabled, handle, webhook, paidFor, subFor, cosFor, recordOnline, recordFeat, flush };
+  return { enabled, handle, webhook, paidFor, subFor, cosFor, cosForPlayer, mergeGuest, validPid, recordOnline, recordFeat, flush };
 }
 
 export { createAccounts };

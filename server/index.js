@@ -610,7 +610,8 @@ function countForAccounts(room, events) {
         for (const p of sim.players) if ((p.finishes || 0) >= winsNeeded(room.mode)) accounts.recordFeat(subOf(p.id), 'l8', room.mode);
       }
     } else if (e.type === 'victory') {
-      // unlocks: the final run won; a kitty with every win that got to the end itself (not carried in for the party)
+      // unlocks: the final run won; a kitty that got to the end itself (not carried in for the party) holding 8 crowns
+      // (16 in Run + Skate), the final run's own crown included (it's the hardest one: it may make up for a missed one)
       const party = Array.isArray(e.party) ? e.party : [];
       for (const p of sim.players) {
         if (!party.includes(p.id) && (p.finishes || 0) >= winsNeeded(room.mode)) accounts.recordFeat(subOf(p.id), 'l9', room.mode);

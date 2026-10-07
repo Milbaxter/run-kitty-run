@@ -1,7 +1,8 @@
 // Permanent unlocks on a swag account (server/accounts.js keeps the progress, the account menu shows it, the game puts
 // the switched-on items on the kitty). Earned online only (the server runs those games), per player, in every mode:
 //   l8: clearing level 8 while holding all its wins: 8 in Run only and Skate only, 16 in Run + Skate (day crowns count)
-//   l9: winning the final run (level 9) as one of the kitties that got to the end themselves, holding those wins too
+//   l9: winning the final run (level 9) as one of the kitties that got to the end themselves, holding 8 crowns (16 in
+//       Run + Skate) by then: the final run's own crown counts (the hardest one, it may make up for a missed one)
 // An item unlocks when its feat is done `times` times in each of the three modes.
 const UNLOCK_MODES = ['run', 'ice', 'mixed'];
 const UNLOCKS = [

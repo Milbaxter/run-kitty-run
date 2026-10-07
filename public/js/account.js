@@ -259,7 +259,7 @@ function createAccount(root) {
       const prog = a.unlocks || {};
       const SHORT = { run: 'Run', ice: 'Skate', mixed: 'Run + Skate' };
       const GOALS = { l8: 'Clear level 8 holding every win (8 wins, 16 in Run + Skate), in each mode:',
-        l9: 'Beat level 9 holding every win and reach the end yourself, in each mode:' };
+        l9: 'Beat level 9 with 8 crowns (16 in Run + Skate, the final crown counts) and reach the end yourself, in each mode:' };
       let lastFeat = '';
       for (const u of UNLOCKS) {
         if (u.feat !== lastFeat) { lastFeat = u.feat; ulist.appendChild(el('div', 'rka-ugoal', GOALS[u.feat])); }

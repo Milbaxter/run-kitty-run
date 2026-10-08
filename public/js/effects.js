@@ -14,7 +14,7 @@ const PX = 0, PY = 1, PZ = 2, VX = 3, VY = 4, VZ = 5, AGE = 6, LIFE = 7, S0 = 8,
   GRAV = 10, DRAG = 11, CR = 12, CG = 13, CB = 14, A0 = 15, ROT = 16, SPIN = 17, PH = 18, FREQ = 19,
   SHAPE = 20, OX = 21, OZ = 22, OMEGA = 23;
 const S = 24;
-const SHAPE_ROUND = 0, SHAPE_TWINKLE = 1, SHAPE_RECT = 2, SHAPE_HEART = 3, SHAPE_FISH = 4, SHAPE_STAR = 5;
+const SHAPE_ROUND = 0, SHAPE_TWINKLE = 1, SHAPE_RECT = 2, SHAPE_HEART = 3, SHAPE_FISH = 4, SHAPE_STAR = 5, SHAPE_SPARKLE = 6;
 
 const TAU = Math.PI * 2;
 const rand = Math.random;
@@ -49,7 +49,18 @@ void main() {
   vec2 p = gl_PointCoord - 0.5;
   float a;
   vec3 c;
-  if (vSquash < -1.5) {
+  if (vSquash < -2.5) {
+    // a star of space (SHAPE_SPARKLE): a bright white core, four thin rays that taper off, a soft glow; turning slowly
+    vec2 q = vec2(vRot.x * p.x - vRot.y * p.y, vRot.y * p.x + vRot.x * p.y) * 2.0;
+    float r = length(q);
+    if (r > 1.0) discard;
+    float w = 0.012 + 0.11 * (1.0 - r);
+    float rays = max(1.0 - smoothstep(0.0, w, abs(q.x)), 1.0 - smoothstep(0.0, w, abs(q.y))) * (1.0 - r);
+    float core = 1.0 - smoothstep(0.06, 0.24, r);
+    float halo = pow(1.0 - r, 3.0) * 0.55;
+    a = max(max(rays, core), halo);
+    c = mix(vColor, vec3(1.0), clamp(core * 0.9 + rays * 0.3, 0.0, 1.0));
+  } else if (vSquash < -1.5) {
     // star of life (SHAPE_STAR): three crossed bars in the colour, a white staff up the middle, turning slowly
     vec2 q = vec2(vRot.x * p.x - vRot.y * p.y, vRot.y * p.x + vRot.x * p.y);
     a = 0.0;
@@ -269,6 +280,10 @@ function createEffects(scene) {
       } else if (shape === SHAPE_STAR) {
         rot = d[o + ROT] + d[o + SPIN] * dt; d[o + ROT] = rot;
         squash = -2;
+      } else if (shape === SHAPE_SPARKLE) {   // turns slowly and twinkles
+        rot = d[o + ROT] + d[o + SPIN] * dt; d[o + ROT] = rot;
+        alpha *= 0.55 + 0.45 * Math.sin(d[o + PH] + age * d[o + FREQ]);
+        squash = -3;
       }
       const i3 = i * 3, i4 = i * 4;
       pos[i3] = px; pos[i3 + 1] = py; pos[i3 + 2] = pz;
@@ -631,19 +646,41 @@ function createEffects(scene) {
     soft.data[p + DRAG] = 1.2; soft.data[p + SHAPE] = SHAPE_STAR; soft.data[p + ROT] = rr(0, TAU); soft.data[p + SPIN] = rr(-1.2, 1.2);
   }
 
-  // celestial lion (16 wins + 120 revives): a trail of little stars of space (violet, blue, white) that
-  // drift and twinkle out behind the kitty
-  const COSMIC_COLS = [0x7a4dff, 0x3f7dff, 0xffffff, 0xb05cff, 0x2ec5ff, 0x5a2dbf];
-  // (n stars, spread around the point, lift: how high above y they start; the wing tips use a thin stream)
+  // celestial lion (16 wins + 120 revives): a trail of space behind the kitty, sparkles swirling like a galaxy's arms
+  // over soft nebula clouds
+  const STAR_COLS = [0xffffff, 0xffffff, 0xcfe0ff, 0xa8c8ff, 0xffd6f5, 0xd8c4ff];
+  const NEBULA_COLS = [0x5a2dbf, 0x2b3fa8, 0x8e3cc4, 0x3b1d7a, 0x2a6fd6];
+  // one twinkling star of space
+  function sparkle(x, y, z, vx, vy, vz, life, s0, size) {
+    _trailCol.set(STAR_COLS[(rand() * STAR_COLS.length) | 0]);
+    const p = emit(glow, x, y, z, vx, vy, vz, life, s0 * size, 0.04, _trailCol.r, _trailCol.g, _trailCol.b, 1);
+    if (p < 0) return -1;
+    glow.data[p + SHAPE] = SHAPE_SPARKLE; glow.data[p + SPIN] = rr(-1.2, 1.2); glow.data[p + FREQ] = rr(7, 13); glow.data[p + DRAG] = 1.5;
+    return p;
+  }
+  // a soft cloud of nebula: a deep colour (still reads on white snow) with a faint glow over it
+  function nebula(x, y, z, s0, s1, life) {
+    _trailCol.set(NEBULA_COLS[(rand() * NEBULA_COLS.length) | 0]);
+    const vx = rr(-0.12, 0.12), vy = rr(0.05, 0.2), vz = rr(-0.12, 0.12);
+    let p = emit(soft, x, y, z, vx, vy, vz, life, s0, s1, _trailCol.r, _trailCol.g, _trailCol.b, 0.2);
+    if (p >= 0) soft.data[p + DRAG] = 1.5;
+    p = emit(glow, x, y, z, vx, vy, vz, life * 0.8, s0 * 0.8, s1 * 0.9, _trailCol.r, _trailCol.g, _trailCol.b, 0.28);
+    if (p >= 0) glow.data[p + DRAG] = 1.5;
+  }
+  // a little star twinkling up from a celestial lion's paw print
+  function starStep(x, y, z) {
+    sparkle(x + rr(-0.12, 0.12), y + 0.08, z + rr(-0.12, 0.12), 0, rr(0.05, 0.2), 0, rr(0.5, 0.9), rr(0.22, 0.32), 1);
+  }
+  // (n stars, spread around the point, lift: how high above y they start; the wing tips use a thin stream: n = 1)
   function cosmicTrail(x, y, z, n = 3, spread = 0.2, lift = 0.5, size = 1) {
-    for (let k = 0; k < n; k++) {
-      _trailCol.set(COSMIC_COLS[(rand() * COSMIC_COLS.length) | 0]);
-      const p = emit(soft, x + rr(-spread, spread), y + rr(0.1, 0.1 + lift), z + rr(-spread, spread), rr(-0.08, 0.08), rr(0.05, 0.25), rr(-0.08, 0.08),
-        rr(1.0, 1.7), rr(0.2, 0.4) * size, 0.1, _trailCol.r, _trailCol.g, _trailCol.b, 1);
-      if (p < 0) return;
-      soft.data[p + DRAG] = 2;
-      soft.data[p + SHAPE] = SHAPE_STAR; soft.data[p + ROT] = rr(0, TAU); soft.data[p + SPIN] = rr(-2, 2);   // all stars (plain specks read as cubes)
+    const wing = n === 1;
+    // sparkles that circle round the spot they left, so the trail winds like a galaxy's arms
+    for (let k = 0; k < (wing ? 1 : 2); k++) {
+      const a = rr(0, TAU), r = wing ? spread : rr(0.25, 0.45);
+      const p = sparkle(x + Math.cos(a) * r, y + rr(0.15, 0.15 + lift), z + Math.sin(a) * r, 0, rr(0.05, 0.2), 0, rr(1.0, 1.5), rr(0.3, 0.5), size);
+      if (p >= 0) { glow.data[p + OX] = x; glow.data[p + OZ] = z; glow.data[p + OMEGA] = (k ? -1 : 1) * rr(2.2, 3.2); glow.data[p + DRAG] = 0.5; }
     }
+    if (!wing && rand() < 0.55) nebula(x, y + rr(0.25, 0.5), z, 0.7, 1.5, rr(0.9, 1.3));
   }
 
   // ---------------------------------------------------------------- calling card (120+ revives)
@@ -902,7 +939,7 @@ function createEffects(scene) {
 
   return {
     burst, deathPoof, reviveBeam, pickup, teleport, shieldPop, dust, iceKick, confetti, firework, confettiRain, munch,
-    shake, getShakeOffset, floatText, update, medicTrail, cosmicTrail, callingCard,
+    shake, getShakeOffset, floatText, update, medicTrail, cosmicTrail, starStep, callingCard,
   };
 }
 

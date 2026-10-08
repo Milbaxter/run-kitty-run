@@ -587,7 +587,7 @@ function startMsg(room, withWolves) {
     st: sim.state, vic: room.victory || null, // mid-game joiners: the run may already be won (the 'victory' event went out before)
     players: sim.players.map((p) => ({ id: p.id, name: p.name, color: p.color })),
     wolves: withWolves ? serializeEnemies(sim.enemies) : null,
-    lh: levelHash(sim.levelData),   // level fingerprint: the client reports a mismatch (no fallback)
+    lh: levelHash(sim.levelData),   // level fingerprint: a client that differs takes our items and wolves (main.js)
     it: sim.items.filter((i) => i.taken).map((i) => i.id), ct: sim.crownTaken ? 1 : 0, // mid-game joiners: already picked up
     cp: sim.checkpointsHit.slice(),   // ...and the checkpoints already reached (a repaired medic checkpoint shows repaired)
   };
@@ -939,6 +939,16 @@ wss.on('connection', (ws, req) => {
       case 'ping':
         send(ws, { t: 'pong', c: msg.c, k: room && room.phase === 'playing' ? room.tick : 0 });
         break;
+      case 'items': {
+        // a client whose level came out different from ours (main.js checkLevelHash): the real pickups, to draw
+        // those instead (its own would be in other spots: invisible pickups). At most once a second.
+        const now = Date.now();
+        if (!room || !room.sim || now - (client.itemsAt || 0) < 1000) return;
+        client.itemsAt = now;
+        const sim = room.sim;
+        send(ws, { t: 'items', lvl: sim.level, items: sim.items.map((it) => ({ id: it.id, type: it.type, x: it.x, z: it.z, taken: it.taken || undefined, mega: it.mega || undefined })) });
+        break;
+      }
       case 'resync': {
         // the client asks at most every 2 s (main.js); the full wolf state is big, so hold it to 1/s
         const now = Date.now();

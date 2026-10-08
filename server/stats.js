@@ -108,7 +108,7 @@ function createStats(file) {
       }
       case 'level_mismatch':   // an online client generated a level whose hash differs from the server's (desync tripwire)
         T.levelMismatches = (T.levelMismatches || 0) + 1;
-        console.warn(`level hash mismatch: mode ${(ev.mode || '').slice(0, 8)} level ${num(ev.level, 999)} device ${(ev.device || '').slice(0, 8)} ver ${(ev.ver || '').slice(0, 16)}`);
+        console.warn(`level hash mismatch: mode ${(ev.mode || '').slice(0, 8)} level ${num(ev.level, 999)} device ${(ev.device || '').slice(0, 8)} ver ${(ev.ver || '').slice(0, 16)} what ${String(ev.what || '?').slice(0, 16)}`);
         break;
     }
     dirty = true;

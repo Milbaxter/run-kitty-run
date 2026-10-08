@@ -118,9 +118,17 @@ platform :ios do
       install_provisioning_profile(path: profile_path)
       # The identity actually imported, by its exact name: a current certificate is "Apple Distribution: …", an older
       # one "iPhone Distribution: …", and Xcode's generic selectors don't match across the two.
+      # Apple's intermediates, so the certificate's chain validates (a CI keychain may not have them)
+      %w[AppleWWDRCAG3 AppleWWDRCAG6].each do |name|
+        cer = File.join(build_dir, "#{name}.cer")
+        sh("curl", "-fsSL", "-o", cer, "https://www.apple.com/certificateauthority/#{name}.cer")
+        sh("security", "import", cer, "-k", keychain, "-T", "/usr/bin/codesign") rescue UI.message("#{name} already present")
+      end
       found = sh("security", "find-identity", "-v", "-p", "codesigning", keychain, log: false)
+      every = sh("security", "find-identity", "-p", "codesigning", keychain, log: false)
+      UI.message("Identities in the p12: " + every.lines.grep(/\d+\)/).map { |l| l[/"([^"(]*)/, 1].to_s.strip + (l.include?("CSSMERR") ? " (invalid: #{l[/CSSMERR_\w+/]})" : "") }.uniq.join(", "))
       m = found.match(/\d+\) ([0-9A-F]{40}) "((?:Apple|iPhone|iOS) Distribution[^"]*)"/)
-      UI.user_error!("No distribution signing identity in IOS_DISTRIBUTION_P12_BASE64") unless m
+      UI.user_error!("No valid distribution signing identity in IOS_DISTRIBUTION_P12_BASE64 (see the identities above)") unless m
       identity_sha, identity = m[1], m[2]
       UI.message("Signing with #{identity.sub(/\(.*\)/, '(…)')}")
       profile = FastlaneCore::ProvisioningProfile.parse(profile_path)

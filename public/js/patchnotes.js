@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
+      'iOS app: swag packs. Optional in-app purchases that add to your swag number and activate your swag account; Restore purchases brings it back on a new iPhone',
       'Sign in with Discord: swag accounts now work with a Discord account too, next to Google',
       'New ULTRA LOW graphics setting for slower computers: no weather and a lower drawing resolution, for the most speed',
       'Invite friends: INVITE FRIENDS in a lobby lists the players you played Multiplayer with and who of them is online, so you can invite them with one click (they get a JOIN button). Star ★ players to keep them as friends',

@@ -1,6 +1,6 @@
 # Store questionnaires: suggested answers
 
-Based on the current native game: no sign-in, ads, third-party tracking SDKs or in-app purchases. Native account sign-in is disabled, but first-party play statistics, persistent random player IDs, guest unlock progress, the legends board, reports and feedback are collected. Re-check this file whenever those features change.
+Based on the current native game: no sign-in, ads or third-party tracking SDKs. The iOS app has optional consumable in-app purchases (swag packs, see `store/iap/README.md`); the swag account they activate goes with the App Store account (app transaction ID), no sign-in. First-party play statistics, persistent random player IDs, guest unlock progress, the legends board, reports and feedback are collected too. Re-check this file whenever those features change.
 
 ## App Store Connect: App Privacy ("nutrition label")
 
@@ -8,7 +8,9 @@ Based on the current native game: no sign-in, ads, third-party tracking SDKs or 
 
 | Data type | Collected | Linked to user | Tracking | Purpose |
 |---|---|---|---|---|
-| Identifiers → User ID | Yes: display names and persistent statistics/progress IDs | Yes | No | App Functionality; Analytics for the statistics ID |
+| Identifiers → User ID | Yes: display names, persistent statistics/progress IDs, and (buyers) the App Store app transaction ID and a purchase token | Yes | No | App Functionality; Analytics for the statistics ID |
+| Purchases → Purchase History | Yes (iOS, only when buying): transaction IDs, pack, date, storefront, price/currency, refunds | Yes: the swag account | No | App Functionality |
+| User Content → Gameplay Content (swag account) | Yes (buyers): game stats and unlock progress kept on the swag account | Yes | No | App Functionality |
 | Usage Data → Product Interaction | Yes: visits, runs, levels, duration, deaths, rescues, wins, device category | Yes: events include a persistent statistics ID | No | Analytics |
 | User Content → Gameplay Content | Yes: guest unlock progress and legends-board wins/signatures | Yes: progress ID or display name | No | App Functionality |
 | User Content → Other User Content | Yes: feedback and report reasons | Yes: stored with display names | No | App Functionality |
@@ -17,11 +19,11 @@ Based on the current native game: no sign-in, ads, third-party tracking SDKs or 
 
 Choose Linked to User conservatively: Apple includes pseudonymous screen names and persistent user IDs, not only real names or signed-in accounts. Raw interaction events are aggregated by the server, but the request includes an ID and the server retains first-seen/current-day ID records.
 
-No contact information, payment information or purchase history is collected by the native app. Google sign-in and Stripe payments are website-only. No cross-company tracking or targeted advertising; no ATT prompt is needed for these first-party uses.
+No contact information or payment information (card, bank) is collected by the native app: Apple handles payment and never shares it. Purchase history is collected for buyers (above). Google/Discord sign-in and Stripe payments are website-only and not reachable from the app. No cross-company tracking or targeted advertising; no ATT prompt is needed for these first-party uses.
 
 Privacy policy: https://runkittyrun.fun/privacy.html
 
-Implementation: `public/js/analytics.js`, `public/js/net.js`, `server/stats.js`, `server/accounts.js`, `server/legends.js`, and feedback/report handlers in `server/index.js`. The native manifest lists the same data types. Keep this form and the hosted policy consistent with the release binary.
+Implementation: `public/js/store.js`, `ios/App/App/StorePlugin.swift`, `server/appstore.js`, `public/js/analytics.js`, `public/js/net.js`, `server/stats.js`, `server/accounts.js`, `server/legends.js`, and feedback/report handlers in `server/index.js`. The native manifest lists the same data types. Keep this form and the hosted policy consistent with the release binary.
 
 ## App Store: Age rating questionnaire
 
@@ -84,7 +86,7 @@ the web version at https://80-47-225-25.nip.io can join with the lobby code).
 - "Could your store listing unintentionally appeal to children?" Answer honestly: **Yes**, it is a cartoon cat game. Play then
   asks you to confirm the app follows the Families ad/data rules for incidental child users. It does (no ads, no
   tracking, filtered chat, block/report).
-- **Ads: No. In-app purchases: No. News app: No. Government app: No. Health: No. COVID: No.**
+- **Ads: No. In-app purchases: No** (the Android build has none; in-app purchases are iOS only for now). **News app: No. Government app: No. Health: No. COVID: No.**
 - **App access:** all features are available without login. No credentials are needed for review.
 
 ## App Store: other fields

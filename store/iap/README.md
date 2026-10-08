@@ -27,8 +27,9 @@ available in all territories, Family Sharing off (consumables can't be shared).
   Apple's equivalent of USD 0.99 may come out at EUR 0.99 or EUR 1.19 (VAT). Use **Edit prices for countries** to pin
   EUR 0.99 / 4.99 / 9.99 / 19.99 if you want them to match the number added. The number added is fixed per product
   (`credit` in `public/js/shared/iap.js`) whatever the storefront price or currency. The app shows Apple's localized price.
-- **Review screenshot** (one per product, required): `store/iap/iphone-purchase-screen.png` (2868×1320, the purchase
-  screen showing all four packs). The same image works for all four. Also available: `iphone-purchase-done.png`
+- **Review screenshot** (one per product, required): `store/iap/simulator-purchase-screen.png` (2622×1206, taken
+  from the real app on an iPhone simulator with StoreKit Testing prices) or `store/iap/iphone-purchase-screen.png`
+  (2868×1320, the same screen rendered at the iPhone 6.9" size). The same image works for all four. Also available: `iphone-purchase-done.png`
   (after buying) and `iphone-swag-account.png` (the account with Restore purchases and Delete account).
 - **Review notes per product** (optional): "Consumable. Adds the stated amount to the player's swag number shown next to
   their kitty online, and activates their swag account (stats, unlock storage). Cosmetic only, no gameplay effect."
@@ -134,12 +135,16 @@ end-to-end local test, run a dev server with `APPLE_IAP_XCODE=1` and open the ap
 > In-app purchases: four consumable "swag packs" (Swag Account button on the main menu). Each pack adds a fixed amount to the player's swag number, a cosmetic gold number shown next to their kitty in online games (it can be hidden), and activates their swag account, which keeps game stats and the cosmetic unlocks earned by playing. Nothing sold affects gameplay; unlocks are earned by playing, never sold. No sign-in is required to buy: the swag account is tied to the App Store account (via the app transaction), so "Restore purchases" in the same screen brings it back after reinstalling or on another device. The account can be deleted in the app (Swag Account → Delete account). To see the number online, open Online → Create lobby after buying. Purchases are verified on our server with Apple's signed transactions; sandbox purchases are accepted.
 
 ## Blockers / to do before submitting
+- **GitHub Actions is blocked by billing**: "recent account payments have failed or your spending limit needs to be
+  increased" (Settings → Billing and plans). Until that's fixed, no workflow runs: not the TestFlight upload, not the
+  StoreKit tests, and **not the server deploy on push to `main`**.
 
 - Paid Apps Agreement, banking and tax must be active (Codex / account holder).
 - Create the four products exactly as above, with review screenshots. Set up the Server Notifications URLs.
 - Deploy the server (merge to `main`) **before** the build goes to review: the app reads `/api/account/config` to show the
   swag button, and verifies purchases at `/api/account/apple/*`.
-- The App Store signing secrets haven't been tried yet: the last TestFlight attempt (before they were added) failed with
-  "no devices". Run the workflow with "Upload iOS build to TestFlight" once to confirm the manual-profile path works.
-  The profile needs no new capability: in-app purchase is on by default for every App ID, and this release adds no
-  Sign in with Apple.
+- Signing is verified: Actions → Mobile apps → Run workflow with **iOS signing check** archives, signs with the App Store
+  profile and exports the `.ipa` without uploading (passed on this branch: `get-task-allow` false, associated domains
+  incl. `runkittyrun.fun`). The lane now imports the p12 with `security import`, because fastlane's `import_certificate`
+  silently imported nothing, and signs with the identity's exact name (the certificate is an "iPhone Distribution" one).
+  In-app purchase needs no profile change: it's on by default for every App ID, and this release adds no Sign in with Apple.

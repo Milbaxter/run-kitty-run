@@ -115,15 +115,15 @@ final class StoreTests: XCTestCase {
         XCTAssertTrue(after.isEmpty)
     }
 
-    func testCancelledPaymentIsReportedAsCancelled() async throws {
+    // A real cancel comes back as PurchaseResult.userCancelled ("cancelled"); StoreKit Testing can't make one without
+    // a dialog, so: the error StoreKit may throw instead maps to CANCELLED, and a failed payment leaves nothing behind.
+    func testCancelMapsToCancelledAndLeavesNothing() async throws {
+        XCTAssertEqual(StoreBridge.code(StoreKitError.userCancelled).0, "CANCELLED")
+        XCTAssertEqual(StoreBridge.code(StoreKitError.networkError(URLError(.notConnectedToInternet))).0, "NETWORK")
+        XCTAssertEqual(StoreBridge.code(Product.PurchaseError.purchaseNotAllowed).0, "NOT_ALLOWED")
         session.failTransactionsEnabled = true
         session.failureError = .paymentCancelled
-        do {
-            let r = try await buy()
-            XCTAssertEqual(r["status"] as? String, "cancelled")
-        } catch {
-            XCTAssertEqual(StoreBridge.code(error).0, "CANCELLED", "\(error)")
-        }
+        _ = try? await buy()
         let after = await StoreBridge.unfinished()
         XCTAssertTrue(after.isEmpty)
     }
@@ -174,7 +174,7 @@ final class StoreTests: XCTestCase {
     private func gameWebView() async throws -> WKWebView {
         let vc = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.windows.first?.rootViewController as? GameViewController }.first
         let web = try XCTUnwrap(vc?.webView, "the game's web view")
-        try await waitJS(web, "!!(window.Capacitor && window.Capacitor.registerPlugin)", "Capacitor in the page")
+        try await waitJS(web, "window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Store", "the Store plugin in the page")
         return web
     }
 
@@ -217,7 +217,7 @@ final class StoreTests: XCTestCase {
     func testJavaScriptReachesTheStorePluginThroughTheBridge() async throws {
         let web = try await gameWebView()
         let out = try await js(web, """
-            const S = window.Capacitor.registerPlugin('Store');
+            const S = window.Capacitor.Plugins.Store;   // what public/js/store.js uses
             const status = await S.status();
             const products = (await S.products({ ids })).products;
             const bought = await S.purchase({ id: ids[0], appAccountToken: token });

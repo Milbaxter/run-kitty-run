@@ -277,7 +277,8 @@ async function uiTest() {
       async finish({ transactionId }) { const u = load(), n = u.length; save(u.filter((t) => t.transactionId !== transactionId)); return { finished: u.length < n }; },
       addListener(ev, fn) { if (ev === 'transaction') listeners.push(fn); return { remove() {} }; },
     };
-    window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'ios', Plugins: {}, registerPlugin: (n) => (n === 'Store' ? store : {}) };
+    // (like Capacitor's native bridge: plugins on Capacitor.Plugins, no registerPlugin)
+    window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'ios', Plugins: { Store: store } };
   });
   return ctx.newPage();
   };

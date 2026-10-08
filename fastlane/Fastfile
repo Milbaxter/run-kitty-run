@@ -116,6 +116,13 @@ platform :ios do
       import_certificate(certificate_path: cert_path, certificate_password: ENV["IOS_DISTRIBUTION_PASSWORD"],
                          keychain_path: keychain, keychain_password: keychain_password, log_output: false)
       install_provisioning_profile(path: profile_path)
+      # The identity actually imported, by its exact name: a current certificate is "Apple Distribution: …", an older
+      # one "iPhone Distribution: …", and Xcode's generic selectors don't match across the two.
+      found = sh("security", "find-identity", "-v", "-p", "codesigning", keychain, log: false)
+      m = found.match(/\d+\) ([0-9A-F]{40}) "((?:Apple|iPhone|iOS) Distribution[^"]*)"/)
+      UI.user_error!("No distribution signing identity in IOS_DISTRIBUTION_P12_BASE64") unless m
+      identity_sha, identity = m[1], m[2]
+      UI.message("Signing with #{identity.sub(/\(.*\)/, '(…)')}")
       profile = FastlaneCore::ProvisioningProfile.parse(profile_path)
       UI.user_error!("App Store profile belongs to a different team or app") unless
         profile["TeamIdentifier"].include?(ENV["APPLE_TEAM_ID"]) &&
@@ -126,7 +133,7 @@ platform :ios do
       project.targets.find { |target| target.name == "App" }.build_configurations.each do |config|
         next unless config.name == "Release"
         config.build_settings["CODE_SIGN_STYLE"] = "Manual"
-        config.build_settings["CODE_SIGN_IDENTITY"] = "iPhone Distribution"
+        config.build_settings["CODE_SIGN_IDENTITY"] = identity
         config.build_settings["DEVELOPMENT_TEAM"] = ENV["APPLE_TEAM_ID"]
         config.build_settings["PROVISIONING_PROFILE_SPECIFIER"] = profile["Name"]
       end
@@ -159,7 +166,7 @@ platform :ios do
         <key>destination</key><string>#{upload ? 'upload' : 'export'}</string>
         <key>teamID</key><string>#{ENV['APPLE_TEAM_ID']}</string>
         <key>signingStyle</key><string>#{profile ? 'manual' : 'automatic'}</string>
-        #{profile ? "<key>signingCertificate</key><string>iPhone Distribution</string><key>provisioningProfiles</key><dict><key>#{APP_ID}</key><string>#{profile['UUID']}</string></dict>" : ''}
+        #{profile ? "<key>signingCertificate</key><string>#{identity_sha}</string><key>provisioningProfiles</key><dict><key>#{APP_ID}</key><string>#{profile['UUID']}</string></dict>" : ''}
         <key>uploadSymbols</key><true/>
         <key>manageAppVersionAndBuildNumber</key><false/>
       </dict>

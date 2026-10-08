@@ -5,8 +5,10 @@
 import { NATIVE, PLATFORM } from './platform.js';
 import { IAP_PRODUCTS } from './shared/iap.js';
 
+// (Capacitor's native bridge puts every registered plugin on Capacitor.Plugins, ours included: StorePlugin is
+// registered before the page loads. There is no registerPlugin without the @capacitor/core bundle.)
 const CAP = window.Capacitor;
-const plugin = NATIVE && PLATFORM === 'ios' && CAP && typeof CAP.registerPlugin === 'function' ? CAP.registerPlugin('Store') : null;
+const plugin = (NATIVE && PLATFORM === 'ios' && CAP && CAP.Plugins && CAP.Plugins.Store) || null;
 
 const MESSAGES = {
   NOT_FOUND: 'This pack is not available right now. Try again later.',

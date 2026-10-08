@@ -195,7 +195,7 @@ Only `public/`-only changes? The website updates on deploy as usual; the apps ke
 - **4.2 Minimum functionality** (web wrappers get rejected): the game is bundled, starts offline, and uses native haptics, share sheet, keep-awake and deep links. Don't describe it as "the website in an app".
 - **1.2 User-generated content**: needs filter + report + block + terms + a way to contact you — all present (chat menu, `terms.html`, `support.html`). Actually read the reports (`scripts/reports.sh`) and act within 24 h.
 - **Export compliance**: `ITSAppUsesNonExemptEncryption = false` is in `Info.plist` (only HTTPS/WSS), so no questions per build.
-- **Privacy manifest**: `ios/App/App/PrivacyInfo.xcprivacy` is bundled; privacy label = data not collected / not linked (see `store/answers.md`). Feedback/reports store the player name + text only.
+- **Privacy manifest**: `ios/App/App/PrivacyInfo.xcprivacy` is bundled; privacy declarations include persistent User IDs, play statistics, gameplay content, feedback/reports, retained chat excerpts and diagnostic data (see `store/answers.md`). Treat data stored with a screen name or persistent ID as linked to the user.
 - **iPad**: the app is universal, so iPad screenshots are mandatory and reviewers test on iPad.
 - **Xcode version**: Apple only accepts builds from the current Xcode/SDK; CI uses `latest-stable` on the newest macOS runner. If uploads get rejected for SDK version, bump `runs-on` in `mobile.yml`.
 - **Google**: target the latest API level (`targetSdkVersion` in `android/variables.gradle`, 36 now) — Play enforces this each August. Data safety form must match `store/answers.md`.

@@ -257,7 +257,8 @@ final class StoreTests: XCTestCase {
         try await waitJS(web, "document.querySelector('.rkr-swag') && !document.querySelector('.rkr-swag').classList.contains('rkr-hidden')", "the swag button (server config)")
         // (opens the swag dialog; again if a redraw of the title screen swallowed the first click)
         try await waitJS(web, "document.querySelector('.rka-box') || (document.querySelector('.rkr-swag').click(), false)", "the swag dialog", timeout: 120)
-        try await waitJS(web, "document.querySelectorAll('.rka-pack').length === 4", "the four packs")
+        // (an earlier test's purchase may have been delivered at launch: then the account is active, packs via ADD MORE)
+        try await waitJS(web, "document.querySelectorAll('.rka-pack').length === 4 || ([...document.querySelectorAll('.rka-box button')].find((b) => b.textContent === 'ADD MORE') || { click() {} }).click()", "the four packs")
         let texts = try await js(web, "return [...document.querySelectorAll('.rka-pack')].map((b) => b.textContent).join('|')") as? String ?? ""
         XCTAssertTrue(texts.contains("$0.99") && texts.contains("$19.99"), texts)
         try await Task.sleep(nanoseconds: 3_000_000_000)
@@ -268,11 +269,13 @@ final class StoreTests: XCTestCase {
         try await Task.sleep(nanoseconds: 3_000_000_000)
         attachScreenshot("purchase-done")
         XCTAssertTrue(msg.contains("+4.99"), "message: \(msg)")
+        let total = (try await js(web, "return (/now ([0-9.]+)/.exec(document.querySelector('.rka-msg').textContent) || [])[1] || ''") as? String) ?? ""
+        XCTAssertFalse(total.isEmpty)
         let left = await StoreBridge.unfinished()
         XCTAssertTrue(left.isEmpty, "credited by the server, then finished")
         // reinstall: the session is gone, the account is found again at launch
         _ = try await js(web, "localStorage.removeItem('rkr-acct')")
         web.load(URLRequest(url: page))
-        try await waitJS(web, "/4\\.99/.test((document.querySelector('.rkr-swag small') || {}).textContent || '')", "the account found again after a reinstall")
+        try await waitJS(web, "((document.querySelector('.rkr-swag small') || {}).textContent || '').startsWith('\(total)')", "the account found again after a reinstall")
     }
 }

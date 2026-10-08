@@ -127,6 +127,9 @@ platform :ios do
       found = sh("security", "find-identity", "-v", "-p", "codesigning", keychain, log: false)
       every = sh("security", "find-identity", "-p", "codesigning", keychain, log: false)
       UI.message("Identities in the p12: " + every.lines.grep(/\d+\)/).map { |l| l[/"([^"(]*)/, 1].to_s.strip + (l.include?("CSSMERR") ? " (invalid: #{l[/CSSMERR_\w+/]})" : "") }.uniq.join(", "))
+      certs = sh("security", "find-certificate", "-a", keychain, log: false).scan(/"labl"<blob>="([^"]*)"/).flatten
+      keys = sh("security", "dump-keychain", keychain, log: false).scan(/class: 0x00000010/).size
+      UI.message("Keychain: #{keys} private key(s); certificates: #{certs.map { |c| c.sub(/\s*\(.*\)/, '') }.join(', ')}")
       m = found.match(/\d+\) ([0-9A-F]{40}) "((?:Apple|iPhone|iOS) Distribution[^"]*)"/)
       UI.user_error!("No valid distribution signing identity in IOS_DISTRIBUTION_P12_BASE64 (see the identities above)") unless m
       identity_sha, identity = m[1], m[2]

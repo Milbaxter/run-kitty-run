@@ -222,6 +222,7 @@ final class StoreTests: XCTestCase {
             const products = (await S.products({ ids })).products;
             const bought = await S.purchase({ id: ids[0], appAccountToken: token });
             const unfinished = (await S.unfinished()).transactions;
+            await S.finish({ transactionId: bought.transaction.transactionId });
             let bad = null;
             try { await S.purchase({ id: ids[0] }); } catch (e) { bad = e.code || 'error'; }
             return JSON.stringify({ status, products, bought, unfinished, bad });
@@ -243,6 +244,7 @@ final class StoreTests: XCTestCase {
         guard let server = ProcessInfo.processInfo.environment["RKR_E2E_SERVER"] else {
             throw XCTSkip("needs a local server: TEST_RUNNER_RKR_E2E_SERVER")
         }
+        for await r in Transaction.unfinished { await r.unsafePayloadValue.finish() }
         let web = try await gameWebView()
         // the game against the local server, lightest graphics (software rendering on CI)
         _ = try await js(web, "localStorage.setItem('rkr-settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('rkr-settings') || '{}'), gfx: 'ultra' })); localStorage.removeItem('rkr-acct');")

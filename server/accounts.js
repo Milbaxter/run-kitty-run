@@ -341,9 +341,12 @@ function createAccounts(file, env = process.env) {
     if (a) a.paid = Math.max(0, (Number(a.paid) || 0) + (Number(delta) || 0));
     return { a };
   }
+  // a purchase's ledger key: environment + transaction id (StoreKit Testing in Xcode restarts its ids at 0 whenever its
+  // transactions are cleared, so there the purchase time goes in too)
+  const iapKey = (t) => t.environment + ':' + t.transactionId + (t.environment === 'Xcode' ? ':' + t.purchaseDate : '');
   // live: the ledger line first (replayed on startup, like a Stripe payment), then the account file
   function iapEvent(kind, t, sub) {
-    const key = t.environment + ':' + t.transactionId;
+    const key = iapKey(t);
     if (!iapWould(kind, key)) return null;
     const p = IAP_BY_ID.get(t.productId);
     const qty = Number.isInteger(t.quantity) && t.quantity > 1 ? t.quantity : 1;
@@ -364,7 +367,9 @@ function createAccounts(file, env = process.env) {
     catch (e) { console.error('app store transaction rejected:', e.message); return { ok: false, finish: false, msg: 'Could not check this purchase with the App Store. Try again in a moment.' }; }
     const p = IAP_BY_ID.get(t.productId);
     if (!p || t.type !== 'Consumable') { console.error('app store: unknown product', t.productId, t.type); return { ok: false, finish: false, msg: 'Unknown item. Update the app, then try again.' }; }
-    const key = t.environment + ':' + t.transactionId;
+    const key = iapKey(t);
+    if (testing) console.log('app store transaction:', JSON.stringify({ id: t.transactionId, product: t.productId, env: t.environment, at: t.purchaseDate,
+      revoked: t.revocationDate || null, token: t.appAccountToken || null, appTx: t.appTransactionId || null, qty: t.quantity }));
     const owner = iapOwner(t);
     if (t.revocationDate) {
       // refunded before it got here: nothing to deliver (and if it was credited, take that back now)

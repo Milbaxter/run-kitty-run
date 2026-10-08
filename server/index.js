@@ -94,7 +94,7 @@ const REPORTS_FILE_MAX = 5 << 20;   // retain evidence, refuse new reports when 
 const REPORT_REASONS = ['spam', 'abuse', 'name', 'other'];
 const CHAT_HISTORY = 10;            // recent lines kept per player, attached to reports
 // App deep links (Universal Links / Android App Links); set on the server, see deploy/run-kitty-run.service.
-const APPLE_TEAM_ID = process.env.APPLE_TEAM_ID || 'TEAMID_PLACEHOLDER';
+const APPLE_TEAM_ID = process.env.APPLE_TEAM_ID || 'K46JJAK48B';
 const ANDROID_CERT_SHA256 = (process.env.ANDROID_CERT_SHA256 || 'AA:BB:CC:PLACEHOLDER').split(',').map((s) => s.trim()).filter(Boolean);
 const APP_ID = 'io.runkittyrun.app';
 // The native apps load the client from these origins and call /api/* cross-origin.

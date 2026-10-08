@@ -8,7 +8,7 @@ const PLATFORM = NATIVE ? (CAP.getPlatform && CAP.getPlatform()) || 'web' : 'web
 const APP_VERSION = '1.0.0';
 const PROD_ORIGIN = 'https://80-47-225-25.nip.io';
 const STORE_URLS = {
-  ios: 'https://apps.apple.com/app/idTODO',
+  ios: 'https://apps.apple.com/app/id6820576828',
   android: 'https://play.google.com/store/apps/details?id=io.runkittyrun.app',
 };
 

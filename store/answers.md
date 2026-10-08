@@ -1,28 +1,27 @@
 # Store questionnaires: suggested answers
 
-Based on what the game actually does (see `public/privacy.html`): no accounts, no ads, no analytics/tracking SDKs, no
-in-app purchases. Online play relays display names + lobby chat; reports and feedback are stored on our server.
-Re-check these if any SDK, account system or purchase is added.
+Based on the current native game: no sign-in, ads, third-party tracking SDKs or in-app purchases. Native account sign-in is disabled, but first-party play statistics, persistent random player IDs, guest unlock progress, the legends board, reports and feedback are collected. Re-check this file whenever those features change.
 
 ## App Store Connect: App Privacy ("nutrition label")
 
-**Do you or your third-party partners collect data from this app?** Yes. Apple counts data sent off the device and kept
-longer than needed to service the request in real time, and reports + feedback are stored.
+**Do you or your third-party partners collect data from this app? Yes.** Data is retained by our own game server.
 
-| Data type | Collected? | Linked to identity | Tracking | Purpose |
+| Data type | Collected | Linked to user | Tracking | Purpose |
 |---|---|---|---|---|
-| User Content → **Other User Content** (feedback text; chat lines attached to a report) | Yes | No | No | App Functionality (moderation), Product Personalization: no |
-| User Content → Customer Support | Optional: only if feedback counts as support. Same answers as above | No | No | App Functionality |
-| Identifiers (User ID / Device ID) | No (no accounts; the per-connection player id is not stored) | | | |
-| Contact Info, Location, Health, Financial, Contacts, Browsing/Search History, Purchases | No | | | |
-| Usage Data, Diagnostics | No (no analytics or crash SDK) | | | |
+| Identifiers → User ID | Yes: display names and persistent statistics/progress IDs | Yes | No | App Functionality; Analytics for the statistics ID |
+| Usage Data → Product Interaction | Yes: visits, runs, levels, duration, deaths, rescues, wins, device category | Yes: events include a persistent statistics ID | No | Analytics |
+| User Content → Gameplay Content | Yes: guest unlock progress and legends-board wins/signatures | Yes: progress ID or display name | No | App Functionality |
+| User Content → Other User Content | Yes: feedback and report reasons | Yes: stored with display names | No | App Functionality |
+| User Content → Emails or Text Messages | Yes: chat excerpts retained in reports | Yes: stored with display names | No | App Functionality |
+| Diagnostics → Other Diagnostic Data | Yes: feedback user agent, app version, and level mismatch reports | Yes: feedback includes a display name, mismatch events include a statistics ID | No | App Functionality |
 
-- Display name: chosen freely, never linked to a real identity, only stored inside a report. It is covered by "Other User Content".
-- IP addresses in short-lived server logs and reports are used for security/anti-spam. Apple doesn't make you declare
-  data used only for security/fraud prevention when it isn't linked or used for tracking. If you want to be conservative,
-  add nothing more: IP is not one of Apple's data types.
-- **Tracking: No.** No App Tracking Transparency prompt is needed.
-- Privacy policy URL: https://80-47-225-25.nip.io/privacy.html
+Choose Linked to User conservatively: Apple includes pseudonymous screen names and persistent user IDs, not only real names or signed-in accounts. Raw interaction events are aggregated by the server, but the request includes an ID and the server retains first-seen/current-day ID records.
+
+No contact information, payment information or purchase history is collected by the native app. Google sign-in and Stripe payments are website-only. No cross-company tracking or targeted advertising; no ATT prompt is needed for these first-party uses.
+
+Privacy policy: https://runkittyrun.fun/privacy.html
+
+Implementation: `public/js/analytics.js`, `public/js/net.js`, `server/stats.js`, `server/accounts.js`, `server/legends.js`, and feedback/report handlers in `server/index.js`. The native manifest lists the same data types. Keep this form and the hosted policy consistent with the release binary.
 
 ## App Store: Age rating questionnaire
 
@@ -48,6 +47,8 @@ Put that list in the **App Review notes**, plus how to test online play (open Mu
 the web version at https://80-47-225-25.nip.io can join with the lobby code).
 
 ## Google Play: Data safety form
+
+**Re-audit before a Google Play release:** the older suggested answers below predate statistics, guest progress and the legends board. Do not submit them unchanged.
 
 - **Does your app collect or share any of the required user data types?** Yes (collected; not shared).
 - **Is all of the user data collected by your app encrypted in transit?** Yes (HTTPS / WSS).

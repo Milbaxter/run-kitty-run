@@ -42,7 +42,19 @@ jobs:
           xcodebuild -version
           xcodebuild -quiet -project ios/App/App.xcodeproj -scheme App -destination "id=$UDID" \
             -derivedDataPath ios/App/build/test CODE_SIGNING_ALLOWED=NO build-for-testing
+      # the end-to-end test in the app talks to a local server that accepts StoreKit Testing (Xcode-signed) data
+      - name: Local game server
+        run: |
+          mkdir -p "$RUNNER_TEMP/srv"
+          PORT=8099 HOST=127.0.0.1 NODE_ENV=test APPLE_IAP_XCODE=1 GOOGLE_CLIENT_ID= STRIPE_SECRET_KEY= \
+            ACCOUNTS_FILE="$RUNNER_TEMP/srv/accounts.json" FEEDBACK_FILE="$RUNNER_TEMP/srv/feedback.jsonl" \
+            STATS_FILE="$RUNNER_TEMP/srv/stats.json" LEGENDS_FILE="$RUNNER_TEMP/srv/legends.json" REPORTS_FILE="$RUNNER_TEMP/srv/reports.jsonl" \
+            nohup node server/index.js > "$RUNNER_TEMP/srv/server.log" 2>&1 &
+          for i in $(seq 1 50); do curl -fs http://127.0.0.1:8099/healthz > /dev/null && break; sleep 0.2; done
+          curl -fs http://127.0.0.1:8099/api/account/config
       - name: StoreKit tests
+        env:
+          TEST_RUNNER_RKR_E2E_SERVER: http://127.0.0.1:8099
         run: |
           xcrun simctl bootstatus "$UDID" -b > /dev/null
           # one retry: StoreKit Testing on a cold CI simulator sometimes returns no products the first time
@@ -59,9 +71,17 @@ jobs:
             echo "::warning::StoreKit tests attempt $i failed"
           done
           exit 1
+      - name: Screenshots from the test results
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/out/screens"
+          xcrun xcresulttool export attachments --path "$RUNNER_TEMP/StoreKit.xcresult" --output-path "$RUNNER_TEMP/out/screens" || true
+          ls -la "$RUNNER_TEMP/out/screens"
+          cp "$RUNNER_TEMP/test.log" "$RUNNER_TEMP/srv/server.log" "$RUNNER_TEMP/out/" 2>/dev/null || true
+          grep -i "app store\|apple" "$RUNNER_TEMP/srv/server.log" | tail -30 || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: storekit-xcresult
-          path: ${{ runner.temp }}/StoreKit.xcresult
+          name: storekit-results
+          path: ${{ runner.temp }}/out
           if-no-files-found: ignore

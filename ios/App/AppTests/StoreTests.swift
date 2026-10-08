@@ -1,10 +1,15 @@
 import XCTest
+import UIKit
+import WebKit
 import StoreKit
 import StoreKitTest
 @testable import App
 
 // StorePlugin.swift's StoreKit side (StoreBridge) against StoreKit Testing (Products.storekit, no App Store, no
 // dialogs). The server half (verifying and crediting what these return) is scripts/iap-test.mjs.
+// The last two drive the game's own WebView: the JS -> Capacitor -> StorePlugin bridge, and (with a local server,
+// TEST_RUNNER_RKR_E2E_SERVER=http://127.0.0.1:8099 running with APPLE_IAP_XCODE=1) the purchase screen end to end,
+// with screenshots attached to the test results.
 // Run: xcodebuild test -project ios/App/App.xcodeproj -scheme App -destination 'platform=iOS Simulator,name=...'
 final class StoreTests: XCTestCase {
     static let ids = ["io.runkittyrun.app.swag.small", "io.runkittyrun.app.swag.medium",
@@ -161,5 +166,99 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(plugin.jsName, "Store")
         XCTAssertEqual(Set(plugin.pluginMethods.map { $0.name }),
                        ["status", "products", "appTransaction", "purchase", "unfinished", "history", "finish"])
+    }
+
+    // ---- the game's WebView ----
+
+    @MainActor
+    private func gameWebView() async throws -> WKWebView {
+        let vc = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.windows.first?.rootViewController as? GameViewController }.first
+        let web = try XCTUnwrap(vc?.webView, "the game's web view")
+        try await waitJS(web, "!!(window.Capacitor && window.Capacitor.registerPlugin)", "Capacitor in the page")
+        return web
+    }
+
+    // run async JS in the page (top level await, `return` the result)
+    @MainActor
+    private func js(_ web: WKWebView, _ body: String, _ args: [String: Any] = [:]) async throws -> Any? {
+        try await web.callAsyncJavaScript(body, arguments: args, contentWorld: .page)
+    }
+
+    // wait until a JS expression is true (the CI simulator renders WebGL in software: everything is slow)
+    @MainActor
+    private func waitJS(_ web: WKWebView, _ expr: String, _ what: String, timeout: TimeInterval = 240) async throws {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end {
+            if let ok = try? await web.callAsyncJavaScript("return !!(\(expr))", arguments: [:], contentWorld: .page) as? Bool, ok { return }
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        XCTFail("timed out waiting for \(what)")
+        throw XCTSkip("gave up on \(what)")
+    }
+
+    @MainActor
+    private func attachScreenshot(_ name: String) {
+        guard let window = UIApplication.shared.connectedScenes.compactMap({ ($0 as? UIWindowScene)?.windows.first }).first else { return }
+        let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }
+        let a = XCTAttachment(image: image)
+        a.name = name
+        a.lifetime = .keepAlways
+        add(a)
+    }
+
+    @MainActor
+    func testJavaScriptReachesTheStorePluginThroughTheBridge() async throws {
+        let web = try await gameWebView()
+        let out = try await js(web, """
+            const S = window.Capacitor.registerPlugin('Store');
+            const status = await S.status();
+            const products = (await S.products({ ids })).products;
+            const bought = await S.purchase({ id: ids[0], appAccountToken: token });
+            const unfinished = (await S.unfinished()).transactions;
+            let bad = null;
+            try { await S.purchase({ id: ids[0] }); } catch (e) { bad = e.code || 'error'; }
+            return JSON.stringify({ status, products, bought, unfinished, bad });
+            """, ["ids": Self.ids, "token": token.uuidString])
+        let d = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(XCTUnwrap(out as? String).utf8)) as? [String: Any])
+        XCTAssertEqual((d["status"] as? [String: Any])?["supported"] as? Bool, true)
+        let products = try XCTUnwrap(d["products"] as? [[String: Any]])
+        XCTAssertEqual(products.map { $0["displayPrice"] as? String }, ["$0.99", "$4.99", "$9.99", "$19.99"])
+        let bought = try XCTUnwrap(d["bought"] as? [String: Any])
+        XCTAssertEqual(bought["status"] as? String, "success")
+        let t = try XCTUnwrap(bought["transaction"] as? [String: Any])
+        XCTAssertEqual(t["appAccountToken"] as? String, token.uuidString.lowercased())
+        XCTAssertTrue((d["unfinished"] as? [[String: Any]] ?? []).contains { $0["transactionId"] as? String == t["transactionId"] as? String })
+        XCTAssertEqual(d["bad"] as? String, "FAILED", "no purchase without an account token")
+    }
+
+    @MainActor
+    func testPurchaseScreenEndToEnd() async throws {
+        guard let server = ProcessInfo.processInfo.environment["RKR_E2E_SERVER"] else {
+            throw XCTSkip("needs a local server: TEST_RUNNER_RKR_E2E_SERVER")
+        }
+        let web = try await gameWebView()
+        // the game against the local server, lightest graphics (software rendering on CI)
+        _ = try await js(web, "localStorage.setItem('rkr-settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('rkr-settings') || '{}'), gfx: 'ultra' })); localStorage.removeItem('rkr-acct');")
+        let page = try XCTUnwrap(URL(string: "capacitor://localhost/?account=" + (server.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? server)))
+        web.load(URLRequest(url: page))
+        try await waitJS(web, "document.querySelector('.rkr-swag') && !document.querySelector('.rkr-swag').classList.contains('rkr-hidden')", "the swag button (server config)")
+        _ = try await js(web, "document.querySelector('.rkr-swag').click()")
+        try await waitJS(web, "document.querySelectorAll('.rka-pack').length === 4", "the four packs")
+        let texts = try await js(web, "return [...document.querySelectorAll('.rka-pack')].map((b) => b.textContent).join('|')") as? String ?? ""
+        XCTAssertTrue(texts.contains("$0.99") && texts.contains("$19.99"), texts)
+        try await Task.sleep(nanoseconds: 3_000_000_000)
+        attachScreenshot("purchase-screen")
+        _ = try await js(web, "document.querySelectorAll('.rka-pack')[1].click()")
+        try await waitJS(web, "/THANK YOU/.test((document.querySelector('.rka-box h2') || {}).textContent || '') || /did not|Could not|wrong/.test((document.querySelector('.rka-msg') || {}).textContent || '')", "the purchase result")
+        let msg = try await js(web, "return document.querySelector('.rka-msg').textContent") as? String ?? ""
+        try await Task.sleep(nanoseconds: 3_000_000_000)
+        attachScreenshot("purchase-done")
+        XCTAssertTrue(msg.contains("+4.99"), "message: \(msg)")
+        let left = await StoreBridge.unfinished()
+        XCTAssertTrue(left.isEmpty, "credited by the server, then finished")
+        // reinstall: the session is gone, the account is found again at launch
+        _ = try await js(web, "localStorage.removeItem('rkr-acct')")
+        web.load(URLRequest(url: page))
+        try await waitJS(web, "/4\\.99/.test((document.querySelector('.rkr-swag small') || {}).textContent || '')", "the account found again after a reinstall")
     }
 }

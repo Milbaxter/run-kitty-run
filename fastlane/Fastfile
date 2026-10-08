@@ -89,8 +89,9 @@ platform :ios do
     app_store_connect_api_key(key_id: ENV["ASC_KEY_ID"], issuer_id: ENV["ASC_ISSUER_ID"], key_filepath: asc_key_path)
   end
 
-  desc "Archive and upload to TestFlight, using an App Store profile when configured. Options: build (build number, default: project value)"
+  desc "Archive and upload to TestFlight, using an App Store profile when configured. Options: build (build number, default: project value), upload:false (archive + sign + export only: checks signing, sends nothing to Apple)"
   lane :beta do |o|
+    upload = o[:upload].to_s != "false"
     need_env!("ASC_KEY_ID", "ASC_ISSUER_ID", "APPLE_TEAM_ID")
     key = asc_key_path
     build_dir = File.join(ROOT, "ios/App/build")
@@ -155,7 +156,7 @@ platform :ios do
       <plist version="1.0">
       <dict>
         <key>method</key><string>app-store-connect</string>
-        <key>destination</key><string>upload</string>
+        <key>destination</key><string>#{upload ? 'upload' : 'export'}</string>
         <key>teamID</key><string>#{ENV['APPLE_TEAM_ID']}</string>
         <key>signingStyle</key><string>#{profile ? 'manual' : 'automatic'}</string>
         #{profile ? "<key>signingCertificate</key><string>iPhone Distribution</string><key>provisioningProfiles</key><dict><key>#{APP_ID}</key><string>#{profile['UUID']}</string></dict>" : ''}
@@ -168,7 +169,18 @@ platform :ios do
     # destination=upload: exportArchive signs for distribution and sends the build straight to App Store Connect.
     sh("xcodebuild", "-exportArchive", "-archivePath", archive, "-exportOptionsPlist", plist,
        "-exportPath", File.join(build_dir, "export"), *auth)
-    UI.success("Uploaded - the build shows up in TestFlight after Apple finishes processing (~5-30 min).")
+    if upload
+      UI.success("Uploaded - the build shows up in TestFlight after Apple finishes processing (~5-30 min).")
+    else
+      ipa = Dir[File.join(build_dir, "export", "*.ipa")].first
+      UI.user_error!("No signed .ipa exported") unless ipa
+      Dir.mktmpdir do |d|
+        sh("unzip", "-q", ipa, "-d", d)
+        sh("codesign", "--verify", "--deep", "--strict", File.join(d, "Payload/App.app"))
+        sh("codesign", "-d", "--entitlements", ":-", File.join(d, "Payload/App.app"))
+      end
+      UI.success("Signing check passed: #{File.basename(ipa)} archived, signed for App Store distribution and exported (not uploaded).")
+    end
   ensure
     File.binwrite(project_file, original_project) if original_project
     delete_keychain(keychain_path: keychain) if keychain && File.exist?(keychain)

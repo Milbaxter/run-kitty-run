@@ -24,6 +24,10 @@ on:
         description: 'Upload iOS build to TestFlight'
         type: boolean
         default: false
+      ios_signing_check:
+        description: 'iOS signing check: archive + sign + export with the App Store profile, no upload'
+        type: boolean
+        default: false
       release_android:
         description: 'Upload Android build to Google Play'
         type: boolean
@@ -171,7 +175,7 @@ jobs:
           path: RunKittyRun-simulator.zip
           if-no-files-found: error
       - name: Ruby + fastlane
-        if: github.event_name == 'workflow_dispatch' && inputs.release_ios
+        if: github.event_name == 'workflow_dispatch' && (inputs.release_ios || inputs.ios_signing_check)
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.4'
@@ -183,3 +187,6 @@ jobs:
             echo "::error::Need ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8_BASE64, APPLE_TEAM_ID secrets (docs/MOBILE.md)"; exit 1
           fi
           bundle exec fastlane ios beta build:"$BUILD_NUMBER"
+      - name: iOS signing check (no upload)
+        if: github.event_name == 'workflow_dispatch' && inputs.ios_signing_check && !inputs.release_ios
+        run: bundle exec fastlane ios beta build:"$BUILD_NUMBER" upload:false

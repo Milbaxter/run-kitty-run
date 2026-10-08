@@ -125,6 +125,8 @@ This is the *upload* key; Google re-signs releases with its own **app signing ke
    gh secret set APPLE_TEAM_ID --body <TEAMID>
    ```
 
+For a team without registered test devices, automatic development signing cannot archive the app. Configure `IOS_DISTRIBUTION_P12_BASE64`, `IOS_DISTRIBUTION_PASSWORD`, and `IOS_APPSTORE_PROFILE_BASE64` as encrypted Actions secrets instead. These hold a distribution certificate/private key, its password, and the App Store profile for `io.runkittyrun.app`. The iOS lane imports them into a temporary keychain, signs only the App target with that profile, and removes the temporary keychain and decoded assets afterward. Renew the certificate/profile before expiry. Keep all private keys out of the repository.
+
 **Server env for deep links** (after the first Play upload / once you have a Team ID). On the server:
 
 ```bash

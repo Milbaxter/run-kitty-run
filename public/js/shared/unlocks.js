@@ -1,8 +1,9 @@
 // Permanent unlocks on a swag account (server/accounts.js keeps the progress, the account menu shows it, the game puts
 // the switched-on items on the kitty). Earned online only (the server runs those games), per player, in every mode:
-//   l8: clearing level 8 while holding all its wins: 8 in Run only and Skate only, 16 in Run + Skate (day crowns count)
-//   l9: winning the final run (level 9) as one of the kitties that got to the end themselves, holding 8 crowns (16 in
-//       Run + Skate) by then: the final run's own crown counts (the hardest one, it may make up for a missed one)
+//   l8: clearing level 8 having reached the goal yourself on every level of the run before it moved on (8 goals in
+//       Run only and Skate only, 16 in Run + Skate: the day and night halves each), crowns or not
+//   l9: winning the final run (level 9) having reached the goal yourself on every level, the final one included (not
+//       carried into the victory party)
 //   win: the final run won, for every kitty in the game (crowns or not)
 // An item unlocks per mode: done `times` times in a mode, it's unlocked (and worn) in that mode only. (`any`: done in any
 // mode, it's unlocked for good: the song. `all`: done in all three modes, it's unlocked in every one: the chrome lion.)
@@ -18,8 +19,8 @@ const UNLOCKS = [
   { id: 'song5', name: 'New song: We Skate', feat: 'win', times: 1, any: true, song: true },
 ];
 const FEAT_IDS = ['l8', 'l9', 'win'];
-const FEATS = { l8: 'Clear level 8 with every win', l9: 'Beat level 9 with every win', win: 'Clear the final level' };
-// the wins a kitty needs in a mode (one per level, two per level in Run + Skate)
+const FEATS = { l8: 'Clear level 8 reaching every goal', l9: 'Beat level 9 reaching every goal', win: 'Clear the final level' };
+// the wins a kitty can have by level 8 (one per level, two per level in Run + Skate)
 const winsNeeded = (mode) => (mode === 'mixed' ? 16 : 8);
 // progress: { l8: { run, ice, mixed }, l9: { ... } } -> is this item unlocked in this mode? (no mode: in any mode,
 // e.g. whether the menu shows its switch)

@@ -21,6 +21,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   let ev = stepSim(sim, {}, CFG.TICK);
   const clear = ev.find((e) => e.type === 'levelClear');
   ok(clear && clear.by === 1 && sim.state === 'levelclear', 'one kitty in the goal clears the level');
+  ok(ev.some((e) => e.type === 'enterCenter' && e.playerId === 1 && e.level === 1), 'reaching the goal tells which level it was (the level 8 / 9 unlocks count every goal a kitty reached itself)');
   let died = false, levelStart = false;
   for (let t = 0; t < 60 * 3 && !levelStart; t++) {
     c.invuln = 0; ev = stepSim(sim, {}, CFG.TICK);

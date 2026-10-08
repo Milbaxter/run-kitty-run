@@ -15,7 +15,6 @@ import { createStats } from './stats.js';
 import { createLegends } from './legends.js';
 import { createAccounts, onePerPlayer, samePlayer } from './accounts.js';
 import { pregenNext } from './levelgen.js';
-import { winsNeeded } from '../public/js/shared/unlocks.js';
 
 const PORT = +process.env.PORT || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -548,6 +547,7 @@ function rememberLeft(room, client) {
     at: Date.now(), sim, level: sim.level, ip: client.ip,
     alive: p.alive, x: p.x, z: p.z, circleT: circ ? circ.t : 0,
     lives: p.lives, deaths: p.deaths, rescues: p.rescues, finishes: p.finishes, crowned: p.crowned, speedMult: p.speedMult, bonus: p.bonus || 0,
+    goals: room.goalsFor === sim && room.goals.get(p.id) ? [...room.goals.get(p.id)] : [],   // (the unlocks' goal tally)
   });
 }
 
@@ -561,6 +561,10 @@ function restoreLeft(room, client, p) {
   room.left.delete(key);
   const sim = room.sim;
   Object.assign(p, { lives: r.lives, deaths: r.deaths, rescues: r.rescues, finishes: r.finishes, crowned: r.crowned, speedMult: r.speedMult, bonus: r.bonus || 0 });
+  if (r.goals && r.goals.length && r.sim === sim) {   // the goals it had reached this run come back with it
+    if (room.goalsFor !== sim) { room.goalsFor = sim; room.goals = new Map(); }
+    room.goals.set(p.id, new Set(r.goals));
+  }
   // a new level (or the victory party) revives everyone anyway
   if (!r.alive && r.level === sim.level && sim.state !== 'victory') {
     Object.assign(p, { alive: false, x: r.x, z: r.z, vx: 0, vz: 0, moving: false, inCenter: false, invuln: 0, shield: 0, speedMult: 1 });
@@ -655,9 +659,14 @@ function countForAccounts(room, events) {
   const whoOf = (id) => { const m = memberOf(id); return m ? { sub: m.acct, pid: m.pid } : null; };
   // of these kitties (ids), the ones that count: one per player
   const once = (ids) => { const ms = ids.map(memberOf).filter(Boolean); return onePerPlayer(ms).map((m) => m.id); };
+  // the steps of this run (levels; in Run + Skate each half) where each kitty reached the goal itself (before the
+  // game moved on): all of them up to level 8's last step (stageStep) for the level 8 unlocks, all 9 levels' for level 9
+  if (room.goalsFor !== sim) { room.goalsFor = sim; room.goals = new Map(); }
+  const goalsOf = (id) => { let g = room.goals.get(id); if (!g) room.goals.set(id, g = new Set()); return g; };
   const featDone = (id, feat) => { accounts.recordFeat(whoOf(id), feat, room.mode); feats.add(id); };
   const feats = new Set();
   for (const e of events) {
+    if (e.type === 'enterCenter') { goalsOf(e.playerId).add(e.level ?? sim.level); continue; }
     if (e.type === 'stageClear') { room.dayTime = { level: e.level, time: sim.levelTime }; continue; }
     if (e.type === 'gameOver') { room.dayTime = null; continue; }
     if (e.type === 'levelStart' || e.type === 'levelClear') {
@@ -669,15 +678,17 @@ function countForAccounts(room, events) {
         room.dayTime = null;
       }
       for (const id of once(sim.players.map((p) => p.id))) accounts.recordOnline(subOf(id), ev);
-      // unlocks: level 8 cleared by a kitty holding every win of the run so far (8, or 16 in Run + Skate)
-      if (e.type === 'levelClear' && e.level === 8) {
-        for (const id of once(sim.players.filter((p) => (p.finishes || 0) >= winsNeeded(room.mode)).map((p) => p.id))) featDone(id, 'l8');
+      // unlocks: level 8 cleared by a kitty that reached the goal itself on every level of the run so far (8, or 16
+      // in Run + Skate: both halves), crowns or not. Checked as the game moves on to level 9, so a kitty that runs in
+      // during the level-cleared pause still counts
+      if (e.type === 'levelStart' && level === SKATE_FINAL_LEVEL) {
+        for (const id of once(sim.players.filter((p) => goalsOf(p.id).size >= stageStep(room.mode, sim.finales, 8, true)).map((p) => p.id))) featDone(id, 'l8');
       }
     } else if (e.type === 'victory') {
-      // unlocks: the final run won; a kitty that got to the end itself (not carried in for the party) holding 8 crowns
-      // (16 in Run + Skate), the final run's own crown included (it's the hardest one: it may make up for a missed one)
+      // unlocks: the final run won by a kitty that reached the goal itself on every level, the final one included (not
+      // carried in for the party)
       const party = Array.isArray(e.party) ? e.party : [];
-      const l9 = sim.players.filter((p) => !party.includes(p.id) && (p.finishes || 0) >= winsNeeded(room.mode));
+      const l9 = sim.players.filter((p) => !party.includes(p.id) && goalsOf(p.id).size >= stageStep(room.mode, sim.finales, SKATE_FINAL_LEVEL));   // (every step up to the last: 9, or 17 with day and night halves)
       for (const id of once(l9.map((p) => p.id))) featDone(id, 'l9');
       for (const id of once(sim.players.map((p) => p.id))) featDone(id, 'win');   // and the new song: everyone who was there
     } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown' });

@@ -636,16 +636,24 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(fast.account.stats.online.best.run[3] === 95 && !fast.account.stats.online.best.run[4] && fast.account.stats.local.best.ice[2] === 61.3
       && !fast.account.stats.online.best.ice[2],
     'account stats: fastest clear per mode and level (online and local apart), slower and implausible times ignored');
-    // permanent unlocks: a feat in every mode unlocks the item (on by default); it can be switched off; locked ones can't
+    // permanent unlocks, per mode: a feat done in a mode unlocks the item in that mode only (on by default); it can be
+    // switched off (everywhere); locked ones can't
+    const none = accounts.cosFor(token, 'run');
     accounts.recordFeat(sub, 'l8', 'run'); accounts.recordFeat(sub, 'l8', 'ice');
-    const before = accounts.cosFor(token);
+    const inRun = accounts.cosFor(token, 'run'), inIce = accounts.cosFor(token, 'ice'), inMixed = accounts.cosFor(token, 'mixed');
     accounts.recordFeat(sub, 'l8', 'mixed'); accounts.recordFeat(sub, 'l8', 'nope'); accounts.recordFeat(sub, 'l7', 'run');
-    const after = accounts.cosFor(token);
+    const after = accounts.cosFor(token, 'mixed');
     const lockedOn = await request(accounts, 'equip', [Buffer.from(JSON.stringify({ item: 'rboots', on: true }))]);
     const off = await request(accounts, 'equip', [Buffer.from(JSON.stringify({ item: 'shades', on: false }))]);
-    ok(!before.includes('shades') && after.join() === 'shades' && !lockedOn.ok && off.ok && accounts.cosFor(token).length === 0
+    ok(none.length === 0 && inRun.join() === 'shades' && inIce.join() === 'shades' && inMixed.length === 0 && after.join() === 'shades'
+      && !lockedOn.ok && off.ok && accounts.cosFor(token, 'run').length === 0 && accounts.cosFor(token, 'mixed').length === 0
       && off.account.unlocks.l8.mixed === 1 && off.account.unlocks.off.shades === true,
-    'unlocks: an item unlocks once its feat is done in every mode, bad feats / modes are ignored, switched off it is not sent');
+    'unlocks: each mode unlocks an item for that mode only, bad feats / modes are ignored, switched off it is not sent');
+    ok(isUnlocked({ l9: { ice: 1 } }, 'lion', 'ice') && !isUnlocked({ l9: { ice: 1 } }, 'lion', 'run') && isUnlocked({ l9: { ice: 1 } }, 'lion')
+      && !isUnlocked({ l8: { run: 1, ice: 1, mixed: 1 } }, 'rboots', 'run') && isUnlocked({ l8: { run: 2 } }, 'rboots', 'run')
+      && isUnlocked({ win: { mixed: 1 } }, 'song5', 'run')
+      && !isUnlocked({ l9: { run: 1, ice: 1 } }, 'chrome', 'run') && isUnlocked({ l9: { run: 1, ice: 1, mixed: 1 } }, 'chrome', 'ice'),
+    'beating level 9 in Skate with every crown gives the lion in Skate only; items needing more clears need them in that mode; the song is for any mode; the chrome lion needs one clear in all three modes, then is worn in every mode');
     // never paid: signed in, but not active: no stats, no unlock progress, nothing sent to other players
     accounts.recordOnline('unpaid-sub', { type: 'crown' }); for (const m of ['run', 'ice', 'mixed']) accounts.recordFeat('unpaid-sub', 'l8', m);
     const unpaid = await request(accounts, 'me', [], { authorization: 'Bearer unpaid-session-token-for-regression' });
@@ -660,7 +668,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const pid = 'abcdefghijklmnopqrstuvwxyz0123';
     for (const m of ['run', 'ice', 'mixed']) accounts.recordFeat({ sub: 'unpaid-sub', pid }, 'l8', m);
     accounts.recordFeat({ pid: 'too-short' }, 'l8', 'run');
-    const guestCos = accounts.cosForPlayer({ sub: 'unpaid-sub', pid });
+    const guestCos = accounts.cosForPlayer({ sub: 'unpaid-sub', pid }, 'ice');
     const gOff = await request(accounts, 'guestequip', [Buffer.from(JSON.stringify({ pid, item: 'shades', on: false }))]);
     const gRead = await request(accounts, 'guest', [Buffer.from(JSON.stringify({ pid }))]);
     const gBad = await request(accounts, 'guestequip', [Buffer.from(JSON.stringify({ pid, item: 'rboots', on: true }))]);
@@ -677,7 +685,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const songAfter = (await request(accounts, 'guest', [Buffer.from(JSON.stringify({ pid: spid }))])).unlocks;
     const songSwitch = await request(accounts, 'guestequip', [Buffer.from(JSON.stringify({ pid: spid, item: 'song5', on: false }))]);
     ok(songBefore === null && songAfter && songAfter.win.ice === 1 && isUnlocked(songAfter, 'song5') && !isUnlocked(songAfter, 'shades')
-      && accounts.cosForPlayer({ pid: spid }).length === 0 && !songSwitch.ok,
+      && accounts.cosForPlayer({ pid: spid }, 'ice').length === 0 && !songSwitch.ok,
     'the new song unlocks by clearing the final level in any one mode, is not worn by the kitty and has no on / off switch');
     accounts.flush();
     ok(createAccounts(file, env).subFor(token) === sub && JSON.parse(fs.readFileSync(file)).accounts[sub].stats.online.clears.run[2] === 2,

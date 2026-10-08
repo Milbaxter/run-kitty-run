@@ -133,7 +133,7 @@ function createAccount(root) {
 
   const A = { enabled: false, token: NATIVE ? '' : readToken(), account: null, cfg: null };
   let modal = null, changeFn = null;
-  let eqFor, eqGuest, eqSet = new Set();   // equipped(): made once per account / guest progress object
+  let eqFor, eqGuest, eqMode, eqSet = new Set();   // equipped(): made once per account / guest progress object and mode
   const changed = () => { if (changeFn) changeFn(); };
 
   async function api(name, body) {
@@ -247,8 +247,8 @@ function createAccount(root) {
       const box_ = section(title);
       const ulist = el('div', 'rka-unl');
       const SHORT = { run: 'Run', ice: 'Skate', mixed: 'Run + Skate' };
-      const GOALS = { l8: 'Clear level 8 holding every crown (8 crowns, 16 in Run + Skate), in each mode:',
-        l9: 'Beat level 9 with 8 crowns (16 in Run + Skate, the final crown counts) and reach the end yourself, in each mode:',
+      const GOALS = { l8: 'Clear level 8 holding every crown (8 crowns, 16 in Run + Skate). Each mode unlocks it for that mode:',
+        l9: 'Beat level 9 with 8 crowns (16 in Run + Skate, the final crown counts) and reach the end yourself. Each mode unlocks it for that mode:',
         win: 'Clear the final level to unlock a new song (any mode):' };
       let lastFeat = '';
       // no spoilers: level 9's unlocks only once this player has seen level 9 (this browser, the account's stats, or progress)
@@ -260,29 +260,31 @@ function createAccount(root) {
       for (const u of UNLOCKS) {
         if (u.feat === 'l9' && !seen9) continue;
         if (u.feat !== lastFeat) { lastFeat = u.feat; ulist.appendChild(el('div', 'rka-ugoal', GOALS[u.feat])); }
-        const open_ = isUnlocked(prog, u);
+        const open_ = isUnlocked(prog, u);   // (in some mode: its switch shows; each mode's own tick below)
         const row = el('div', 'rka-urow' + (open_ ? '' : ' rka-locked'));
-        row.appendChild(el('span', 'rka-uname', (open_ ? '' : '🔒 ') + (u.song && !open_ ? 'New song' : u.name)));
+        row.appendChild(el('span', 'rka-uname', (open_ ? '' : '🔒 ') + (u.song && !open_ ? 'New song' : u.name) + (u.all ? ' (all 3 modes)' : '')));   // (u.all: needs every mode, then worn in all)
         if (u.song) {
           // a song has no switch: it joins the soundtrack, and the settings can play it on its own
           row.appendChild(el('span', 'rka-uprog', open_ ? 'Switch it on / off in Settings' : ''));
-        } else if (open_) {
-          const on = !(prog.off && prog.off[u.id]);
-          const t = el('button', 'rka-amt rka-utog' + (on ? ' rka-on' : ''), on ? 'ON' : 'OFF');
-          t.addEventListener('click', async () => {
-            t.disabled = true;
-            try { await toggle(u.id, !on); changed(); open({ fresh: true }); }
-            catch (e) { t.disabled = false; say(e.message, 'err'); }
-          });
-          row.appendChild(t);
         } else {
+          // each mode on its own: a tick where it's unlocked (and worn), the count toward it elsewhere
           const p = el('span', 'rka-uprog');
           UNLOCK_MODES.forEach((m, i) => {
             const n = Math.min(u.times, ((prog[u.feat] || {})[m]) || 0);
             if (i) p.append(' · ');
-            p.appendChild(el(n >= u.times ? 'b' : 'span', null, `${SHORT[m]} ${n}/${u.times}`));
+            p.appendChild(el(n >= u.times ? 'b' : 'span', null, n >= u.times ? `${SHORT[m]} ✓` : `${SHORT[m]} ${n}/${u.times}`));
           });
           row.appendChild(p);
+          if (open_) {   // one switch for every mode it's unlocked in
+            const on = !(prog.off && prog.off[u.id]);
+            const t = el('button', 'rka-amt rka-utog' + (on ? ' rka-on' : ''), on ? 'ON' : 'OFF');
+            t.addEventListener('click', async () => {
+              t.disabled = true;
+              try { await toggle(u.id, !on); changed(); open({ fresh: true }); }
+              catch (e) { t.disabled = false; say(e.message, 'err'); }
+            });
+            row.appendChild(t);
+          }
         }
         ulist.appendChild(row);
       }
@@ -547,11 +549,12 @@ function createAccount(root) {
       const u = (A.account && Number(A.account.paid) > 0 && A.account.unlocks) || A.guest;
       return !!u && isUnlocked(u, id);
     },
-    equipped() {
-      if (eqFor !== A.account || eqGuest !== A.guest) {
-        eqFor = A.account; eqGuest = A.guest;
+    // the unlocks worn in this mode (each mode earns its own), switched on
+    equipped(mode) {
+      if (eqFor !== A.account || eqGuest !== A.guest || eqMode !== mode) {
+        eqFor = A.account; eqGuest = A.guest; eqMode = mode;
         const u = (A.account && Number(A.account.paid) > 0 && A.account.unlocks) || A.guest;
-        eqSet = new Set(u ? UNLOCKS.filter((x) => !x.song && isUnlocked(u, x) && !(u.off && u.off[x.id])).map((x) => x.id) : []);
+        eqSet = new Set(u ? UNLOCKS.filter((x) => !x.song && isUnlocked(u, x, mode) && !(u.off && u.off[x.id])).map((x) => x.id) : []);
       }
       return eqSet;
     },

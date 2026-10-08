@@ -363,14 +363,15 @@ function createAccounts(file, env = process.env) {
     if (h.sub == null) h.at = Date.now();
     statsChanged();
   }
-  const switchedOn = (h) => {
-    if (!h) return [];
+  // the items worn in this game mode: unlocked in that mode (each mode earns its own) and switched on
+  const switchedOn = (h, mode) => {
+    if (!h || !mode) return [];
     const u = unlocksOf(h);
-    return UNLOCKS.filter((x) => !x.song && isUnlocked(u, x) && !u.off[x.id]).map((x) => x.id);   // (a song isn't worn)
+    return UNLOCKS.filter((x) => !x.song && isUnlocked(u, x, mode) && !u.off[x.id]).map((x) => x.id);   // (a song isn't worn)
   };
   // the unlocked items switched on (the game server sends them to everyone in the room)
-  const cosFor = (token) => { const a = fromToken(token); return a && active(a) ? switchedOn(a) : []; };
-  const cosForPlayer = (who) => switchedOn(holderOf(who));
+  const cosFor = (token, mode) => { const a = fromToken(token); return a && active(a) ? switchedOn(a, mode) : []; };
+  const cosForPlayer = (who, mode) => switchedOn(holderOf(who), mode);
   // this browser plays online: its guest progress (if any) is kept another two months from now
   function seenGuest(pid) { const g = (pid = validPid(pid)) && guests[pid]; if (g) { g.at = Date.now(); statsChanged(); } }
   // an account that is active now takes over this browser's guest progress (counts add up; its own switches stay)

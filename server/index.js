@@ -502,6 +502,7 @@ function joinRoom(client, room, name, pref, pass) {
   leaveRoom(client);
   const slot = colorSlot(room, pref);
   client.room = room;
+  client.cos = accounts.cosForPlayer({ sub: client.acct, pid: client.pid }, room.mode);   // the unlocks it wears in this mode
   client.slot = slot;
   client.name = cleanName(name, PLAYER_NAMES[slot]);
   client.color = PLAYER_COLORS[slot];
@@ -687,7 +688,7 @@ function countForAccounts(room, events) {
   for (const id of feats) {
     const m = room.members.find((x) => x.id === id);
     if (!m) continue;
-    const cos = accounts.cosForPlayer({ sub: m.acct, pid: m.pid });
+    const cos = accounts.cosForPlayer({ sub: m.acct, pid: m.pid }, room.mode);
     if (cos.join() !== (m.cos || []).join()) { m.cos = cos; changed = true; }
   }
   if (changed) sendRoom(room);
@@ -832,7 +833,7 @@ wss.on('connection', (ws, req) => {
         client.fid = v >= INVITE_PROTOCOL ? friendId(client.pid) : '';   // public friend id (invites), from the secret pid
         accounts.mergeGuest(client.acct, client.pid);   // an active account takes over this browser's guest progress
         accounts.seenGuest(client.pid);                 // (or the guest progress is kept another two months)
-        client.cos = accounts.cosForPlayer({ sub: client.acct, pid: client.pid });   // switched-on unlocks on its kitty
+        client.cos = room ? accounts.cosForPlayer({ sub: client.acct, pid: client.pid }, room.mode) : [];   // (set per lobby's mode on joining)
         if (v < MIN_PROTOCOL) {
           send(ws, { t: 'outdated', msg: 'A new version of Run Kitty Run is out - update to keep playing online.' });
           ws.close(4000, 'outdated');
@@ -845,7 +846,7 @@ wss.on('connection', (ws, req) => {
         const paid = accounts.paidFor(msg.acct);
         client.acct = accounts.subFor(msg.acct);
         accounts.mergeGuest(client.acct, client.pid);
-        const cos = accounts.cosForPlayer({ sub: client.acct, pid: client.pid });
+        const cos = room ? accounts.cosForPlayer({ sub: client.acct, pid: client.pid }, room.mode) : [];
         const cosChanged = cos.join() !== (client.cos || []).join();
         client.cos = cos;
         if (paid !== (client.paid || 0) || cosChanged) { client.paid = paid; if (room) sendRoom(room); }

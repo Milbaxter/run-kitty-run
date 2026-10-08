@@ -1038,7 +1038,7 @@ function cosOf(p) {
     if (r._cosFrom !== r.cos) { r._cosFrom = r.cos; r._cos = new Set(r.cos); }
     return r._cos;
   }
-  return p === sim.players[0] && account.signedIn() ? account.equipped() : NO_COS;
+  return p === sim.players[0] && account.signedIn() ? account.equipped(sim.mode) : NO_COS;
 }
 
 // Share the run's result (share.js: an image card of your kitty + a short text with the link). Your own kitty: the

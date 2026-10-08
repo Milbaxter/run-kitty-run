@@ -338,6 +338,8 @@ function createAccounts(file, env = process.env) {
   function unlocksOf(a) {
     const u = a.unlocks ||= {};
     for (const f of FEAT_IDS) { u[f] ||= {}; for (const m of UNLOCK_MODES) u[f][m] = Number(u[f][m]) || 0; }
+    // the medic badge counts revives from its start; a swag account brings the ones its stats counted before (once)
+    if (u.rev.past == null) u.rev.past = Number(a.stats && a.stats.online && a.stats.online.revives) || 0;
     u.off ||= {};
     return u;
   }

@@ -12,6 +12,7 @@ import { createEffects } from './effects.js';
 import { createIceTrail } from './trail.js';
 import { createAuraTrail } from './auratrail.js';
 import { createPawPrints } from './pawprints.js';
+import { medicLook } from './shared/unlocks.js';
 import { createAudio } from './audio.js';
 import { createUI } from './ui.js';
 import { createNet } from './net.js';
@@ -1662,6 +1663,7 @@ function updateHUD() {
     let h = hudPlayers[i];
     if (!h) h = hudPlayers[i] = {};
     h.name = p.name; h.color = p.color; h.shimmer = (p.finishes || 0) >= 12; h.rainbow = (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; const il = iconLook(p); h.cool = il.cool; h.lion = il.lion; h.lionLook = il.lionLook; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
+    h.medic = medicLook(cosOf(p));   // the medic badge (3000 revives), when switched on
     h.paid = online.playing ? ((online.roster.get(p.id) || {}).paid || 0) : i === 0 && account.shown() ? account.paid() : 0;   // account total (unless switched off)
   }
   if (dirty) ui.setScores(hudScores);

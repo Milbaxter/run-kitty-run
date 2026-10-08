@@ -18,6 +18,12 @@ import { key, keyName } from './settings.js';
 
 const FONT = "'Baloo 2','Fredoka','Trebuchet MS','Segoe UI',system-ui,sans-serif";
 
+// a light colour (white, yellow, pale pink...): something white on it wouldn't show
+function isPale(c) {
+  const n = typeof c === 'string' ? parseInt(c.replace('#', ''), 16) : c >>> 0;
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return 0.299 * r + 0.587 * g + 0.114 * b > 175;
+}
 function hexColor(c) {
   if (typeof c === 'string') return c;
   return '#' + ((c >>> 0) & 0xffffff).toString(16).padStart(6, '0');
@@ -50,6 +56,25 @@ const MANE_SVG = `<svg viewBox="0 0 40 40" class="rkr-mane" aria-hidden="true"><
 const SHADES_SVG = `<svg viewBox="0 0 40 40" class="rkr-shades"><path d="M5 19.6 L10 18.8 M35 19.6 L30 18.8 M18.4 20.2 Q20 18.6 21.6 20.2" fill="none" stroke="#ffd34a" stroke-width="1.6" stroke-linecap="round"/><ellipse cx="14" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><ellipse cx="26" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><path d="M11.4 19.8 L14.6 19.1 M23.4 19.8 L26.6 19.1" stroke="#fff" stroke-width="1.2" stroke-linecap="round"/></svg>`;
 // ...and broken (5+ wins, kitty down): knocked crooked, both lenses cracked, a shard missing from the right one
 const SHADES_BROKEN_SVG = `<svg viewBox="0 0 40 40" class="rkr-shades-broken"><g transform="rotate(-9 20 21)"><path d="M5 19.6 L10 18.8 M35 19.6 L30 18.8 M18.4 20.2 Q20 18.6 21.6 20.2" fill="none" stroke="#ffd34a" stroke-width="1.6" stroke-linecap="round"/><ellipse cx="14" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><ellipse cx="26" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><path d="M26 21.6 L30.4 18.6 L30.9 21.2 Z" fill="currentColor" stroke="${INK}" stroke-width=".6" stroke-linejoin="round"/><path d="M10 19.5 L13.2 22 L12 25.4 M13.2 22 L17.4 20.8 M13.2 22 L16 25.2 M22 23.6 L26 21.6 L24.4 18 M26 21.6 L27.6 25.6" fill="none" stroke="#fff" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/></g></svg>`;
+// the medic badge (3000 revives): a star of life in the kitty's colour (currentColor), and on it the revive effects'
+// staff and snake (effects.js SHAPE_STAR, the particle shader's shape at 40 units): a thin staff with a knob, the snake
+// winding down it (x = sin(y * 21) * 0.075) with its head up by the knob. Staff and snake from the card (.rkr-medic: white
+// on most kitties, dark ink on pale ones)
+const MEDIC_SVG = (() => {
+  let snake = '';
+  for (let i = 0; i <= 24; i++) {
+    const qy = -0.19 + (0.44 * i) / 24;
+    snake += (i ? 'L' : 'M') + (20 + Math.sin(qy * 21) * 3).toFixed(2) + ' ' + (20 + qy * 40).toFixed(2);
+  }
+  const hx = (20 + Math.sin(-0.21 * 21) * 3).toFixed(2), hy = (20 - 0.21 * 40).toFixed(2);
+  return '<svg viewBox="0 0 40 40">'
+    + '<path d="M16 3h8v10.1l8.7-5 4 6.9-8.7 5 8.7 5-4 6.9-8.7-5V37h-8V26.9l-8.7 5-4-6.9 8.7-5-8.7-5 4-6.9 8.7 5z" fill="currentColor" stroke="#2b1840" stroke-width="2.2" stroke-linejoin="round"/>'
+    + '<path class="mo" d="M20 8v24" stroke-width="4" stroke-linecap="round"/><path class="mi" d="M20 8v24" stroke-width="3" stroke-linecap="round"/>'
+    + '<circle class="mk" cx="20" cy="6.8" r="1.8" stroke-width="1"/>'
+    + `<path class="mo" d="${snake}" stroke-width="3.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`
+    + `<path class="mi" d="${snake}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`
+    + `<ellipse class="mk" cx="${hx}" cy="${hy}" rx="2.1" ry="1.5" stroke-width="1"/></svg>`;
+})();
 const ICONS = {
   fish: `<svg viewBox="0 0 40 40"><path d="M4 20 Q13 8 25 11 Q31 12.5 36 20 Q31 27.5 25 29 Q13 32 4 20 Z" fill="#ff9a7a" stroke="#7a2f3c" stroke-width="2.4" stroke-linejoin="round"/><path d="M5 20 L1 13 L1 27 Z" fill="#6d8fb3" stroke="#2f4c6b" stroke-width="2" stroke-linejoin="round"/><circle cx="29" cy="18" r="2" fill="#16121c"/><path d="M15 14 Q13 20 15 26 M20 13 Q18 20 20 27" stroke="#fff" stroke-width="1.6" fill="none" opacity=".7"/></svg>`,
   cat: `<svg viewBox="0 0 40 40" class="rkr-cat"><path d="M5 4 L15 12 Q20 10.5 25 12 L35 4 L33.5 20 Q34 34.5 20 35.5 Q6 34.5 6.5 20 Z" fill="currentColor" stroke="${INK}" stroke-width="2.6" stroke-linejoin="round"/><path d="M8.5 9 L13 12.6 L9.6 15.5 Z M31.5 9 L27 12.6 L30.4 15.5 Z" fill="#ff9ec4"/><g class="rkr-eyes"><ellipse cx="14.3" cy="21.5" rx="2.3" ry="3.1" fill="${INK}"/><ellipse cx="25.7" cy="21.5" rx="2.3" ry="3.1" fill="${INK}"/><circle cx="15" cy="20.4" r=".9" fill="#fff"/><circle cx="26.4" cy="20.4" r=".9" fill="#fff"/></g><g class="rkr-xeyes" stroke="${INK}" stroke-width="2" stroke-linecap="round"><path d="M12 19 L16.6 23.6 M16.6 19 L12 23.6 M23.4 19 L28 23.6 M28 19 L23.4 23.6"/></g><path d="M18.2 26.4 L21.8 26.4 L20 28.6 Z" fill="#ff6f9f" stroke="${INK}" stroke-width="1" stroke-linejoin="round"/><path d="M20 28.6 Q18.5 31 16.5 30 M20 28.6 Q21.5 31 23.5 30" fill="none" stroke="${INK}" stroke-width="1.3" stroke-linecap="round"/><path d="M3 25 L11 26 M3.5 29 L11 28 M37 25 L29 26 M36.5 29 L29 28" stroke="${INK}" stroke-width="1.1" stroke-linecap="round" opacity=".55"/></svg>`,
@@ -170,6 +195,13 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-status{font-size:11px;font-weight:900;letter-spacing:.08em;padding:1px 7px;border-radius:999px;background:#38d97a;color:#073a1c;}
 .rkr-down .rkr-status{background:#ff3b5c;color:#fff;animation:rkr-blink .6s steps(2) infinite;}
 .rkr-hearts{display:flex;gap:2px;margin-left:auto;}
+.rkr-medic{width:24px;height:24px;margin:-4px 0;flex:none;color:var(--pc,#ff5c93);filter:drop-shadow(0 1px 1px rgba(0,0,0,.45));}
+.rkr-medic svg{width:100%;height:100%;display:block;}
+.rkr-medic .mi{stroke:var(--mi,#fff);}
+.rkr-medic .mo{stroke:var(--mo,#2b1840);}
+.rkr-medic .mk{fill:var(--mi,#fff);stroke:var(--mo,#2b1840);}
+.rkr-card.rkr-pale{--mi:#2b1840;--mo:rgba(255,255,255,.85);}
+.rkr-medic.rkr-hidden{display:none;}
 .rkr-hearts span{width:18px;height:16px;}
 .rkr-hearts span.rkr-new{animation:rkr-pop .5s cubic-bezier(.2,1.6,.4,1);}
 .rkr-boots{display:flex;align-items:center;gap:4px;font-weight:800;font-size:13px;color:#9ff0ff;font-variant-numeric:tabular-nums;}
@@ -581,7 +613,7 @@ function createUI(root) {
     const c = el('div', 'rkr-card',
       `<div class="rkr-head">${MANE_SVG}${ICONS.cat}${SHADES_SVG}${SHADES_BROKEN_SVG}</div>
        <div class="rkr-cbody">
-         <div class="rkr-crow"><span class="rkr-name"></span><span class="rkr-status">ALIVE</span><span class="rkr-hearts"></span></div>
+         <div class="rkr-crow"><span class="rkr-name"></span><span class="rkr-status">ALIVE</span><span class="rkr-medic rkr-hidden" title="Medic: 3000 revives">${MEDIC_SVG}</span><span class="rkr-hearts"></span></div>
          <div class="rkr-crow"><span class="rkr-paid rkr-hidden"></span><span class="rkr-boots">${ICONS.boots}<span>+0%</span></span></div>
          <div class="rkr-shield rkr-hidden">${ICONS.shield}<div class="rkr-sbar"><div class="rkr-sfill"></div></div></div>
        </div>`);
@@ -595,6 +627,7 @@ function createUI(root) {
       shieldRow: c.querySelector('.rkr-shield'),
       shieldFill: c.querySelector('.rkr-sfill'),
       paid: c.querySelector('.rkr-paid'),
+      medic: c.querySelector('.rkr-medic'),
       v: { paid: 0, name: null, color: null, alive: null, lives: null, speed: null, shield: null },
     };
     cardsEl.appendChild(c);
@@ -604,11 +637,18 @@ function createUI(root) {
   function updateCard(card, p) {
     const v = card.v;
     if (p.name !== v.name) { v.name = p.name; card.name.textContent = p.name; card.root.dataset.name = p.name; }   // (hover label on a face)
-    if (p.color !== v.color) { v.color = p.color; card.root.style.setProperty('--pc', hexColor(p.color)); }
+    if (p.color !== v.color) {
+      v.color = p.color; card.root.style.setProperty('--pc', hexColor(p.color));
+      card.root.classList.toggle('rkr-pale', isPale(p.color));   // (the medic badge's staff and snake go dark)
+    }
     if (!!p.cool !== v.cool) { v.cool = !!p.cool; card.root.classList.toggle('rkr-cool', v.cool); }   // 5+ wins: sunglasses
     if (!!p.shimmer !== v.shimmer) { v.shimmer = !!p.shimmer; card.root.classList.toggle('rkr-shimmer', v.shimmer); }   // 12+ wins: rainbow name
     if ((p.paid || 0) !== v.paid) { v.paid = p.paid || 0; card.paid.textContent = fmtNum(v.paid); card.paid.classList.toggle('rkr-hidden', !v.paid); }
     if (!!p.you !== v.you) { v.you = !!p.you; card.root.classList.toggle('rkr-you', v.you); }
+    if ((p.medic || '') !== v.medic) {   // the medic badge (revive unlocks): its look, or none
+      v.medic = p.medic || '';
+      card.medic.className = 'rkr-medic' + (v.medic ? ' t-' + v.medic : ' rkr-hidden');
+    }
     if (!!p.rainbow !== v.rainbow) { v.rainbow = !!p.rainbow; card.root.classList.toggle('rkr-rainbow', v.rainbow); }   // every reward
     // 14+ wins: the lion's mane; 16: the chrome, rainbow or celestial lion (main.js iconLook)
     if (!!p.lion !== v.lion) { v.lion = !!p.lion; card.root.classList.toggle('rkr-lion', v.lion); }

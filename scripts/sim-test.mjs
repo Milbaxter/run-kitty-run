@@ -5,7 +5,7 @@ import { createSim, stepSim } from '../public/js/shared/sim.js';
 import { CFG, SKATE_FINAL_LEVEL, FINAL_MODES, PLAYER_NAMES } from '../public/js/shared/config.js';
 import { generateLevel, mazeSelfTest, collideCircle, onIce } from '../public/js/shared/maze.js';
 import { filterChat, filterName } from '../public/js/shared/filter.js';
-import { isUnlocked } from '../public/js/shared/unlocks.js';
+import { isUnlocked, featTotal, medicLook } from '../public/js/shared/unlocks.js';
 const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process.exitCode = 1; };
 
 // ======== rules: first kitty home clears the level, everyone respawns; wolves ramp toward the goal; pickups, crown, trees
@@ -653,8 +653,9 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(isUnlocked({ l9: { ice: 1 } }, 'lion', 'ice') && !isUnlocked({ l9: { ice: 1 } }, 'lion', 'run') && isUnlocked({ l9: { ice: 1 } }, 'lion')
       && !isUnlocked({ l8: { run: 1, ice: 1, mixed: 1 } }, 'rboots', 'run') && isUnlocked({ l8: { run: 2 } }, 'rboots', 'run')
       && isUnlocked({ win: { mixed: 1 } }, 'song5', 'run')
-      && !isUnlocked({ l9: { run: 1, ice: 1 } }, 'chrome', 'run') && isUnlocked({ l9: { run: 1, ice: 1, mixed: 1 } }, 'chrome', 'ice'),
-    'beating level 9 in Skate with every crown gives the lion in Skate only; items needing more clears need them in that mode; the song is for any mode; the chrome lion needs one clear in all three modes, then is worn in every mode');
+      && !isUnlocked({ l9: { run: 1, ice: 1 } }, 'chrome', 'run') && isUnlocked({ l9: { run: 1, ice: 1, mixed: 1 } }, 'chrome', 'ice')
+      && !isUnlocked({ l8: { run: 3 } }, 'gskates') && !isUnlocked({ l8: { run: 3 } }, 'gskates', 'run') && isUnlocked({ l8: { ice: 3 } }, 'gskates', 'ice') && !isUnlocked({ l8: { ice: 3 } }, 'gskates', 'run'),
+    'beating level 9 in Skate (reaching every goal) gives the lion in Skate only; items needing more clears need them in that mode; the song is for any mode; the chrome lion needs one clear in all three modes, then is worn in every mode; golden skates are only earned in Skate and Run + Skate');
     // never paid: signed in, but not active: no stats, no unlock progress, nothing sent to other players
     accounts.recordOnline('unpaid-sub', { type: 'crown' }); for (const m of ['run', 'ice', 'mixed']) accounts.recordFeat('unpaid-sub', 'l8', m);
     const unpaid = await request(accounts, 'me', [], { authorization: 'Bearer unpaid-session-token-for-regression' });
@@ -697,6 +698,17 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(onePerPlayer(tabs).map((m) => m.id).join() === '1,5,6,8,9' && samePlayer(tabs[0], tabs[2]) && samePlayer(tabs[0], tabs[3])
       && !samePlayer(tabs[0], tabs[4]) && !samePlayer(tabs[7], tabs[8]),
     'stats and unlocks count once per player (account or browser), however many of its tabs are in the lobby');
+    // the medic badge: 3000 revives in Multiplayer, all modes added up; a swag account brings the revives its stats had
+    // counted when the badge came in (taken once: later revives count toward it as feats, not twice); worn in every mode
+    for (let i = 0; i < 3; i++) accounts.recordFeat(sub, 'rev', i ? 'ice' : 'run');
+    const revs = (await request(accounts, 'me')).account.unlocks.rev;
+    accounts.recordOnline(sub, { type: 'revive' });
+    const revsLater = (await request(accounts, 'me')).account.unlocks.rev;
+    ok(Number.isFinite(revs.past) && revs.run === 1 && revs.ice === 2 && featTotal({ rev: revs }, 'rev') === revs.past + 3 && revsLater.past === revs.past
+      && isUnlocked({ rev: { run: 1200, ice: 900, mixed: 600, past: 300 } }, 'medic', 'mixed') && !isUnlocked({ rev: { run: 2999 } }, 'medic', 'run')
+      && isUnlocked({ rev: { ice: 3000 } }, 'medic', 'run'),
+    "medic badge: 3000 revives over all modes (an account's earlier revives count once), worn in every mode");
+    ok(medicLook(new Set(['medic', 'shades'])) === 'base' && medicLook(new Set(['shades'])) === '', 'the card shows the medic badge when it is switched on');
     const unconfirmed = await request(accounts, 'delete');
     const lowercase = await request(accounts, 'delete', [Buffer.from(JSON.stringify({ confirm: 'delete' }))]);
     ok(!unconfirmed.ok && !lowercase.ok && accounts.paidFor(token) > 0, 'an account is only deleted with DELETE typed (capitals)');

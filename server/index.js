@@ -692,7 +692,10 @@ function countForAccounts(room, events) {
       for (const id of once(l9.map((p) => p.id))) featDone(id, 'l9');
       for (const id of once(sim.players.map((p) => p.id))) featDone(id, 'win');   // and the new song: everyone who was there
     } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown' });
-    else if (e.type === 'revive' && !samePlayer(memberOf(e.by), memberOf(e.playerId))) accounts.recordOnline(subOf(e.by), { type: 'revive' });
+    else if (e.type === 'revive' && !samePlayer(memberOf(e.by), memberOf(e.playerId))) {
+      featDone(e.by, 'rev');   // toward the medic badge (3000 revives); first, so an account's past revives are taken before this one
+      accounts.recordOnline(subOf(e.by), { type: 'revive' });
+    }
   }
   // a feat may have unlocked something: the room shows it right away
   let changed = false;

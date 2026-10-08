@@ -2,7 +2,7 @@
 // Checkout, and your total shows next to your kitty's name online. Server side: server/accounts.js.
 // The session token lives in localStorage; main.js passes it to the game server ('hi' / 'acct').
 import { accountApiUrl, NATIVE } from './platform.js';
-import { UNLOCKS, UNLOCK_MODES, isUnlocked } from './shared/unlocks.js';
+import { UNLOCKS, UNLOCK_MODES, isUnlocked, featTotal } from './shared/unlocks.js';
 import { progressId } from './net.js';
 
 const CSS = `
@@ -249,7 +249,8 @@ function createAccount(root) {
       const SHORT = { run: 'Run', ice: 'Skate', mixed: 'Run + Skate' };
       const GOALS = { l8: 'Clear level 8 having reached the goal yourself on every level (both halves in Run + Skate). Each mode unlocks it for that mode:',
         l9: 'Beat level 9 having reached the goal yourself on every level, the final one too. Each mode unlocks it for that mode:',
-        win: 'Clear the final level to unlock a new song (any mode):' };
+        win: 'Clear the final level to unlock a new song (any mode):',
+        rev: 'Revive kitties in Multiplayer games (all modes together):' };
       let lastFeat = '';
       // no spoilers: level 9's unlocks only once this player has seen level 9 (this browser, the account's stats, or progress)
       let seen9 = false;
@@ -267,9 +268,11 @@ function createAccount(root) {
           // a song has no switch: it joins the soundtrack, and the settings can play it on its own
           row.appendChild(el('span', 'rka-uprog', open_ ? 'Switch it on / off in Settings' : ''));
         } else {
-          // each mode on its own: a tick where it's unlocked (and worn), the count toward it elsewhere
+          // each mode on its own: a tick where it's unlocked (and worn), the count toward it elsewhere (a total item:
+          // one count over all modes)
           const p = el('span', 'rka-uprog');
-          UNLOCK_MODES.forEach((m, i) => {
+          if (u.total) p.appendChild(el(open_ ? 'b' : 'span', null, open_ ? '✓' : `${Math.min(u.times, featTotal(prog, u.feat))}/${u.times}`));
+          else (u.modes || UNLOCK_MODES).forEach((m, i) => {   // (only the modes it can be earned in)
             const n = Math.min(u.times, ((prog[u.feat] || {})[m]) || 0);
             if (i) p.append(' · ');
             p.appendChild(el(n >= u.times ? 'b' : 'span', null, n >= u.times ? `${SHORT[m]} ✓` : `${SHORT[m]} ${n}/${u.times}`));

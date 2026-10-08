@@ -8,6 +8,7 @@ require "fileutils"
 require "tmpdir"
 require "securerandom"
 require "xcodeproj"
+require "open3"
 
 ROOT = File.expand_path(File.join(FastlaneCore::FastlaneFolder.path, ".."))
 APP_ID = "io.runkittyrun.app"
@@ -113,8 +114,15 @@ platform :ios do
       profile_path = File.join(build_dir, "AppStore.mobileprovision")
       File.write(cert_path, Base64.strict_decode64(ENV["IOS_DISTRIBUTION_P12_BASE64"]), mode: "wb", perm: 0o600)
       File.write(profile_path, Base64.strict_decode64(ENV["IOS_APPSTORE_PROFILE_BASE64"]), mode: "wb", perm: 0o600)
-      import_certificate(certificate_path: cert_path, certificate_password: ENV["IOS_DISTRIBUTION_PASSWORD"],
-                         keychain_path: keychain, keychain_password: keychain_password, log_output: false)
+      # security import directly (fastlane's import_certificate imported nothing here without an error): the real error
+      # if the p12 or its password is wrong, and never the password in the log
+      out, status = Open3.capture2e("security", "import", cert_path, "-k", keychain, "-f", "pkcs12",
+                                    "-P", ENV["IOS_DISTRIBUTION_PASSWORD"].to_s, "-T", "/usr/bin/codesign", "-T", "/usr/bin/security")
+      UI.user_error!("Could not import IOS_DISTRIBUTION_P12_BASE64: #{out.strip}") unless status.success?
+      UI.message(out.strip)
+      out, status = Open3.capture2e("security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s",
+                                    "-k", keychain_password, keychain)
+      UI.user_error!("Could not allow codesign to use the key: #{out.lines.last.to_s.strip}") unless status.success?
       install_provisioning_profile(path: profile_path)
       # The identity actually imported, by its exact name: a current certificate is "Apple Distribution: …", an older
       # one "iPhone Distribution: …", and Xcode's generic selectors don't match across the two.

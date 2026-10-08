@@ -199,6 +199,10 @@ final class StoreTests: XCTestCase {
             tries += 1
             try await Task.sleep(nanoseconds: 1_000_000_000)
         }
+        let state = try? await web.callAsyncJavaScript(
+            "return JSON.stringify({ box: (document.querySelector('.rka-box') || {}).textContent || null, button: (document.querySelector('.rkr-swag') || {}).className || null, title: document.title })",
+            arguments: [:], contentWorld: .page) as? String
+        NSLog("%@", "[StoreTests] gave up on \(what); page: \(state ?? "-")")
         XCTFail("timed out waiting for \(what)")
         throw XCTSkip("gave up on \(what)")
     }
@@ -251,7 +255,8 @@ final class StoreTests: XCTestCase {
         let page = try XCTUnwrap(URL(string: "capacitor://localhost/?account=" + (server.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? server)))
         web.load(URLRequest(url: page))
         try await waitJS(web, "document.querySelector('.rkr-swag') && !document.querySelector('.rkr-swag').classList.contains('rkr-hidden')", "the swag button (server config)")
-        _ = try await js(web, "document.querySelector('.rkr-swag').click()")
+        // (opens the swag dialog; again if a redraw of the title screen swallowed the first click)
+        try await waitJS(web, "document.querySelector('.rka-box') || (document.querySelector('.rkr-swag').click(), false)", "the swag dialog", timeout: 120)
         try await waitJS(web, "document.querySelectorAll('.rka-pack').length === 4", "the four packs")
         let texts = try await js(web, "return [...document.querySelectorAll('.rka-pack')].map((b) => b.textContent).join('|')") as? String ?? ""
         XCTAssertTrue(texts.contains("$0.99") && texts.contains("$19.99"), texts)

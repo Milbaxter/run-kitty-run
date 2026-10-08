@@ -6,7 +6,11 @@
 // HTTPS (fetch) plus its webhook signature (HMAC). State is one JSON file, saved atomically like legends.json;
 // every credited payment is also appended to payments.jsonl next to it (bookkeeping, never rewritten).
 //
-// Env: GOOGLE_CLIENT_ID (comma-separate several: web + iOS/Android clients), STRIPE_SECRET_KEY,
+// Sign in with Discord is a plain OAuth2 code flow run here (GET /api/account/discord -> Discord -> .../discord/callback);
+// those accounts are keyed 'discord_<user id>' (Google ones stay keyed by the bare Google id) and have no email.
+//
+// Env: GOOGLE_CLIENT_ID (comma-separate several: web + iOS/Android clients), DISCORD_CLIENT_ID + DISCORD_CLIENT_SECRET
+// (optional: without them there's no Discord button), STRIPE_SECRET_KEY,
 // STRIPE_WEBHOOK_SECRET, PUBLIC_ORIGIN (where Checkout returns to, default https://runkittyrun.fun), CURRENCY (default eur).
 // Without GOOGLE_CLIENT_ID + STRIPE_SECRET_KEY accounts are off and the client hides the button.
 import crypto from 'node:crypto';
@@ -38,11 +42,13 @@ function createAccounts(file, env = process.env) {
   const origins = new Set([env.PUBLIC_ORIGIN || 'https://runkittyrun.fun',
     ...(env.NODE_ENV === 'production' ? [] : [`http://localhost:${env.PORT || 8080}`, `http://127.0.0.1:${env.PORT || 8080}`])]);
   const enabled = !!(clientIds.length && stripeKey);
+  const discordId = env.DISCORD_CLIENT_ID || '', discordSecret = env.DISCORD_CLIENT_SECRET || '';
+  const discordOn = enabled && !!(discordId && discordSecret);
   const CURRENCY = /^[a-z]{3}$/.test(env.CURRENCY || '') ? env.CURRENCY : 'eur';   // one currency for everyone, so totals compare
   const paymentsFile = file.replace(/[^/]*$/, 'payments.jsonl');
   const LIVE = /^(sk|rk)_live_/.test(stripeKey);   // a test-mode session never credits a live server, and vice versa
 
-  // sub (Google user id) -> { sub, email, name, paid (cents), created, sessions: [sha256 of token], payments: [stripe session ids],
+  // sub (Google user id, or 'discord_<id>') -> { sub, email, name, paid (cents), created, sessions: [sha256 of token], payments: [stripe session ids],
   //   hide (true = the total isn't shown to other players), stats: { online, local } (see "stats" below) }
   let accounts = {};
   // Checkout Session id -> { sub, cents, at }: written when this server creates the session, removed once credited
@@ -159,6 +165,82 @@ function createAccounts(file, env = process.env) {
     return claims;
   }
 
+  // ---- Discord ----
+  // state -> { origin, at }: one per sign-in started here (the browser also holds it in a cookie, so a callback only
+  // signs in the browser that started it); handoff code -> { token, at }: the callback hands the session token to the
+  // page through a one-time code in the URL fragment, never the token itself
+  const discordStates = new Map(), handoffs = new Map();
+  const FLOW_MS = 10 * 60e3, HANDOFF_MS = 2 * 60e3;
+  setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of discordStates) if (now - v.at > FLOW_MS) discordStates.delete(k);
+    for (const [k, v] of handoffs) if (now - v.at > HANDOFF_MS) handoffs.delete(k);
+  }, 60e3).unref();
+  const STATE_COOKIE = 'rkr_discord';
+  const discordRedirect = (origin) => origin + '/api/account/discord/callback';
+  // a Discord authorization code -> the Discord user ({ id, username, global_name }), or throws
+  async function discordUser(code, origin) {
+    const r = await fetch('https://discord.com/api/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: 'Basic ' + Buffer.from(discordId + ':' + discordSecret).toString('base64') },
+      body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: discordRedirect(origin) }),
+    });
+    const t = await r.json().catch(() => ({}));
+    if (!r.ok || !t.access_token) throw new Error('discord token ' + r.status + ' ' + (t.error || ''));
+    const u = await fetch('https://discord.com/api/users/@me', { headers: { Authorization: 'Bearer ' + t.access_token } });
+    const j = await u.json().catch(() => ({}));
+    if (!u.ok || !/^\d{1,25}$/.test(String(j.id || ''))) throw new Error('discord user ' + u.status);
+    // we only needed who it is: hand the access token back (best effort)
+    fetch('https://discord.com/api/oauth2/token/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: 'Basic ' + Buffer.from(discordId + ':' + discordSecret).toString('base64') },
+      body: new URLSearchParams({ token: t.access_token, token_type_hint: 'access_token' }),
+    }).catch(() => {});
+    return j;
+  }
+  // GET /api/account/discord?origin=...: off to Discord's consent screen
+  function discordStart(req, res) {
+    const q = new URL(req.url, 'http://x').searchParams;
+    const origin = origins.has(q.get('origin')) ? q.get('origin') : [...origins][0];
+    if (!discordOn) { res.writeHead(302, { Location: origin + '/#signin-error=off', 'Cache-Control': 'no-store' }).end(); return; }
+    const state = crypto.randomBytes(18).toString('base64url');
+    discordStates.set(state, { origin, at: Date.now() });
+    const to = 'https://discord.com/oauth2/authorize?' + new URLSearchParams({
+      response_type: 'code', client_id: discordId, scope: 'identify', state, redirect_uri: discordRedirect(origin), prompt: 'none',
+    });
+    res.writeHead(302, {
+      Location: to, 'Cache-Control': 'no-store',
+      'Set-Cookie': `${STATE_COOKIE}=${state}; Path=/api/account/discord; Max-Age=600; HttpOnly; SameSite=Lax${origin.startsWith('https:') ? '; Secure' : ''}`,
+    }).end();
+  }
+  // GET /api/account/discord/callback?code&state: back from Discord; signs in and returns to the game
+  async function discordCallback(req, res) {
+    const q = new URL(req.url, 'http://x').searchParams;
+    const state = String(q.get('state') || '');
+    const cookie = (new RegExp('(?:^|;\\s*)' + STATE_COOKIE + '=([\\w-]+)').exec(req.headers.cookie || '') || [])[1];
+    const flow = discordStates.get(state);
+    discordStates.delete(state);
+    const back = (hash) => res.writeHead(302, {
+      Location: ((flow && flow.origin) || [...origins][0]) + '/#' + hash, 'Cache-Control': 'no-store',
+      'Set-Cookie': `${STATE_COOKIE}=; Path=/api/account/discord; Max-Age=0; HttpOnly; SameSite=Lax`,
+    }).end();
+    if (!flow || !cookie || cookie !== state || Date.now() - flow.at > FLOW_MS) return back('signin-error=expired');
+    if (q.get('error')) return back('signin-error=' + (q.get('error') === 'access_denied' ? 'denied' : 'failed'));
+    const code = String(q.get('code') || '');
+    if (!/^[\w-]{10,100}$/.test(code)) return back('signin-error=failed');
+    let u;
+    try { u = await discordUser(code, flow.origin); } catch (e) { console.error('discord sign-in failed:', e.message); return back('signin-error=failed'); }
+    const sub = 'discord_' + u.id;
+    if (deleteGone(accounts[sub])) delete accounts[sub];   // (its grace period is over: a new account)
+    const a = accounts[sub] ||= { sub, via: 'discord', email: '', name: '', paid: 0, created: new Date().toISOString(), sessions: [], payments: [] };
+    a.name = cleanName(u.global_name || u.username);
+    let token;
+    try { token = newSession(a); } catch (e) { console.error('discord sign-in failed:', e.message); return back('signin-error=failed'); }
+    const handoff = crypto.randomBytes(18).toString('base64url');
+    handoffs.set(handoff, { token, at: Date.now() });
+    back('signin=' + handoff);
+  }
+
   // ---- Stripe ----
   function form(obj, pre = '', out = []) {
     for (const [k, v] of Object.entries(obj)) {
@@ -184,7 +266,7 @@ function createAccounts(file, env = process.env) {
   // progress counted and its switched-on unlocks shown. Signing in alone is free (it's how the payment finds the account).
   // (a deleted account waiting out its grace period is not active: nothing shown or counted)
   const active = (a) => (Number(a && a.paid) || 0) > 0 && !(a && a.deleting);
-  const pub = (a) => (a ? { name: a.name, email: a.email, paid: Number(a.paid) || 0, active: active(a), show: !a.hide, unlocks: unlocksOf(a),
+  const pub = (a) => (a ? { name: a.name, email: a.email, via: a.via || 'google', paid: Number(a.paid) || 0, active: active(a), show: !a.hide, unlocks: unlocksOf(a),
     deleting: a.deleting ? new Date(a.deleting + DELETE_KEEP_MS).toISOString() : null,   // deleted: gone for good at this time
     stats: { online: (a.stats && a.stats.online) || blankStats(), local: (a.stats && a.stats.local) || blankStats() } } : null);
   function newSession(a) {
@@ -359,7 +441,7 @@ function createAccounts(file, env = process.env) {
     delete checkouts[s.id];
     // Keep the binding on failure so a webhook retry commits the snapshot without appending/crediting twice.
     try { saveNow(); } catch (e) { checkouts[s.id] = c; throw e; }
-    console.log(`payment: ${a.email} +${(s.amount_total / 100).toFixed(2)} = ${(a.paid / 100).toFixed(2)}`);
+    console.log(`payment: ${a.email || a.sub} +${(s.amount_total / 100).toFixed(2)} = ${(a.paid / 100).toFixed(2)}`);
     return a;
   }
 
@@ -382,7 +464,7 @@ function createAccounts(file, env = process.env) {
   const bearer = (req) => (/^Bearer (\S+)$/.exec(req.headers.authorization || '') || [])[1];
 
   async function route(name, req, body) {
-    if (name === 'config') return { ok: true, enabled, googleClientId: clientIds[0] || null, min: MIN_CENTS, max: STRIPE_MAX_CENTS, currency: CURRENCY };
+    if (name === 'config') return { ok: true, enabled, googleClientId: clientIds[0] || null, discord: discordOn, min: MIN_CENTS, max: STRIPE_MAX_CENTS, currency: CURRENCY };
     if (name === 'guest' || name === 'guestequip') {
       let gm = {};
       if (body) { try { gm = JSON.parse(body) || {}; } catch { return { ok: false }; } }
@@ -400,6 +482,14 @@ function createAccounts(file, env = process.env) {
       a.email = String(c.email || '').slice(0, 120);
       a.name = cleanName(c.given_name || c.name);
       return { ok: true, token: newSession(a), account: pub(a) };
+    }
+    if (name === 'handoff') {
+      // the page, back from the Discord callback: its one-time code -> the session token
+      const h = handoffs.get(String(m.code || ''));
+      handoffs.delete(String(m.code || ''));
+      const a = h && Date.now() - h.at <= HANDOFF_MS ? fromToken(h.token) : null;
+      if (!a) return { ok: false, msg: 'Sign-in timed out, try again.' };
+      return { ok: true, token: h.token, account: pub(a) };
     }
     const a = fromToken(bearer(req));
     if (!a) return { ok: false, signedOut: true };
@@ -524,7 +614,12 @@ function createAccounts(file, env = process.env) {
   // /api/account/<name>; returns false if it isn't one of ours
   function handle(req, res, name) {
     if (name === 'config' && req.method === 'GET') { route('config', req).then((j) => reply(res, 200, j)); return true; }
-    if (!['google', 'me', 'pay', 'confirm', 'show', 'equip', 'guest', 'guestequip', 'progress', 'logout', 'delete', 'restore'].includes(name)) return false;
+    if (name === 'discord' && req.method === 'GET') { discordStart(req, res); return true; }
+    if (name === 'discord/callback' && req.method === 'GET') {
+      discordCallback(req, res).catch((e) => { console.error('discord sign-in failed:', e.message); if (!res.headersSent) reply(res, 502, { ok: false }); });
+      return true;
+    }
+    if (!['google', 'handoff', 'me', 'pay', 'confirm', 'show', 'equip', 'guest', 'guestequip', 'progress', 'logout', 'delete', 'restore'].includes(name)) return false;
     if (req.method !== (name === 'me' ? 'GET' : 'POST')) { reply(res, 405, { ok: false }); return true; }
     const go = (body) => route(name, req, body)
       .then((j) => reply(res, j ? 200 : 404, j || { ok: false }))

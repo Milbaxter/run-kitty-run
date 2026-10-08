@@ -1,4 +1,4 @@
-// Optional account (web only for now): sign in with Google, chip in what you like (from 0.50) through Stripe
+// Optional account (web only for now): sign in with Google or Discord, chip in what you like (from 0.50) through Stripe
 // Checkout, and your total shows next to your kitty's name online. Server side: server/accounts.js.
 // The session token lives in localStorage; main.js passes it to the game server ('hi' / 'acct').
 import { accountApiUrl, NATIVE } from './platform.js';
@@ -35,6 +35,9 @@ const CSS = `
 .rka-msg.rka-err{color:#ff8fa3;}
 .rka-msg.rka-ok{color:#9dff7a;}
 .rka-gbtn{display:flex;justify-content:center;min-height:44px;}
+.rka-dbtn{font:inherit;font-weight:800;font-size:15px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;
+  min-height:40px;padding:0 22px;border-radius:999px;border:0;background:#5865f2;color:#fff;text-decoration:none;}
+.rka-dbtn:hover{background:#4752c4;}
 /* account menu: one card per section */
 .rka-sec{align-self:stretch;display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 14px;border-radius:16px;background:rgba(10,4,30,.38);border:1px solid rgba(255,255,255,.12);}
 .rka-sech{align-self:flex-start;font-size:12px;font-weight:900;letter-spacing:.14em;opacity:.6;}
@@ -100,6 +103,7 @@ function statsView(s) {
   return wrap;
 }
 
+const signedInAs = (a) => (a.via === 'discord' ? `Signed in with Discord as ${a.name || 'you'}` : `Signed in as ${a.email}`);
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -177,10 +181,23 @@ function createAccount(root) {
     } catch { A.enabled = false; }
     loadGuest();   // this browser's unlocks (no account needed: its own kitty wears them in solo games too)
     if (!A.enabled) { changed(); return; }
+    // back from Sign in with Discord (server/accounts.js): #signin=<one-time code> or #signin-error=<why>
+    const h = new URLSearchParams(location.hash.slice(1)), handoff = h.get('signin'), signinErr = h.get('signin-error');
+    if (handoff || signinErr) history.replaceState(null, '', location.pathname + location.search);
     const q = new URLSearchParams(location.search), paid = q.get('paid');
     if (paid) {
       q.delete('paid');
       history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash);
+    }
+    if (handoff) {
+      try {
+        const j = await api('handoff', { code: handoff });
+        setSession(j.token, j.account);
+        open(j.account && j.account.deleting ? {} : { msg: Number(j.account && j.account.paid) > 0 ? 'Welcome back! Your swag is on this browser now.' : 'Signed in!', ok: true });
+        return;
+      } catch (e) { open({ err: e.message }); }
+    } else if (signinErr) {
+      open({ err: { denied: 'Discord sign-in was cancelled.', expired: 'Sign-in timed out, try again.', off: 'Discord sign-in is not available right now.' }[signinErr] || 'Discord sign-in did not work, try again.' });
     }
     if (A.token) { try { A.account = (await api('me')).account; } catch { /* signed out */ } }
     changed();
@@ -279,12 +296,19 @@ function createAccount(root) {
     const sayOpts = () => { if (opts.msg || opts.err) say(opts.err || opts.msg, opts.err ? 'err' : opts.thanks || opts.ok ? 'ok' : ''); };
 
     if (!A.token || !a) {
-      // Signed out: create one, or sign back in (another browser, cleared storage). Accounts are keyed by the Google
-      // account, so both buttons do the same thing: the same Google account always gets the same swag account back.
+      // Signed out: create one, or sign back in (another browser, cleared storage). Accounts are keyed by the Google /
+      // Discord account, so both sections do the same thing: the same Google or Discord account always gets the same
+      // swag account back (a Google one and a Discord one are two separate accounts).
       const create = section('NEW HERE?'), back = section('ALREADY HAVE ONE?');
       const gNew = el('div', 'rka-gbtn'), gBack = el('div', 'rka-gbtn');
+      const discordBtn = (text) => {
+        const b = el('a', 'rka-dbtn', text);
+        b.href = accountApiUrl('/api/account/discord') + '?origin=' + encodeURIComponent(location.origin);
+        return b;
+      };
       create.append(el('div', 'rka-note', `Totally optional, you do not need an account to play the game. Sign up, then chip in whatever you like once to activate it: the total shows next to your kitty for everyone online (can toggle it on and off), and your account keeps your stats and earns unlocks in Multiplayer games.`), gNew);
-      back.append(el('div', 'rka-note', 'Sign in with the same Google account as before and your swag comes back, on any browser.'), gBack);
+      back.append(el('div', 'rka-note', `Sign in with the same ${A.cfg.discord ? 'Google or Discord' : 'Google'} account as before and your swag comes back, on any browser.`), gBack);
+      if (A.cfg.discord) { create.append(discordBtn('Sign up with Discord')); back.append(discordBtn('Sign in with Discord')); }
       box.append(el('h2', null, 'SWAG ACCOUNT'), create, back, guestBox(), msg, fine('By signing in you agree to the '), closeBtn);
       loadGsi().then(() => {
         if (!modal || !gNew.isConnected) return;
@@ -322,7 +346,7 @@ function createAccount(root) {
       const links = el('div', 'rka-links'), out = el('a', null, 'Sign out');
       out.addEventListener('click', async () => { try { await api('logout', {}); } catch { /* gone anyway */ } setSession('', null); close(); });
       links.append(out);
-      box.append(el('h2', null, 'YOUR SWAG ACCOUNT'), sec, msg, closeBtn, links, fine(`Signed in as ${a.email}. `));
+      box.append(el('h2', null, 'YOUR SWAG ACCOUNT'), sec, msg, closeBtn, links, fine(`${signedInAs(a)}. `));
       sayOpts();
       root.appendChild(modal);
       return;
@@ -414,7 +438,7 @@ function createAccount(root) {
       });
       links.append(out, del);
       // stats and unlocks only on an active account (one that has paid; the server counts nothing before)
-      box.append(swag, ...(paid > 0 ? [unl, stats] : [guestBox()]), msg, closeBtn, links, delBox, fine(`Signed in as ${a.email}. `));
+      box.append(swag, ...(paid > 0 ? [unl, stats] : [guestBox()]), msg, closeBtn, links, delBox, fine(`${signedInAs(a)}. `));
       sayOpts();
       root.appendChild(modal);
       // fresh numbers (a game may have counted since this page loaded): redraw if the menu is still the one showing
@@ -464,7 +488,7 @@ function createAccount(root) {
     const row = el('div', 'rka-row');
     row.append(pay, back);
     box.append(amts, custom, row, msg,
-      fine(`Signed in as ${a.email}. One-time payment through Stripe, no subscription. Your total shows right away, so payments can't be refunded. `));
+      fine(`${signedInAs(a)}. One-time payment through Stripe, no subscription. Your total shows right away, so payments can't be refunded. `));
     sync();
     sayOpts();
     root.appendChild(modal);

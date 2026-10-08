@@ -25,8 +25,17 @@ jobs:
       # a fresh simulator's first boot takes minutes: start it while npm and the build run
       - name: Boot iPhone simulator (background)
         run: |
-          RT=$(xcrun simctl list runtimes available -j | jq -r '[.runtimes[] | select(.platform == "iOS")] | sort_by(.version | split(".") | map(tonumber)) | last | .identifier')
+          # Not iOS 26.5: its simulators can't load a StoreKit configuration (SKTestSession falls through to the sandbox;
+          # https://developer.apple.com/forums/thread/826971). Prefer 26.2 / 26.1 / 26.0, else the newest 18.x.
+          xcrun simctl list runtimes available | grep iOS
+          RTS=$(xcrun simctl list runtimes available -j | jq -r '[.runtimes[] | select(.platform == "iOS")] | sort_by(.version | split(".") | map(tonumber)) | reverse | .[] | "\(.version) \(.identifier)"')
+          RT=$(echo "$RTS" | awk '$1 ~ /^26\.2/ {print $2; exit}')
+          [ -n "$RT" ] || RT=$(echo "$RTS" | awk '$1 ~ /^26\.1/ {print $2; exit}')
+          [ -n "$RT" ] || RT=$(echo "$RTS" | awk '$1 ~ /^26\.0/ {print $2; exit}')
+          [ -n "$RT" ] || RT=$(echo "$RTS" | awk '$1 ~ /^18\./ {print $2; exit}')
+          [ -n "$RT" ] || { echo "::warning::no iOS 26.0-26.2 or 18.x runtime: StoreKit Testing may not work"; RT=$(echo "$RTS" | head -1 | cut -d' ' -f2); }
           UDID=$(xcrun simctl list devices available -j | jq -r --arg rt "$RT" '.devices[$rt][]? | select(.name | test("^iPhone")) | .udid' | head -1)
+          [ -n "$UDID" ] || UDID=$(xcrun simctl create rkr-storekit "iPhone 16 Pro" "$RT" 2>/dev/null || xcrun simctl create rkr-storekit "iPhone 16" "$RT")
           echo "runtime $RT, device $UDID"
           echo "UDID=$UDID" >> "$GITHUB_ENV"
           nohup xcrun simctl boot "$UDID" > "$RUNNER_TEMP/boot.log" 2>&1 &
@@ -66,7 +75,7 @@ jobs:
               test-without-building > "$RUNNER_TEMP/test.log" 2>&1
             status=$?
             set -e
-            grep -E "Test Case .*(passed|failed|skipped)|error:|Executed" "$RUNNER_TEMP/test.log" || tail -50 "$RUNNER_TEMP/test.log"
+            grep -E "Test Case .*(passed|failed|skipped)|error:|Executed|StoreTests\]" "$RUNNER_TEMP/test.log" || tail -50 "$RUNNER_TEMP/test.log"
             [ $status = 0 ] && exit 0
             echo "::warning::StoreKit tests attempt $i failed"
           done

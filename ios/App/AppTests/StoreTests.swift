@@ -188,8 +188,15 @@ final class StoreTests: XCTestCase {
     @MainActor
     private func waitJS(_ web: WKWebView, _ expr: String, _ what: String, timeout: TimeInterval = 240) async throws {
         let end = Date().addingTimeInterval(timeout)
+        var tries = 0
         while Date() < end {
-            if let ok = try? await web.callAsyncJavaScript("return !!(\(expr))", arguments: [:], contentWorld: .page) as? Bool, ok { return }
+            do {
+                if let ok = try await web.callAsyncJavaScript("return !!(\(expr))", arguments: [:], contentWorld: .page) as? Bool, ok { return }
+                if tries % 15 == 0 { NSLog("%@", "[StoreTests] waiting for \(what): no (url \(web.url?.absoluteString ?? "-"), loading \(web.isLoading))") }
+            } catch {
+                if tries % 15 == 0 { NSLog("%@", "[StoreTests] waiting for \(what): \(error) (url \(web.url?.absoluteString ?? "-"), loading \(web.isLoading))") }
+            }
+            tries += 1
             try await Task.sleep(nanoseconds: 1_000_000_000)
         }
         XCTFail("timed out waiting for \(what)")

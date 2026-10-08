@@ -34,7 +34,16 @@ const SERVER_PARAM = (location.protocol === 'file:' || localHost(location.hostna
   && originFromWs(serverParam) ? serverParam : null;
 
 // Account credentials always belong to the page's own server, independently of any game-server override.
-const ACCOUNT_ORIGIN = NATIVE ? PROD_ORIGIN : location.protocol === 'file:' ? 'http://localhost:8080' : location.origin;
+// Development only (like ?server=): a local page or a locally bundled app may use a local account server
+// (?account=http://127.0.0.1:8080), never anything but a local address.
+const accountParam = (() => {
+  if (!(location.protocol === 'file:' || localHost(location.hostname))) return null;
+  try {
+    const u = new URL(new URLSearchParams(location.search).get('account') || '');
+    return ['http:', 'https:'].includes(u.protocol) && localHost(u.hostname) && !u.username && !u.password ? u.origin : null;
+  } catch { return null; }
+})();
+const ACCOUNT_ORIGIN = accountParam || (NATIVE ? PROD_ORIGIN : location.protocol === 'file:' ? 'http://localhost:8080' : location.origin);
 const SERVER_ORIGIN = (SERVER_PARAM && originFromWs(SERVER_PARAM))
   || ACCOUNT_ORIGIN;
 

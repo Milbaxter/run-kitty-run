@@ -1668,7 +1668,7 @@ account.onChange(() => {
     if (!victorySong) applyMusicChoice();
     if (victory) ui.toast('New song unlocked: We Skate! Switch it on / off in Settings', '#ffd34a');
   }
-  ui.setAccountButton(account.enabled() ? { paid: account.paid(), hidden: !account.shown(), signedIn: account.signedIn() } : null);
+  ui.setAccountButton(account.enabled() ? { paid: account.paid(), hidden: !account.shown(), signedIn: account.signedIn(), ios: account.ios() } : null);
   if (net.connected) net.send({ t: 'acct', acct: account.token() || '' });
 });
 ui.onAccountClick(() => account.open());

@@ -6,17 +6,27 @@
 // HTTPS (fetch) plus its webhook signature (HMAC). State is one JSON file, saved atomically like legends.json;
 // every credited payment is also appended to payments.jsonl next to it (bookkeeping, never rewritten).
 //
+// The iOS app pays through Apple's in-app purchases instead (no sign-in there): its swag account belongs to the App
+// Store account that installed the app (the signed app transaction's appTransactionId, the same on every device and
+// reinstall), each verified purchase credits a fixed amount per product (shared/iap.js), once, and refunds take it
+// back. See appstore.js and "App Store" below.
+//
 // Sign in with Discord is a plain OAuth2 code flow run here (GET /api/account/discord -> Discord -> .../discord/callback);
 // those accounts are keyed 'discord_<user id>' (Google ones stay keyed by the bare Google id) and have no email.
 //
 // Env: GOOGLE_CLIENT_ID (comma-separate several: web + iOS/Android clients), DISCORD_CLIENT_ID + DISCORD_CLIENT_SECRET
-// (optional: without them there's no Discord button), STRIPE_SECRET_KEY,
+// (optional: without them there's no Discord button), APPLE_IAP=off (no in-app purchases), APPLE_IAP_SANDBOX=off
+// (refuse sandbox / TestFlight / App Review purchases), STRIPE_SECRET_KEY,
 // STRIPE_WEBHOOK_SECRET, PUBLIC_ORIGIN (where Checkout returns to, default https://runkittyrun.fun), CURRENCY (default eur).
-// Without GOOGLE_CLIENT_ID + STRIPE_SECRET_KEY accounts are off and the client hides the button.
+// Without GOOGLE_CLIENT_ID + STRIPE_SECRET_KEY web accounts are off and the client hides the button.
+// Tests only (never with NODE_ENV=production): APPLE_IAP_TEST_ROOTS (a PEM file of extra trusted roots),
+// APPLE_IAP_XCODE=1 (accept StoreKit Testing in Xcode data, which Xcode signs itself).
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { UNLOCKS, UNLOCK_MODES, FEAT_IDS, isUnlocked } from '../public/js/shared/unlocks.js';
+import { IAP_PRODUCTS, IAP_BY_ID } from '../public/js/shared/iap.js';
+import { createAppStore } from './appstore.js';
 
 const MIN_CENTS = 50;              // Stripe's minimum charge (EUR / USD; the account settles in EUR, so a USD charge must clear €0.50)
 // No cap of our own: this is only the largest amount Stripe's API takes (8 digits); card / payment-method limits still apply
@@ -44,18 +54,34 @@ function createAccounts(file, env = process.env) {
   const enabled = !!(clientIds.length && stripeKey);
   const discordId = env.DISCORD_CLIENT_ID || '', discordSecret = env.DISCORD_CLIENT_SECRET || '';
   const discordOn = enabled && !!(discordId && discordSecret);
+  // iOS in-app purchases: on unless APPLE_IAP=off. Test roots and Xcode-signed data never in production.
+  const testing = env.NODE_ENV !== 'production';
+  const iapOn = env.APPLE_IAP !== 'off';
+  const appStore = createAppStore({
+    sandbox: env.APPLE_IAP_SANDBOX !== 'off',
+    xcode: testing && env.APPLE_IAP_XCODE === '1',
+    testRoots: testing && env.APPLE_IAP_TEST_ROOTS
+      ? fs.readFileSync(env.APPLE_IAP_TEST_ROOTS, 'utf8').match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) || [] : [],
+  });
   const CURRENCY = /^[a-z]{3}$/.test(env.CURRENCY || '') ? env.CURRENCY : 'eur';   // one currency for everyone, so totals compare
   const paymentsFile = file.replace(/[^/]*$/, 'payments.jsonl');
   const LIVE = /^(sk|rk)_live_/.test(stripeKey);   // a test-mode session never credits a live server, and vice versa
 
   // sub (Google user id, or 'discord_<id>') -> { sub, email, name, paid (cents), created, sessions: [sha256 of token], payments: [stripe session ids],
-  //   hide (true = the total isn't shown to other players), stats: { online, local } (see "stats" below) }
+  //   hide (true = the total isn't shown to other players), stats: { online, local } (see "stats" below),
+  //   iOS accounts (sub 'ios_<hex>', via 'apple'): apple: { env (Production | Sandbox), appTx (the App Store account's
+  //   appTransactionId), token (the appAccountToken every purchase carries) } }
   let accounts = {};
   // Checkout Session id -> { sub, cents, at }: written when this server creates the session, removed once credited
   let checkouts = {};
   // players without an active account: unlock progress under their browser's random progress id (shared/unlocks.js),
   // { unlocks, at (last seen, ms) }; moved onto their account when they activate one (mergeGuest)
   let guests = {};
+  // App Store purchases, '<environment>:<transactionId>' -> { sub, product, credit (cents, x quantity), at,
+  //   refunded (ms, while refunded), never (a refund for a purchase that was never credited: it never will be) }
+  let iap = {};
+  // App Store Server Notifications already handled: notificationUUID -> when (kept 40 days)
+  let notes = {};
   let dirty = false;
   // Tighten files from older deployments too. An unreadable or corrupt store is not a new account store.
   for (const p of [file, paymentsFile, file + '.tmp']) {
@@ -69,8 +95,10 @@ function createAccounts(file, env = process.env) {
     if (old && old.accounts && typeof old.accounts === 'object') accounts = old.accounts;
     if (old && old.checkouts && typeof old.checkouts === 'object') checkouts = old.checkouts;
     if (old && old.guests && typeof old.guests === 'object') guests = old.guests;
+    if (old && old.iap && typeof old.iap === 'object') iap = old.iap;
+    if (old && old.notes && typeof old.notes === 'object') notes = old.notes;
   } catch (e) { if (e.code !== 'ENOENT') throw e; }
-  const state = () => JSON.stringify({ accounts, checkouts, guests });
+  const state = () => JSON.stringify({ accounts, checkouts, guests, iap, notes });
   // guest progress nobody has played online with for two months goes (at start, then daily)
   const GUEST_KEEP_MS = 61 * 864e5;
   function pruneGuests() {
@@ -87,8 +115,14 @@ function createAccounts(file, env = process.env) {
     for (const [k, a] of Object.entries(accounts)) if (deleteGone(a)) { delete accounts[k]; n++; }
     return n;
   }
-  pruneGuests(); pruneDeleted();
-  setInterval(() => { if (pruneGuests() + pruneDeleted()) { statsChanged(); reindex(); } }, 864e5).unref();
+  const NOTES_KEEP_MS = 40 * 864e5;   // Apple retries a notification for 3 days at most
+  function pruneNotes() {
+    let n = 0;
+    for (const [k, at] of Object.entries(notes)) if (!(Date.now() - at < NOTES_KEEP_MS)) { delete notes[k]; n++; }
+    return n;
+  }
+  pruneGuests(); pruneDeleted(); pruneNotes();
+  setInterval(() => { if (pruneGuests() + pruneDeleted() + pruneNotes()) { statsChanged(); reindex(); } }, 864e5).unref();
   // One synchronous writer: no old asynchronous snapshot can overwrite a newer payment or revocation.
   // Failures propagate to the caller; a Checkout URL must never escape without its saved binding.
   function saveNow() {
@@ -118,6 +152,7 @@ function createAccounts(file, env = process.env) {
     let n = 0;
     for (const l of lines) {
       let p; try { p = JSON.parse(l); } catch { continue; }
+      if (p && p.iap === 'apple') { if (iapApply(p.kind, p.key, { sub: p.sub, product: p.product, credit: p.credit, at: Date.parse(p.at) })) n++; continue; }
       if (p && checkouts[p.session]) { delete checkouts[p.session]; n++; }
       const a = p && accounts[p.sub];
       if (!a || (a.payments || []).includes(p.session)) continue;
@@ -137,7 +172,15 @@ function createAccounts(file, env = process.env) {
   }
   setInterval(pruneCheckouts, 6 * 3600e3).unref();
   const byToken = new Map();   // sha256(token) -> sub
-  const reindex = () => { byToken.clear(); for (const a of Object.values(accounts)) for (const h of a.sessions || []) byToken.set(h, a.sub); };
+  // iOS accounts: appAccountToken -> sub, '<environment>:<appTransactionId>' -> sub
+  const byAppleToken = new Map(), byAppTx = new Map();
+  const reindex = () => {
+    byToken.clear(); byAppleToken.clear(); byAppTx.clear();
+    for (const a of Object.values(accounts)) {
+      for (const h of a.sessions || []) byToken.set(h, a.sub);
+      if (a.apple) { byAppleToken.set(a.apple.token, a.sub); byAppTx.set(a.apple.env + ':' + a.apple.appTx, a.sub); }
+    }
+  };
   reindex();
 
   // ---- Google ----
@@ -241,6 +284,125 @@ function createAccounts(file, env = process.env) {
     back('signin=' + handoff);
   }
 
+  // ---- App Store (the iOS app's in-app purchases) ----
+  // Who an iOS player is: the App Store account that installed the app. The app sends its signed app transaction
+  // (AppTransaction, iOS 16+); its appTransactionId is the same on every device and reinstall of that App Store account,
+  // so linking again (Restore Purchases, or quietly at launch) finds the same swag account: no sign-in, no email.
+  // Sandbox (TestFlight, sandbox testers, App Review) gets its own accounts, never mixed with real ones.
+  // Each purchase carries the account's appAccountToken (set when buying), so it's credited to that account only.
+  function appleLink(m) {
+    let at;
+    try { at = appStore.appTransaction(m.appTransaction); }
+    catch (e) { console.error('app transaction rejected:', e.message); return { ok: false, msg: 'Could not check your App Store account. Try again in a moment.' }; }
+    const envName = at.receiptType, appTx = String(at.appTransactionId || '');
+    if (!/^[\w-]{1,64}$/.test(appTx)) return { ok: false, msg: 'Your App Store account could not be checked. Update iOS, then try again.' };
+    let a = accounts[byAppTx.get(envName + ':' + appTx)] || null;
+    if (a && deleteGone(a)) { delete accounts[a.sub]; reindex(); a = null; }   // (its grace period is over: a new account)
+    let made = false;
+    if (!a) {
+      if (!m.create) return { ok: true, found: false };
+      const sub = 'ios_' + crypto.randomBytes(12).toString('hex');
+      a = accounts[sub] = { sub, via: 'apple', email: '', name: '', paid: 0, created: new Date().toISOString(), sessions: [], payments: [],
+        apple: { env: envName, appTx, token: crypto.randomUUID() } };
+      made = true;
+    }
+    let token;
+    try { token = newSession(a); } catch (e) { if (made) delete accounts[a.sub]; throw e; }
+    return { ok: true, found: true, token, account: pub(a), appAccountToken: a.apple.token };
+  }
+  // the account a verified transaction pays for: the one whose appAccountToken it carries; else (its account was
+  // deleted for good, or none was set) the one of the same App Store account; the environments must match
+  function iapOwner(t) {
+    const tok = typeof t.appAccountToken === 'string' ? t.appAccountToken.toLowerCase() : '';
+    const byTok = tok ? accounts[byAppleToken.get(tok)] : null;
+    if (byTok) return byTok.apple.env === t.environment ? byTok : null;
+    return (t.appTransactionId && accounts[byAppTx.get(t.environment + ':' + t.appTransactionId)]) || null;
+  }
+  // one App Store ledger event onto the state: 'purchase' (credit it once), 'refund' (take it back once; a refund of
+  // a purchase never credited leaves a marker so it never will be), 'reversed' (Apple undid the refund: credit again).
+  // Used live and to replay payments.jsonl. -> { a (the account changed, if any) } or null if it was already applied.
+  function iapWould(kind, key) {
+    const cur = iap[key];
+    return kind === 'purchase' ? !cur : kind === 'refund' ? !(cur && cur.refunded) : kind === 'reversed' ? !!(cur && cur.refunded) : false;
+  }
+  function iapApply(kind, key, rec) {
+    if (typeof key !== 'string' || !iapWould(kind, key)) return null;
+    const cur = iap[key];
+    let delta = 0;
+    if (kind === 'purchase') { iap[key] = { sub: rec.sub, product: rec.product, credit: rec.credit, at: rec.at }; delta = rec.credit; }
+    else if (kind === 'refund') {
+      if (!cur) { iap[key] = { sub: rec.sub || null, product: rec.product, credit: rec.credit, at: rec.at, refunded: rec.at, never: true }; return { a: null }; }
+      cur.refunded = rec.at; delta = -cur.credit;
+    } else {
+      if (cur.never) { delete iap[key]; return { a: null }; }
+      delete cur.refunded; delta = cur.credit;
+    }
+    const a = accounts[iap[key].sub] || null;
+    if (a) a.paid = Math.max(0, (Number(a.paid) || 0) + (Number(delta) || 0));
+    return { a };
+  }
+  // live: the ledger line first (replayed on startup, like a Stripe payment), then the account file
+  function iapEvent(kind, t, sub) {
+    const key = t.environment + ':' + t.transactionId;
+    if (!iapWould(kind, key)) return null;
+    const p = IAP_BY_ID.get(t.productId);
+    const qty = Number.isInteger(t.quantity) && t.quantity > 1 ? t.quantity : 1;
+    const rec = { sub: sub || null, product: t.productId, credit: p.credit * qty, at: Date.now() };
+    logPayment({ at: new Date(rec.at).toISOString(), iap: 'apple', kind, key, sub: rec.sub, product: rec.product, credit: rec.credit,
+      storefront: t.storefront, price: t.price, currency: t.currency });
+    const r = iapApply(kind, key, rec);
+    saveNow();
+    const a = r && r.a;
+    console.log(`app store ${kind}: ${key} ${rec.product}${a ? ` ${a.sub} = ${((Number(a.paid) || 0) / 100).toFixed(2)}` : ''}`);
+    return r;
+  }
+  // the app sends a signed transaction (a purchase just made, or one waiting since: Ask to Buy, a crash, no network)
+  // -> credit it once. `finish`: the app may finish the transaction now (credited, or nothing left to deliver).
+  function applePurchase(a, m) {
+    let t;
+    try { t = appStore.transaction(m.transaction); }
+    catch (e) { console.error('app store transaction rejected:', e.message); return { ok: false, finish: false, msg: 'Could not check this purchase with the App Store. Try again in a moment.' }; }
+    const p = IAP_BY_ID.get(t.productId);
+    if (!p || t.type !== 'Consumable') { console.error('app store: unknown product', t.productId, t.type); return { ok: false, finish: false, msg: 'Unknown item. Update the app, then try again.' }; }
+    const key = t.environment + ':' + t.transactionId;
+    const owner = iapOwner(t);
+    if (t.revocationDate) {
+      // refunded before it got here: nothing to deliver (and if it was credited, take that back now)
+      iapEvent('refund', t, owner && owner.sub);
+      return { ok: true, finish: true, refunded: true, account: pub(a) };
+    }
+    if (!owner) {
+      if (iap[key]) return { ok: true, finish: true, account: pub(a) };   // (handled already, e.g. refunded)
+      console.error('app store: no account for', key);
+      return { ok: false, finish: false, msg: 'This purchase belongs to another App Store account.' };
+    }
+    const fresh = !!iapEvent('purchase', t, owner.sub);
+    return { ok: true, finish: true, credited: fresh, account: pub(owner === a || !a ? owner : a) };
+  }
+  // POST /api/apple/notifications: App Store Server Notifications V2 (refunds; purchases too, as a backup when the
+  // app couldn't reach us). 200 only once handled and saved: Apple retries anything else for 3 days (production).
+  function appleNotification(req, res) {
+    readBody(req, 1 << 17, (raw) => {
+      let n;
+      try { n = appStore.notification(JSON.parse(raw.toString('utf8')).signedPayload); }
+      catch (e) { console.error('app store notification rejected:', e.message); return reply(res, 400, { ok: false }); }
+      if (notes[n.uuid]) return reply(res, 200, { ok: true });
+      try {
+        const t = n.transaction;
+        if (t && IAP_BY_ID.has(t.productId)) {
+          const owner = iapOwner(t);
+          if (n.type === 'REFUND') iapEvent('refund', t, owner && owner.sub);
+          else if (n.type === 'REFUND_REVERSED') iapEvent('reversed', t, owner && owner.sub);
+          else if (n.type === 'ONE_TIME_CHARGE' && !t.revocationDate && owner) iapEvent('purchase', t, owner.sub);
+        }
+        console.log('app store notification:', n.type, n.subtype, n.env, t ? t.transactionId : '');
+        notes[n.uuid] = Date.now();
+        saveNow();
+      } catch (e) { console.error('app store notification failed:', e.message); return reply(res, 500, { ok: false }); }
+      reply(res, 200, { ok: true });
+    });
+  }
+
   // ---- Stripe ----
   function form(obj, pre = '', out = []) {
     for (const [k, v] of Object.entries(obj)) {
@@ -266,7 +428,7 @@ function createAccounts(file, env = process.env) {
   // progress counted and its switched-on unlocks shown. Signing in alone is free (it's how the payment finds the account).
   // (a deleted account waiting out its grace period is not active: nothing shown or counted)
   const active = (a) => (Number(a && a.paid) || 0) > 0 && !(a && a.deleting);
-  const pub = (a) => (a ? { name: a.name, email: a.email, via: a.via || 'google', paid: Number(a.paid) || 0, active: active(a), show: !a.hide, unlocks: unlocksOf(a),
+  const pub = (a) => (a ? { name: a.name, email: a.email, via: a.via || 'google', sandbox: !!(a.apple && a.apple.env !== 'Production'), appAccountToken: a.apple ? a.apple.token : undefined, paid: Number(a.paid) || 0, active: active(a), show: !a.hide, unlocks: unlocksOf(a),
     deleting: a.deleting ? new Date(a.deleting + DELETE_KEEP_MS).toISOString() : null,   // deleted: gone for good at this time
     stats: { online: (a.stats && a.stats.online) || blankStats(), local: (a.stats && a.stats.local) || blankStats() } } : null);
   function newSession(a) {
@@ -412,6 +574,19 @@ function createAccounts(file, env = process.env) {
     return c;
   }
 
+  // one line onto payments.jsonl, on disk before anyone is told it worked (throws if it can't be written)
+  function logPayment(line) {
+    const fd = fs.openSync(paymentsFile, fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW, 0o600);
+    try {
+      fs.fchmodSync(fd, 0o600);
+      // A disk error can leave half a log entry. Separate it before retrying so recovery can read the new entry.
+      const size = fs.fstatSync(fd).size, tail = Buffer.alloc(1);
+      const separator = size && fs.readSync(fd, tail, 0, 1, size - 1) === 1 && tail[0] !== 10 ? '\n' : '';
+      fs.writeFileSync(fd, separator + JSON.stringify(line) + '\n');
+      fs.fsyncSync(fd);
+    } finally { fs.closeSync(fd); }
+  }
+
   // credit a paid Checkout Session once (from the webhook or the return trip, whichever comes first)
   function credit(s) {
     const c = ours(s);
@@ -427,15 +602,7 @@ function createAccounts(file, env = process.env) {
     // Written to disk before anyone is told it worked (the webhook's 200, the confirm reply): the log line first (it
     // replays on startup, see recover()), then the account file. A failed log write throws, so Stripe retries the webhook.
     const line = { at: new Date().toISOString(), session: s.id, sub: a.sub, email: a.email, amount, currency: s.currency, total: (Number(a.paid) || 0) + amount };
-    const fd = fs.openSync(paymentsFile, fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW, 0o600);
-    try {
-      fs.fchmodSync(fd, 0o600);
-      // A disk error can leave half a log entry. Separate it before retrying so recovery can read the new entry.
-      const size = fs.fstatSync(fd).size, tail = Buffer.alloc(1);
-      const separator = size && fs.readSync(fd, tail, 0, 1, size - 1) === 1 && tail[0] !== 10 ? '\n' : '';
-      fs.writeFileSync(fd, separator + JSON.stringify(line) + '\n');
-      fs.fsyncSync(fd);
-    } finally { fs.closeSync(fd); }
+    logPayment(line);
     a.payments = [...(a.payments || []), s.id];
     a.paid = line.total;
     delete checkouts[s.id];
@@ -464,16 +631,20 @@ function createAccounts(file, env = process.env) {
   const bearer = (req) => (/^Bearer (\S+)$/.exec(req.headers.authorization || '') || [])[1];
 
   async function route(name, req, body) {
-    if (name === 'config') return { ok: true, enabled, googleClientId: clientIds[0] || null, discord: discordOn, min: MIN_CENTS, max: STRIPE_MAX_CENTS, currency: CURRENCY };
+    if (name === 'config') return { ok: true, enabled, googleClientId: clientIds[0] || null, discord: discordOn,
+      iap: iapOn ? IAP_PRODUCTS.map(({ id, credit }) => ({ id, credit })) : null, min: MIN_CENTS, max: STRIPE_MAX_CENTS, currency: CURRENCY };
     if (name === 'guest' || name === 'guestequip') {
       let gm = {};
       if (body) { try { gm = JSON.parse(body) || {}; } catch { return { ok: false }; } }
       return guestRoute(name, gm);
     }
-    if (!enabled) return { ok: false, msg: 'Accounts are not open yet.' };
+    const closed = { ok: false, msg: 'Accounts are not open yet.' };
+    if (!enabled && !iapOn) return closed;
     let m = {};
     if (body) { try { m = JSON.parse(body) || {}; } catch { return { ok: false }; } }
+    if (name === 'apple/link') return iapOn ? appleLink(m) : closed;
     if (name === 'google') {
+      if (!enabled) return closed;
       let c;
       try { c = await verifyGoogle(m.credential); } catch (e) { return { ok: false, msg: 'Google sign-in did not work, try again.' }; }
       if (c.email_verified === false) return { ok: false, msg: 'That Google account has no verified email.' };
@@ -494,6 +665,8 @@ function createAccounts(file, env = process.env) {
     const a = fromToken(bearer(req));
     if (!a) return { ok: false, signedOut: true };
     if (name === 'me') return { ok: true, account: pub(a) };
+    // (a real payment is credited even to an account waiting out its deletion)
+    if (name === 'apple/purchase') return iapOn ? applePurchase(a, m) : closed;
     if (name === 'restore') {
       // a deleted account, signed in again within its grace period: back as it was
       if (!a.deleting) return { ok: true, account: pub(a) };
@@ -504,6 +677,7 @@ function createAccounts(file, env = process.env) {
     }
     if (a.deleting && name !== 'logout') return { ok: false, msg: 'This account is deleted. Restore it first.' };
     if (name === 'pay') {
+      if (!enabled || a.apple) return closed;   // (iOS accounts pay through the App Store)
       const cents = m.cents;
       if (!Number.isSafeInteger(cents) || cents < MIN_CENTS) return { ok: false, msg: `The smallest amount is ${(MIN_CENTS / 100).toFixed(2)}.` };
       if (cents > STRIPE_MAX_CENTS) return { ok: false, msg: 'That is more than one payment can take.' };
@@ -619,16 +793,16 @@ function createAccounts(file, env = process.env) {
       discordCallback(req, res).catch((e) => { console.error('discord sign-in failed:', e.message); if (!res.headersSent) reply(res, 502, { ok: false }); });
       return true;
     }
-    if (!['google', 'handoff', 'me', 'pay', 'confirm', 'show', 'equip', 'guest', 'guestequip', 'progress', 'logout', 'delete', 'restore'].includes(name)) return false;
+    if (!['google', 'handoff', 'apple/link', 'apple/purchase', 'me', 'pay', 'confirm', 'show', 'equip', 'guest', 'guestequip', 'progress', 'logout', 'delete', 'restore'].includes(name)) return false;
     if (req.method !== (name === 'me' ? 'GET' : 'POST')) { reply(res, 405, { ok: false }); return true; }
     const go = (body) => route(name, req, body)
       .then((j) => reply(res, j ? 200 : 404, j || { ok: false }))
       .catch((e) => { console.error('account', name, 'failed:', e.message); reply(res, 502, { ok: false, msg: 'Something went wrong, try again in a moment.' }); });
-    if (req.method === 'GET') go(''); else readBody(req, 8192, (raw) => go(raw.toString('utf8')));
+    if (req.method === 'GET') go(''); else readBody(req, name.startsWith('apple/') ? 32768 : 8192, (raw) => go(raw.toString('utf8')));
     return true;
   }
 
-  return { enabled, handle, webhook, paidFor, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
+  return { enabled, handle, webhook, appleNotification, paidFor, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
 }
 
 // One credit per player, however many of its tabs are in the game: of these kitties (members: { acct, pid }), the

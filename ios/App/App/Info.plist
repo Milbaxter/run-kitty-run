@@ -33,6 +33,8 @@
 			</array>
 		</dict>
 	</array>
+	<key>SKIncludeConsumableInAppPurchaseHistory</key>
+	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSApplicationCategoryType</key>

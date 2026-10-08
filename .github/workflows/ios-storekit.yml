@@ -1,0 +1,67 @@
+name: iOS StoreKit tests
+# The in-app purchase code in the app (ios/App/App/StorePlugin.swift) against StoreKit Testing (no App Store, no
+# dialogs): ios/App/AppTests/StoreTests.swift, hosted in the app on a simulator. The server half is scripts/iap-test.mjs
+# (npm test). Runs on pull requests that touch the iOS project, and by hand.
+on:
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-storekit.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ios-storekit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  storekit:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      # a fresh simulator's first boot takes minutes: start it while npm and the build run
+      - name: Boot iPhone simulator (background)
+        run: |
+          RT=$(xcrun simctl list runtimes available -j | jq -r '[.runtimes[] | select(.platform == "iOS")] | sort_by(.version | split(".") | map(tonumber)) | last | .identifier')
+          UDID=$(xcrun simctl list devices available -j | jq -r --arg rt "$RT" '.devices[$rt][]? | select(.name | test("^iPhone")) | .udid' | head -1)
+          echo "runtime $RT, device $UDID"
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          nohup xcrun simctl boot "$UDID" > "$RUNNER_TEMP/boot.log" 2>&1 &
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:www
+      - run: npx cap sync ios
+      - name: Build for testing
+        run: |
+          xcodebuild -version
+          xcodebuild -quiet -project ios/App/App.xcodeproj -scheme App -destination "id=$UDID" \
+            -derivedDataPath ios/App/build/test CODE_SIGNING_ALLOWED=NO build-for-testing
+      - name: StoreKit tests
+        run: |
+          xcrun simctl bootstatus "$UDID" -b > /dev/null
+          # one retry: StoreKit Testing on a cold CI simulator sometimes returns no products the first time
+          for i in 1 2; do
+            rm -rf "$RUNNER_TEMP/StoreKit.xcresult"
+            set +e
+            xcodebuild -project ios/App/App.xcodeproj -scheme App -destination "id=$UDID" \
+              -derivedDataPath ios/App/build/test CODE_SIGNING_ALLOWED=NO -resultBundlePath "$RUNNER_TEMP/StoreKit.xcresult" \
+              test-without-building > "$RUNNER_TEMP/test.log" 2>&1
+            status=$?
+            set -e
+            grep -E "Test Case .*(passed|failed|skipped)|error:|Executed" "$RUNNER_TEMP/test.log" || tail -50 "$RUNNER_TEMP/test.log"
+            [ $status = 0 ] && exit 0
+            echo "::warning::StoreKit tests attempt $i failed"
+          done
+          exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: storekit-xcresult
+          path: ${{ runner.temp }}/StoreKit.xcresult
+          if-no-files-found: ignore

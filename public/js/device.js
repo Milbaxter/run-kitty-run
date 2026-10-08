@@ -21,6 +21,8 @@ const PROFILES = {
   high: { pixelRatio: 2, antialias: true, shadows: true, shadowMap: 2048, softShadows: true, propShadows: true, particles: 1 },
   medium: { pixelRatio: 1.5, antialias: false, shadows: true, shadowMap: 1024, softShadows: false, propShadows: false, particles: 0.45 },
   low: { pixelRatio: 1, antialias: false, shadows: false, shadowMap: 1024, softShadows: false, propShadows: false, particles: 0.3 },
+  // the most speed for weak computers: drawn at 60% of the screen's resolution (scaled up), no weather, fewest effects
+  ultra: { pixelRatio: 0.6, antialias: false, shadows: false, shadowMap: 1024, softShadows: false, propShadows: false, particles: 0 },
 };
 let gfxPick = 'auto';
 try { gfxPick = (JSON.parse(localStorage.getItem('rkr-settings') || '{}') || {}).gfx || 'auto'; } catch { /* auto */ }

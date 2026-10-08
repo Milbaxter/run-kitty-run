@@ -12,7 +12,7 @@ const ACTIONS = [
 ];
 // keys that keep their fixed job (arrows move, Esc pauses and cancels, Enter chats and confirms, Tab switches the watched kitty)
 const RESERVED = new Set(['Escape', 'Enter', 'NumpadEnter', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'MetaLeft', 'MetaRight']);
-const GFX = [['auto', 'AUTO'], ['high', 'HIGH'], ['medium', 'MEDIUM'], ['low', 'LOW']];
+const GFX = [['auto', 'AUTO'], ['high', 'HIGH'], ['medium', 'MEDIUM'], ['low', 'LOW'], ['ultra', 'ULTRA LOW']];
 
 const S = { music: 1, sfx: 1, gfx: 'auto', keys: { ...DEFAULT_KEYS } };
 try {
@@ -152,7 +152,7 @@ function openSettings(root, opts = {}) {
   // switched on the spot (main.js applyGraphics), mid-run too; only the edge smoothing waits for the next load
   const paintGfx = (edgesLater) => {
     for (const b of gseg.children) b.classList.toggle('rkst-on', b.dataset.id === S.gfx);
-    note.textContent = 'Auto picks for your device. Lower settings run smoother on slower computers: Low turns shadows off.'
+    note.textContent = 'Auto picks for your device. Lower settings run smoother on slower computers: Low turns shadows off, Ultra low also the weather and draws the game at a lower resolution.'
       + (edgesLater ? ' Smooth edges change the next time the game opens.' : '');
   };
   for (const [id, label] of GFX) {

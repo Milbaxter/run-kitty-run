@@ -1932,6 +1932,7 @@ function buildParticles(theme, rng, radius, T, box = null) {
   const area = box ? box.w * box.d : Math.PI * radius * radius;
   const thin = theme.night && theme.nightTi !== 2, hail = theme.night && theme.nightTi === 0;   // night skate seasons: a third; summer: hail
   const count = Math.round(clamp(area * 0.1, 300, 1300) * QUALITY.particles * (thin ? 1 / 3 : 1));
+  if (!count) return { points: null, update() {} };   // (Ultra low: no weather at all, not even an empty layer)
   const pos = new Float32Array(count * 3), col = new Float32Array(count * 3);
   const base = new Float32Array(count * 5); // bx, bz, by, phase, speed
   const c = new THREE.Color();
@@ -2593,7 +2594,7 @@ function buildWorld(scene, levelData) {
     for (const m of finale.meshes) group.add(m);
   }
   const parts = buildParticles(theme, rng, levelData.outerRadius + 14, T, levelData.finale ? { w: 96, d: 80 } : null);
-  group.add(parts.points);
+  if (parts.points) group.add(parts.points);
 
   scene.add(group);
 

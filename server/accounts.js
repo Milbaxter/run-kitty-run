@@ -141,14 +141,18 @@ function createAccounts(file, env = process.env) {
   reindex();
 
   // ---- Google ----
-  let jwks = { keys: new Map(), until: 0 };
+  let jwks = { keys: new Map(), until: 0, at: 0 };
   async function googleKey(kid) {
     if (Date.now() > jwks.until || !jwks.keys.has(kid)) {
+      // an unknown kid refetches the keys (rotation), but not more than once a minute: a made-up kid shouldn't
+      // turn every bad token into a request to Google
+      if (!jwks.keys.has(kid) && Date.now() - jwks.at < 60e3 && Date.now() <= jwks.until) return null;
+      jwks.at = Date.now();
       const r = await fetch(JWKS_URL);
       if (!r.ok) throw new Error('google keys ' + r.status);
       const maxAge = +((/max-age=(\d+)/.exec(r.headers.get('cache-control') || '') || [])[1] || 3600);
       const j = await r.json();
-      jwks = { keys: new Map(j.keys.map((k) => [k.kid, crypto.createPublicKey({ key: k, format: 'jwk' })])), until: Date.now() + maxAge * 1000 };
+      jwks = { keys: new Map(j.keys.map((k) => [k.kid, crypto.createPublicKey({ key: k, format: 'jwk' })])), until: Date.now() + maxAge * 1000, at: Date.now() };
     }
     return jwks.keys.get(kid);
   }
@@ -532,8 +536,10 @@ function createAccounts(file, env = process.env) {
     if (name === 'confirm') {
       // back from Checkout: ask Stripe directly so it doesn't wait on the webhook
       if (!/^cs_[\w]+$/.test(String(m.session || ''))) return { ok: false };
+      // only a checkout this player started here is ever looked up (no asking Stripe about other people's sessions)
+      if (!checkouts[m.session] && !(a.payments || []).includes(m.session)) return { ok: false };
       const s = await stripe('GET', '/checkout/sessions/' + m.session);
-      if (!checkouts[s.id] && !(a.payments || []).includes(s.id)) return { ok: false };   // not a checkout this player started here
+      if (s.id !== m.session || (!checkouts[s.id] && !(a.payments || []).includes(s.id))) return { ok: false };
       if (s.client_reference_id !== a.sub) return { ok: false };
       credit(s);
       return { ok: true, paid: s.payment_status === 'paid', account: pub(a) };

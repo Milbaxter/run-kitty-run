@@ -2070,7 +2070,10 @@ function toggleOnlineMenu() {
 // Step local wolves up to the level tick matching our current tick, remembering recent positions. Far behind (back
 // from the background, a late level change): don't replay it all (seconds of frozen game on a big level), ask the
 // server for its wolves instead; they wait where they are until the reply ('wolves') catches them up.
+// In between, at most WOLF_CATCHUP_PER_CALL ticks per call: a stall of a second or two is replayed over a few frames
+// (the wolves lag the server for a moment) instead of one long frame on a big level.
 const WOLF_CATCHUP_MAX = 300;   // ticks (5 s)
+const WOLF_CATCHUP_PER_CALL = 24;
 function catchUpWolves() {
   const target = online.tick - online.levelStartTick;
   if (target - sim.enemyTicks > WOLF_CATCHUP_MAX) {
@@ -2079,7 +2082,7 @@ function catchUpWolves() {
     return;
   }
   let guard = 0;
-  while (sim.enemyTicks < target && guard++ < 7200) {
+  while (sim.enemyTicks < target && guard++ < WOLF_CATCHUP_PER_CALL) {
     updateEnemies(sim.enemies, sim.levelData, CFG.TICK);
     sim.enemyTicks++;
     if (target - sim.enemyTicks < WOLF_HIST) recordWolves();
@@ -2251,8 +2254,20 @@ function applySnapshot(m) {
 let last = performance.now();
 let minimapT = 0;
 
+// Frame pacing: on 120 Hz+ screens only every 2nd (3rd, 4th) refresh is drawn, so about 60 fps. The game steps at a
+// fixed 60 Hz either way (offline and online), so this only saves GPU work and heat. An evenly spaced skip, no judder.
+let vsyncPrev = last, vsyncMs = 1000 / 60, every = 1, skipped = 0;
+
 function frame(now) {
   requestAnimationFrame(frame);
+  const iv = now - vsyncPrev;
+  vsyncPrev = now;
+  if (iv > 3 && iv < 40) {
+    vsyncMs += (iv - vsyncMs) * (iv < vsyncMs ? 0.1 : 0.02);   // leans to the short intervals (the real refresh)
+    every = Math.max(1, Math.round(1000 / 60 / vsyncMs - 0.25));   // 120 Hz: 2, 144: 2, 90: 1, 240: 4
+  }
+  if (++skipped < every) return;
+  skipped = 0;
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.1) dt = 0.1;
@@ -2364,7 +2379,10 @@ function setBackground(bg) {
     audio.setBackground(false);
     syncTrack();
     net.wake();
-    if (online.playing && net.connected) net.send({ t: 'resync' });
+    // A long time away: ask for the server's wolves right away (on a big level that is a large message, so only when
+    // the local replay can't cover it; a short tab switch is replayed by catchUpWolves, which also asks if the next
+    // snapshot turns out to be far ahead).
+    if (online.playing && net.connected && online.tick - online.levelStartTick - sim.enemyTicks > WOLF_CATCHUP_MAX) net.send({ t: 'resync' });
   }
 }
 document.addEventListener('visibilitychange', () => setBackground(document.visibilityState === 'hidden'));

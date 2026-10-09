@@ -53,6 +53,7 @@ const MAX_ROOMS = 200;
 const FEEDBACK_FILE_MAX = 5 << 20;  // bytes; stop appending past this (someone has to read it)
 // Abuse limits per connection / IP. MAX_CONN_PER_IP can be raised for local load tests (scripts/server-test.mjs opens ~35).
 const MAX_CONN_PER_IP = +process.env.MAX_CONN_PER_IP || 10;
+const MAX_ROOMS_PER_IP = +process.env.MAX_ROOMS_PER_IP || 4;   // open lobbies created from one address (MAX_ROOMS is global)
 const MSG_RATE = 150, MSG_BURST = 300;   // any message; ~60 inputs/s + pings is normal play. Over it: disconnect
 const LOBBY_RATE = 1, LOBBY_BURST = 5;   // create / join / leave / list / start
 // Invites (protocol 18+): a player's public friend id is a hash of its browser's progress id (which stays secret: it's
@@ -117,6 +118,51 @@ const WELL_KNOWN = {
 };
 const PAGES = { '/privacy': '/privacy.html', '/terms': '/terms.html', '/support': '/support.html' };
 
+// Browser security headers on every response. The CSP (set on pages) allows the game's own files, the inline
+// importmap in index.html (by hash, computed from the html at start so an edit can't break it), Sign in with Google
+// (script, iframe, calls, styles; see developers.google.com/identity/gsi/web/guides/get-google-api-clientid), the
+// WebSocket, and canvas images (share cards). No frame-ancestors: game portals embed the page in an iframe.
+// CSP=off in the environment turns the policy off (if something new ever needs a source added).
+const CSP_ON = process.env.CSP !== 'off';
+const INLINE_SCRIPT_HASHES = (() => {
+  const out = new Set();
+  try {
+    for (const f of fs.readdirSync(ROOT)) {
+      if (!f.endsWith('.html')) continue;
+      const html = fs.readFileSync(path.join(ROOT, f), 'utf8');
+      for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
+        if (/\bsrc\s*=/.test(m[1])) continue;
+        out.add(`'sha256-${crypto.createHash('sha256').update(m[2]).digest('base64')}'`);
+      }
+    }
+  } catch (e) { console.error('inline script hashes:', e.message); }
+  return [...out];
+})();
+const CSP = [
+  "default-src 'self'",
+  `script-src 'self' ${INLINE_SCRIPT_HASHES.join(' ')} https://accounts.google.com/gsi/client`.replace(/\s+/g, ' '),
+  "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob:",
+  "font-src 'self' data:",
+  "connect-src 'self' ws: wss: https://accounts.google.com/gsi/",
+  "frame-src https://accounts.google.com/gsi/",
+  "worker-src 'self' blob:",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join('; ');
+function securityHeaders(req, res, html) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  // behind Caddy (TLS ends there): a year of HTTPS-only for the browser
+  if (req.headers['x-forwarded-proto'] === 'https' && isLoopback(req.socket.remoteAddress)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  if (html) {
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+    if (CSP_ON) res.setHeader('Content-Security-Policy', CSP);
+  }
+}
+
 const server = http.createServer((req, res) => {
   req.on('error', () => res.destroy());
   guardHttp(res, () => handleHttp(req, res))();
@@ -159,6 +205,7 @@ function notModified(req, st, etag) {
 function handleHttp(req, res) {
   let url;
   try { url = new URL(req.url, 'http://x'); } catch { res.writeHead(400).end(); return; }
+  securityHeaders(req, res, !path.extname(url.pathname) || url.pathname.endsWith('.html'));
   if (url.pathname === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }).end('ok'); return; }
   if (url.pathname.startsWith('/api/')) {
     const origin = req.headers.origin;
@@ -262,6 +309,13 @@ const feedbackHits = new Map(); // ip -> [timestamps]
 setInterval(() => { const now = Date.now(); for (const [ip, h] of feedbackHits) if (!h.some((t) => now - t < 3600e3)) feedbackHits.delete(ip); }, 600e3).unref();
 
 const isLoopback = (a) => a === '::1' || /^(::ffff:)?127\./.test(a || '');
+// Key for the per-address limits: an IPv6 host usually owns a whole /64, so count by that; IPv4 as is.
+function ipKey(ip) {
+  if (!ip.includes(':') || ip.startsWith('::ffff:')) return ip;
+  const head = ip.split('::')[0] ? ip.split('::')[0].split(':') : [];
+  while (head.length < 4) head.push('0');
+  return head.slice(0, 4).join(':') + '::/64';
+}
 function clientIp(req) {
   const ra = req.socket.remoteAddress || '?';
   // behind Caddy (same box, so loopback): the first X-Forwarded-For entry is the real client.
@@ -383,14 +437,17 @@ function makeCode() {
   }
 }
 
+// JSON fields are untrusted: String({ toString: null }) throws, so only real strings count (anything else is '').
+const str = (v) => (typeof v === 'string' ? v : '');
+
 function cleanName(n, fallback) {
-  const s = String(n || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 14);
+  const s = str(n).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 14);
   return s || fallback;
 }
 
 // private lobbies: a short password (case-sensitive), '' = public
 function cleanPass(p) {
-  return String(p ?? '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 20);
+  return str(p).replace(/[\u0000-\u001f]/g, '').trim().slice(0, 20);
 }
 
 function send(ws, msg) {
@@ -804,17 +861,17 @@ function take(client, key, rate, burst, now) {
 }
 
 wss.on('connection', (ws, req) => {
-  const ip = clientIp(req);
-  const now0 = Date.now(), cr = connRate.get(ip) || { tok: CONN_BURST, at: now0 };
+  const ip = clientIp(req), ipk = ipKey(ip);
+  const now0 = Date.now(), cr = connRate.get(ipk) || { tok: CONN_BURST, at: now0 };
   cr.tok = Math.min(CONN_BURST, cr.tok + (now0 - cr.at) / 1000 * CONN_RATE); cr.at = now0;
-  if (cr.tok < 1) { connRate.set(ip, cr); ws.close(1013, 'too many connections'); return; }
-  cr.tok -= 1; connRate.set(ip, cr);
-  const n = (connsPerIp.get(ip) || 0) + 1;
+  if (cr.tok < 1) { connRate.set(ipk, cr); ws.close(1013, 'too many connections'); return; }
+  cr.tok -= 1; connRate.set(ipk, cr);
+  const n = (connsPerIp.get(ipk) || 0) + 1;
   if (n > MAX_CONN_PER_IP) { ws.close(1013, 'too many connections'); return; }
-  connsPerIp.set(ip, n);
+  connsPerIp.set(ipk, n);
   stats.online(wss.clients.size);
   // v/app/ver/tok come from the client's 'hi' (sent before anything else); clients that never send one are old web tabs
-  const client = { id: nextClientId++, ws, room: null, name: '', app: 'web', ver: '', hi: false, v: 0, tok: '', ip, chatLog: [] };
+  const client = { id: nextClientId++, ws, room: null, name: '', app: 'web', ver: '', hi: false, v: 0, tok: '', ip, ipk, chatLog: [] };
   clients.set(client.id, client);
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
@@ -839,7 +896,7 @@ wss.on('connection', (ws, req) => {
         client.hi = true;
         client.v = v;
         client.app = APPS.includes(msg.app) ? msg.app : 'web';
-        client.ver = String(msg.ver ?? '').replace(/[^\w.+-]/g, '').slice(0, 16);
+        client.ver = str(msg.ver).replace(/[^\w.+-]/g, '').slice(0, 16);
         if (typeof msg.tok === 'string' && /^[\w-]{8,64}$/.test(msg.tok)) client.tok = msg.tok; // reconnect grace (net.js)
         client.paid = accounts.paidFor(msg.acct);   // signed-in account: its total shows next to the name
         client.acct = accounts.subFor(msg.acct);    // ...and its stats count this player's online games
@@ -886,11 +943,14 @@ wss.on('connection', (ws, req) => {
       case 'invite': handleInvite(client, msg); break;
       case 'create': {
         if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', msg: 'Server is full, try again later.' });
+        let mine = 0;
+        for (const r of rooms.values()) if (r.by === client.ipk) mine++;
+        if (mine >= MAX_ROOMS_PER_IP) return send(ws, { t: 'error', msg: 'You already have several lobbies open - join one of those, or try again in a bit.' });
         const mode = GAME_MODES.includes(msg.mode) ? msg.mode : 'mixed';
         if (!modeOk(client, mode)) return send(ws, { t: 'error', msg: `${MODE_NAMES[mode]} needs the latest version - ${updateHow(client)} to play it. The other modes work as usual.` });
         // max: how many kitties may join (2..NET.MAX_PLAYERS); pass: private lobby's password ('' = public)
         const maxReq = Number.isInteger(msg.max) ? msg.max : NET.MAX_PLAYERS;
-        const r = { code: makeCode(), mode, max: Math.max(2, Math.min(NET.MAX_PLAYERS, maxReq)), pass: cleanPass(msg.password),
+        const r = { code: makeCode(), mode, max: Math.max(2, Math.min(NET.MAX_PLAYERS, maxReq)), pass: cleanPass(msg.password), by: client.ipk,
           members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0, victory: null,
           left: new Map() }; // tab token -> state of a kitty that left this game (reconnect grace)
         stats.lobbyCreated();
@@ -899,7 +959,7 @@ wss.on('connection', (ws, req) => {
         break;
       }
       case 'join': {
-        const r = rooms.get(String(msg.code || '').toUpperCase().trim());
+        const r = rooms.get(str(msg.code).toUpperCase().trim());
         if (!r) return send(ws, { t: 'error', msg: 'No lobby with that code.' });
         if (r === room) return;
         joinRoom(client, r, msg.name, msg.color, msg.password);
@@ -944,7 +1004,7 @@ wss.on('connection', (ws, req) => {
         // token bucket: bursts of 5, refills one message per second
         const now = Date.now();
         if (!take(client, 'chat', 1, 5, now)) return send(ws, { t: 'chat', sys: true, text: 'Slow down a little!' });
-        const raw = String(msg.text || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120);
+        const raw = str(msg.text).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120);
         if (!raw) return;
         client.chatLog.push({ at: new Date(now).toISOString(), room: room.code, text: raw });
         if (client.chatLog.length > CHAT_HISTORY) client.chatLog.shift();
@@ -980,8 +1040,8 @@ wss.on('connection', (ws, req) => {
   }
 
   ws.on('close', () => {
-    const left = (connsPerIp.get(ip) || 1) - 1;
-    if (left > 0) connsPerIp.set(ip, left); else connsPerIp.delete(ip);
+    const left = (connsPerIp.get(ipk) || 1) - 1;
+    if (left > 0) connsPerIp.set(ipk, left); else connsPerIp.delete(ipk);
     leaveRoom(client);
     // a late report only needs these (not the socket and the rest)
     clients.set(client.id, { id: client.id, name: client.name, app: client.app, ver: client.ver, hi: client.hi, ip: client.ip, chatLog: client.chatLog, room: null, ws: CLOSED_WS });

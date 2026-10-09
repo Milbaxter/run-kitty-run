@@ -10,6 +10,7 @@ const CID = /^[a-z0-9]{8,32}$/;
 const EVENT_TYPES = ['visit', 'run_start', 'level', 'run_end', 'level_mismatch'];
 const EVENTS_PER_HOUR = 400;        // per IP (a long session sends maybe 50)
 const NEW_IDS_PER_HOUR = 20;        // per IP: new player ids (a family / school shares one; a script minting ids doesn't)
+const MAX_PLAYER_IDS = 200000;      // ids remembered (first day seen); past this the oldest days' ids are forgotten
 const SAVE_EVERY_MS = 5000;
 
 const day = (t = Date.now()) => new Date(t).toISOString().slice(0, 10);
@@ -34,6 +35,18 @@ function createStats(file) {
     s = { ...s, ...old, totals: { ...s.totals, ...old.totals } };
   } catch { /* first run, or unreadable: start fresh */ }
   let todaySeen = new Set(s.today.day === day() ? s.today.seen : []);
+  let playerIds = Object.keys(s.players).length;
+  if (!Number.isFinite(s.totals.players) || s.totals.players < playerIds) s.totals.players = playerIds;   // all-time, survives forgetting
+  // Keep the id map bounded (a script can mint 20 ids an hour per address forever): drop whole oldest days.
+  function pruneIds() {
+    if (playerIds <= MAX_PLAYER_IDS) return;
+    const byDay = new Map();
+    for (const [cid, d] of Object.entries(s.players)) { if (!byDay.has(d)) byDay.set(d, []); byDay.get(d).push(cid); }
+    for (const d of [...byDay.keys()].sort()) {
+      if (playerIds <= MAX_PLAYER_IDS * 0.9) break;
+      for (const cid of byDay.get(d)) { delete s.players[cid]; playerIds--; }
+    }
+  }
   let dirty = false;
   const hits = new Map(); // ip -> [timestamps]
   const newIds = new Map(); // ip -> [timestamps of new cids]
@@ -62,6 +75,8 @@ function createStats(file) {
     const D = today();
     if (!s.players[cid]) {
       s.players[cid] = s.today.day;
+      playerIds++; s.totals.players++;
+      if (playerIds > MAX_PLAYER_IDS) pruneIds();
       D.newPlayers++;
       if (DEVICES.includes(device)) s.devices[device]++;
     }
@@ -131,7 +146,7 @@ function createStats(file) {
     today();
     const days = Object.keys(s.days).sort().map((d) => ({ day: d, ...s.days[d] }));
     return {
-      since: s.since, players: Object.keys(s.players).length, playersToday: todaySeen.size,
+      since: s.since, players: s.totals.players, playersToday: todaySeen.size,
       onlineNow, peakOnline: s.peakOnline, totals: { ...s.totals, bestLevel: undefined },   // (best level: a spoiler, there's a level 9)
       kinds: s.kinds, modes: s.modes, devices: s.devices,
       onlineWinsByMode: s.onlineWinsByMode,

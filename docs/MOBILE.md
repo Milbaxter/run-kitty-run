@@ -125,6 +125,8 @@ This is the *upload* key; Google re-signs releases with its own **app signing ke
    gh secret set APPLE_TEAM_ID --body <TEAMID>
    ```
 
+For a team without registered test devices, automatic development signing cannot archive the app. Configure `IOS_DISTRIBUTION_P12_BASE64`, `IOS_DISTRIBUTION_PASSWORD`, and `IOS_APPSTORE_PROFILE_BASE64` as encrypted Actions secrets instead. These hold a distribution certificate/private key, its password, and the App Store profile for `io.runkittyrun.app`. The iOS lane imports them into a temporary keychain, signs only the App target with that profile, and removes the temporary keychain and decoded assets afterward. Renew the certificate/profile before expiry. Keep all private keys out of the repository.
+
 **Server env for deep links** (after the first Play upload / once you have a Team ID). On the server:
 
 ```bash
@@ -195,7 +197,7 @@ Only `public/`-only changes? The website updates on deploy as usual; the apps ke
 - **4.2 Minimum functionality** (web wrappers get rejected): the game is bundled, starts offline, and uses native haptics, share sheet, keep-awake and deep links. Don't describe it as "the website in an app".
 - **1.2 User-generated content**: needs filter + report + block + terms + a way to contact you — all present (chat menu, `terms.html`, `support.html`). Actually read the reports (`scripts/reports.sh`) and act within 24 h.
 - **Export compliance**: `ITSAppUsesNonExemptEncryption = false` is in `Info.plist` (only HTTPS/WSS), so no questions per build.
-- **Privacy manifest**: `ios/App/App/PrivacyInfo.xcprivacy` is bundled; privacy label = data not collected / not linked (see `store/answers.md`). Feedback/reports store the player name + text only.
+- **Privacy manifest**: `ios/App/App/PrivacyInfo.xcprivacy` is bundled; privacy declarations include persistent User IDs, play statistics, gameplay content, feedback/reports, retained chat excerpts and diagnostic data (see `store/answers.md`). Treat data stored with a screen name or persistent ID as linked to the user.
 - **iPad**: the app is universal, so iPad screenshots are mandatory and reviewers test on iPad.
 - **Xcode version**: Apple only accepts builds from the current Xcode/SDK; CI uses `latest-stable` on the newest macOS runner. If uploads get rejected for SDK version, bump `runs-on` in `mobile.yml`.
 - **Google**: target the latest API level (`targetSdkVersion` in `android/variables.gradle`, 36 now) — Play enforces this each August. Data safety form must match `store/answers.md`.

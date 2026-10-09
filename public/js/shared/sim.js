@@ -205,7 +205,8 @@ function movePlayer(sim, p, inp, dt) {
       iced = true;
       let sp = Math.sqrt(p.vx * p.vx + p.vz * p.vz);
       let ang = sp > 0.05 ? Math.atan2(p.vz, p.vx) : p.heading;
-      if (steering) {
+      if (steering && p.freeTurn && sp <= 0.05) ang = Math.atan2(inp.z, inp.x);   // just revived, standing: any way at once
+      else if (steering) {
         let d = Math.atan2(inp.z, inp.x) - ang;
         while (d > Math.PI) d -= 2 * Math.PI;
         while (d <= -Math.PI) d += 2 * Math.PI;
@@ -219,6 +220,7 @@ function movePlayer(sim, p, inp, dt) {
       p.vx += (tx - p.vx) * k;
       p.vz += (tz - p.vz) * k;
     }
+    if (steering) p.freeTurn = false;   // (the first steer after a revive used it, on ice or not)
     const nx = p.x + p.vx * h;
     const nz = p.z + p.vz * h;
     const c = collideCircle(ld, nx, nz, CFG.KITTY_RADIUS);
@@ -414,7 +416,8 @@ function stepSim(sim, inputs, dt) {
       dead.vz = 0;
       dead.moving = false;
       dead.inCenter = false;
-      dead.invuln = 0; // no grace period after a friend's revive
+      dead.invuln = CFG.REVIVE_INVULN;   // a short grace period (it can't go down again, and be revived, at once)
+      dead.freeTurn = true;   // on ice: its first steer picks the way it skates off (not the way it faced going down)
       rescuer.rescues++;
       if ((sim.levelData.level || sim.level) === CFG.REVIVE_DOUBLE_LEVEL) rescuer.bonus = (rescuer.bonus || 0) + 1;   // (scores double, REVIVE_DOUBLE_LEVEL)
       sim.stats.rescues++;

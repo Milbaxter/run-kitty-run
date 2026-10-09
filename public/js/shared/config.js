@@ -27,6 +27,7 @@ const CFG = {
 
   // Revive
   REVIVE_DELAY: 0.5,         // seconds after going down before a friend can revive you
+  REVIVE_INVULN: 0.67,       // seconds safe after a friend's revive (with REVIVE_DELAY: no new revive within ~1.2 s of one)
   REVIVE_RADIUS: 1.1,        // circle radius; living kitty center within REVIVE_RADIUS + KITTY_RADIUS revives
 
   // Maze geometry

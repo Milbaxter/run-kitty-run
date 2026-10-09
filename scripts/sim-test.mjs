@@ -222,6 +222,30 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     for (; t < 120 && revivedAt < 0; t++) { p1.invuln = 99; if (stepSim(s, {}, CFG.TICK).some((e) => e.type === 'revive')) revivedAt = t; }
     const secs = (revivedAt + 1) * CFG.TICK;
     ok(revivedAt >= 0 && secs >= CFG.REVIVE_DELAY - 1e-9 && secs < CFG.REVIVE_DELAY + 0.05, `revive only after the ${CFG.REVIVE_DELAY}s cooldown (${secs.toFixed(2)}s)`);
+    ok(p2.alive && Math.abs(p2.invuln - CFG.REVIVE_INVULN) < 0.02 && p2.freeTurn, `a revived kitty is safe for ${CFG.REVIVE_INVULN}s`);
+  }
+
+  // just revived on ice: the first steer picks the way it skates off (it faced the other way going down)
+  {
+    let found = null;
+    for (let seed = 1; seed < 40 && !found; seed++) {
+      const s = createSim({ seed, players: [{ id: 1, name: 'a' }], mode: 'ice' });
+      stepSim(s, {}, CFG.TICK);
+      const p = s.players[0], ld = s.levelData;
+      for (let a = 0; a < 64 && !found; a++) {
+        const r = (ld.centerRadius || 4) + 6 + (a % 8), th = a * 0.7;
+        const x = Math.cos(th) * r, z = Math.sin(th) * r;
+        if (onIce(ld, x, z) && !collideCircle(ld, x, z, 1.2).hit) found = { s, p, x, z };
+      }
+    }
+    const { s, p, x, z } = found;
+    const skate = (free) => {
+      Object.assign(p, { x, z, vx: 0, vz: 0, heading: 0, alive: true, waitRelease: false, freeTurn: free, invuln: 9 });
+      stepSim(s, { 1: { x: -1, z: 0 } }, CFG.TICK);   // steer the opposite way to its heading
+      return Math.cos(p.heading);
+    };
+    const freeWay = skate(true), oldWay = skate(false);
+    ok(freeWay < -0.99 && oldWay > 0.9 && !p.freeTurn, 'revived on ice: the first steer sets the skating direction at once (otherwise it turns from the old heading)');
   }
 
   // Run + Skate level 9: the broken checkpoint (the run half's start room) only works for a kitty with 60+ revives,

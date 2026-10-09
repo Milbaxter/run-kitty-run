@@ -13,13 +13,16 @@ const ACTIONS = [
 // keys that keep their fixed job (arrows move, Esc pauses and cancels, Enter chats and confirms, Tab switches the watched kitty)
 const RESERVED = new Set(['Escape', 'Enter', 'NumpadEnter', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'MetaLeft', 'MetaRight']);
 const GFX = [['auto', 'AUTO'], ['high', 'HIGH'], ['medium', 'MEDIUM'], ['low', 'LOW'], ['ultra', 'ULTRA LOW']];
+// the frame rate limit (main.js frame()): 0 = none (the screen's own refresh)
+const FPS = [[0, 'MAX'], [240, '240'], [144, '144'], [120, '120'], [60, '60'], [30, '30']];
 
-const S = { music: 1, sfx: 1, gfx: 'auto', keys: { ...DEFAULT_KEYS } };
+const S = { music: 1, sfx: 1, gfx: 'auto', fps: 0, keys: { ...DEFAULT_KEYS } };
 try {
   const v = JSON.parse(localStorage.getItem(KEY) || '{}');
   const pct = (x, d) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : d);
   S.music = pct(v.music, 1); S.sfx = pct(v.sfx, 1);
   if (GFX.some(([id]) => id === v.gfx)) S.gfx = v.gfx;
+  if (FPS.some(([n]) => n === v.fps)) S.fps = v.fps;
   for (const [a] of ACTIONS) if (typeof (v.keys || {})[a] === 'string' && !RESERVED.has(v.keys[a])) S.keys[a] = v.keys[a];
 } catch { /* defaults */ }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* ignore */ } }
@@ -161,7 +164,19 @@ function openSettings(root, opts = {}) {
     gseg.appendChild(b);
   }
   paintGfx(false);
-  gfx.append(gseg, note);
+  // the frame rate limit: switched on the spot
+  const fseg = el('div', 'rkst-seg');
+  const paintFps = () => { for (const b of fseg.children) b.classList.toggle('rkst-on', +b.dataset.n === S.fps); };
+  for (const [n, label] of FPS) {
+    const b = el('button', null, label); b.dataset.n = String(n); b.type = 'button';
+    b.addEventListener('click', () => { S.fps = n; save(); paintFps(); });
+    fseg.appendChild(b);
+  }
+  paintFps();
+  const fstack = el('div', 'rkst-stack');
+  fstack.append(el('span', null, 'Frame rate limit'), fseg,
+    el('div', 'rkst-note', 'MAX draws every refresh of your screen. A limit saves graphics work and heat; the game plays the same.'));
+  gfx.append(gseg, note, fstack);
   left.appendChild(gfx);
 
   // ---- invites (Multiplayer): who may invite you, and unblocking the players you blocked
@@ -271,4 +286,5 @@ window.addEventListener('keydown', (e) => {
 const musicVolume = () => S.music;
 const sfxVolume = () => S.sfx;
 
-export { openSettings, closeSettings, isOpen as settingsOpen, key, keyName, musicVolume, sfxVolume, KEY as SETTINGS_KEY };
+const fpsLimit = () => S.fps;
+export { openSettings, closeSettings, isOpen as settingsOpen, key, keyName, musicVolume, sfxVolume, fpsLimit, KEY as SETTINGS_KEY };

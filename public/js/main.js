@@ -26,7 +26,7 @@ import { createAccount } from './account.js';
 import { createLegends } from './legends.js';
 import { analytics, openStatsPage } from './analytics.js';
 import { TOUCH, QUALITY, setQuality, goFullscreenLandscape, setKeepAwake, hideSplash } from './device.js';
-import { openSettings, settingsOpen, key, musicVolume, sfxVolume } from './settings.js';
+import { openSettings, settingsOpen, key, musicVolume, sfxVolume, fpsLimit } from './settings.js';
 import { NATIVE, haptic, plugin, call, storeUrl, openExternal, APP_VERSION } from './platform.js';
 
 // Integration: renderer, input, camera, presentation of the pure sim.
@@ -2254,20 +2254,22 @@ function applySnapshot(m) {
 let last = performance.now();
 let minimapT = 0;
 
-// Frame pacing: on 120 Hz+ screens only every 2nd (3rd, 4th) refresh is drawn, so about 60 fps. The game steps at a
-// fixed 60 Hz either way (offline and online), so this only saves GPU work and heat. An evenly spaced skip, no judder.
-let vsyncPrev = last, vsyncMs = 1000 / 60, every = 1, skipped = 0;
+// Frame pacing: the player's frame rate limit (Settings; MAX by default: every refresh of the screen). The game steps
+// at a fixed 60 Hz either way (offline and online), so a limit only saves GPU work and heat. A frame is drawn once its
+// time has come (to half a refresh), so the average holds the limit and a limit the screen divides is evenly spaced.
+let vsyncPrev = last, vsyncMs = 1000 / 60, nextDraw = 0;
 
 function frame(now) {
   requestAnimationFrame(frame);
   const iv = now - vsyncPrev;
   vsyncPrev = now;
-  if (iv > 3 && iv < 40) {
-    vsyncMs += (iv - vsyncMs) * (iv < vsyncMs ? 0.1 : 0.02);   // leans to the short intervals (the real refresh)
-    every = Math.max(1, Math.round(1000 / 60 / vsyncMs - 0.25));   // 120 Hz: 2, 144: 2, 90: 1, 240: 4
+  if (iv > 3 && iv < 40) vsyncMs += (iv - vsyncMs) * (iv < vsyncMs ? 0.1 : 0.02);   // leans to the short intervals (the real refresh)
+  const cap = fpsLimit();
+  if (cap) {
+    const step = 1000 / cap;
+    if (now < nextDraw - vsyncMs / 2) return;
+    nextDraw = now - nextDraw > step ? now + step : nextDraw + step;   // (fell behind: start over from now)
   }
-  if (++skipped < every) return;
-  skipped = 0;
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.1) dt = 0.1;

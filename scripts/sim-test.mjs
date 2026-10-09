@@ -709,6 +709,15 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
       && isUnlocked({ rev: { ice: 3000 } }, 'medic', 'run'),
     "medic badge: 3000 revives over all modes (an account's earlier revives count once), worn in every mode");
     ok(medicLook(new Set(['medic', 'shades'])) === 'base' && medicLook(new Set(['shades'])) === '', 'the card shows the medic badge when it is switched on');
+    // the offline track (Solo / Local): reported by the browser, kept on the account, never worn online (only offline,
+    // account.js), but its items can be switched
+    const soloRep = await request(accounts, 'progress', [Buffer.from(JSON.stringify({ mode: 'ice', solo: { l9: 1, rev: 3, nope: 5 } }))]);
+    const soloU = soloRep.account && soloRep.account.unlocks;
+    const lionOff = await request(accounts, 'equip', [Buffer.from(JSON.stringify({ item: 'lion', on: false }))]);
+    ok(soloU && soloU.solo.l9.ice === 1 && soloU.solo.rev.ice === 3 && !soloU.l9.ice && !accounts.cosFor(token, 'ice').includes('lion')
+      && isUnlocked(soloU.solo, 'lion', 'ice') && lionOff.ok && lionOff.account.unlocks.off.lion === true,
+    'Solo / Local unlocks are kept apart: counted on the account, worn offline only (never sent online), switchable');
+    await request(accounts, 'equip', [Buffer.from(JSON.stringify({ item: 'lion', on: true }))]);
     const unconfirmed = await request(accounts, 'delete');
     const lowercase = await request(accounts, 'delete', [Buffer.from(JSON.stringify({ confirm: 'delete' }))]);
     ok(!unconfirmed.ok && !lowercase.ok && accounts.paidFor(token) > 0, 'an account is only deleted with DELETE typed (capitals)');

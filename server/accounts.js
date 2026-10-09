@@ -344,6 +344,9 @@ function createAccounts(file, env = process.env) {
     for (const f of FEAT_IDS) { u[f] ||= {}; for (const m of UNLOCK_MODES) u[f][m] = Number(u[f][m]) || 0; }
     // the medic badge counts revives from its start; a swag account brings the ones its stats counted before (once)
     if (u.rev.past == null) u.rev.past = Number(a.stats && a.stats.online && a.stats.online.revives) || 0;
+    // the offline track (Solo and Local, one track): reported by the browser, so worn offline only (account.js)
+    u.solo ||= {};
+    for (const f of FEAT_IDS) { u.solo[f] ||= {}; for (const m of UNLOCK_MODES) u.solo[f][m] = Number(u.solo[f][m]) || 0; }
     u.off ||= {};
     return u;
   }
@@ -550,7 +553,7 @@ function createAccounts(file, env = process.env) {
       if (!item || typeof m.on !== 'boolean') return { ok: false };
       const u = unlocksOf(a);
       if (!active(a)) return { ok: false, msg: 'Activate your swag account first.' };
-      if (!isUnlocked(u, item)) return { ok: false, msg: 'Not unlocked yet.' };
+      if (!isUnlocked(u, item) && !isUnlocked(u.solo, item)) return { ok: false, msg: 'Not unlocked yet.' };   // (online or offline)
       const previous = !!u.off[item.id];
       if (m.on) delete u.off[item.id]; else u.off[item.id] = true;
       try { saveNow(); } catch (e) { if (previous) u.off[item.id] = true; else delete u.off[item.id]; throw e; }
@@ -577,6 +580,13 @@ function createAccounts(file, env = process.env) {
       const count = (v, max) => (Number.isInteger(v) && v > 0 ? Math.min(v, max) : 0);
       record(a, 'local', { type: 'crown' }, count(m.crowns, 3));
       record(a, 'local', { type: 'revive' }, count(m.revives, 100));
+      // offline unlock progress ({ feat: count } in this mode): only ever worn offline, so a faked one shows only to its
+      // own player. (Capped per report; bigger when a browser's own track moves onto the account.)
+      if (m.solo && typeof m.solo === 'object' && active(a)) {
+        const u = unlocksOf(a);
+        for (const f of FEAT_IDS) { const n = count(m.solo[f], f === 'rev' ? 5000 : 50); if (n) u.solo[f][mode] += n; }
+        statsChanged();
+      }
       return { ok: true, account: pub(a) };
     }
     if (name === 'logout') {

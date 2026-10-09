@@ -3,6 +3,14 @@
 // The session token lives in localStorage; main.js passes it to the game server ('hi' / 'acct').
 import { accountApiUrl, NATIVE } from './platform.js';
 import { UNLOCKS, UNLOCK_MODES, isUnlocked, featTotal } from './shared/unlocks.js';
+import { SKATE_FINAL_LEVEL, stageStep } from './shared/config.js';
+
+// The offline track (Solo and Local, one track): unlocks earned there are worn in Solo and Local games only, so a faked
+// one is only ever seen by its own player. Kept on an active swag account (server 'progress'), else in this browser
+// (and moved onto the account once one is active).
+const SOLO_KEY = 'rkr-solo', SOLO_OFF_KEY = 'rkr-solo-off';
+const readJson = (k) => { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v && typeof v === 'object' ? v : {}; } catch { return {}; } };
+const writeJson = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } };
 import { progressId } from './net.js';
 
 const CSS = `
@@ -56,6 +64,10 @@ const CSS = `
 .rka-uname{flex:1;font-weight:900;font-size:15px;}
 .rka-urow.rka-locked .rka-uname{opacity:.55;}
 .rka-uprog{font-size:12px;font-weight:800;opacity:.75;white-space:nowrap;}
+.rka-urow:has(.rka-ulines){flex-wrap:wrap;}
+.rka-ulines{display:flex;flex-direction:column;gap:2px;order:3;width:100%;text-align:left;}   /* (under the name and its switch) */
+.rka-urow:has(.rka-ulines) .rka-utog{margin-left:auto;}
+.rka-uprog i{font-style:normal;opacity:.75;}
 .rka-uprog b{color:#9dff7a;}
 .rka-amt.rka-utog{font-size:13px;padding:5px 12px;min-width:58px;}
 .rka-tot{display:flex;gap:18px;justify-content:center;font-weight:900;color:#ffd56b;}
@@ -133,8 +145,71 @@ function createAccount(root) {
 
   const A = { enabled: false, token: NATIVE ? '' : readToken(), account: null, cfg: null };
   let modal = null, changeFn = null;
-  let eqFor, eqGuest, eqMode, eqSet = new Set();   // equipped(): made once per account / guest progress object and mode
-  const changed = () => { if (changeFn) changeFn(); };
+  let eqFor, eqGuest, eqMode, eqSolo, eqSet = new Set();   // equipped(): made once per account / guest progress, mode, offline track
+  const changed = () => { mergeSolo(); if (changeFn) changeFn(); };
+  // ---- the offline track ----
+  const activeAcct = () => !!(A.account && Number(A.account.paid) > 0);
+  let soloVer = 0, soloPending = null, soloT = null;
+  // this player's offline progress: the account's, or this browser's
+  const soloProg = () => (activeAcct() ? (A.account.unlocks && A.account.unlocks.solo) || {} : readJson(SOLO_KEY));
+  // an offline feat done ('l8' | 'l9' | 'win' | 'rev') in a mode
+  function soloFeat(feat, mode, n = 1) {
+    if (!UNLOCK_MODES.includes(mode)) return;
+    soloVer++;
+    if (!activeAcct()) {
+      const v = readJson(SOLO_KEY);
+      (v[feat] ||= {})[mode] = (Number(v[feat][mode]) || 0) + n;
+      writeJson(SOLO_KEY, v);
+      changed();
+      return;
+    }
+    const s = A.account.unlocks && (A.account.unlocks.solo ||= {});   // (counted here at once, sent in a moment)
+    if (s) { (s[feat] ||= {})[mode] = (Number(s[feat][mode]) || 0) + n; }
+    soloPending ||= {};
+    ((soloPending[mode] ||= {})[feat]) = (soloPending[mode][feat] || 0) + n;
+    if (!soloT) soloT = setTimeout(sendSolo, 3000);
+    changed();
+  }
+  function sendSolo() {
+    clearTimeout(soloT); soloT = null;
+    const p = soloPending; soloPending = null;
+    if (!p || !activeAcct()) return;
+    for (const [mode, solo] of Object.entries(p)) api('progress', { mode, solo }).then((j) => { if (j.account) { A.account = j.account; soloVer++; } }).catch(() => { /* best effort */ });
+  }
+  // a browser's own offline track moves onto the account once one is active (its switches too)
+  let merging = false;
+  function mergeSolo() {
+    if (merging || !activeAcct()) return;
+    const v = readJson(SOLO_KEY);
+    const modes = {};
+    for (const [f, per] of Object.entries(v)) for (const [m, n] of Object.entries(per || {})) if (UNLOCK_MODES.includes(m) && n > 0) (modes[m] ||= {})[f] = n;
+    if (!Object.keys(modes).length) return;
+    merging = true;
+    writeJson(SOLO_KEY, {});
+    Promise.all(Object.entries(modes).map(([mode, solo]) => api('progress', { mode, solo })))
+      .then((js) => { const j = js[js.length - 1]; if (j && j.account) { A.account = j.account; soloVer++; } })
+      .catch(() => { writeJson(SOLO_KEY, v); })   // (try again next time)
+      .finally(() => { merging = false; if (changeFn) changeFn(); });
+  }
+  // offline: the feats seen in a Solo or Local run (either player), like the server's online ones: level 8 cleared and
+  // level 9 won having reached the goal yourself on every level, the final run won (the song), revives (the medic badge)
+  let soloRun = null;   // { sim, goals: Map(player id -> steps whose goal it reached) }
+  function noteSolo(sim, events) {
+    if (!soloRun || soloRun.sim !== sim) soloRun = { sim, goals: new Map() };
+    const goals = (id) => { let g = soloRun.goals.get(id); if (!g) soloRun.goals.set(id, g = new Set()); return g; };
+    for (const e of events) {
+      if (e.type === 'enterCenter') goals(e.playerId).add(e.level ?? sim.level);
+      else if (e.type === 'levelStart' && ((sim.levelData && sim.levelData.level) || sim.level) === SKATE_FINAL_LEVEL) {
+        if (sim.players.some((p) => goals(p.id).size >= stageStep(sim.mode, sim.finales, 8, true))) soloFeat('l8', sim.mode);
+      } else if (e.type === 'victory') {
+        const party = Array.isArray(e.party) ? e.party : [];
+        if (sim.players.some((p) => !party.includes(p.id) && goals(p.id).size >= stageStep(sim.mode, sim.finales, SKATE_FINAL_LEVEL))) soloFeat('l9', sim.mode);
+        soloFeat('win', sim.mode);
+      } else if (e.type === 'revive') soloFeat('rev', sim.mode);
+    }
+  }
+  // the offline switches of a player without an account (items unlocked offline only: the server has no record of them)
+  const soloOff = () => (activeAcct() ? {} : readJson(SOLO_OFF_KEY));
 
   async function api(name, body) {
     const r = await fetch(accountApiUrl('/api/account/' + name), {
@@ -243,25 +318,25 @@ function createAccount(root) {
     const a = A.account;
     const section = (title) => { const s = el('div', 'rka-sec'); s.appendChild(el('div', 'rka-sech', title)); return s; };
     // the unlocks with their progress per mode and on / off switches: an account's, or this browser's (no account)
-    const unlocksBox = (title, prog, toggle, note) => {
+    const unlocksBox = (title, prog, toggle, note, solo = {}, offOf = (id) => !!(prog.off && prog.off[id])) => {
       const box_ = section(title);
       const ulist = el('div', 'rka-unl');
       const SHORT = { run: 'Run', ice: 'Skate', mixed: 'Run + Skate' };
       const GOALS = { l8: 'Clear level 8 having reached the goal yourself on every level (both halves in Run + Skate). Each mode unlocks it for that mode:',
         l9: 'Beat level 9 having reached the goal yourself on every level, the final one too. Each mode unlocks it for that mode:',
         win: 'Clear the final level to unlock a new song (any mode):',
-        rev: 'Revive kitties in Multiplayer games (all modes together):' };
+        rev: 'Revive kitties (all modes together):' };
       let lastFeat = '';
       // no spoilers: level 9's unlocks only once this player has seen level 9 (this browser, the account's stats, or progress)
       let seen9 = false;
       try { seen9 = localStorage.getItem('rkr-seen9') === '1'; } catch { /* ignore */ }
       const st = A.account && A.account.stats;
       seen9 ||= ['online', 'local'].some((k) => st && st[k] && Object.values(st[k].reached || {}).some((v) => v >= 9));
-      seen9 ||= Object.values((prog && prog.l9) || {}).some((v) => v > 0);
+      seen9 ||= Object.values((prog && prog.l9) || {}).some((v) => v > 0) || Object.values(solo.l9 || {}).some((v) => v > 0);
       for (const u of UNLOCKS) {
         if (u.feat === 'l9' && !seen9) continue;
         if (u.feat !== lastFeat) { lastFeat = u.feat; ulist.appendChild(el('div', 'rka-ugoal', GOALS[u.feat])); }
-        const open_ = isUnlocked(prog, u);   // (in some mode: its switch shows; each mode's own tick below)
+        const onl = isUnlocked(prog, u), off_ = isUnlocked(solo, u), open_ = onl || off_;   // (in some mode, online or offline: its switch shows)
         const row = el('div', 'rka-urow' + (open_ ? '' : ' rka-locked'));
         row.appendChild(el('span', 'rka-uname', (open_ ? '' : '🔒 ') + (u.song && !open_ ? 'New song' : u.name) + (u.all ? ' (all 3 modes)' : '')));   // (u.all: needs every mode, then worn in all)
         if (u.song) {
@@ -270,16 +345,23 @@ function createAccount(root) {
         } else {
           // each mode on its own: a tick where it's unlocked (and worn), the count toward it elsewhere (a total item:
           // one count over all modes)
-          const p = el('span', 'rka-uprog');
-          if (u.total) p.appendChild(el(open_ ? 'b' : 'span', null, open_ ? '✓' : `${Math.min(u.times, featTotal(prog, u.feat))}/${u.times}`));
-          else (u.modes || UNLOCK_MODES).forEach((m, i) => {   // (only the modes it can be earned in)
-            const n = Math.min(u.times, ((prog[u.feat] || {})[m]) || 0);
-            if (i) p.append(' · ');
-            p.appendChild(el(n >= u.times ? 'b' : 'span', null, n >= u.times ? `${SHORT[m]} ✓` : `${SHORT[m]} ${n}/${u.times}`));
-          });
-          row.appendChild(p);
+          // two lines: Multiplayer (worn everywhere) and Solo / Local (worn offline only)
+          const ticks = (pr, label, done) => {
+            const p = el('span', 'rka-uprog');
+            p.appendChild(el('i', null, label));
+            if (u.total) p.appendChild(el(done ? 'b' : 'span', null, done ? '✓' : `${Math.min(u.times, featTotal(pr, u.feat))}/${u.times}`));
+            else (u.modes || UNLOCK_MODES).forEach((m, i) => {   // (only the modes it can be earned in)
+              const n = Math.min(u.times, ((pr[u.feat] || {})[m]) || 0);
+              if (i) p.append(' · ');
+              p.appendChild(el(n >= u.times ? 'b' : 'span', null, n >= u.times ? `${SHORT[m]} ✓` : `${SHORT[m]} ${n}/${u.times}`));
+            });
+            return p;
+          };
+          const lines = el('div', 'rka-ulines');
+          lines.append(ticks(prog, 'Multiplayer: ', onl), ticks(solo, 'Solo / Local: ', off_));
+          row.appendChild(lines);
           if (open_) {   // one switch for every mode it's unlocked in
-            const on = !(prog.off && prog.off[u.id]);
+            const on = !offOf(u.id);
             const t = el('button', 'rka-amt rka-utog' + (on ? ' rka-on' : ''), on ? 'ON' : 'OFF');
             t.addEventListener('click', async () => {
               t.disabled = true;
@@ -296,8 +378,14 @@ function createAccount(root) {
     };
     // this browser's own progress (no active account), kept by the server under its progress id
     const guestBox = () => unlocksBox('YOUR UNLOCKS (THIS BROWSER)', A.guest || {},
-      async (id, on) => { A.guest = (await guestApi('guestequip', { pid: progressId(), item: id, on })).unlocks; },
-      'Earned in Multiplayer games and saved on this browser only: clearing its data, another device or two months without playing Multiplayer loses them. Activate a swag account to keep them safe.');
+      async (id, on) => {
+        if (A.guest && isUnlocked(A.guest, id)) A.guest = (await guestApi('guestequip', { pid: progressId(), item: id, on })).unlocks;
+        const o = readJson(SOLO_OFF_KEY);
+        if (on) delete o[id]; else o[id] = true;
+        writeJson(SOLO_OFF_KEY, o); soloVer++;
+      },
+      'Multiplayer unlocks show for everyone; Solo / Local ones only in your own Solo and Local games. Saved on this browser only: clearing its data or another device loses them (and Multiplayer ones after two months without playing it). Activate a swag account to keep them safe.',
+      soloProg(), (id) => !!((A.guest && A.guest.off && A.guest.off[id]) || readJson(SOLO_OFF_KEY)[id]));
     const sayOpts = () => { if (opts.msg || opts.err) say(opts.err || opts.msg, opts.err ? 'err' : opts.thanks || opts.ok ? 'ok' : ''); };
 
     if (!A.token || !a) {
@@ -385,7 +473,8 @@ function createAccount(root) {
       }
       // Unlocks (shared/unlocks.js): earned online, kept forever, each switched on or off here
       const unl = unlocksBox('UNLOCKS', a.unlocks || {}, async (id, on) => { A.account = (await api('equip', { item: id, on })).account; },
-        'Earned in Multiplayer games. Switched on, they show on your kitty in every game, for everyone.');
+        'Multiplayer unlocks show on your kitty in every game, for everyone; Solo / Local ones only in your own Solo and Local games.',
+        (a.unlocks && a.unlocks.solo) || {});
       // Stats & progress: online (counted by the game server) or solo / local (reported by this browser), a tab each
       const stats = section('STATS & PROGRESS');
       const tabs = el('div', 'rka-tabs');
@@ -509,6 +598,7 @@ function createAccount(root) {
     api('progress', p).then((j) => { if (j.account) A.account = j.account; }).catch(() => { /* best effort */ });
   }
   function noteLocal(sim, events) {
+    noteSolo(sim, events);   // (the offline unlock track: everyone, with an account or not)
     if (!A.enabled || !A.token || !A.account || !(Number(A.account.paid) > 0)) return;
     const me = sim.players[0];
     for (const e of events) {
@@ -550,14 +640,15 @@ function createAccount(root) {
     },
     has(id) {
       const u = (A.account && Number(A.account.paid) > 0 && A.account.unlocks) || A.guest;
-      return !!u && isUnlocked(u, id);
+      return (!!u && isUnlocked(u, id)) || isUnlocked(soloProg(), id);   // (online or offline: the song is your own)
     },
-    // the unlocks worn in this mode (each mode earns its own), switched on
+    // the unlocks worn offline (Solo / Local) in this mode: earned online or offline (each mode its own), switched on
     equipped(mode) {
-      if (eqFor !== A.account || eqGuest !== A.guest || eqMode !== mode) {
-        eqFor = A.account; eqGuest = A.guest; eqMode = mode;
-        const u = (A.account && Number(A.account.paid) > 0 && A.account.unlocks) || A.guest;
-        eqSet = new Set(u ? UNLOCKS.filter((x) => !x.song && isUnlocked(u, x, mode) && !(u.off && u.off[x.id])).map((x) => x.id) : []);
+      if (eqFor !== A.account || eqGuest !== A.guest || eqMode !== mode || eqSolo !== soloVer) {
+        eqFor = A.account; eqGuest = A.guest; eqMode = mode; eqSolo = soloVer;
+        const u = (A.account && Number(A.account.paid) > 0 && A.account.unlocks) || A.guest || {};
+        const solo = soloProg(), off = { ...(u.off || {}), ...soloOff() };
+        eqSet = new Set(UNLOCKS.filter((x) => !x.song && (isUnlocked(u, x, mode) || isUnlocked(solo, x, mode)) && !off[x.id]).map((x) => x.id));
       }
       return eqSet;
     },

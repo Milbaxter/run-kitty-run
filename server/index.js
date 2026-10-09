@@ -224,6 +224,8 @@ function handleHttp(req, res) {
     }
     if (url.pathname === '/api/feedback') { handleFeedback(req, res); return; }
     if (url.pathname === '/api/stripe/webhook' && req.method === 'POST') { accounts.webhook(req, res); return; }
+    // App Store Server Notifications V2 (iOS in-app purchase refunds), signed by Apple: accounts.js / appstore.js
+    if (url.pathname === '/api/apple/notifications' && req.method === 'POST') { accounts.appleNotification(req, res); return; }
     if (url.pathname.startsWith('/api/account/')) {
       const ip = clientIp(req), now = Date.now(), h = accountHits.get(ip) || { tok: 20, at: now };
       h.tok = Math.min(20, h.tok + (now - h.at) / 1000 * 0.5); h.at = now; accountHits.set(ip, h);   // 20 burst, 1 per 2s

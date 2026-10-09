@@ -1434,7 +1434,7 @@ function createUI(root) {
     acctBtn.querySelector('.rkr-swagt').textContent = 'SWAG ACCOUNT';
     // signed in: the button opens the account menu (the "shown online" switch, adding more, signing out)
     acctBtn.querySelector('small').textContent = paid ? `${fmtNum(paid)}${acctState.hidden ? ' hidden' : ''} · manage account`
-      : acctState.signedIn ? 'manage your account' : 'create one or sign in';
+      : acctState.ios ? 'get swag packs' : acctState.signedIn ? 'manage your account' : 'create one or sign in';
   }
   function onMenuClick(fn) { menuHandler = fn; }
   function isOverlayOpen() { return state.title || state.pause || state.gameOver || state.victory; }

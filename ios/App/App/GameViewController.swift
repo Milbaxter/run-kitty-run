@@ -12,6 +12,7 @@ class GameViewController: CAPBridgeViewController {
     }
 
     override func capacitorDidLoad() {
+        bridge?.registerPluginInstance(StorePlugin())   // in-app purchases (StorePlugin.swift)
         webView?.isOpaque = false
         webView?.backgroundColor = UIColor(red: 0x0d / 255, green: 0x10 / 255, blue: 0x20 / 255, alpha: 1)
         webView?.scrollView.bounces = false

@@ -1,0 +1,87 @@
+name: iOS StoreKit tests
+# The in-app purchase code in the app (ios/App/App/StorePlugin.swift) against StoreKit Testing (no App Store, no
+# dialogs): ios/App/AppTests/StoreTests.swift, hosted in the app on a simulator. The server half is scripts/iap-test.mjs
+# (npm test). Runs on pull requests that touch the iOS project, and by hand.
+on:
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-storekit.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ios-storekit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  storekit:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      # a fresh simulator's first boot takes minutes: start it while npm and the build run
+      - name: Boot iPhone simulator (background)
+        run: |
+          # Not iOS 26.5: its simulators can't load a StoreKit configuration (SKTestSession falls through to the sandbox;
+          # https://developer.apple.com/forums/thread/826971). Prefer 26.2 / 26.1 / 26.0, else the newest 18.x.
+          xcrun simctl list runtimes available | grep iOS
+          RTS=$(xcrun simctl list runtimes available -j | jq -r '[.runtimes[] | select(.platform == "iOS")] | sort_by(.version | split(".") | map(tonumber)) | reverse | .[] | "\(.version) \(.identifier)"')
+          RT=$(echo "$RTS" | awk '$1 ~ /^26\.2/ {print $2; exit}')
+          [ -n "$RT" ] || RT=$(echo "$RTS" | awk '$1 ~ /^26\.1/ {print $2; exit}')
+          [ -n "$RT" ] || RT=$(echo "$RTS" | awk '$1 ~ /^26\.0/ {print $2; exit}')
+          [ -n "$RT" ] || RT=$(echo "$RTS" | awk '$1 ~ /^18\./ {print $2; exit}')
+          [ -n "$RT" ] || { echo "::warning::no iOS 26.0-26.2 or 18.x runtime: StoreKit Testing may not work"; RT=$(echo "$RTS" | head -1 | cut -d' ' -f2); }
+          UDID=$(xcrun simctl list devices available -j | jq -r --arg rt "$RT" '.devices[$rt][]? | select(.name | test("^iPhone")) | .udid' | head -1)
+          [ -n "$UDID" ] || UDID=$(xcrun simctl create rkr-storekit "iPhone 16 Pro" "$RT" 2>/dev/null || xcrun simctl create rkr-storekit "iPhone 16" "$RT")
+          echo "runtime $RT, device $UDID"
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          nohup xcrun simctl boot "$UDID" > "$RUNNER_TEMP/boot.log" 2>&1 &
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:www
+      - run: npx cap sync ios
+      - name: Build for testing
+        run: |
+          xcodebuild -version
+          xcodebuild -quiet -project ios/App/App.xcodeproj -scheme App -destination "id=$UDID" \
+            -derivedDataPath ios/App/build/test CODE_SIGNING_ALLOWED=NO build-for-testing
+      # the end-to-end test in the app talks to a local server that accepts StoreKit Testing (Xcode-signed) data
+      - name: Local game server
+        run: |
+          mkdir -p "$RUNNER_TEMP/srv"
+          PORT=8099 HOST=127.0.0.1 NODE_ENV=test APPLE_IAP_XCODE=1 GOOGLE_CLIENT_ID= STRIPE_SECRET_KEY= \
+            ACCOUNTS_FILE="$RUNNER_TEMP/srv/accounts.json" FEEDBACK_FILE="$RUNNER_TEMP/srv/feedback.jsonl" \
+            STATS_FILE="$RUNNER_TEMP/srv/stats.json" LEGENDS_FILE="$RUNNER_TEMP/srv/legends.json" REPORTS_FILE="$RUNNER_TEMP/srv/reports.jsonl" \
+            nohup node server/index.js > "$RUNNER_TEMP/srv/server.log" 2>&1 &
+          for i in $(seq 1 50); do curl -fs http://127.0.0.1:8099/healthz > /dev/null && break; sleep 0.2; done
+          curl -fs http://127.0.0.1:8099/api/account/config
+      - name: StoreKit tests
+        env:
+          TEST_RUNNER_RKR_E2E_SERVER: http://127.0.0.1:8099
+        run: |
+          xcrun simctl bootstatus "$UDID" -b > /dev/null
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -destination "id=$UDID" \
+            -derivedDataPath ios/App/build/test CODE_SIGNING_ALLOWED=NO -resultBundlePath "$RUNNER_TEMP/StoreKit.xcresult" \
+            test-without-building > "$RUNNER_TEMP/test.log" 2>&1 && status=0 || status=$?
+          grep -E "Test Case .*(passed|failed|skipped)|error:|Executed|StoreTests\]" "$RUNNER_TEMP/test.log" || tail -50 "$RUNNER_TEMP/test.log"
+          exit $status
+      - name: Screenshots from the test results
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/out/screens"
+          xcrun xcresulttool export attachments --path "$RUNNER_TEMP/StoreKit.xcresult" --output-path "$RUNNER_TEMP/out/screens" || true
+          ls -la "$RUNNER_TEMP/out/screens"
+          cp "$RUNNER_TEMP/test.log" "$RUNNER_TEMP/srv/server.log" "$RUNNER_TEMP/out/" 2>/dev/null || true
+          grep -i "app store\|apple" "$RUNNER_TEMP/srv/server.log" | tail -30 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: storekit-results
+          path: ${{ runner.temp }}/out
+          if-no-files-found: ignore

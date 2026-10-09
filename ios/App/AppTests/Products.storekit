@@ -1,0 +1,77 @@
+{
+  "identifier": "5C1A6F7E",
+  "nonRenewingSubscriptions": [],
+  "products": [
+    {
+      "displayPrice": "0.99",
+      "familyShareable": false,
+      "internalID": "6820600001",
+      "localizations": [
+        {
+          "description": "Adds 0.99 to your swag number online",
+          "displayName": "Swag Pack",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "io.runkittyrun.app.swag.small",
+      "referenceName": "Swag Pack",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "4.99",
+      "familyShareable": false,
+      "internalID": "6820600002",
+      "localizations": [
+        {
+          "description": "Adds 4.99 to your swag number online",
+          "displayName": "Big Swag Pack",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "io.runkittyrun.app.swag.medium",
+      "referenceName": "Big Swag Pack",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "9.99",
+      "familyShareable": false,
+      "internalID": "6820600003",
+      "localizations": [
+        {
+          "description": "Adds 9.99 to your swag number online",
+          "displayName": "Huge Swag Pack",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "io.runkittyrun.app.swag.large",
+      "referenceName": "Huge Swag Pack",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "19.99",
+      "familyShareable": false,
+      "internalID": "6820600004",
+      "localizations": [
+        {
+          "description": "Adds 19.99 to your swag number online",
+          "displayName": "Legendary Swag Pack",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "io.runkittyrun.app.swag.mega",
+      "referenceName": "Legendary Swag Pack",
+      "type": "Consumable"
+    }
+  ],
+  "settings": {
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "USA",
+    "_storeKitErrors": []
+  },
+  "subscriptionGroups": [],
+  "version": {
+    "major": 3,
+    "minor": 0
+  }
+}

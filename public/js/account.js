@@ -1,7 +1,9 @@
-// Optional account (web only for now): sign in with Google or Discord, chip in what you like (from 0.50) through Stripe
-// Checkout, and your total shows next to your kitty's name online. Server side: server/accounts.js.
+// Optional account: on the web, sign in with Google or Discord and chip in what you like (from 0.50) through Stripe
+// Checkout; in the iOS app, buy swag packs through Apple's in-app purchases (store.js), no sign-in: the account goes
+// with the App Store account. Your total shows next to your kitty's name online. Server side: server/accounts.js.
 // The session token lives in localStorage; main.js passes it to the game server ('hi' / 'acct').
-import { accountApiUrl, NATIVE } from './platform.js';
+import { accountApiUrl, NATIVE, SERVER_ORIGIN, openExternal } from './platform.js';
+import { createStore } from './store.js';
 import { UNLOCKS, UNLOCK_MODES, isUnlocked, featTotal } from './shared/unlocks.js';
 import { SKATE_FINAL_LEVEL, stageStep } from './shared/config.js';
 
@@ -43,6 +45,14 @@ const CSS = `
 .rka-msg.rka-err{color:#ff8fa3;}
 .rka-msg.rka-ok{color:#9dff7a;}
 .rka-gbtn{display:flex;justify-content:center;min-height:44px;}
+/* iOS: the swag packs, with Apple's prices */
+.rka-packs{align-self:stretch;display:flex;flex-direction:column;gap:8px;}
+.rka-pack{font:inherit;cursor:pointer;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:14px;
+  border:2px solid rgba(255,213,107,.55);background:rgba(255,213,107,.1);color:#fff;text-align:left;}
+.rka-pack:disabled{opacity:.5;cursor:default;}
+.rka-pname{flex:1;font-weight:900;font-size:16px;}
+.rka-padd{display:block;font-size:12px;font-weight:800;opacity:.75;}
+.rka-pprice{font-weight:900;font-size:17px;color:#ffd56b;white-space:nowrap;}
 .rka-dbtn{font:inherit;font-weight:800;font-size:15px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;
   min-height:40px;padding:0 22px;border-radius:999px;border:0;background:#5865f2;color:#fff;text-decoration:none;}
 .rka-dbtn:hover{background:#4752c4;}
@@ -115,7 +125,8 @@ function statsView(s) {
   return wrap;
 }
 
-const signedInAs = (a) => (a.via === 'discord' ? `Signed in with Discord as ${a.name || 'you'}` : `Signed in as ${a.email}`);
+const signedInAs = (a) => (a.via === 'apple' ? `Linked to your Apple Account${a.sandbox ? ' (sandbox)' : ''}`
+  : a.via === 'discord' ? `Signed in with Discord as ${a.name || 'you'}` : `Signed in as ${a.email}`);
 function el(tag, cls, text) {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -143,7 +154,8 @@ function createAccount(root) {
   st.textContent = CSS;
   document.head.appendChild(st);
 
-  const A = { enabled: false, token: NATIVE ? '' : readToken(), account: null, cfg: null };
+  const A = { enabled: false, token: NATIVE ? '' : readToken(), account: null, cfg: null, ios: false };
+  const store = createStore();   // iOS app only (null on the web and Android)
   let modal = null, changeFn = null;
   let eqFor, eqGuest, eqMode, eqSolo, eqSet = new Set();   // equipped(): made once per account / guest progress, mode, offline track
   const changed = () => { mergeSolo(); if (changeFn) changeFn(); };
@@ -248,7 +260,7 @@ function createAccount(root) {
   }
 
   async function init() {
-    if (NATIVE) return;   // the apps get sign-in later (native Google / Apple sign-in); paying stays on the web
+    if (NATIVE) { if (store) await initIos(); return; }   // iOS: in-app purchases; Android: no account yet
     try {
       A.cfg = await fetch(accountApiUrl('/api/account/config'), { redirect: 'error' }).then((r) => r.json());
       A.enabled = !!(A.cfg && A.cfg.enabled);
@@ -287,14 +299,150 @@ function createAccount(root) {
     }
   }
 
+  // ---- iOS: swag packs through Apple's in-app purchases (store.js) ----
+  // No sign-in: the swag account is the App Store account's (server 'apple/link', by the signed app transaction), so a
+  // reinstall or another device finds it again, quietly at launch or with Restore Purchases. Every purchase goes to
+  // the server, which credits it once; only then is it finished (until then StoreKit keeps it and hands it out again).
+  async function initIos() {
+    const st = await store.status();
+    if (!st || !st.supported) return;   // (iOS 15, or an app build without the store: no packs)
+    try { A.cfg = await fetch(accountApiUrl('/api/account/config'), { redirect: 'error' }).then((r) => r.json()); } catch { A.cfg = null; }
+    if (!A.cfg || !A.cfg.iap) return;   // (in-app purchases switched off on the server, or offline)
+    A.enabled = A.ios = true;
+    A.token = readToken();
+    loadGuest();
+    store.onTransaction((t) => deliverQuietly(t));
+    if (A.token) { try { A.account = (await api('me')).account; } catch { /* signed out */ } }
+    if (!A.token) { try { await linkApple(false); } catch { /* offline, or nothing to find yet */ } }
+    changed();
+    settlePending();
+  }
+  // this App Store account's swag account (create: make one if there's none yet; refresh: ask the App Store again,
+  // which may ask the player to sign in) -> found?
+  async function linkApple(create, refresh = false) {
+    const at = await store.appTransaction(refresh);
+    const j = await api('apple/link', { appTransaction: at.jws, create });
+    if (j.found) setSession(j.token, j.account);
+    return !!j.found;
+  }
+  // one signed transaction to the server; finished once the server says so (credited now or before, or refunded)
+  async function deliver(t) {
+    if (!t || !t.jws) return null;
+    if (!A.token) await linkApple(true);
+    let j;
+    try { j = await api('apple/purchase', { transaction: t.jws }); }
+    catch (e) {
+      if (A.token) throw e;
+      await linkApple(true);   // (signed out meanwhile: link again, once)
+      j = await api('apple/purchase', { transaction: t.jws });
+    }
+    if (j.finish) await store.finish(t.transactionId);
+    if (j.account && (!A.account || j.account.via === A.account.via)) { A.account = j.account; changed(); }
+    return j;
+  }
+  // what StoreKit still holds (no connection last time, a crash, an approved Ask to Buy): to the server
+  let settling = null;
+  function settlePending() {
+    return (settling ||= (async () => {
+      try { for (const t of await store.unfinished()) { try { await deliver(t); } catch { /* stays unfinished: next time */ } } }
+      catch { /* store not ready */ } finally { settling = null; }
+    })());
+  }
+  async function deliverQuietly(t) {
+    try {
+      const j = await deliver(t);
+      if (j && j.credited && modal) open({ thanks: true, msg: 'Your swag arrived!' });
+      else if (modal) open({ fresh: true });
+    } catch { /* stays unfinished: retried at the next launch */ }
+  }
+  const storeError = (e) => (e && e.code ? store.message(e) : (e && e.message) || store.message(e));
+  let buying = false;
+  async function buy(p, say, btns) {
+    if (buying) return;
+    buying = true;
+    btns.forEach((b) => { b.disabled = true; });
+    try {
+      if (!A.token || !A.account || !A.account.appAccountToken) { say('Getting your swag account ready…'); await linkApple(true); }
+      say('Opening the App Store…');
+      const r = await store.purchase(p.id, A.account.appAccountToken);
+      if (r.status === 'cancelled') { say('No worries, nothing was charged.'); return; }
+      if (r.status === 'pending') { say('Waiting for approval. Your swag arrives as soon as the purchase is approved.'); return; }
+      say('Adding your swag…');
+      try { await deliver(r.transaction); }
+      catch { say('Payment done! Your swag is added as soon as the game reaches its server again: it keeps trying.', 'ok'); return; }
+      open({ thanks: true, msg: `+${fmtNum(p.credit)}! Your swag number is now ${fmtNum(Number(A.account.paid) || 0)}.` });
+    } catch (e) { say(storeError(e), 'err'); }
+    finally { buying = false; btns.forEach((b) => { b.disabled = false; }); }
+  }
+  async function restorePurchases(say) {
+    say('Checking your App Store account…');
+    try {
+      let found;
+      try { found = await linkApple(false); } catch { found = await linkApple(false, true); }
+      const pending = await store.unfinished();
+      if (!found && pending.length) found = await linkApple(true);
+      // a refund the server missed comes back revoked in the history
+      const revoked = found ? (await store.history(50)).filter((t) => t.revoked) : [];
+      for (const t of [...pending, ...revoked]) { try { await deliver(t); } catch { /* next time */ } }
+      if (!found) { say('No swag account found for this Apple Account yet.'); return; }
+      open({ ok: true, msg: Number(A.account && A.account.paid) > 0 ? 'Restored! Your swag is back.' : 'Restored.' });
+    } catch (e) { say(storeError(e), 'err'); }
+  }
+
   function close() { if (modal) modal.remove(); modal = null; }
 
   // small print ending in links to the Terms and Privacy pages
   function fine(text) {
     const d = el('div', 'rka-fine', text);
-    const link = (page, label) => { const l = el('a', null, label); l.href = page + '.html'; l.target = '_blank'; l.rel = 'noopener'; l.style.color = 'inherit'; return l; };
+    const link = (page, label) => {
+      const l = el('a', null, label);
+      l.style.color = 'inherit';
+      if (NATIVE) { l.style.cursor = 'pointer'; l.addEventListener('click', () => openExternal(`${SERVER_ORIGIN}/${page}.html`)); }
+      else { l.href = page + '.html'; l.target = '_blank'; l.rel = 'noopener'; }
+      return l;
+    };
     d.append(link('terms', 'Terms'), ' & ', link('privacy', 'Privacy'), '.');
     return d;
+  }
+
+  // Delete account: a link, and the box it opens. Deleting takes typing DELETE (in capitals), then a yes to ARE YOU
+  // SURE?: no account goes by an accidental click. after: how to get it back; done: what to say once it's deleted.
+  function deleteBox(paid, say, after, done) {
+    const delBox = el('div', 'rka-del');
+    delBox.hidden = true;
+    const delIn = el('input'); delIn.type = 'text'; delIn.placeholder = 'DELETE'; delIn.autocomplete = 'off'; delIn.spellcheck = false;
+    const delGo = el('button', 'rka-amt rka-delgo', 'DELETE FOREVER'); delGo.disabled = true;
+    const delNo = el('button', 'rka-amt', 'KEEP MY ACCOUNT');
+    const delRow = el('div', 'rka-amts'); delRow.append(delNo, delGo);
+    const delNote = el('div', 'rka-note', `This deletes your account${paid ? `, your ${A.ios ? fmtNum(paid) : fmtPaid(paid)} total` : ''}, your stats and your unlocks. ${after} Type DELETE to confirm.`);
+    // the last step: ARE YOU SURE?
+    const sure = el('div', 'rka-del-sure');
+    sure.hidden = true;
+    const sureYes = el('button', 'rka-amt rka-delgo', 'YES, DELETE IT'), sureNo = el('button', 'rka-amt', 'NO, KEEP IT');
+    const sureRow = el('div', 'rka-amts'); sureRow.append(sureNo, sureYes);
+    sure.append(el('div', 'rka-sure', 'ARE YOU SURE?'), sureRow);
+    delBox.append(delNote, delIn, delRow, sure);
+    const reset = () => { delBox.hidden = true; sure.hidden = true; delNote.hidden = delIn.hidden = delRow.hidden = false; delIn.value = ''; delGo.disabled = true; sureYes.disabled = false; };
+    delIn.addEventListener('input', () => { delGo.disabled = delIn.value.trim() !== 'DELETE'; });
+    delNo.addEventListener('click', reset);
+    sureNo.addEventListener('click', reset);
+    const del = el('a', null, 'Delete account');
+    del.addEventListener('click', () => { reset(); delBox.hidden = false; delIn.focus(); });
+    delGo.addEventListener('click', () => {
+      if (delIn.value.trim() !== 'DELETE') return;
+      delNote.hidden = delIn.hidden = delRow.hidden = true;
+      sure.hidden = false;
+    });
+    sureYes.addEventListener('click', async () => {
+      if (delIn.value.trim() !== 'DELETE') return;
+      sureYes.disabled = true;
+      try {
+        await api('delete', { confirm: 'DELETE' });
+        setSession('', null);
+        open({ msg: done });
+      } catch (e) { sureYes.disabled = false; say(e.message, 'err'); }
+    });
+    return { del, delBox };
   }
 
   // one modal: signed out (create one, or sign back in); signed in: the account menu, or the amount picker (opts.view 'pay')
@@ -388,6 +536,51 @@ function createAccount(root) {
       soloProg(), (id) => !!((A.guest && A.guest.off && A.guest.off[id]) || readJson(SOLO_OFF_KEY)[id]));
     const sayOpts = () => { if (opts.msg || opts.err) say(opts.err || opts.msg, opts.err ? 'err' : opts.thanks || opts.ok ? 'ok' : ''); };
 
+    // iOS: no account yet, an account that hasn't bought a pack yet, or ADD MORE: the packs
+    if (A.ios && !(a && a.deleting) && (!a || !(Number(a.paid) > 0) || opts.view === 'packs')) {
+      const paid = a ? Number(a.paid) || 0 : 0;
+      const packs = section(paid > 0 ? 'SWAG PACKS' : 'GET SWAG');
+      const list = el('div', 'rka-packs');
+      list.appendChild(el('div', 'rka-note', 'Loading the swag packs…'));
+      packs.append(el('div', 'rka-note', paid > 0 ? `Your swag number is ${fmtNum(paid)}. Each pack adds to it.`
+        : 'Optional. Each pack adds to your swag number, shown next to your kitty online (you can hide it), and activates your swag account: your stats, and unlocks earned in Multiplayer. No sign-up, it goes with your Apple Account.'), list);
+      store.products().then((ps) => {
+        if (!list.isConnected) return;
+        list.textContent = '';
+        if (!ps.length) { list.appendChild(el('div', 'rka-note', 'The swag packs are not available right now. Try again later.')); return; }
+        const btns = ps.map((p) => {
+          const b = el('button', 'rka-pack');
+          const name = el('span', 'rka-pname', p.displayName);
+          name.appendChild(el('span', 'rka-padd', `+${fmtNum(p.credit)} to your swag number`));
+          b.append(name, el('span', 'rka-pprice', p.displayPrice));
+          b.addEventListener('click', () => buy(p, say, btns));
+          return b;
+        });
+        list.append(...btns);
+      }).catch(() => { if (list.isConnected) { list.textContent = ''; list.appendChild(el('div', 'rka-note', 'Could not reach the App Store. Check your connection, then open this again.')); } });
+      const links = el('div', 'rka-links'), rest = el('a', null, 'Restore purchases');
+      rest.addEventListener('click', () => restorePurchases(say));
+      links.appendChild(rest);
+      const small = fine(`${a ? signedInAs(a) + '. ' : ''}One-time purchases through Apple, no subscription. A pack can't be spent or traded: it adds to your number. Refunds go through Apple. `);
+      if (paid > 0) {
+        const back = el('button', 'rkr-btn rkr-alt', 'BACK');
+        back.addEventListener('click', () => open());
+        box.append(el('h2', null, 'ADD SWAG'), packs, msg, back, links, small);
+      } else {
+        box.append(el('h2', null, 'SWAG ACCOUNT'), packs, guestBox(), msg, closeBtn, links);
+        if (a) {   // (made, nothing bought yet: it can still be deleted)
+          const { del, delBox } = deleteBox(0, say, 'You can still restore it within 14 days with Restore purchases; after that it\'s gone for good.',
+            'Your swag account is deleted. You can still restore it within 14 days with Restore purchases.');
+          links.appendChild(del);
+          box.appendChild(delBox);
+        }
+        box.appendChild(small);
+      }
+      sayOpts();
+      root.appendChild(modal);
+      return;
+    }
+
     if (!A.token || !a) {
       // Signed out: create one, or sign back in (another browser, cleared storage). Accounts are keyed by the Google /
       // Discord account, so both sections do the same thing: the same Google or Discord account always gets the same
@@ -461,10 +654,10 @@ function createAccount(root) {
           try { A.account = (await api('show', { show: !shown })).account; changed(); open(); } catch (e) { say(e.message, 'err'); sw.disabled = false; }
         });
         const add = el('button', 'rka-amt', 'ADD MORE');
-        add.addEventListener('click', () => open({ view: 'pay' }));
+        add.addEventListener('click', () => open({ view: A.ios ? 'packs' : 'pay' }));
         const r = el('div', 'rka-row');
         r.append(sw, add);
-        swag.append(el('div', 'rka-big', fmtPaid(paid)),
+        swag.append(el('div', 'rka-big', A.ios ? fmtNum(paid) : fmtPaid(paid)),
           el('div', 'rka-note', shown ? 'Shows next to your kitty for everyone online.' : 'Hidden: other players don\'t see it right now.'), r);
       } else {
         const pick = el('button', 'rka-amt rka-on', 'PICK AN AMOUNT');
@@ -494,43 +687,19 @@ function createAccount(root) {
         el('div', 'rka-fine', statsTab === 'online' ? 'Counted by the game server in Multiplayer games.'
           : 'Counted by your own browser in solo and local co-op games.'));
       const links = el('div', 'rka-links');
-      const out = el('a', null, 'Sign out'), del = el('a', null, 'Delete account');
+      const out = el('a', null, 'Sign out');
       out.addEventListener('click', async () => { try { await api('logout', {}); } catch { /* gone anyway */ } setSession('', null); close(); });
-      // deleting takes typing DELETE (in capitals), then a yes to ARE YOU SURE?: no account goes by an accidental click
-      const delBox = el('div', 'rka-del');
-      delBox.hidden = true;
-      const delIn = el('input'); delIn.type = 'text'; delIn.placeholder = 'DELETE'; delIn.autocomplete = 'off'; delIn.spellcheck = false;
-      const delGo = el('button', 'rka-amt rka-delgo', 'DELETE FOREVER'); delGo.disabled = true;
-      const delNo = el('button', 'rka-amt', 'KEEP MY ACCOUNT');
-      const delRow = el('div', 'rka-amts'); delRow.append(delNo, delGo);
-      const delNote = el('div', 'rka-note', `This deletes your account${paid ? `, your ${fmtPaid(paid)} total` : ''}, your stats and your unlocks. You can still restore this account within 14 days by signing in again; after that it's gone for good. Payments aren't refunded. Type DELETE to confirm.`);
-      // the last step: ARE YOU SURE?
-      const sure = el('div', 'rka-del-sure');
-      sure.hidden = true;
-      const sureYes = el('button', 'rka-amt rka-delgo', 'YES, DELETE IT'), sureNo = el('button', 'rka-amt', 'NO, KEEP IT');
-      const sureRow = el('div', 'rka-amts'); sureRow.append(sureNo, sureYes);
-      sure.append(el('div', 'rka-sure', 'ARE YOU SURE?'), sureRow);
-      delBox.append(delNote, delIn, delRow, sure);
-      const reset = () => { delBox.hidden = true; sure.hidden = true; delNote.hidden = delIn.hidden = delRow.hidden = false; delIn.value = ''; delGo.disabled = true; sureYes.disabled = false; };
-      delIn.addEventListener('input', () => { delGo.disabled = delIn.value.trim() !== 'DELETE'; });
-      delNo.addEventListener('click', reset);
-      sureNo.addEventListener('click', reset);
-      del.addEventListener('click', () => { reset(); delBox.hidden = false; delIn.focus(); });
-      delGo.addEventListener('click', () => {
-        if (delIn.value.trim() !== 'DELETE') return;
-        delNote.hidden = delIn.hidden = delRow.hidden = true;
-        sure.hidden = false;
-      });
-      sureYes.addEventListener('click', async () => {
-        if (delIn.value.trim() !== 'DELETE') return;
-        sureYes.disabled = true;
-        try {
-          await api('delete', { confirm: 'DELETE' });
-          setSession('', null);
-          open({ msg: 'Your account is deleted. You can still restore this account within 14 days: just sign in again.' });
-        } catch (e) { sureYes.disabled = false; say(e.message, 'err'); }
-      });
-      links.append(out, del);
+      const { del, delBox } = A.ios
+        ? deleteBox(paid, say, 'You can still restore it within 14 days with Restore purchases; after that it\'s gone for good. Purchases aren\'t refunded.',
+          'Your swag account is deleted. You can still restore it within 14 days with Restore purchases.')
+        : deleteBox(paid, say,
+          'You can still restore this account within 14 days by signing in again; after that it\'s gone for good. Payments aren\'t refunded.',
+          'Your account is deleted. You can still restore this account within 14 days: just sign in again.');
+      if (A.ios) {   // (no sign-in to leave: the account goes with the Apple Account)
+        const rest = el('a', null, 'Restore purchases');
+        rest.addEventListener('click', () => restorePurchases(say));
+        links.append(rest, del);
+      } else links.append(out, del);
       // stats and unlocks only on an active account (one that has paid; the server counts nothing before)
       box.append(swag, ...(paid > 0 ? [unl, stats] : [guestBox()]), msg, closeBtn, links, delBox, fine(`${signedInAs(a)}. `));
       sayOpts();
@@ -627,6 +796,7 @@ function createAccount(root) {
     init, open, close, noteLocal,
     isOpen: () => !!modal,
     enabled: () => A.enabled,
+    ios: () => A.ios,   // swag packs through Apple (the iOS app)
     token: () => A.token,
     signedIn: () => !!(A.token && A.account),
     paid: () => (A.account ? Number(A.account.paid) || 0 : 0),

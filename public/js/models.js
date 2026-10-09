@@ -814,6 +814,7 @@ function createKittyModel(color) {
   const wingTmp = new THREE.Color();
   rig.add(wingMesh);
   const wingPose = makeWingPose(wingMesh);
+  let dragon = null, dragonSkin = null;   // the celestial lion's dragon wings (made the first time they show)
   // crown stones: a win from 2 to 6 sets one gem on a point (front first, then pairs toward the back), in place of its pearl
   const tips = [0, 1, 4, 2, 3].map((i, n) => {
     const a = (i / 5) * TAU_, pearl = new THREE.Mesh(P.ico1, pearlMat());
@@ -1046,7 +1047,16 @@ function createKittyModel(color) {
     if (cape.visible) cloth.step(rig, mdt, t, flowGo);
     else cloth.reset();
     const winged = !!s.wings && !ghost;
-    wingMesh.visible = winged;
+    const dragonWinged = winged && !!s.celestial;   // the celestial lion: dragon wings instead of the feathers
+    wingMesh.visible = winged && !dragonWinged;
+    if (dragonWinged && !dragon) {
+      dragonSkin = cosmicMaterial().clone();   // (its own copy: seen from both sides)
+      dragonSkin.side = THREE.DoubleSide;
+      dragonSkin.userData.shared = false;   // (freed with the kitty, unlike the shared original)
+      dragon = makeDragonWings(dragonSkin);
+      rig.add(dragon.group);
+    }
+    if (dragon) dragon.group.visible = dragonWinged;
     // 6+ wins (s.auraCycle, when the aura starts cycling through the kitty colours): the revive rewards' victory look.
     // The cape turns near-black with its symbol, border and collar glowing in the aura's colour, and the wings'
     // feathers go rainbow (the boots' clock), running through the rainbow from the shoulder out to the tips
@@ -1080,6 +1090,7 @@ function createKittyModel(color) {
       wingPh += mdt * 0.45 * TAU_;
       const open = Math.min(1, Math.max(0, 0.05 + 0.95 * flowGo + Math.max(0, flAc) * 0.4));
       wingPose.update(mdt, open, flSw * 0.45, Math.max(-0.3, flAc * 0.5), Math.sin(wingPh) * 0.012 * (1 - flowGo) + Math.sin(phase * 2) * 0.014 * runAmt);
+      if (dragonWinged) { dragon.update(wingPose.joints); dragonSkin.uniforms.uTime.value = t; }
     }
     if (pack.visible) {
       if (s.packColors !== packCols) setPackColors(s.packColors);
@@ -2042,6 +2053,7 @@ function wingColors(color) {
 function makeWingPose(mesh) {
   const V = (x, y, z) => new THREE.Vector3(x, y, z);
   const pts = [V(), V(), V(), V()], dirF = V(), dirO = V(), nF = V(0, 0, 1), nO = V(0, 1, 0.12).normalize();
+  const joints = [[V(), V(), V(), V()], [V(), V(), V(), V()]];   // per side, after each update (the dragon wings use them)
   const d = V(), nrm = V(), w = V(), p = V(), m = new THREE.Matrix4();
   let oS = 0, oE = 0, oW = 0;
   // feather / bone matrix: a flat ellipsoid from a along dir (len), width across, thin through nrm
@@ -2068,6 +2080,7 @@ function makeWingPose(mesh) {
         pts[k + 1].set(pts[k].x + f[0] + (o[0] - f[0]) * a, pts[k].y + f[1] + (o[1] - f[1]) * a + (k ? bob : 0), pts[k].z + (f[2] + (o[2] - f[2]) * a) * sz);
       }
       for (let k = 1; k < 4; k++) rotY(pts[k], swing - throwBack * sz * k / 3, pts[0]);
+      for (let k = 0; k < 4; k++) joints[side][k].copy(pts[k]);
       for (let k = 0; k < 3; k++) {   // the bones (the wing's leading edge)
         d.subVectors(pts[k + 1], pts[k]);
         const len = d.length();
@@ -2093,7 +2106,75 @@ function makeWingPose(mesh) {
     }
     mesh.instanceMatrix.needsUpdate = true;
   }
-  return { update };
+  return { update, joints };
+}
+
+// The celestial lion's dragon wings, on the feathered wings' joints (makeWingPose): horn-dark arm bones with a claw
+// at the wrist, two more finger spars fanning back from it, and between them a skin of space (the cosmic material,
+// both sides) with the scalloped edge dragon wings have. Built once per kitty, moved every frame (no allocations).
+const DRAGON_FINGERS = [[0.42, 0.92], [0.74, 0.78]];   // [how far from the tip toward the body, length vs the tip's]
+const DRAGON_SCALE = 1.25;   // a bigger span than the feathered wings: the joints pushed out from the shoulder
+function makeDragonWings(skinMat) {
+  const group = new THREE.Group();
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  // skin: 10 points per side (shoulder, elbow, wrist, tip, scallop, finger, scallop, finger, scallop, body), 8 triangles
+  const NV = 10, pos = new Float32Array(2 * NV * 3), idx = [];
+  const TRI = [[0, 1, 2], [0, 2, 9], [2, 3, 4], [2, 4, 5], [2, 5, 6], [2, 6, 7], [2, 7, 8], [2, 8, 9]];
+  for (let side = 0; side < 2; side++) for (const t of TRI) idx.push(...t.map((v) => v + side * NV));
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+  geo.setIndex(idx);
+  const skin = new THREE.Mesh(geo, skinMat);
+  skin.castShadow = true;
+  skin.frustumCulled = false;
+  // bones: 3 arm + 2 fingers + a claw per side, flat-shaded horn
+  const boneMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0),
+    new THREE.MeshStandardMaterial({ color: 0x241638, roughness: 0.55, metalness: 0.2, flatShading: true }), 12);
+  boneMesh.castShadow = true;
+  boneMesh.frustumCulled = false;
+  group.add(skin, boneMesh);
+  const m = new THREE.Matrix4(), d = V(), w = V(), n2 = V(), up = V(0, 1, 0), tipDir = V(), toBody = V(), dir = V(), body = V();
+  const fingers = [V(), V()], mid = V(), J = [V(), V(), V(), V()];   // (the joints, scaled out from the shoulder)
+  const bone = (i, a, b, thick) => {
+    d.subVectors(b, a); const len = d.length(); d.normalize();
+    w.crossVectors(up, d); if (w.lengthSq() < 1e-6) w.set(0, 0, 1); w.normalize();
+    n2.crossVectors(d, w).normalize();
+    m.makeBasis(w.multiplyScalar(thick), d.multiplyScalar(len / 2), n2.multiplyScalar(thick));
+    m.setPosition((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+    boneMesh.setMatrixAt(i, m);
+  };
+  const put = (o, v) => { pos[o] = v.x; pos[o + 1] = v.y; pos[o + 2] = v.z; };
+  function update(joints) {
+    for (let side = 0; side < 2; side++) {
+      const src = joints[side], sz = side ? -1 : 1, o = side * NV * 3, bi = side * 6;
+      for (let k = 0; k < 4; k++) J[k].copy(src[k]).sub(src[0]).multiplyScalar(DRAGON_SCALE).add(src[0]);
+      const [S, E, W, T] = J;
+      body.set(S.x - 0.27, S.y - 0.09, S.z - 0.04 * sz);   // where the skin meets the back, toward the hips
+      tipDir.subVectors(T, W); const tipLen = tipDir.length(); tipDir.normalize();
+      toBody.subVectors(body, W).normalize();
+      for (let f = 0; f < 2; f++) {
+        dir.copy(tipDir).lerp(toBody, DRAGON_FINGERS[f][0]).normalize();
+        fingers[f].copy(W).addScaledVector(dir, tipLen * DRAGON_FINGERS[f][1]);
+      }
+      put(o, S); put(o + 3, E); put(o + 6, W); put(o + 9, T);
+      // the trailing edge: each span between two finger tips dips in toward the wrist (the scallops)
+      const edge = [T, fingers[0], fingers[1], body];
+      for (let k = 0; k < 3; k++) {
+        mid.addVectors(edge[k], edge[k + 1]).multiplyScalar(0.5).lerp(W, 0.24);
+        put(o + (4 + k * 2) * 3, mid);
+        if (k < 2) put(o + (5 + k * 2) * 3, fingers[k]);
+      }
+      put(o + 9 * 3, body);
+      bone(bi, S, E, 0.032); bone(bi + 1, E, W, 0.028); bone(bi + 2, W, T, 0.02);
+      bone(bi + 3, W, fingers[0], 0.016); bone(bi + 4, W, fingers[1], 0.014);
+      mid.copy(W).add(dir.set(0.05, 0.06, 0.012 * sz)); bone(bi + 5, W, mid, 0.014);   // the claw on the wrist
+    }
+    geo.attributes.position.needsUpdate = true;
+    geo.computeVertexNormals();
+    boneMesh.instanceMatrix.needsUpdate = true;
+  }
+  function dispose() { geo.dispose(); boneMesh.geometry.dispose(); boneMesh.material.dispose(); boneMesh.dispose(); }
+  return { group, update, dispose };
 }
 
 function backpackGeometry() {

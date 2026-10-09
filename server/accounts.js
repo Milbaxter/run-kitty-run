@@ -184,14 +184,18 @@ function createAccounts(file, env = process.env) {
   reindex();
 
   // ---- Google ----
-  let jwks = { keys: new Map(), until: 0 };
+  let jwks = { keys: new Map(), until: 0, at: 0 };
   async function googleKey(kid) {
     if (Date.now() > jwks.until || !jwks.keys.has(kid)) {
+      // an unknown kid refetches the keys (rotation), but not more than once a minute: a made-up kid shouldn't
+      // turn every bad token into a request to Google
+      if (!jwks.keys.has(kid) && Date.now() - jwks.at < 60e3 && Date.now() <= jwks.until) return null;
+      jwks.at = Date.now();
       const r = await fetch(JWKS_URL);
       if (!r.ok) throw new Error('google keys ' + r.status);
       const maxAge = +((/max-age=(\d+)/.exec(r.headers.get('cache-control') || '') || [])[1] || 3600);
       const j = await r.json();
-      jwks = { keys: new Map(j.keys.map((k) => [k.kid, crypto.createPublicKey({ key: k, format: 'jwk' })])), until: Date.now() + maxAge * 1000 };
+      jwks = { keys: new Map(j.keys.map((k) => [k.kid, crypto.createPublicKey({ key: k, format: 'jwk' })])), until: Date.now() + maxAge * 1000, at: Date.now() };
     }
     return jwks.keys.get(kid);
   }
@@ -505,6 +509,11 @@ function createAccounts(file, env = process.env) {
   function unlocksOf(a) {
     const u = a.unlocks ||= {};
     for (const f of FEAT_IDS) { u[f] ||= {}; for (const m of UNLOCK_MODES) u[f][m] = Number(u[f][m]) || 0; }
+    // the medic badge counts revives from its start; a swag account brings the ones its stats counted before (once)
+    if (u.rev.past == null) u.rev.past = Number(a.stats && a.stats.online && a.stats.online.revives) || 0;
+    // the offline track (Solo and Local, one track): reported by the browser, so worn offline only (account.js)
+    u.solo ||= {};
+    for (const f of FEAT_IDS) { u.solo[f] ||= {}; for (const m of UNLOCK_MODES) u.solo[f][m] = Number(u.solo[f][m]) || 0; }
     u.off ||= {};
     return u;
   }
@@ -530,14 +539,15 @@ function createAccounts(file, env = process.env) {
     if (h.sub == null) h.at = Date.now();
     statsChanged();
   }
-  const switchedOn = (h) => {
-    if (!h) return [];
+  // the items worn in this game mode: unlocked in that mode (each mode earns its own) and switched on
+  const switchedOn = (h, mode) => {
+    if (!h || !mode) return [];
     const u = unlocksOf(h);
-    return UNLOCKS.filter((x) => !x.song && isUnlocked(u, x) && !u.off[x.id]).map((x) => x.id);   // (a song isn't worn)
+    return UNLOCKS.filter((x) => !x.song && isUnlocked(u, x, mode) && !u.off[x.id]).map((x) => x.id);   // (a song isn't worn)
   };
   // the unlocked items switched on (the game server sends them to everyone in the room)
-  const cosFor = (token) => { const a = fromToken(token); return a && active(a) ? switchedOn(a) : []; };
-  const cosForPlayer = (who) => switchedOn(holderOf(who));
+  const cosFor = (token, mode) => { const a = fromToken(token); return a && active(a) ? switchedOn(a, mode) : []; };
+  const cosForPlayer = (who, mode) => switchedOn(holderOf(who), mode);
   // this browser plays online: its guest progress (if any) is kept another two months from now
   function seenGuest(pid) { const g = (pid = validPid(pid)) && guests[pid]; if (g) { g.at = Date.now(); statsChanged(); } }
   // an account that is active now takes over this browser's guest progress (counts add up; its own switches stay)
@@ -708,8 +718,10 @@ function createAccounts(file, env = process.env) {
     if (name === 'confirm') {
       // back from Checkout: ask Stripe directly so it doesn't wait on the webhook
       if (!/^cs_[\w]+$/.test(String(m.session || ''))) return { ok: false };
+      // only a checkout this player started here is ever looked up (no asking Stripe about other people's sessions)
+      if (!checkouts[m.session] && !(a.payments || []).includes(m.session)) return { ok: false };
       const s = await stripe('GET', '/checkout/sessions/' + m.session);
-      if (!checkouts[s.id] && !(a.payments || []).includes(s.id)) return { ok: false };   // not a checkout this player started here
+      if (s.id !== m.session || (!checkouts[s.id] && !(a.payments || []).includes(s.id))) return { ok: false };
       if (s.client_reference_id !== a.sub) return { ok: false };
       credit(s);
       return { ok: true, paid: s.payment_status === 'paid', account: pub(a) };
@@ -720,7 +732,7 @@ function createAccounts(file, env = process.env) {
       if (!item || typeof m.on !== 'boolean') return { ok: false };
       const u = unlocksOf(a);
       if (!active(a)) return { ok: false, msg: 'Activate your swag account first.' };
-      if (!isUnlocked(u, item)) return { ok: false, msg: 'Not unlocked yet.' };
+      if (!isUnlocked(u, item) && !isUnlocked(u.solo, item)) return { ok: false, msg: 'Not unlocked yet.' };   // (online or offline)
       const previous = !!u.off[item.id];
       if (m.on) delete u.off[item.id]; else u.off[item.id] = true;
       try { saveNow(); } catch (e) { if (previous) u.off[item.id] = true; else delete u.off[item.id]; throw e; }
@@ -747,6 +759,13 @@ function createAccounts(file, env = process.env) {
       const count = (v, max) => (Number.isInteger(v) && v > 0 ? Math.min(v, max) : 0);
       record(a, 'local', { type: 'crown' }, count(m.crowns, 3));
       record(a, 'local', { type: 'revive' }, count(m.revives, 100));
+      // offline unlock progress ({ feat: count } in this mode): only ever worn offline, so a faked one shows only to its
+      // own player. (Capped per report; bigger when a browser's own track moves onto the account.)
+      if (m.solo && typeof m.solo === 'object' && active(a)) {
+        const u = unlocksOf(a);
+        for (const f of FEAT_IDS) { const n = count(m.solo[f], f === 'rev' ? 5000 : 50); if (n) u.solo[f][mode] += n; }
+        statsChanged();
+      }
       return { ok: true, account: pub(a) };
     }
     if (name === 'logout') {

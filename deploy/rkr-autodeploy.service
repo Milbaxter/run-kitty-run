@@ -1,0 +1,12 @@
+# Install: sudo cp deploy/rkr-autodeploy.{service,timer} /etc/systemd/system/ && sudo systemctl enable --now rkr-autodeploy.timer
+# Log: sudo journalctl -u rkr-autodeploy -o cat
+[Unit]
+Description=Run Kitty Run: deploy when origin/main moves
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=rkr
+WorkingDirectory=/opt/run-kitty-run/app
+ExecStart=/opt/run-kitty-run/app/deploy/autodeploy.sh

@@ -324,7 +324,7 @@ function stepSim(sim, inputs, dt) {
     p.inCenter = inCenterNow(sim, p);
     if (p.inCenter && sim.enteredCenter.indexOf(p.id) < 0) {
       sim.enteredCenter.push(p.id);
-      events.push({ type: 'enterCenter', playerId: p.id });
+      events.push({ type: 'enterCenter', playerId: p.id, level: sim.level });   // (level: the stage it was, for the unlocks)
     }
   }
 

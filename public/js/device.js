@@ -26,7 +26,22 @@ const PROFILES = {
 };
 let gfxPick = 'auto';
 try { gfxPick = (JSON.parse(localStorage.getItem('rkr-settings') || '{}') || {}).gfx || 'auto'; } catch { /* auto */ }
-const profileFor = (pick) => PROFILES[pick] || (TOUCH ? PROFILES.medium : PROFILES.high);
+// 'auto' on a computer: high, unless it looks weak. A software renderer or an old Intel HD GPU gets low (the shadow
+// pass and the 2x resolution are what make those stutter); few cores or little memory gets medium. The player's own
+// pick in the settings always wins over this.
+const WEAK = TOUCH ? null : weakDevice();
+function weakDevice() {
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2') || document.createElement('canvas').getContext('webgl');
+    const ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
+    const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
+    if (gl) { const lose = gl.getExtension('WEBGL_lose_context'); if (lose) lose.loseContext(); }
+    if (/SwiftShader|llvmpipe|Software|Basic Render|Intel.*HD Graphics/i.test(name)) return 'low';
+  } catch { /* no WebGL info: judge by the rest */ }
+  if ((navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 4) return 'medium';
+  return null;
+}
+const profileFor = (pick) => PROFILES[pick] || (TOUCH ? PROFILES.medium : PROFILES[WEAK] || PROFILES.high);
 const QUALITY = { ...profileFor(gfxPick) };
 function setQuality(pick) { Object.assign(QUALITY, profileFor(pick), { antialias: QUALITY.antialias }); return profileFor(pick).antialias; }
 

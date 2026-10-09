@@ -15,7 +15,6 @@ import { createStats } from './stats.js';
 import { createLegends } from './legends.js';
 import { createAccounts, onePerPlayer, samePlayer } from './accounts.js';
 import { pregenNext } from './levelgen.js';
-import { winsNeeded } from '../public/js/shared/unlocks.js';
 
 const PORT = +process.env.PORT || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -54,6 +53,7 @@ const MAX_ROOMS = 200;
 const FEEDBACK_FILE_MAX = 5 << 20;  // bytes; stop appending past this (someone has to read it)
 // Abuse limits per connection / IP. MAX_CONN_PER_IP can be raised for local load tests (scripts/server-test.mjs opens ~35).
 const MAX_CONN_PER_IP = +process.env.MAX_CONN_PER_IP || 10;
+const MAX_ROOMS_PER_IP = +process.env.MAX_ROOMS_PER_IP || 4;   // open lobbies created from one address (MAX_ROOMS is global)
 const MSG_RATE = 150, MSG_BURST = 300;   // any message; ~60 inputs/s + pings is normal play. Over it: disconnect
 const LOBBY_RATE = 1, LOBBY_BURST = 5;   // create / join / leave / list / start
 // Invites (protocol 18+): a player's public friend id is a hash of its browser's progress id (which stays secret: it's
@@ -118,6 +118,52 @@ const WELL_KNOWN = {
 };
 const PAGES = { '/privacy': '/privacy.html', '/terms': '/terms.html', '/support': '/support.html' };
 
+// Browser security headers on every response. The CSP (set on pages) allows the game's own files, the inline
+// importmap in index.html (by hash, computed from the html at start so an edit can't break it), Sign in with Google
+// (script, iframe, calls, styles; see developers.google.com/identity/gsi/web/guides/get-google-api-clientid), the
+// WebSocket, and canvas images (share cards). No frame-ancestors: game portals embed the page in an iframe.
+// CSP=off in the environment turns the policy off (if something new ever needs a source added).
+const CSP_ON = process.env.CSP !== 'off';
+const INLINE_SCRIPT_HASHES = (() => {
+  const out = new Set();
+  try {
+    for (const f of fs.readdirSync(ROOT)) {
+      if (!f.endsWith('.html')) continue;
+      const html = fs.readFileSync(path.join(ROOT, f), 'utf8');
+      for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
+        if (/\bsrc\s*=/.test(m[1])) continue;
+        // (as the browser hashes it: its HTML parser turns CRLF into LF, so a Windows checkout's file still matches)
+        out.add(`'sha256-${crypto.createHash('sha256').update(m[2].replace(/\r\n?/g, '\n')).digest('base64')}'`);
+      }
+    }
+  } catch (e) { console.error('inline script hashes:', e.message); }
+  return [...out];
+})();
+const CSP = [
+  "default-src 'self'",
+  `script-src 'self' ${INLINE_SCRIPT_HASHES.join(' ')} https://accounts.google.com/gsi/client`.replace(/\s+/g, ' '),
+  "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob:",
+  "font-src 'self' data:",
+  "connect-src 'self' ws: wss: https://accounts.google.com/gsi/",
+  "frame-src https://accounts.google.com/gsi/",
+  "worker-src 'self' blob:",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join('; ');
+function securityHeaders(req, res, html) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  // behind Caddy (TLS ends there): a year of HTTPS-only for the browser
+  if (req.headers['x-forwarded-proto'] === 'https' && isLoopback(req.socket.remoteAddress)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  if (html) {
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+    if (CSP_ON) res.setHeader('Content-Security-Policy', CSP);
+  }
+}
+
 const server = http.createServer((req, res) => {
   req.on('error', () => res.destroy());
   guardHttp(res, () => handleHttp(req, res))();
@@ -160,6 +206,7 @@ function notModified(req, st, etag) {
 function handleHttp(req, res) {
   let url;
   try { url = new URL(req.url, 'http://x'); } catch { res.writeHead(400).end(); return; }
+  securityHeaders(req, res, !path.extname(url.pathname) || url.pathname.endsWith('.html'));
   if (url.pathname === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }).end('ok'); return; }
   if (url.pathname.startsWith('/api/')) {
     const origin = req.headers.origin;
@@ -265,6 +312,13 @@ const feedbackHits = new Map(); // ip -> [timestamps]
 setInterval(() => { const now = Date.now(); for (const [ip, h] of feedbackHits) if (!h.some((t) => now - t < 3600e3)) feedbackHits.delete(ip); }, 600e3).unref();
 
 const isLoopback = (a) => a === '::1' || /^(::ffff:)?127\./.test(a || '');
+// Key for the per-address limits: an IPv6 host usually owns a whole /64, so count by that; IPv4 as is.
+function ipKey(ip) {
+  if (!ip.includes(':') || ip.startsWith('::ffff:')) return ip;
+  const head = ip.split('::')[0] ? ip.split('::')[0].split(':') : [];
+  while (head.length < 4) head.push('0');
+  return head.slice(0, 4).join(':') + '::/64';
+}
 function clientIp(req) {
   const ra = req.socket.remoteAddress || '?';
   // behind Caddy (same box, so loopback): the first X-Forwarded-For entry is the real client.
@@ -386,14 +440,17 @@ function makeCode() {
   }
 }
 
+// JSON fields are untrusted: String({ toString: null }) throws, so only real strings count (anything else is '').
+const str = (v) => (typeof v === 'string' ? v : '');
+
 function cleanName(n, fallback) {
-  const s = String(n || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 14);
+  const s = str(n).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 14);
   return s || fallback;
 }
 
 // private lobbies: a short password (case-sensitive), '' = public
 function cleanPass(p) {
-  return String(p ?? '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 20);
+  return str(p).replace(/[\u0000-\u001f]/g, '').trim().slice(0, 20);
 }
 
 function send(ws, msg) {
@@ -504,6 +561,7 @@ function joinRoom(client, room, name, pref, pass) {
   leaveRoom(client);
   const slot = colorSlot(room, pref);
   client.room = room;
+  client.cos = accounts.cosForPlayer({ sub: client.acct, pid: client.pid }, room.mode);   // the unlocks it wears in this mode
   client.slot = slot;
   client.name = cleanName(name, PLAYER_NAMES[slot]);
   client.color = PLAYER_COLORS[slot];
@@ -549,6 +607,7 @@ function rememberLeft(room, client) {
     at: Date.now(), sim, level: sim.level, ip: client.ip,
     alive: p.alive, x: p.x, z: p.z, circleT: circ ? circ.t : 0,
     lives: p.lives, deaths: p.deaths, rescues: p.rescues, finishes: p.finishes, crowned: p.crowned, speedMult: p.speedMult, bonus: p.bonus || 0,
+    goals: room.goalsFor === sim && room.goals.get(p.id) ? [...room.goals.get(p.id)] : [],   // (the unlocks' goal tally)
   });
 }
 
@@ -562,6 +621,10 @@ function restoreLeft(room, client, p) {
   room.left.delete(key);
   const sim = room.sim;
   Object.assign(p, { lives: r.lives, deaths: r.deaths, rescues: r.rescues, finishes: r.finishes, crowned: r.crowned, speedMult: r.speedMult, bonus: r.bonus || 0 });
+  if (r.goals && r.goals.length && r.sim === sim) {   // the goals it had reached this run come back with it
+    if (room.goalsFor !== sim) { room.goalsFor = sim; room.goals = new Map(); }
+    room.goals.set(p.id, new Set(r.goals));
+  }
   // a new level (or the victory party) revives everyone anyway
   if (!r.alive && r.level === sim.level && sim.state !== 'victory') {
     Object.assign(p, { alive: false, x: r.x, z: r.z, vx: 0, vz: 0, moving: false, inCenter: false, invuln: 0, shield: 0, speedMult: 1 });
@@ -589,7 +652,7 @@ function startMsg(room, withWolves) {
     st: sim.state, vic: room.victory || null, // mid-game joiners: the run may already be won (the 'victory' event went out before)
     players: sim.players.map((p) => ({ id: p.id, name: p.name, color: p.color })),
     wolves: withWolves ? serializeEnemies(sim.enemies) : null,
-    lh: levelHash(sim.levelData),   // level fingerprint: the client reports a mismatch (no fallback)
+    lh: levelHash(sim.levelData),   // level fingerprint: a client that differs takes our items and wolves (main.js)
     it: sim.items.filter((i) => i.taken).map((i) => i.id), ct: sim.crownTaken ? 1 : 0, // mid-game joiners: already picked up
     cp: sim.checkpointsHit.slice(),   // ...and the checkpoints already reached (a repaired medic checkpoint shows repaired)
   };
@@ -656,9 +719,14 @@ function countForAccounts(room, events) {
   const whoOf = (id) => { const m = memberOf(id); return m ? { sub: m.acct, pid: m.pid } : null; };
   // of these kitties (ids), the ones that count: one per player
   const once = (ids) => { const ms = ids.map(memberOf).filter(Boolean); return onePerPlayer(ms).map((m) => m.id); };
+  // the steps of this run (levels; in Run + Skate each half) where each kitty reached the goal itself (before the
+  // game moved on): all of them up to level 8's last step (stageStep) for the level 8 unlocks, all 9 levels' for level 9
+  if (room.goalsFor !== sim) { room.goalsFor = sim; room.goals = new Map(); }
+  const goalsOf = (id) => { let g = room.goals.get(id); if (!g) room.goals.set(id, g = new Set()); return g; };
   const featDone = (id, feat) => { accounts.recordFeat(whoOf(id), feat, room.mode); feats.add(id); };
   const feats = new Set();
   for (const e of events) {
+    if (e.type === 'enterCenter') { goalsOf(e.playerId).add(e.level ?? sim.level); continue; }
     if (e.type === 'stageClear') { room.dayTime = { level: e.level, time: sim.levelTime }; continue; }
     if (e.type === 'gameOver') { room.dayTime = null; continue; }
     if (e.type === 'levelStart' || e.type === 'levelClear') {
@@ -670,26 +738,31 @@ function countForAccounts(room, events) {
         room.dayTime = null;
       }
       for (const id of once(sim.players.map((p) => p.id))) accounts.recordOnline(subOf(id), ev);
-      // unlocks: level 8 cleared by a kitty holding every win of the run so far (8, or 16 in Run + Skate)
-      if (e.type === 'levelClear' && e.level === 8) {
-        for (const id of once(sim.players.filter((p) => (p.finishes || 0) >= winsNeeded(room.mode)).map((p) => p.id))) featDone(id, 'l8');
+      // unlocks: level 8 cleared by a kitty that reached the goal itself on every level of the run so far (8, or 16
+      // in Run + Skate: both halves), crowns or not. Checked as the game moves on to level 9, so a kitty that runs in
+      // during the level-cleared pause still counts
+      if (e.type === 'levelStart' && level === SKATE_FINAL_LEVEL) {
+        for (const id of once(sim.players.filter((p) => goalsOf(p.id).size >= stageStep(room.mode, sim.finales, 8, true)).map((p) => p.id))) featDone(id, 'l8');
       }
     } else if (e.type === 'victory') {
-      // unlocks: the final run won; a kitty that got to the end itself (not carried in for the party) holding 8 crowns
-      // (16 in Run + Skate), the final run's own crown included (it's the hardest one: it may make up for a missed one)
+      // unlocks: the final run won by a kitty that reached the goal itself on every level, the final one included (not
+      // carried in for the party)
       const party = Array.isArray(e.party) ? e.party : [];
-      const l9 = sim.players.filter((p) => !party.includes(p.id) && (p.finishes || 0) >= winsNeeded(room.mode));
+      const l9 = sim.players.filter((p) => !party.includes(p.id) && goalsOf(p.id).size >= stageStep(room.mode, sim.finales, SKATE_FINAL_LEVEL));   // (every step up to the last: 9, or 17 with day and night halves)
       for (const id of once(l9.map((p) => p.id))) featDone(id, 'l9');
       for (const id of once(sim.players.map((p) => p.id))) featDone(id, 'win');   // and the new song: everyone who was there
     } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown' });
-    else if (e.type === 'revive' && !samePlayer(memberOf(e.by), memberOf(e.playerId))) accounts.recordOnline(subOf(e.by), { type: 'revive' });
+    else if (e.type === 'revive' && !samePlayer(memberOf(e.by), memberOf(e.playerId))) {
+      featDone(e.by, 'rev');   // toward the medic badge (3000 revives); first, so an account's past revives are taken before this one
+      accounts.recordOnline(subOf(e.by), { type: 'revive' });
+    }
   }
   // a feat may have unlocked something: the room shows it right away
   let changed = false;
   for (const id of feats) {
     const m = room.members.find((x) => x.id === id);
     if (!m) continue;
-    const cos = accounts.cosForPlayer({ sub: m.acct, pid: m.pid });
+    const cos = accounts.cosForPlayer({ sub: m.acct, pid: m.pid }, room.mode);
     if (cos.join() !== (m.cos || []).join()) { m.cos = cos; changed = true; }
   }
   if (changed) sendRoom(room);
@@ -791,17 +864,17 @@ function take(client, key, rate, burst, now) {
 }
 
 wss.on('connection', (ws, req) => {
-  const ip = clientIp(req);
-  const now0 = Date.now(), cr = connRate.get(ip) || { tok: CONN_BURST, at: now0 };
+  const ip = clientIp(req), ipk = ipKey(ip);
+  const now0 = Date.now(), cr = connRate.get(ipk) || { tok: CONN_BURST, at: now0 };
   cr.tok = Math.min(CONN_BURST, cr.tok + (now0 - cr.at) / 1000 * CONN_RATE); cr.at = now0;
-  if (cr.tok < 1) { connRate.set(ip, cr); ws.close(1013, 'too many connections'); return; }
-  cr.tok -= 1; connRate.set(ip, cr);
-  const n = (connsPerIp.get(ip) || 0) + 1;
+  if (cr.tok < 1) { connRate.set(ipk, cr); ws.close(1013, 'too many connections'); return; }
+  cr.tok -= 1; connRate.set(ipk, cr);
+  const n = (connsPerIp.get(ipk) || 0) + 1;
   if (n > MAX_CONN_PER_IP) { ws.close(1013, 'too many connections'); return; }
-  connsPerIp.set(ip, n);
+  connsPerIp.set(ipk, n);
   stats.online(wss.clients.size);
   // v/app/ver/tok come from the client's 'hi' (sent before anything else); clients that never send one are old web tabs
-  const client = { id: nextClientId++, ws, room: null, name: '', app: 'web', ver: '', hi: false, v: 0, tok: '', ip, chatLog: [] };
+  const client = { id: nextClientId++, ws, room: null, name: '', app: 'web', ver: '', hi: false, v: 0, tok: '', ip, ipk, chatLog: [] };
   clients.set(client.id, client);
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });
@@ -826,7 +899,7 @@ wss.on('connection', (ws, req) => {
         client.hi = true;
         client.v = v;
         client.app = APPS.includes(msg.app) ? msg.app : 'web';
-        client.ver = String(msg.ver ?? '').replace(/[^\w.+-]/g, '').slice(0, 16);
+        client.ver = str(msg.ver).replace(/[^\w.+-]/g, '').slice(0, 16);
         if (typeof msg.tok === 'string' && /^[\w-]{8,64}$/.test(msg.tok)) client.tok = msg.tok; // reconnect grace (net.js)
         client.paid = accounts.paidFor(msg.acct);   // signed-in account: its total shows next to the name
         client.acct = accounts.subFor(msg.acct);    // ...and its stats count this player's online games
@@ -834,7 +907,7 @@ wss.on('connection', (ws, req) => {
         client.fid = v >= INVITE_PROTOCOL ? friendId(client.pid) : '';   // public friend id (invites), from the secret pid
         accounts.mergeGuest(client.acct, client.pid);   // an active account takes over this browser's guest progress
         accounts.seenGuest(client.pid);                 // (or the guest progress is kept another two months)
-        client.cos = accounts.cosForPlayer({ sub: client.acct, pid: client.pid });   // switched-on unlocks on its kitty
+        client.cos = room ? accounts.cosForPlayer({ sub: client.acct, pid: client.pid }, room.mode) : [];   // (set per lobby's mode on joining)
         if (v < MIN_PROTOCOL) {
           send(ws, { t: 'outdated', msg: 'A new version of Run Kitty Run is out - update to keep playing online.' });
           ws.close(4000, 'outdated');
@@ -847,7 +920,7 @@ wss.on('connection', (ws, req) => {
         const paid = accounts.paidFor(msg.acct);
         client.acct = accounts.subFor(msg.acct);
         accounts.mergeGuest(client.acct, client.pid);
-        const cos = accounts.cosForPlayer({ sub: client.acct, pid: client.pid });
+        const cos = room ? accounts.cosForPlayer({ sub: client.acct, pid: client.pid }, room.mode) : [];
         const cosChanged = cos.join() !== (client.cos || []).join();
         client.cos = cos;
         if (paid !== (client.paid || 0) || cosChanged) { client.paid = paid; if (room) sendRoom(room); }
@@ -873,11 +946,14 @@ wss.on('connection', (ws, req) => {
       case 'invite': handleInvite(client, msg); break;
       case 'create': {
         if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', msg: 'Server is full, try again later.' });
+        let mine = 0;
+        for (const r of rooms.values()) if (r.by === client.ipk) mine++;
+        if (mine >= MAX_ROOMS_PER_IP) return send(ws, { t: 'error', msg: 'You already have several lobbies open - join one of those, or try again in a bit.' });
         const mode = GAME_MODES.includes(msg.mode) ? msg.mode : 'mixed';
         if (!modeOk(client, mode)) return send(ws, { t: 'error', msg: `${MODE_NAMES[mode]} needs the latest version - ${updateHow(client)} to play it. The other modes work as usual.` });
         // max: how many kitties may join (2..NET.MAX_PLAYERS); pass: private lobby's password ('' = public)
         const maxReq = Number.isInteger(msg.max) ? msg.max : NET.MAX_PLAYERS;
-        const r = { code: makeCode(), mode, max: Math.max(2, Math.min(NET.MAX_PLAYERS, maxReq)), pass: cleanPass(msg.password),
+        const r = { code: makeCode(), mode, max: Math.max(2, Math.min(NET.MAX_PLAYERS, maxReq)), pass: cleanPass(msg.password), by: client.ipk,
           members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0, victory: null,
           left: new Map() }; // tab token -> state of a kitty that left this game (reconnect grace)
         stats.lobbyCreated();
@@ -886,7 +962,7 @@ wss.on('connection', (ws, req) => {
         break;
       }
       case 'join': {
-        const r = rooms.get(String(msg.code || '').toUpperCase().trim());
+        const r = rooms.get(str(msg.code).toUpperCase().trim());
         if (!r) return send(ws, { t: 'error', msg: 'No lobby with that code.' });
         if (r === room) return;
         joinRoom(client, r, msg.name, msg.color, msg.password);
@@ -931,7 +1007,7 @@ wss.on('connection', (ws, req) => {
         // token bucket: bursts of 5, refills one message per second
         const now = Date.now();
         if (!take(client, 'chat', 1, 5, now)) return send(ws, { t: 'chat', sys: true, text: 'Slow down a little!' });
-        const raw = String(msg.text || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120);
+        const raw = str(msg.text).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120);
         if (!raw) return;
         client.chatLog.push({ at: new Date(now).toISOString(), room: room.code, text: raw });
         if (client.chatLog.length > CHAT_HISTORY) client.chatLog.shift();
@@ -941,6 +1017,16 @@ wss.on('connection', (ws, req) => {
       case 'ping':
         send(ws, { t: 'pong', c: msg.c, k: room && room.phase === 'playing' ? room.tick : 0 });
         break;
+      case 'items': {
+        // a client whose level came out different from ours (main.js checkLevelHash): the real pickups, to draw
+        // those instead (its own would be in other spots: invisible pickups). At most once a second.
+        const now = Date.now();
+        if (!room || !room.sim || now - (client.itemsAt || 0) < 1000) return;
+        client.itemsAt = now;
+        const sim = room.sim;
+        send(ws, { t: 'items', lvl: sim.level, items: sim.items.map((it) => ({ id: it.id, type: it.type, x: it.x, z: it.z, taken: it.taken || undefined, mega: it.mega || undefined })) });
+        break;
+      }
       case 'resync': {
         // the client asks at most every 2 s (main.js); the full wolf state is big, so hold it to 1/s
         const now = Date.now();
@@ -957,8 +1043,8 @@ wss.on('connection', (ws, req) => {
   }
 
   ws.on('close', () => {
-    const left = (connsPerIp.get(ip) || 1) - 1;
-    if (left > 0) connsPerIp.set(ip, left); else connsPerIp.delete(ip);
+    const left = (connsPerIp.get(ipk) || 1) - 1;
+    if (left > 0) connsPerIp.set(ipk, left); else connsPerIp.delete(ipk);
     leaveRoom(client);
     // a late report only needs these (not the socket and the rest)
     clients.set(client.id, { id: client.id, name: client.name, app: client.app, ver: client.ver, hi: client.hi, ip: client.ip, chatLog: client.chatLog, room: null, ws: CLOSED_WS });

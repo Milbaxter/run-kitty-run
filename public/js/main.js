@@ -12,6 +12,7 @@ import { createEffects } from './effects.js';
 import { createIceTrail } from './trail.js';
 import { createAuraTrail } from './auratrail.js';
 import { createPawPrints } from './pawprints.js';
+import { medicLook } from './shared/unlocks.js';
 import { createAudio } from './audio.js';
 import { createUI } from './ui.js';
 import { createNet } from './net.js';
@@ -25,7 +26,7 @@ import { createAccount } from './account.js';
 import { createLegends } from './legends.js';
 import { analytics, openStatsPage } from './analytics.js';
 import { TOUCH, QUALITY, setQuality, goFullscreenLandscape, setKeepAwake, hideSplash } from './device.js';
-import { openSettings, settingsOpen, key, musicVolume, sfxVolume } from './settings.js';
+import { openSettings, settingsOpen, key, musicVolume, sfxVolume, fpsLimit } from './settings.js';
 import { NATIVE, haptic, plugin, call, storeUrl, openExternal, APP_VERSION } from './platform.js';
 
 // Integration: renderer, input, camera, presentation of the pure sim.
@@ -609,14 +610,7 @@ function buildView() {
   }
   const wolfPack = createWolfPack(scene, [...rigs.values()].map((r) => [r.rig, r.n])); // draws all wolves instanced
   const items = new Map();
-  for (const it of sim.items) {
-    if (it.taken) continue;
-    const m = createItemModel(it.type);
-    if (it.mega) m.group.scale.setScalar(1.7);   // level 9's big pair of boots (full speed at once)
-    m.group.position.set(it.x, inTree(ld, it.x, it.z) ? 2.2 : 0, it.z); // tree boots sit on the canopy
-    scene.add(m.group);
-    items.set(it.id, m);
-  }
+  for (const it of sim.items) if (!it.taken) items.set(it.id, itemView(it, ld));
   // the final run: a giant fish waits in the goal room for the kitties (eaten client-side, see feast())
   let fish = null;
   if (ld.finale) { fish = createGiantFishModel(); scene.add(fish.group); }
@@ -645,13 +639,19 @@ function warmShaders() {
   const hidden = [];
   scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
   try {
-    if (renderer.compileAsync) {
+    // compile everything, then wait for the shaders like renderer.compileAsync does, but a material thrown away
+    // meanwhile (a model replaced) counts as done: three's own check crashed on it and the picture stayed held
+    const mats = renderer.compile(scene, camera);
+    if (mats && mats.size && renderer.properties) {
       const hold = performance.now() + WARM_HOLD_MS;
       warmHoldUntil = hold;
-      const done = () => { if (warmHoldUntil === hold) warmHoldUntil = 0; };
-      renderer.compileAsync(scene, camera).then(done, done);
+      const check = () => {
+        if (warmHoldUntil !== hold) return;   // (a newer level's warm-up took over)
+        for (const m of mats) { const pr = renderer.properties.get(m).currentProgram; if (!pr || pr.isReady()) mats.delete(m); }
+        if (mats.size) setTimeout(check, 10); else warmHoldUntil = 0;
+      };
+      check();
     }
-    else renderer.compile(scene, camera);
   } catch { /* a missing shader just compiles on first use, as before */ }
   for (const o of hidden) o.visible = false;
 }
@@ -975,6 +975,21 @@ function startVictory(ev) {
   for (let i = 0; i < 3; i++) launchFirework(0.6 + i * 0.3); // opening salvo
 }
 
+// a pickup's model, in place
+function itemView(it, ld) {
+  const m = createItemModel(it.type);
+  if (it.mega) m.group.scale.setScalar(1.7);   // level 9's big pair of boots (full speed at once)
+  m.group.position.set(it.x, inTree(ld, it.x, it.z) ? 2.2 : 0, it.z); // tree boots sit on the canopy
+  scene.add(m.group);
+  return m;
+}
+// the pickups drawn again from sim.items (the server's list replaced ours)
+function rebuildItemViews() {
+  for (const m of view.items.values()) disposeModel(m.group);
+  view.items.clear();
+  for (const it of sim.items) if (!it.taken) view.items.set(it.id, itemView(it, sim.levelData));
+}
+
 function updateVictory(dt) {
   if (victory && (victory.sim !== sim || mode !== 'play' || sim.state !== 'victory')) victory = null;
   if (!victory && mode === 'play' && sim.state === 'victory') startVictory(null); // missed the event: still party
@@ -1024,7 +1039,7 @@ function cosOf(p) {
     if (r._cosFrom !== r.cos) { r._cosFrom = r.cos; r._cos = new Set(r.cos); }
     return r._cos;
   }
-  return p === sim.players[0] && account.signedIn() ? account.equipped() : NO_COS;
+  return p === sim.players[0] ? account.equipped(sim.mode) : NO_COS;   // (kitty 1: whoever plays on this device, account or not)
 }
 
 // Share the run's result (share.js: an image card of your kitty + a short text with the link). Your own kitty: the
@@ -1343,10 +1358,12 @@ function snapshotPrev() {
 
 // 6+ finishes: smoothly blend through all the cat colours, ~1 s each
 const _cycB = new THREE.Color();
-function cycleColor(t, out) {
-  const n = PLAYER_COLORS.length, i = Math.floor(t) % n, f = t - Math.floor(t);
-  return out.set(PLAYER_COLORS[i]).lerp(_cycB.set(PLAYER_COLORS[(i + 1) % n]), f * f * (3 - 2 * f));
+function cycleColor(t, out, cols = PLAYER_COLORS) {
+  const n = cols.length, i = Math.floor(t) % n, f = t - Math.floor(t);
+  return out.set(cols[i]).lerp(_cycB.set(cols[(i + 1) % n]), f * f * (3 - 2 * f));
 }
+// the celestial lion's colours of space (its aura, fire trail, prints and skate marks cycle through these instead)
+const COSMIC_CYCLE = [0x7a3cff, 0x3a4dff, 0x1fa8ff, 0xc23cff, 0x5a24d0];
 
 // ---------- the final run's giant fish: kitties next to it eat it ----------
 // Pure presentation: the sim knows nothing about the fish, so every client counts its own bites from where the kitties
@@ -1526,7 +1543,9 @@ function syncVisuals(dt, alpha) {
     // run rewards (finishes = runs won): 2+ paw prints + coloured skate marks, 3+ flame aura, 4+ aura trail,
     // 6+ all of them cycle through the cat colours (the fur keeps its own); wins 2-6 also set stones in the crown
     const wins = p.finishes || 0, paws = wins >= 2, cos = cosOf(p);   // cos: switched-on account unlocks
-    if (wins >= 6) cycleColor(t + p.id * 2.3, k.fx);
+    const cosmic = wins >= 16 && (p.rescues || 0) >= 120;   // the celestial lion (see ka.celestial below)
+    if (cosmic) cycleColor((t + p.id * 2.3) * 0.7, k.fx, COSMIC_CYCLE);
+    else if (wins >= 6) cycleColor(t + p.id * 2.3, k.fx);
     const ka = _kitArgs;
     ka.speed01 = gliding ? 0 : eat && eat.walking ? 0.45 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2));
     ka.moving = (p.moving && !gliding) || !!(eat && eat.walking); ka.munch = !!(eat && eat.munch); ka.bites = k.bites | 0;
@@ -1568,8 +1587,8 @@ function syncVisuals(dt, alpha) {
         k.cosT = 0.045;
         const cy = k.climb || 0, fx = Math.cos(p.heading), fz = Math.sin(p.heading);
         effects.cosmicTrail(x - fx * 0.4, cy, z - fz * 0.4);
-        // a thin stream of stars off each open wing's tip (rig space: 0.1 back, 0.62 up, 0.65 out to each side)
-        for (const side of [1, -1]) effects.cosmicTrail(x - fx * 0.1 - fz * 0.65 * side, cy + 0.52, z - fz * 0.1 + fx * 0.65 * side, 1, 0.04, 0.12, 0.55);
+        // a thin stream of stars off each open wing's tip (the dragon wings: 0.12 back, 0.54 up, 0.78 out to each side)
+        for (const side of [1, -1]) effects.cosmicTrail(x - fx * 0.12 - fz * 0.78 * side, cy + 0.54, z - fz * 0.12 + fx * 0.78 * side, 1, 0.04, 0.12, 0.55);
       }
     }
     k.model.update(dt, ka);
@@ -1581,8 +1600,10 @@ function syncVisuals(dt, alpha) {
       if (k.dustT <= 0) {
         k.dustT = 0.13;
         const bx = x - Math.cos(p.heading) * 0.3, bz = z - Math.sin(p.heading) * 0.3;
-        if (paws) k.paws.add(bx, inTree(sim.levelData, bx, bz) ? 2.2 : 0, bz, p.heading, k.fx); // on the ground or up on a canopy
+        const gy = inTree(sim.levelData, bx, bz) ? 2.2 : 0;   // on the ground or up on a canopy
+        if (paws) k.paws.add(bx, gy, bz, p.heading, k.fx, cosmic);   // (the celestial lion's prints boom once)
         else effects.dust(bx, bz);
+        if (cosmic) effects.starStep(bx, gy, bz);   // the celestial lion's prints twinkle with a little star
         k.stepN++;
         if (k.stepN % 2 === 0) audio.play('step', { volume: 0.35, pitch: 0.9 + Math.random() * 0.2, pan: panFor(x) });
       }
@@ -1642,6 +1663,7 @@ function updateHUD() {
     let h = hudPlayers[i];
     if (!h) h = hudPlayers[i] = {};
     h.name = p.name; h.color = p.color; h.shimmer = (p.finishes || 0) >= 12; h.rainbow = (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; const il = iconLook(p); h.cool = il.cool; h.lion = il.lion; h.lionLook = il.lionLook; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
+    h.medic = medicLook(cosOf(p));   // the medic badge (3000 revives), when switched on
     h.paid = online.playing ? ((online.roster.get(p.id) || {}).paid || 0) : i === 0 && account.shown() ? account.paid() : 0;   // account total (unless switched off)
   }
   if (dirty) ui.setScores(hudScores);
@@ -1940,13 +1962,36 @@ net.on('wolves', (m) => {
 
 // Desync tripwire: the server sends its level's hash (start message, levelStart events); a client that generated the
 // level differently (e.g. a float op that differs between JS engines) reports it. No fallback: wolf resyncs still apply.
+// The level came out different here than on the server (its fingerprint covers wolves and items): take the server's.
+// The pickups would otherwise sit in other spots here (the server's ones invisible: "a shield out of nowhere"), and the
+// wolves get the server's full state. The report says which part differed once the server's items are in.
+let levelFix = null;   // { level, mode } while waiting for the server's items
 function checkLevelHash(level, lh) {
   if (lh == null || !sim || sim.level !== level || !sim.levelData) return;
   const mine = levelHash(sim.levelData);
   if (mine === lh) return;
-  console.warn(`level ${level} (${sim.mode}) generated differently from the server: hash ${mine} vs ${lh}`);
-  analytics.levelMismatch(sim.mode, level, APP_VERSION);
+  console.warn(`level ${level} (${sim.mode}) generated differently from the server: hash ${mine} vs ${lh}, using the server's`);
+  levelFix = { level, mode: sim.mode };
+  if (net.connected) { net.send({ t: 'items' }); net.send({ t: 'resync' }); online.resyncAt = performance.now() + 2000; }
 }
+// the server's pickups for this level: replace ours and draw them
+net.on('items', (m) => {
+  if (!sim || !Array.isArray(m.items) || m.lvl !== sim.level) return;
+  const items = [];
+  for (const it of m.items) {
+    if (!it || !Number.isInteger(it.id) || typeof it.type !== 'string' || !Number.isFinite(it.x) || !Number.isFinite(it.z)) return;
+    items.push({ id: it.id, type: it.type, x: it.x, z: it.z, taken: !!it.taken, ...(it.mega ? { mega: true } : {}) });
+  }
+  const key = (list) => JSON.stringify(list.map((it) => [it.id, it.type, it.x, it.z, !!it.mega]));
+  const itemsDiffered = key(items) !== key(sim.items);
+  if (levelFix && levelFix.level === sim.level) {
+    analytics.levelMismatch(levelFix.mode, levelFix.level, APP_VERSION, itemsDiffered ? 'items' : 'wolves');
+    levelFix = null;
+  }
+  if (!itemsDiffered) return;
+  sim.items = items;
+  if (view) rebuildItemViews();
+});
 
 function leadTicks() { return Math.ceil(net.rtt / 2 / (CFG.TICK * 1000)) + NET.INPUT_LEAD; }
 
@@ -2025,7 +2070,10 @@ function toggleOnlineMenu() {
 // Step local wolves up to the level tick matching our current tick, remembering recent positions. Far behind (back
 // from the background, a late level change): don't replay it all (seconds of frozen game on a big level), ask the
 // server for its wolves instead; they wait where they are until the reply ('wolves') catches them up.
+// In between, at most WOLF_CATCHUP_PER_CALL ticks per call: a stall of a second or two is replayed over a few frames
+// (the wolves lag the server for a moment) instead of one long frame on a big level.
 const WOLF_CATCHUP_MAX = 300;   // ticks (5 s)
+const WOLF_CATCHUP_PER_CALL = 24;
 function catchUpWolves() {
   const target = online.tick - online.levelStartTick;
   if (target - sim.enemyTicks > WOLF_CATCHUP_MAX) {
@@ -2034,7 +2082,7 @@ function catchUpWolves() {
     return;
   }
   let guard = 0;
-  while (sim.enemyTicks < target && guard++ < 7200) {
+  while (sim.enemyTicks < target && guard++ < WOLF_CATCHUP_PER_CALL) {
     updateEnemies(sim.enemies, sim.levelData, CFG.TICK);
     sim.enemyTicks++;
     if (target - sim.enemyTicks < WOLF_HIST) recordWolves();
@@ -2206,8 +2254,22 @@ function applySnapshot(m) {
 let last = performance.now();
 let minimapT = 0;
 
+// Frame pacing: the player's frame rate limit (Settings; MAX by default: every refresh of the screen). The game steps
+// at a fixed 60 Hz either way (offline and online), so a limit only saves GPU work and heat. A frame is drawn once its
+// time has come (to half a refresh), so the average holds the limit and a limit the screen divides is evenly spaced.
+let vsyncPrev = last, vsyncMs = 1000 / 60, nextDraw = 0;
+
 function frame(now) {
   requestAnimationFrame(frame);
+  const iv = now - vsyncPrev;
+  vsyncPrev = now;
+  if (iv > 3 && iv < 40) vsyncMs += (iv - vsyncMs) * (iv < vsyncMs ? 0.1 : 0.02);   // leans to the short intervals (the real refresh)
+  const cap = fpsLimit();
+  if (cap) {
+    const step = 1000 / cap;
+    if (now < nextDraw - vsyncMs / 2) return;
+    nextDraw = now - nextDraw > step ? now + step : nextDraw + step;   // (fell behind: start over from now)
+  }
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.1) dt = 0.1;
@@ -2319,7 +2381,10 @@ function setBackground(bg) {
     audio.setBackground(false);
     syncTrack();
     net.wake();
-    if (online.playing && net.connected) net.send({ t: 'resync' });
+    // A long time away: ask for the server's wolves right away (on a big level that is a large message, so only when
+    // the local replay can't cover it; a short tab switch is replayed by catchUpWolves, which also asks if the next
+    // snapshot turns out to be far ahead).
+    if (online.playing && net.connected && online.tick - online.levelStartTick - sim.enemyTicks > WOLF_CATCHUP_MAX) net.send({ t: 'resync' });
   }
 }
 document.addEventListener('visibilitychange', () => setBackground(document.visibilityState === 'hidden'));

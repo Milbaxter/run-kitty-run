@@ -6,6 +6,7 @@ const PATCH_NOTES = [
     items: [
       'iOS app: swag packs. Optional in-app purchases that add to your swag number and activate your swag account; Restore purchases brings it back on a new iPhone',
       'Sign in with Discord: swag accounts now work with a Discord account too, next to Google',
+      'Settings: a frame rate limit (MAX, 240, 144, 120, 60 or 30). MAX draws every refresh of your screen; a limit saves graphics work and heat',
       'New ULTRA LOW graphics setting for slower computers: no weather and a lower drawing resolution, for the most speed',
       'Invite friends: INVITE FRIENDS in a lobby lists the players you played Multiplayer with and who of them is online, so you can invite them with one click (they get a JOIN button). Star ★ players to keep them as friends',
       'Too many invites? Block invites from a player right in the invite, or choose who may invite you in Settings: everyone, friends only or nobody',

@@ -132,7 +132,8 @@ const INLINE_SCRIPT_HASHES = (() => {
       const html = fs.readFileSync(path.join(ROOT, f), 'utf8');
       for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
         if (/\bsrc\s*=/.test(m[1])) continue;
-        out.add(`'sha256-${crypto.createHash('sha256').update(m[2]).digest('base64')}'`);
+        // (as the browser hashes it: its HTML parser turns CRLF into LF, so a Windows checkout's file still matches)
+        out.add(`'sha256-${crypto.createHash('sha256').update(m[2].replace(/\r\n?/g, '\n')).digest('base64')}'`);
       }
     }
   } catch (e) { console.error('inline script hashes:', e.message); }

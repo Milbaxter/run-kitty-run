@@ -5,6 +5,9 @@ const PATCH_NOTES = [
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
       'Sign in with Discord: swag accounts now work with a Discord account too, next to Google',
+      'Full screen on computers: a new button next to the HUD and sound buttons (or press F). Your kitty stays the same size and you see more of the level above and below it',
+      'When your kitty goes down in Multiplayer, the camera stays on it; switch to the other kitties with ← → as before',
+      'A kitty can be revived sooner: 0.2 s after going down (it was 0.5 s)',
       'A revived kitty is safe for a moment (0.67 s), and on ice it skates off whichever way you steer first',
       'Settings: a frame rate limit (MAX, 240, 144, 120, 60 or 30). MAX draws every refresh of your screen; a limit saves graphics work and heat',
       'New ULTRA LOW graphics setting for slower computers: no weather and a lower drawing resolution, for the most speed',

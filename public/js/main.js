@@ -286,6 +286,13 @@ const ZOOM_MIN = 0.45;
 let camZoom = 1;
 try { camZoom = Math.max(ZOOM_MIN, Math.min(1, +localStorage.getItem('rkr-zoom') || 1)); } catch { /* ignore */ }
 let zoomSaveT = 0;
+// Full screen on a computer (Settings, or the browser's F11): the kitty stays the size it has in a maximised window
+// (about 2:1 on a 16:9 screen), so the extra height shows more of the level above and below it.
+const TALL_ASPECT = 2, TALL_MAX = 1.2;
+function tallView() {
+  if (TOUCH || !(document.fullscreenElement || window.innerHeight >= screen.height - 1)) return 1;
+  return Math.max(1, Math.min(TALL_MAX, TALL_ASPECT / camera.aspect));
+}
 function zoomBy(f) {
   camZoom = Math.max(ZOOM_MIN, Math.min(1, camZoom * f));
   clearTimeout(zoomSaveT);
@@ -1198,32 +1205,25 @@ const CAM_DIR = new THREE.Vector3(0, 0.83, 0.56).normalize(); // ~56° pitch, lo
 let camOrbit = 0, camYaw = 0;
 const _orbDir = new THREE.Vector3(), _camDir = new THREE.Vector3();
 const smooth01 = (v) => { v = Math.max(0, Math.min(1, v)); return v * v * (3 - 2 * v); };
-// online, while your kitty is down: follow the nearest kitty still standing (nearest to your revive circle),
-// sticking with it until it falls too, so you can watch the rescue. The usual camera lerp makes the switch smooth.
+// online, while your kitty is down: the camera stays on it (its revive circle), and you can switch to a kitty still
+// standing (cycleWatch). A watched kitty that falls too: back to your own. watchId: who is watched (your own id: you).
 let watchId = null;
 function pickWatch(meP) {
-  const cur = watchId != null ? playerById(watchId) : null;
+  const cur = watchId != null && watchId !== meP.id ? playerById(watchId) : null;
   if (cur && cur.alive) return cur;
-  const c = sim.circles.find((q) => q.playerId === meP.id);
-  const ox = c ? c.x : meP.x, oz = c ? c.z : meP.z;
-  let best = null, bd = Infinity;
-  for (const p of sim.players) {
-    if (!p.alive || p.id === meP.id) continue;
-    const d = (p.x - ox) ** 2 + (p.z - oz) ** 2;
-    if (d < bd) { bd = d; best = p; }
-  }
-  watchId = best ? best.id : null;
-  return best;
+  watchId = meP.id;
+  return null;
 }
-// the kitties you can switch to while spectating, in player order (stable, so cycling is predictable)
+// what you can switch to while spectating: your own kitty and the ones still standing, in player order (stable, so
+// cycling is predictable)
 function watchCandidates() {
-  return sim.players.filter((p) => p.alive && p.id !== online.me);
+  return sim.players.filter((p) => p.alive || p.id === online.me);
 }
 function spectating() {
   return online.playing && mode === 'play' && watchId != null && sim.state !== 'gameover' && !online.menu;
 }
 // manual switch: Left/Right/A/D/Tab, the pill's ‹ › buttons, or gamepad shoulders / d-pad. The pick sticks
-// (pickWatch keeps an alive watchId) until that kitty goes down or you're revived.
+// (pickWatch keeps an alive watchId) until that kitty goes down (then: your own again) or you're revived.
 function cycleWatch(dir) {
   if (!spectating()) return;
   const list = watchCandidates();
@@ -1263,7 +1263,7 @@ function updateWatchLabel() {
     watchEl.append(watchEl.prevBtn, watchNameEl, watchEl.nextBtn);
     document.body.appendChild(watchEl);
   }
-  watchNameEl.textContent = p ? 'Watching ' + p.name + (multi && FINE_POINTER ? '  (← → to switch)' : '') : '';
+  watchNameEl.textContent = p ? 'Watching ' + (p.id === online.me ? 'your kitty' : p.name) + (multi && FINE_POINTER ? '  (← → to switch)' : '') : '';
   watchEl.prevBtn.style.display = watchEl.nextBtn.style.display = multi ? '' : 'none';
   watchEl.style.pointerEvents = multi ? 'auto' : 'none';
   watchEl.style.display = p ? 'flex' : 'none';
@@ -1281,17 +1281,19 @@ function updateCamera(dt, alpha) {
     const consider = (x, z) => { n++; tx += x; tz += z; minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z); };
     const meP = online.playing ? playerById(online.me) : null;
     const meAlive = !!(meP && meP.alive);
-    const watch = online.playing && meP && !meAlive ? pickWatch(meP) : null;
-    if (!watch) watchId = null;
+    const down = online.playing && !!meP && !meAlive && sim.state !== 'gameover';
+    const watch = down ? pickWatch(meP) : null;
+    if (!down) watchId = null;
     for (const p of sim.players) {
       if (!p.alive) continue;
       if (meAlive && p.id !== online.me) continue;
-      if (watch && p !== watch) continue;
+      if (down && p !== watch) continue;
       const pp = prevPos.get('p' + p.id);
       const x = pp ? pp.x + (p.x - pp.x) * alpha : p.x;
       const z = pp ? pp.z + (p.z - pp.z) * alpha : p.z;
       consider(x + p.vx * 0.18, z + p.vz * 0.18);
     }
+    if (n === 0 && down) { const c = sim.circles.find((q) => q.playerId === meP.id) || meP; consider(c.x, c.z); }   // your own kitty, where it fell
     if (n === 0) { for (const c of sim.circles) consider(c.x, c.z); }
     if (n === 0) consider(0, 0);
     tx /= n; tz /= n;
@@ -1312,7 +1314,7 @@ function updateCamera(dt, alpha) {
       const ry = pad && pad.connected ? pad.axes[3] || 0 : 0;
       if (Math.abs(ry) > 0.3) { zoomBy(Math.exp(ry * dt * 1.4)); break; }
     }
-    want *= camZoom;
+    want *= camZoom * tallView();
   }
   const k = cameraSnap || flyover ? 1 : 1 - Math.exp(-dt * 5);
   camTarget.x += (tx - camTarget.x) * k;

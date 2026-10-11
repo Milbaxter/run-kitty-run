@@ -5,10 +5,10 @@
 import { TOUCH } from './device.js';
 
 const KEY = 'rkr-settings';
-const DEFAULT_KEYS = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', pause: 'KeyP', sound: 'KeyM', hud: 'KeyH', zoomIn: 'Equal', zoomOut: 'Minus' };
+const DEFAULT_KEYS = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', pause: 'KeyP', sound: 'KeyM', hud: 'KeyH', full: 'KeyF', zoomIn: 'Equal', zoomOut: 'Minus' };
 const ACTIONS = [
   ['up', 'Move up'], ['down', 'Move down'], ['left', 'Move left'], ['right', 'Move right'],
-  ['pause', 'Pause / menu'], ['sound', 'Sound on / off'], ['hud', 'Show / hide the HUD'], ['zoomIn', 'Zoom in'], ['zoomOut', 'Zoom out'],
+  ['pause', 'Pause / menu'], ['sound', 'Sound on / off'], ['hud', 'Show / hide the HUD'], ['full', 'Full screen'], ['zoomIn', 'Zoom in'], ['zoomOut', 'Zoom out'],
 ];
 // keys that keep their fixed job (arrows move, Esc pauses and cancels, Enter chats and confirms, Tab switches the watched kitty)
 const RESERVED = new Set(['Escape', 'Enter', 'NumpadEnter', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'MetaLeft', 'MetaRight']);

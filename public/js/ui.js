@@ -87,6 +87,7 @@ const ICONS = {
   paw: `<svg viewBox="0 0 40 40"><ellipse cx="20" cy="27" rx="9" ry="7.5"/><ellipse cx="8.5" cy="17" rx="3.6" ry="4.6" transform="rotate(-20 8.5 17)"/><ellipse cx="15.5" cy="10" rx="3.6" ry="4.8" transform="rotate(-6 15.5 10)"/><ellipse cx="24.5" cy="10" rx="3.6" ry="4.8" transform="rotate(6 24.5 10)"/><ellipse cx="31.5" cy="17" rx="3.6" ry="4.6" transform="rotate(20 31.5 17)"/></svg>`,
   clock: `<svg viewBox="0 0 40 40"><circle cx="20" cy="21" r="14" fill="rgba(255,255,255,.12)" stroke="currentColor" stroke-width="3"/><path d="M20 12 L20 21 L26 25" stroke="currentColor" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M16 4 L24 4" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`,
   eye: `<svg viewBox="0 0 40 40"><path d="M3 20 Q20 4 37 20 Q20 36 3 20 Z" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"/><circle cx="20" cy="20" r="6" fill="currentColor"/><path class="rkr-eslash" d="M7 33 L33 7" stroke="#ff5c7a" stroke-width="3.6" stroke-linecap="round"/></svg>`,
+  full: `<svg viewBox="0 0 40 40"><path d="M7 15 V7 H15 M25 7 H33 V15 M33 25 V33 H25 M15 33 H7 V25" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   menu: `<svg viewBox="0 0 40 40"><path d="M9 12 H31 M9 20 H31 M9 28 H31" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"/></svg>`,
   crown: `<svg viewBox="0 0 40 40"><path d="M5 30 L3 11 L13 19 L20 6 L27 19 L37 11 L35 30 Z" fill="#ffd34a" stroke="${INK}" stroke-width="2.6" stroke-linejoin="round"/><path d="M6 30 H34 V35 H6 Z" fill="#ffb21f" stroke="${INK}" stroke-width="2.4" stroke-linejoin="round"/><circle cx="20" cy="23" r="2.6" fill="#ff5c93"/><circle cx="12" cy="25" r="1.8" fill="#4cc9ff"/><circle cx="28" cy="25" r="1.8" fill="#3ee08f"/><path d="M8 14 L9.5 26" stroke="#fff" stroke-width="2" opacity=".6" stroke-linecap="round"/></svg>`,
   flag: `<svg viewBox="0 0 40 40"><path d="M10 4 V37" stroke="${INK}" stroke-width="3.4" stroke-linecap="round"/><path d="M11 6 Q19 2 25 7 Q30 11 35 8 L35 22 Q29 25 24 21 Q18 17 11 21 Z" fill="#3ee08f" stroke="${INK}" stroke-width="2.4" stroke-linejoin="round"/></svg>`,
@@ -129,6 +130,8 @@ const CSS = `
 .rkr-hudbtn,.rkr-menubtn{width:42px;height:42px;padding:8px;border-radius:14px;background:rgba(20,10,40,.55);border:2px solid rgba(255,255,255,.18);
   color:#fff;cursor:pointer;pointer-events:auto;}
 .rkr-hudbtn .rkr-eslash{display:none;}
+.rkr-fullbtn.rkr-on{border-color:rgba(140,220,255,.8);color:#bfeaff;}
+html.rkr-touch .rkr-fullbtn{display:none;}
 .rkr-hud.rkr-min .rkr-hudbtn .rkr-eslash{display:inline;}
 .rkr-hud.rkr-min .rkr-tl,.rkr-hud.rkr-min .rkr-tc,.rkr-hud.rkr-min .rkr-map,.rkr-hud.rkr-min .rkr-scores,.rkr-hud.rkr-min .rkr-hint{display:none;}
 .rkr-menubtn{display:none;}
@@ -534,7 +537,7 @@ function createUI(root) {
   tc.append(rescEl);
 
   const tr = el('div', 'rkr-tr');
-  const hintEl = el('div', 'rkr-hint', '<span class="rkr-k" data-act="pause"></span>pause <span class="rkr-k" data-act="hud"></span>hud <span class="rkr-k" data-act="sound"></span><span class="rkr-snd">mute</span>');
+  const hintEl = el('div', 'rkr-hint', '<span class="rkr-k" data-act="pause"></span>pause <span class="rkr-k" data-act="hud"></span>hud <span class="rkr-k rkr-fullkey" data-act="full"></span><span class="rkr-fullkey">full</span> <span class="rkr-k" data-act="sound"></span><span class="rkr-snd">mute</span>');
   paintKeys(hintEl);   // (the keys picked in the settings)
   const muteEl = el('button', 'rkr-mute', ICONS.speaker);
   const hudBtn = el('button', 'rkr-hudbtn', ICONS.eye);
@@ -544,14 +547,35 @@ function createUI(root) {
   menuBtn.title = 'Menu';
   menuBtn.setAttribute('aria-label', 'Menu');
   muteEl.setAttribute('aria-label', 'Mute sound');
-  for (const b of [muteEl, hudBtn, menuBtn]) {
+  // full screen (computers): more of the level above and below your kitty (main.js tallView)
+  const fullBtn = el('button', 'rkr-hudbtn rkr-fullbtn', ICONS.full);
+  fullBtn.title = 'Full screen';
+  fullBtn.setAttribute('aria-label', 'Full screen');
+  const canFull = !TOUCH && !!document.documentElement.requestFullscreen;
+  function toggleFull() {
+    if (!canFull) return;
+    const p = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    if (p && p.catch) p.catch(() => {});
+  }
+  // Esc pauses the game: keep it from also leaving full screen, where the browser can (Chrome, Edge: hold Esc to leave)
+  const kb = navigator.keyboard;
+  const paintFull = () => {
+    const on = !!document.fullscreenElement;
+    fullBtn.classList.toggle('rkr-on', on); fullBtn.setAttribute('aria-pressed', String(on));
+    try { if (kb && kb.lock) { if (on) kb.lock(['Escape']).catch(() => {}); else kb.unlock(); } } catch { /* not here */ }
+  };
+  document.addEventListener('fullscreenchange', paintFull);
+  paintFull();
+  fullBtn.addEventListener('click', toggleFull);
+  if (!canFull) { fullBtn.style.display = 'none'; for (const n of hintEl.querySelectorAll('.rkr-fullkey')) n.style.display = 'none'; }
+  for (const b of [muteEl, hudBtn, fullBtn, menuBtn]) {
     b.type = 'button';
     // mouse/touch clicks must not leave focus here, or the next Enter/Space would press it again
     b.addEventListener('mousedown', (e) => e.preventDefault());
     // keyboard-focused: Enter/Space press the button, not the game/overlay key handlers on window
     b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); });
   }
-  tr.append(hintEl, hudBtn, muteEl, menuBtn);
+  tr.append(hintEl, hudBtn, fullBtn, muteEl, menuBtn);
 
   const mapEl = el('div', 'rkr-map');
   const mapCanvas = document.createElement('canvas');
@@ -1002,6 +1026,7 @@ function createUI(root) {
               <div class="rkr-krow"><span class="rkr-k" data-act="pause"></span><span class="rkr-k rkr-wide">Esc</span></div><div class="rkr-lab">pause</div>
               <div class="rkr-krow"><span class="rkr-k rkr-wide">Enter</span></div><div class="rkr-lab">chat (online)</div>
               <div class="rkr-krow"><span class="rkr-k" data-act="hud"></span></div><div class="rkr-lab">show / hide the HUD</div>
+              <div class="rkr-krow rkr-desk"><span class="rkr-k" data-act="full"></span></div><div class="rkr-lab rkr-desk">full screen</div>
             </div>
           </div>
           <div class="rkr-panel rkr-notes"><h3>What's new</h3>${notesHtml()}</div>
@@ -1444,6 +1469,7 @@ function createUI(root) {
     const k = e.key;
     if (blocker && blocker()) return;
     if (e.code === key('hud') && !state.title && !e.target.closest?.('input')) { setHudMin(!hudMin); return; }
+    if (e.code === key('full') && !e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest?.('input, textarea')) { toggleFull(); return; }
     if (state.victory) {
       if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'a' || k === 'A' || k === 'w' || k === 'W') selectVictory(vSel - 1);
       else if (k === 'ArrowRight' || k === 'ArrowDown' || k === 'd' || k === 'D' || k === 's' || k === 'S') selectVictory(vSel + 1);

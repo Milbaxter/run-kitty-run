@@ -18,6 +18,8 @@ const MIN_GAME_S = 300;                 // offline: the whole game (sim.time, le
 const MAX_GAME_S = 12 * 3600;
 const MIN_RUN_S = 15;                   // offline: the final run alone
 const OFFLINE_PLAYERS = 2;              // solo or local co-op
+// wins taken off the board by hand (by id): dropped when the board loads, so a deploy removes them
+const REMOVED = new Set(['murjptwl94a69a']);
 
 // single line, no control / bidi-override characters, collapsed spaces, capped; no other filtering (the apps mask)
 function cleanText(v) {
@@ -29,7 +31,7 @@ function createLegends(file) {
   let wins = [];   // oldest first: { id, at, mode, kind?: 'solo' | 'coop' (offline wins), runTime, entries: [{ name, color, text, at }] }
   try {
     const old = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (Array.isArray(old.wins)) wins = old.wins.filter((w) => w && Array.isArray(w.entries)).slice(-MAX_WINS);
+    if (Array.isArray(old.wins)) wins = old.wins.filter((w) => w && Array.isArray(w.entries) && !REMOVED.has(w.id)).slice(-MAX_WINS);
   } catch { /* first run, or unreadable: start fresh */ }
   // signer key (tab token / client id) -> { win, idx, until }; in memory only (a restart closes the signing windows)
   const elig = new Map();

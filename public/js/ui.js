@@ -627,9 +627,13 @@ function createUI(root) {
       <stop offset="0" stop-color="#fff3c4"/><stop offset=".35" stop-color="#e0a020"/><stop offset=".5" stop-color="#ffe07a"/>
       <stop offset=".7" stop-color="#b8791f"/><stop offset="1" stop-color="#ffd34a"/>
     </linearGradient>
-    <linearGradient id="rkr-chrome-fur" x1="0" y1="0" x2=".75" y2="1">
-      <stop offset="0" stop-color="#ffffff"/><stop offset=".35" stop-color="#b9c2d0"/><stop offset=".5" stop-color="#f4f7fb"/>
-      <stop offset=".7" stop-color="#8c96a8"/><stop offset="1" stop-color="#dfe5ee"/>
+    <!-- the chrome lion: a band of light slides across the mirror fur, like on its 3D model. The gradient repeats and
+         moves by exactly its own length, so the loop has no seam -->
+    <linearGradient id="rkr-chrome-fur" x1="0" y1="0" x2=".75" y2="1" spreadMethod="repeat">
+      <stop offset="0" stop-color="#b9c2d0"/><stop offset=".2" stop-color="#eef2f7"/><stop offset=".4" stop-color="#8c96a8"/>
+      <stop offset=".56" stop-color="#cfd6e0"/><stop offset=".66" stop-color="#ffffff"/><stop offset=".76" stop-color="#cfd6e0"/>
+      <stop offset="1" stop-color="#b9c2d0"/>
+      <animateTransform attributeName="gradientTransform" type="translate" from="-0.75 -1" to="0 0" dur="3.4s" repeatCount="indefinite"/>
     </linearGradient>
     <radialGradient id="rkr-cosmic-sky" gradientUnits="userSpaceOnUse" cx="20" cy="21" r="21" fx="20" fy="19">
       <stop offset="0" stop-color="#a99bff"/><stop offset=".35" stop-color="#6a54e0"/><stop offset=".7" stop-color="#33208f"/><stop offset="1" stop-color="#141045"/>

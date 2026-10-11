@@ -946,7 +946,14 @@ function createKittyModel(color) {
     bow.scale.setScalar(fl ? 1 : 0.62);   // (made for the fluffy tail: smaller on a plain one)
     tipGlow.visible = fl;
     if (tipGlow.visible) {
-      tipGlow.material.color.copy(s.celestial ? rbC.set(0xb48cff) : s.silver ? rbC.set(0xe8f0ff) : s.auraColor || rbC.set(color)).lerp(AURA_WHITE, 0.25);
+      // the glow is the colour the kitty's fur has right now: its own, the rainbow fur's (as it runs past the tail tip),
+      // the chrome lion's silver, the celestial lion's violet, a bronze / golden kitty's metal
+      if (s.celestial) rbC.set(0xb48cff);
+      else if (s.silver) rbC.set(0xe8f0ff);
+      else if (s.metalCat) rbC.set(METAL_HEX[s.metalCat] || color);
+      else if (s.rainbowCat) rbC.setHSL((((t * 0.45 + rainbowOff + 0.44) % 1) + 1) % 1, 0.9, 0.55);
+      else rbC.set(color);
+      tipGlow.material.color.copy(rbC).lerp(AURA_WHITE, 0.25);
       tipGlow.scale.setScalar(0.3 + 0.05 * Math.sin(t * 4));
     }
     // lion mane (silver with the silver fur)

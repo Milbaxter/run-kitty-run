@@ -5,6 +5,7 @@ const PATCH_NOTES = [
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
       'Sign in with Discord: swag accounts now work with a Discord account too, next to Google',
+      'Zoom out a little further than before (mouse wheel, the - key, a pinch or the right stick of a controller): up to 25% more of the level around your kitty',
       'Full screen on computers: a new button next to the HUD and sound buttons (or press F). Your kitty stays the same size and you see more of the level above and below it',
       'When your kitty goes down in Multiplayer, the camera stays on it; switch to the other kitties with ← → as before',
       'A kitty can be revived sooner: 0.2 s after going down (it was 0.5 s)',

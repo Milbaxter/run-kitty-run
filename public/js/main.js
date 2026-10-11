@@ -281,10 +281,11 @@ ui.onMenuClick(() => {
 });
 
 // ---------- camera zoom (on your kitty): mouse wheel, + / -, a two-finger pinch, a controller's right stick ----------
-// camZoom scales the camera's distance while playing: 1 = the usual view, down to ZOOM_MIN (closer). Remembered.
-const ZOOM_MIN = 0.45;
+// camZoom scales the camera's distance while playing: 1 = the usual view, down to ZOOM_MIN (closer) and up to ZOOM_MAX
+// (a little further out). Remembered.
+const ZOOM_MIN = 0.45, ZOOM_MAX = 1.25;
 let camZoom = 1;
-try { camZoom = Math.max(ZOOM_MIN, Math.min(1, +localStorage.getItem('rkr-zoom') || 1)); } catch { /* ignore */ }
+try { camZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, +localStorage.getItem('rkr-zoom') || 1)); } catch { /* ignore */ }
 let zoomSaveT = 0;
 // Full screen on a computer (Settings, or the browser's F11): the kitty stays the size it has in a maximised window
 // (about 2:1 on a 16:9 screen), so the extra height shows more of the level above and below it.
@@ -294,7 +295,7 @@ function tallView() {
   return Math.max(1, Math.min(TALL_MAX, TALL_ASPECT / camera.aspect));
 }
 function zoomBy(f) {
-  camZoom = Math.max(ZOOM_MIN, Math.min(1, camZoom * f));
+  camZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, camZoom * f));
   clearTimeout(zoomSaveT);
   zoomSaveT = setTimeout(() => { try { localStorage.setItem('rkr-zoom', String(Math.round(camZoom * 1000) / 1000)); } catch { /* ignore */ } }, 400);
 }

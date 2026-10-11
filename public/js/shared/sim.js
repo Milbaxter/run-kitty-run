@@ -34,11 +34,12 @@ function pregenParams(sim, level = sim.level + 1) {
 }
 
 function makeLevel(sim, level) {
+  const again = level === sim.level && sim.levelData;   // the same level over (an easy game's retry): its data as it is
   const { seed, mode, rf } = pregenParams(sim, level);
   const pg = sim.pregen;
   sim.pregen = null;
   sim.level = level;
-  sim.levelData = pg && pg.ld && pg.level === level && pg.seed === seed && pg.mode === mode && (pg.rf | 0) === rf ? pg.ld : generateLevel(level, seed, mode, rf);
+  sim.levelData = again || (pg && pg.ld && pg.level === level && pg.seed === seed && pg.mode === mode && (pg.rf | 0) === rf ? pg.ld : generateLevel(level, seed, mode, rf));
   sim.enemies = createEnemies(sim.levelData);
   sim.enemyTicks = 0;          // updateEnemies calls since this level's wolves were created (netcode)
   const src = sim.levelData.items || [];
@@ -127,12 +128,16 @@ function makePlayer(def) {
 
 // finales: the finale version (maze.js generateLevel fv): 0 original, 1 + Run only's level 9 final run, 2 + the wide
 // skate final run. Online rooms with an older client play an older version.
-function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales = 0 } = {}) {
+// easy: when everyone is down the level starts over (state 'retry' for CFG.RETRY_TIME, then levelStart with retry: true)
+// instead of the game being over.
+function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales = 0, easy = false } = {}) {
   const lvl = Math.max(1, startLevel | 0);
   const sim = {
     seed: seed == null ? 0 : seed,
     mode: GAME_MODES.includes(mode) ? mode : 'mixed',
     finales: Math.max(0, Math.min(13, finales | 0)),
+    easy: !!easy,
+    retries: 0,     // easy: how often a level started over this run (snapshot rt: clients reload the level when it moves)
     level: lvl,
     time: 0,
     levelTime: 0,
@@ -263,6 +268,15 @@ function movePlayer(sim, p, inp, dt) {
   if (speed > 0.3 && !iced) p.heading = Math.atan2(p.vz, p.vx);
   p.moving = speed > 0.5;
   p.onIce = onIce(ld, p.x, p.z);
+}
+
+// easy games: everyone went down, the level starts over (same level, wolves and pickups as at its start; the kitties
+// keep their crowns and rescues)
+function retryLevel(sim, events) {
+  sim.retries = (sim.retries | 0) + 1;
+  makeLevel(sim, sim.level);
+  for (let i = 0; i < sim.players.length; i++) placeAtSpawn(sim, sim.players[i], i);
+  events.push({ type: 'levelStart', level: sim.level, retry: true });
 }
 
 function nextLevel(sim, events) {
@@ -536,7 +550,11 @@ function stepSim(sim, inputs, dt) {
 
   if (sim.state === 'playing') {
     if (alive === 0) {
-      if (players.length > 0) {
+      if (players.length > 0 && sim.easy) {
+        sim.state = 'retry';
+        sim.stateTimer = CFG.RETRY_TIME;
+        events.push({ type: 'wipe', level: ld.level || sim.level });
+      } else if (players.length > 0) {
         sim.state = 'gameover';
         sim.stateTimer = 0;
         events.push({ type: 'gameOver', level: ld.level || sim.level });
@@ -562,6 +580,9 @@ function stepSim(sim, inputs, dt) {
       }
       }
     }
+  } else if (sim.state === 'retry') {
+    sim.stateTimer -= dt;
+    if (sim.stateTimer <= 0) retryLevel(sim, events);
   } else if (sim.state === 'victory') {
     sim.stateTimer += dt;      // seconds since the win (the party never ends; the client / server decide when to leave)
   } else if (sim.state === 'levelclear') {

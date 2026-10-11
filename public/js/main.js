@@ -57,7 +57,9 @@ renderer.toneMappingExposure = 1.05;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 400);
+// near 0.5 (it was 0.1): 5 times the depth precision far from the camera. Zoomed all the way out, thin layers on the
+// ground (the portal's glow, 5 mm over its stone disc) flickered in stripes. Nothing ever comes that close to the camera.
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.5, 400);
 camera.position.set(0, 40, 30);
 
 window.addEventListener('resize', () => {
@@ -549,7 +551,7 @@ let mode = 'title';      // 'title' | 'play'
 let paused = false;
 let sim = null;
 let playerCount = 1;
-let localSetup = { mode: undefined, names: [] };   // single player / co-op: the mode and names from the setup screen (lobby.js)
+let localSetup = { mode: undefined, names: [], easy: false };   // single player / co-op: the mode and names from the setup screen (lobby.js)
 let simTime = 0;         // presentation clock (seconds)
 let accumulator = 0;
 let gameOverShown = false;
@@ -565,8 +567,8 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
-function startSim(players, startLevel, simMode = DEBUG_MODE) {
-  sim = createSim({ seed: newSeed(), players, startLevel: stageStep(simMode || 'mixed', DAY_NIGHT_FV, startLevel, DEBUG_NIGHT), mode: simMode, finales: DAY_NIGHT_FV });
+function startSim(players, startLevel, simMode = DEBUG_MODE, easy = false) {
+  sim = createSim({ seed: newSeed(), players, startLevel: stageStep(simMode || 'mixed', DAY_NIGHT_FV, startLevel, DEBUG_NIGHT), mode: simMode, finales: DAY_NIGHT_FV, easy });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   accumulator = 0;
@@ -725,7 +727,7 @@ function onTitlePick({ players }) {
     mode: DEBUG_MODE,   // ?mode= (offline testing) preselects
     coop: !TOUCH,
     onPlayers: (k) => { try { localStorage.setItem(LOCAL_N_KEY, String(k)); } catch { /* ignore */ } },
-    onStart: ({ mode: m, names, players: k }) => { localSetup = { mode: m, names }; startGame(k); },
+    onStart: ({ mode: m, names, players: k, easy }) => { localSetup = { mode: m, names, easy: !!easy }; startGame(k); },
     onBack: () => ui.showTitle(onTitlePick),
   });
 }
@@ -746,7 +748,7 @@ function startGame(n, level = DEBUG_LEVEL) {
   // the names from the setup screen (empty: the colour's own name)
   for (let i = 0; i < n; i++) players.push({ id: i + 1, name: localSetup.names[i] || PLAYER_NAMES[slots[i]], color: PLAYER_COLORS[slots[i]] });
   removeKitties();
-  startSim(players, level, localSetup.mode || DEBUG_MODE);
+  startSim(players, level, localSetup.mode || DEBUG_MODE, !!localSetup.easy);
   analytics.runStart(n === 1 ? 'solo' : 'coop', sim.mode || 'mixed');
   cameraSnap = true;
   // First step emits levelStart which triggers buildView.
@@ -784,20 +786,27 @@ function handleEvents(events) {
         for (const p of sim.players) effects.teleport(p.x, p.z, p.color);
         const finale = !!sim.levelData.finale;
         const L = sim.levelData.level || ev.level, night = stageOf(sim.mode, sim.finales, sim.level).night;
-        if (finale) ui.banner('WELCOME TO HELL', 'Think you can escape?', 4200, 'finale');
+        if (ev.retry && !finale) ui.banner(`LEVEL ${L}${night ? ' · NIGHT' : ''}`, 'Once more!', 2200);
+        else if (finale) ui.banner('WELCOME TO HELL', ev.retry ? 'Once more!' : 'Think you can escape?', ev.retry ? 2600 : 4200, 'finale');
         if (finale) { try { localStorage.setItem('rkr-seen9', '1'); } catch { /* ignore */ } }   // (the swag menu shows level 9's unlocks from now on)
+        else if (ev.retry) { /* (shown above) */ }
         else if (night) ui.banner(`LEVEL ${L} · NIGHT`, 'Lace up your skates!', 2200);
         else ui.banner(`LEVEL ${L}`, levelSubtitle(L), 2200);
         if (audio.isMuted() && !soundHintShown) {
           soundHintShown = true;
           ui.toast('Sound is off. Press M or click the speaker to turn it on', '#b9a4ff');
         }
-        audio.play(finale ? 'finale' : 'levelStart');
-        if (finale) effects.shake(0.35);
+        audio.play(finale && !ev.retry ? 'finale' : 'levelStart');
+        if (finale && !ev.retry) effects.shake(0.35);
         musicPlay(L);
         cameraSnap = true;   // everyone is back at the start: no glide from the old goal while you can already move
         // the final run: the camera stays on the start square, pushing in, until you touch anything
-        intro = finale ? { sim, t: 0 } : null;
+        intro = finale && !ev.retry ? { sim, t: 0 } : null;
+        break;
+      }
+      case 'wipe': {   // an easy game: everyone is down, the level starts over in a moment
+        haptic('error');
+        ui.toast('Everyone is down: the level starts over', '#ffcf5a', 'down');
         break;
       }
       case 'death': {
@@ -959,7 +968,7 @@ function startVictory(ev) {
   mouse.target = null; mouse.iceDir = null;
   if (online.menu) { online.menu = false; ui.hidePause(); } // the victory screen replaces the online menu
   analytics.runEnd({ ...runSummary(), won: true });
-  if (!online.playing) {
+  if (!online.playing && !sim.easy) {
     // offline win: the board, and a line for each local kitty (player 1 signs with the saved online name if there is one)
     const p1 = savedName();
     legends.fetchOffline({
@@ -1029,6 +1038,10 @@ function updateVictory(dt) {
 // celestial lion (120+)
 function iconLook(p) {
   const wins = (p && p.finishes) || 0, res = (p && p.rescues) || 0, cos = cosOf(p);
+  // an easy game: only the switched-on unlocks (its own rewards have no icon looks)
+  // (specs: its reading glasses; metal: the bronze kitty at 8 wins with 60 revives, the golden one at 16 with 120)
+  if (sim.easy) return { cool: cos.has('shades'), specs: wins >= 5 && !cos.has('shades'), rainbow: false, lion: cos.has('lion') || cos.has('chrome'), lionLook: cos.has('chrome') ? 'chrome' : null,
+    metal: cos.has('chrome') ? null : wins >= 16 && res >= 120 ? 'gold' : wins >= 8 && res >= 60 ? 'bronze' : null };
   const rainbow = wins >= 8 && res >= 60;
   return {
     cool: wins >= 5 || cos.has('shades'), rainbow, lion: wins >= 14 || cos.has('lion') || cos.has('chrome'),
@@ -1367,6 +1380,9 @@ function cycleColor(t, out, cols = PLAYER_COLORS) {
 }
 // the celestial lion's colours of space (its aura, fire trail, prints and skate marks cycle through these instead)
 const COSMIC_CYCLE = [0x7a3cff, 0x3a4dff, 0x1fa8ff, 0xc23cff, 0x5a24d0];
+// an easy game's rewards come in metals, not in the kitty's colour or the rainbow: bronze prints and aura (2, 3 wins),
+// silver with the aura trail (4), and from 6 they cycle bronze, silver, gold
+const EASY_BRONZE = 0xcd7f32, EASY_SILVER = 0xcfd6e0, EASY_GOLD = 0xffc93a, METAL_CYCLE = [EASY_BRONZE, EASY_SILVER, EASY_GOLD];
 
 // ---------- the final run's giant fish: kitties next to it eat it ----------
 // Pure presentation: the sim knows nothing about the fish, so every client counts its own bites from where the kitties
@@ -1546,34 +1562,47 @@ function syncVisuals(dt, alpha) {
     // run rewards (finishes = runs won): 2+ paw prints + coloured skate marks, 3+ flame aura, 4+ aura trail,
     // 6+ all of them cycle through the cat colours (the fur keeps its own); wins 2-6 also set stones in the crown
     const wins = p.finishes || 0, paws = wins >= 2, cos = cosOf(p);   // cos: switched-on account unlocks
-    const cosmic = wins >= 16 && (p.rescues || 0) >= 120;   // the celestial lion (see ka.celestial below)
+    const easy = !!sim.easy;   // an easy game: its own versions of the win rewards (the revive rewards are the same)
+    const cosmic = !easy && wins >= 16 && (p.rescues || 0) >= 120;   // the celestial lion (see ka.celestial below)
     if (cosmic) cycleColor((t + p.id * 2.3) * 0.7, k.fx, COSMIC_CYCLE);
+    else if (easy) { if (wins >= 6) cycleColor((t + p.id * 2.3) * 0.6, k.fx, METAL_CYCLE); else k.fx.set(wins >= 4 ? EASY_SILVER : EASY_BRONZE); }
     else if (wins >= 6) cycleColor(t + p.id * 2.3, k.fx);
     const ka = _kitArgs;
     ka.speed01 = gliding ? 0 : eat && eat.walking ? 0.45 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2));
     ka.moving = (p.moving && !gliding) || !!(eat && eat.walking); ka.munch = !!(eat && eat.munch); ka.bites = k.bites | 0;
     ka.skates = !!sim.levelData.ice && !(sim.levelData.iceZMax != null && z > sim.levelData.iceZMax);   // (not on Run + Skate level 9's run half)
     ka.boots = Math.round(((p.speedMult || 1) - 1) / CFG.SPEED_BOOST); ka.invuln = p.invuln; ka.shield = p.shield; ka.time = t;
-    ka.crown = !!p.crowned; ka.crownStones = Math.max(0, Math.min(5, wins - 1)); ka.aura = wins >= 3; ka.auraColor = k.fx; ka.sunglasses = wins >= 5 || cos.has('shades'); ka.rainbowBoots = wins >= 7 || cos.has('rboots'); ka.auraCycle = wins >= 6;
+    ka.crown = !!p.crowned; ka.crownStones = Math.max(0, Math.min(5, wins - 1)); ka.aura = wins >= 3; ka.auraColor = k.fx; ka.sunglasses = (!easy && wins >= 5) || cos.has('shades'); ka.rainbowBoots = (!easy && wins >= 7) || cos.has('rboots'); ka.auraCycle = !easy && wins >= 6;
     ka.backpack = wins >= 8; ka.packColors = ka.backpack ? packColors(k, p) : null;
+    // easy: a bronze crown (the same stones), reading glasses (5), golden boots (7), yarn balls in the backpack (8; one
+    // turns bronze at 13, one silver at 14, one gold at 15), the crown turns silver (9), gets a golden bead on its band
+    // per win (10-14) and turns gold (15), silver skates with golden blades (10), a bow on the tail (11), a collar with
+    // a name tag (14), a gold medal on it (16; with 120 revives a golden kitty). A switched-on unlock shows as itself.
+    ka.crownMetal = !easy || wins >= 15 ? null : wins >= 9 ? 'silver' : 'bronze'; ka.crownBeads = easy ? Math.max(0, Math.min(5, wins - 9)) : 0; ka.glasses = easy && wins >= 5 && !ka.sunglasses; ka.goldBoots = easy && wins >= 7 && !ka.rainbowBoots;
+    ka.packYarn = easy; ka.packMetal = !easy ? 0 : wins >= 15 ? 3 : wins >= 14 ? 2 : wins >= 13 ? 1 : 0;
     // wins 9-16: night crown (9) and its stars (10-14), golden skates (10), fluffy tail
     // with a glowing tip (11), a rainbow name (12, ui.js), backpack kittens turning rainbow (13: one, 14: two, 15: all),
     // lion (14; at 16 a celestial or silver lion, see below). 120 revives: medevac rotor blades on the back
-    ka.moonCrown = wins >= 9; ka.crownStars = Math.max(0, Math.min(5, wins - 9));
-    ka.goldSkates = wins >= 10 || cos.has('gskates'); ka.fluffyTail = wins >= 11 || cos.has('tail');
-    ka.packRainbow = wins >= 15 ? 99 : wins >= 14 ? 2 : wins >= 13 ? 1 : 0;
+    ka.moonCrown = !easy && wins >= 9; ka.crownStars = Math.max(0, Math.min(5, wins - 9));
+    ka.goldSkates = (!easy && wins >= 10) || cos.has('gskates'); ka.fluffyTail = (!easy && wins >= 11) || cos.has('tail');
+    ka.silverSkates = easy && wins >= 10; ka.tailBow = (easy && wins >= 11) || cos.has('bow');   // (the bow: also an unlock, on a fluffy tail too)
+    ka.packRainbow = easy ? 0 : wins >= 15 ? 99 : wins >= 14 ? 2 : wins >= 13 ? 1 : 0;
     // 14: the lion (and the crown's moon lights up); 16: celestial lion with 120 revives, the rainbow cat stays rainbow
     // (60+ revives), otherwise the chrome moon lion; 120 revives: the medevac rotor
     const res = p.rescues || 0;
-    ka.lion = wins >= 14 || cos.has('lion') || cos.has('chrome'); ka.moonGlow = wins >= 14; ka.moonCat = wins >= 15;   // 15: the crown's moon becomes a moon cat
-    ka.celestial = wins >= 16 && res >= 120; ka.rotor = res >= 120;
+    ka.lion = (!easy && wins >= 14) || cos.has('lion') || cos.has('chrome'); ka.moonGlow = wins >= 14; ka.moonCat = wins >= 15;
+    ka.collar = cos.has('medal') || (easy && wins >= 16) ? 'medal' : easy && wins >= 14 ? 'tag' : null;   // (the medal: also an unlock; over a lion's mane too)   // 15: the crown's moon becomes a moon cat
+    ka.celestial = !easy && wins >= 16 && res >= 120; ka.rotor = res >= 120;
     // chrome: the 16-win look, or the switched-on unlock (never over a look earned this run: celestial, rainbow)
-    ka.silver = wins >= 16 ? res < 60 : cos.has('chrome') && !(wins >= 8 && res >= 60);
+    ka.silver = easy ? cos.has('chrome') : wins >= 16 ? res < 60 : cos.has('chrome') && !(wins >= 8 && res >= 60);
+    // an easy game: a bronze kitty at 8 wins with 60 revives (as the rainbow one in a normal game), a golden one at 16 with 120
+    ka.metalCat = !easy || ka.silver ? null : wins >= 16 && res >= 120 ? 'gold' : wins >= 8 && res >= 60 ? 'bronze' : null;
     // revive rewards (rescues this run): 10+ medic cape, 30+ a trail of little stars of life, 60+ angel wings (they add up)
     const saves = p.rescues || 0;
     ka.cape = saves >= 10; ka.wings = saves >= 60;
-    ka.rainbowCat = wins >= 8 && saves >= 60;   // every win reward and every revive reward: rainbow fur
+    ka.rainbowCat = !easy && wins >= 8 && saves >= 60;   // every win reward and every revive reward: rainbow fur
     if (DEBUG_LOOK.has('crown')) ka.crown = true;
+    if (DEBUG_LOOK.has('tail')) ka.fluffyTail = true;
     if (DEBUG_LOOK.has('pack')) { ka.backpack = true; ka.packColors = DEBUG_PACK; }
     if (saves >= 30 && !ka.celestial && p.alive && speed > 1) {   // (celestial lion: its own space trail instead, below)
       k.heartT = (k.heartT || 0) - dt;
@@ -1658,14 +1687,14 @@ function updateHUD() {
     const me = online.playing ? p.id === online.me : true, you = online.playing && p.id === online.me;
     let r = hudScores[i];
     if (!r) r = hudScores[i] = {};
-    const shimmer = (p.finishes || 0) >= 12;   // 12+ wins: a rainbow name on the scoreboard
-    if (r.name !== p.name || r.color !== p.color || r.score !== score || r.crown !== crown || r.me !== me || r.you !== you || r.shimmer !== shimmer || r.crowns !== crowns) {
-      r.name = p.name; r.color = p.color; r.score = score; r.crown = crown; r.crowns = crowns; r.me = me; r.you = you; r.shimmer = shimmer;
+    const shimmer = (p.finishes || 0) >= 12, gold = shimmer && !!sim.easy;   // 12+ wins: a rainbow name on the scoreboard (an easy game: a golden one)
+    if (r.name !== p.name || r.color !== p.color || r.score !== score || r.crown !== crown || r.me !== me || r.you !== you || r.shimmer !== shimmer || r.gold !== gold || r.crowns !== crowns) {
+      r.name = p.name; r.color = p.color; r.score = score; r.crown = crown; r.crowns = crowns; r.me = me; r.you = you; r.shimmer = shimmer; r.gold = gold;
       dirty = true;
     }
     let h = hudPlayers[i];
     if (!h) h = hudPlayers[i] = {};
-    h.name = p.name; h.color = p.color; h.shimmer = (p.finishes || 0) >= 12; h.rainbow = (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; const il = iconLook(p); h.cool = il.cool; h.lion = il.lion; h.lionLook = il.lionLook; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
+    h.name = p.name; h.color = p.color; h.shimmer = shimmer; h.gold = gold; h.rainbow = !sim.easy && (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; const il = iconLook(p); h.cool = il.cool; h.specs = !!il.specs; h.metal = il.metal || ''; h.lion = il.lion; h.lionLook = il.lionLook; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
     h.medic = medicLook(cosOf(p));   // the medic badge (3000 revives), when switched on
     h.paid = online.playing ? ((online.roster.get(p.id) || {}).paid || 0) : i === 0 && account.shown() ? account.paid() : 0;   // account total (unless switched off)
   }
@@ -1701,7 +1730,7 @@ account.init();
 
 const lobbyUI = createLobbyUI(document.getElementById('ui'), {
   // opts: { max: how many kitties may join, password: '' = public } (lobby.js)
-  onCreate: (name, mode, opts = {}) => net.send({ t: 'create', name, mode, color: prefColor(), max: opts.max, password: opts.password || '' }),
+  onCreate: (name, mode, opts = {}) => net.send({ t: 'create', name, mode, easy: !!opts.easy, color: prefColor(), max: opts.max, password: opts.password || '' }),
   onJoin: (code, name, password = '') => net.send({ t: 'join', code, name, color: prefColor(), password }),
   onLeave: () => net.send({ t: 'leave' }),
   onStart: () => net.send({ t: 'start' }),
@@ -1918,7 +1947,7 @@ net.on('invite', (m) => {
   audio.play('click');
   ui.showNotice({
     title: 'INVITE!',
-    text: `${name} invites you to their lobby (${MODE_NAMES[m.mode] || 'Run + Skate'}).`,
+    text: `${name} invites you to their lobby (${MODE_NAMES[m.mode] || 'Run + Skate'}${m.easy ? ', easy' : ''}).`,
     button: 'JOIN',
     onClick: () => { ui.hideNotice(); joinFromLink(m.code, typeof m.pass === 'string' ? m.pass : ''); },
     alt: 'NO THANKS',
@@ -2013,7 +2042,8 @@ function beginOnlineGame(m) {
   if (online.room) rememberPlayers(online.room.members);   // (for the invite panel)
   playerCount = m.players.length;
   removeKitties();
-  sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode, finales: +m.rf || 0 });
+  sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode, finales: +m.rf || 0, easy: !!m.easy });
+  sim.retries = m.rt | 0;
   analytics.runStart('online', m.mode || 'mixed');
   sim.started = true;
   if (m.it) { const taken = new Set(m.it); for (const it of sim.items) it.taken = taken.has(it.id); } // joined mid-level
@@ -2183,9 +2213,12 @@ function applySnapshot(m) {
     online.tick = m.k + leadTicks();
   }
 
-  // Level change (the server already moved on): mirror it.
-  if (m.lvl !== sim.level) {
+  // Level change (the server already moved on): mirror it. An easy game's level starting over (rt moved): the same
+  // level again, with its wolves and pickups as at the start.
+  const again = m.lvl === sim.level && (m.rt | 0) !== (sim.retries | 0);
+  if (m.lvl !== sim.level || again) {
     loadLevel(sim, m.lvl);
+    sim.retries = m.rt | 0;
     online.levelStartTick = m.k - m.lt;
     online.wolfTicks.fill(-1);
     online.wolfPos = null;
@@ -2246,6 +2279,7 @@ function applySnapshot(m) {
 
   const events = m.ev.filter((e) => {
     if (e.type !== 'levelStart') return true;
+    if (e.retry) return again;   // (once, with the snapshot that started it over)
     if (e.level === online.shownLevel) return false;
     online.shownLevel = e.level;
     checkLevelHash(e.level, e.lh);

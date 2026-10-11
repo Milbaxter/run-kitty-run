@@ -56,6 +56,10 @@ function catFace(g, x, y, s, color, look = {}) {
     g.fillStyle = INK; g.beginPath(); g.ellipse(14.3, 21.5, 2.3, 3.1, 0, 0, Math.PI * 2); g.ellipse(25.7, 21.5, 2.3, 3.1, 0, 0, Math.PI * 2); g.fill();
     g.fillStyle = '#fff'; g.beginPath(); g.arc(15, 20.4, 0.9, 0, Math.PI * 2); g.arc(26.4, 20.4, 0.9, 0, Math.PI * 2); g.fill();
   }
+  if (look.specs) {   // an easy game's reading glasses (ui.js SPECS_SVG)
+    g.strokeStyle = '#e0b040'; g.lineWidth = 1.4; g.stroke(P('M5 19.6 L9.4 20.4 M35 19.6 L30.6 20.4 M18.6 20.6 Q20 19.2 21.4 20.6'));
+    g.lineWidth = 1.5; g.beginPath(); g.arc(14.2, 21.5, 4.7, 0, Math.PI * 2); g.stroke(); g.beginPath(); g.arc(25.8, 21.5, 4.7, 0, Math.PI * 2); g.stroke();
+  }
   const nose = P('M18.2 26.4 L21.8 26.4 L20 28.6 Z');
   g.fillStyle = '#ff6f9f'; g.fill(nose); g.strokeStyle = INK; g.lineWidth = 1; g.stroke(nose);
   g.lineWidth = 1.3; g.stroke(P('M20 28.6 Q18.5 31 16.5 30 M20 28.6 Q21.5 31 23.5 30'));
@@ -98,7 +102,7 @@ function drawCard(r) {
   // title
   outlined(g, 'RUN KITTY RUN', S / 2, 150, 104, '#ffd56b', '#3a1650', 0.2);
   // the kitty (with a crown when it won), its name and the mode
-  catFace(g, S / 2 - 150, 230, 300, hex(r.color), { cool: r.cool, rainbow: r.rainbow, lion: r.lion, lionLook: r.lionLook });
+  catFace(g, S / 2 - 150, 230, 300, hex(r.color), { cool: r.cool, specs: r.specs, metal: r.metal, rainbow: r.rainbow, lion: r.lion, lionLook: r.lionLook });
   if (r.win) {
     g.save(); g.translate(S / 2, 222); g.scale(3.2, 3.2);
     const crown = new Path2D('M-15 8 L-17 -11 L-7 -3 L0 -16 L7 -3 L17 -11 L15 8 Z');

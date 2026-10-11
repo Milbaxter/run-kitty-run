@@ -584,9 +584,10 @@ function createKittyModel(color) {
     const nb = s.boots | 0;
     for (let i = 0; i < speedBoots.length; i++) speedBoots[i].visible = i < nb;
     // 7+ wins: rainbow boots, a full rainbow every ~2.2 s on their own clock (not in step with the aura's colour cycle)
-    const rainbow = !!s.rainbowBoots && !ghost && nb > 0;
-    for (const rb of rainbowBoots) rb.visible = rainbow;
+    const rainbow = !!s.rainbowBoots && !ghost && nb > 0, golden = !rainbow && !!s.goldBoots && !ghost && nb > 0;   // (an easy game: golden boots)
+    for (const rb of rainbowBoots) rb.visible = rainbow || golden;
     if (rainbow) { rainbowMat.color.setHSL((time * 0.45 + rainbowOff) % 1, 1, 0.58); rainbowMat.emissive.copy(rainbowMat.color); }
+    else if (golden) { rainbowMat.color.set(0xffc93a); rainbowMat.emissive.set(0x8a5600); }
     rig.position.y = bounce * 0.07 * runAmt + (onSkates ? 0.045 : 0);
     const by = 1 - sq + breath * 0.022 * idle;
     rig.scale.set(1 + sq * 0.5, by, 1 + sq * 0.4 - breath * 0.01 * idle);
@@ -753,6 +754,18 @@ function createKittyModel(color) {
   const shades = new THREE.Mesh(sunglassesGeometry(), cmat('shades', () => new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.2, metalness: 0.35 })));
   shades.visible = false;
   head.add(shades);
+  // ---- an easy game's own win rewards (main.js picks them in place of the usual ones) ----
+  // reading glasses (5+): round wire frames, the eyes show through
+  const glasses = new THREE.Mesh(readingGlassesGeometry(), goldMat());
+  glasses.visible = false;
+  head.add(glasses);
+  // collar (14+): a leather collar with a bronze name tag; at 16 a gold medal on a ribbon hangs from it instead
+  const collar = new THREE.Mesh(collarGeometry(false), mat);
+  collar.castShadow = true; collar.visible = false;
+  rig.add(collar);
+  let crownMetal = null, yarnPack = false, silverSk = false, bladeGold = false;
+  const metalFur = {};   // an easy game's bronze / golden kitty (s.metalCat): the fur material of each, made when first worn
+  const METAL_HEX = { bronze: 0xcd7f32, gold: 0xffc93a };
   // backpack (8+ wins): a canvas pack on the back, open at the top, with little kittens in the other players'
   // colours peeking out (you carry everyone). Heads are rebuilt only when the colour list (array identity) changes.
   const pack = new THREE.Group();
@@ -764,15 +777,15 @@ function createKittyModel(color) {
   rig.add(pack);
   let packCols = null;
   const packHeads = [];
-  function setPackColors(cols) {
-    packCols = cols;
+  function setPackColors(cols, yarn) {
+    packCols = cols; yarnPack = !!yarn;
     for (const h of packHeads) { h.removeFromParent(); if (h.userData.rb) h.userData.rb.geo.dispose(); }
     packHeads.length = 0;
     const n = Math.min(cols ? cols.length : 0, PACK_SLOTS.length);
     if (!n) return;
     for (let i = 0; i < n; i++) {
       const [x, y, z, yaw] = PACK_SLOTS[n - 1][i];
-      const m = new THREE.Mesh(kittenHeadGeometry(cols[i]), mat);
+      const m = new THREE.Mesh(yarn ? yarnBallGeometry(cols[i]) : kittenHeadGeometry(cols[i]), mat);
       m.position.set(x, y, z); m.rotation.y = yaw; m.scale.setScalar(PACK_KIT_S); m.castShadow = true;
       m.userData.y = y; m.userData.yaw = yaw; m.userData.col = cols[i];
       pack.add(m);
@@ -824,6 +837,13 @@ function createKittyModel(color) {
     crown.add(pearl, stone);
     return { pearl, stone, born: -1 };
   });
+  // an easy game's crown: a golden bead on the band for each win from 10 to 14 (front first, then pairs toward the back)
+  const beads = [0, 1, 4, 2, 3].map((i) => {
+    const a = ((i + 0.5) / 5) * TAU_, b = new THREE.Mesh(P.ico1, pearlMat());
+    b.position.set(Math.cos(a) * 0.138, 0.012, Math.sin(a) * 0.138); b.scale.setScalar(0.02); b.visible = false;
+    crown.add(b);
+    return b;
+  });
   // ---- win rewards 9-16, 120 revives ----
   // night crown (9+) and its five stars (10-14)
   const moon = new THREE.Mesh(moonCrownGeometry(), goldMat());
@@ -847,6 +867,10 @@ function createKittyModel(color) {
   tipGlow.position.y = 0.075; tipGlow.visible = false;
   tail[N_TAIL - 1].add(tipGlow);
   let fluffy = false;
+  // an easy game's tail (11+, and its unlock): a ribbon bow near the tip, on a plain tail or a fluffy one
+  const bow = new THREE.Mesh(bowGeometry(), mat);
+  bow.position.y = 0.05; bow.visible = false;
+  tail[N_TAIL - 2].add(bow);
   // lion mane (14+)
   let maneMesh = null, maneTint = null;
   // celestial lion (16 wins + 120 revives): every fur part and the mane in the cosmic material
@@ -885,11 +909,26 @@ function createKittyModel(color) {
       }
 
     }
-    // golden skates
-    const gold = !!s.goldSkates && !off;
+    glasses.visible = !!s.glasses && !off;
+    collar.visible = !!s.collar && !off;
+    if (collar.visible) collar.geometry = collarGeometry(s.collar === 'medal');
+    // golden skates (an easy game: silver boots with golden blades)
+    const silver = !s.goldSkates && !!s.silverSkates;
+    const gold = (!!s.goldSkates || silver) && !off;
+    if (gold && silver !== silverSk) {
+      silverSk = silver;
+      for (const gs of goldSkates) { gs.geometry = goldSkateGeometry(silver); gs.material = silver ? silverMat() : goldMat(); }
+    }
     for (let i = 0; i < goldSkates.length; i++) { goldSkates[i].visible = gold && !!s.skates; if (gold) skates[i].visible = false; }
-    if (gold && s.skates && Math.abs(t - bladeAt) > 0.05) {   // rainbow along the blade, cycling (~20 times a second)
-      bladeAt = t;
+    if (gold && silver && !bladeGold) {   // plain golden blades
+      bladeGold = true;
+      const col = bladeGeo.attributes.color.array;
+      rbC.set(0xffc93a);
+      for (let j = 0; j < col.length / 3; j++) { col[j * 3] = rbC.r; col[j * 3 + 1] = rbC.g; col[j * 3 + 2] = rbC.b; }
+      bladeGeo.attributes.color.needsUpdate = true;
+    }
+    if (gold && !silver && s.skates && Math.abs(t - bladeAt) > 0.05) {   // rainbow along the blade, cycling (~20 times a second)
+      bladeAt = t; bladeGold = false;
       const col = bladeGeo.attributes.color.array, pos = bladeGeo.attributes.position.array;
       for (let j = 0; j < col.length / 3; j++) {
         rbC.setHSL((((t * 0.45 + rainbowOff - pos[j * 3] * 4) % 1) + 1) % 1, 0.95, 0.55);
@@ -903,8 +942,10 @@ function createKittyModel(color) {
       fluffy = fl;
       tailMeshes.forEach((m, i) => { const tp = m.userData.taper, k = fl ? (i === tailMeshes.length - 1 ? 1.9 : 1.55 + i * 0.04) : 1; m.scale.set(tp * k, fl ? 1.08 : 1, tp * k); });
     }
+    bow.visible = !!s.tailBow && !off;
+    bow.scale.setScalar(fl ? 1 : 0.62);   // (made for the fluffy tail: smaller on a plain one)
     tipGlow.visible = fl;
-    if (fl) {
+    if (tipGlow.visible) {
       tipGlow.material.color.copy(s.celestial ? rbC.set(0xb48cff) : s.silver ? rbC.set(0xe8f0ff) : s.auraColor || rbC.set(color)).lerp(AURA_WHITE, 0.25);
       tipGlow.scale.setScalar(0.3 + 0.05 * Math.sin(t * 4));
     }
@@ -938,17 +979,22 @@ function createKittyModel(color) {
     }
     // celestial lion
     if (s.silver && !chromeMat) chromeMat = chromeFurMaterial();
-    const want = off ? null : s.celestial ? cosmicMaterial() : s.silver ? chromeMat : null;
+    // an easy game: a bronze kitty (8 wins with 60 revives), a golden one (16 with 120): fur, wings, rotor and cape
+    const mf = s.metalCat ? (metalFur[s.metalCat] ||= chromeFurMaterial(s.metalCat)) : null;
+    const want = off ? null : s.celestial ? cosmicMaterial() : s.silver ? chromeMat : mf;
     if (want !== cosmic) {
       cosmic = want;
       for (const m of furMeshes) m.material = cosmic || mat;
       if (maneMesh) maneMesh.material = cosmic || mat;
     }
     if (chromeMat) { chromeMat.uniforms.uTime.value = t; chromeMat.uniforms.uOrigin.value.copy(group.position); }
+    if (mf) { mf.uniforms.uTime.value = t; mf.uniforms.uOrigin.value.copy(group.position); }
     if (cosmic) { cosmic.uniforms.uTime.value = t; if (maneMesh && maneMesh.material !== cosmic) maneMesh.material = cosmic; }
-    wingMesh.material = s.celestial && cosmic ? cosmic : wingMat;   // the wings turn celestial too
+    wingMesh.material = s.celestial && cosmic ? cosmic : mf && cosmic === mf ? mf : wingMat;   // the wings turn celestial (or bronze / golden) too
     // backpack heads turn rainbow one by one (13, 14), all of them at 15
-    const nr = off ? 0 : s.packRainbow | 0;
+    const nr = off || yarnPack ? 0 : s.packRainbow | 0;
+    // (an easy game's yarn balls turn to metal one by one instead: a bronze one, a silver one, a golden one)
+    if (yarnPack) for (let i = 0; i < packHeads.length; i++) packHeads[i].geometry = yarnBallGeometry(i < (s.packMetal | 0) && i < YARN_METALS.length ? YARN_METALS[i] : packHeads[i].userData.col);
     for (let i = 0; i < packHeads.length; i++) {
       const h = packHeads[i], on = pack.visible && i < nr;
       let r = h.userData.rb;
@@ -972,6 +1018,7 @@ function createKittyModel(color) {
     }
     // medevac rotor
     backRotor.visible = !!s.rotor && !off;
+    backMast.material = backBlades.material = mf && cosmic === mf ? mf : mat;   // (the bronze / golden kitty: its rotor too)
     if (backRotor.visible) backBlades.rotation.y = t * (12 + 18 * flowGo);
   }
   // aura: super-saiyan flames in the kitty's own colour. The outer flame shell uses normal blending so it
@@ -1072,6 +1119,11 @@ function createKittyModel(color) {
       if (!glow && dark && !capeDarkMat) capeDarkMat = cmat('capeDarkMat:' + new THREE.Color(color).getHexString(), () => new THREE.MeshStandardMaterial({ map: capeTexture(color, CAPE_DARK), side: THREE.DoubleSide, roughness: 0.85, flatShading: true }));
       capeCloth.material = glow ? capeGlowMat[dark] : dark ? capeDarkMat : capeMat;
       capeCollar.material = glow ? collarGlowMat : collarMat;
+      if (s.metalCat && cosmic && cosmic === metalFur[s.metalCat]) {   // the bronze / golden kitty: its star and border on black cloth, its collar
+        const kind = s.metalCat, hex = METAL_HEX[kind];
+        capeCloth.material = cmat('capeMetalMat:' + kind, () => new THREE.MeshStandardMaterial({ map: capeTexture(hex, '#15121c'), side: THREE.DoubleSide, roughness: 0.5, metalness: 0.35, emissive: kind === 'gold' ? 0x3a2600 : 0x2a1408, flatShading: true }));
+        capeCollar.material = cmat('capeMetalCollar:' + kind, () => new THREE.MeshStandardMaterial({ color: hex, emissive: kind === 'gold' ? 0x6a4300 : 0x4a2408, emissiveIntensity: 0.5, metalness: 0.55, roughness: 0.3, flatShading: true }));
+      }
       if (glow) { capeGlowMat[dark].emissive.copy(s.auraColor); collarGlowMat.color.copy(s.auraColor); collarGlowMat.emissive.copy(s.auraColor); }
     }
     if (winged && (rainbowGear || wingRainbow)) {
@@ -1093,7 +1145,7 @@ function createKittyModel(color) {
       if (dragonWinged) { dragon.update(wingPose.joints); dragonSkin.uniforms.uTime.value = t; }
     }
     if (pack.visible) {
-      if (s.packColors !== packCols) setPackColors(s.packColors);
+      if (s.packColors !== packCols || !!s.packYarn !== yarnPack) setPackColors(s.packColors, !!s.packYarn);
       // the passengers bounce with the stride (a beat behind the body) and look about when idle
       for (let i = 0; i < packHeads.length; i++) {
         const h = packHeads[i], o = i * 1.7 + seedOff;
@@ -1104,6 +1156,13 @@ function createKittyModel(color) {
       }
     }
     if (crown.visible) {
+      if ((s.crownMetal || null) !== crownMetal) {   // an easy game's crown: bronze, then silver (9 wins), then the gold one (15)
+        crownMetal = s.crownMetal || null;
+        crown.geometry = chunkyCrownGeometry(false, crownMetal);
+        crown.material.emissive.set(crownMetal === 'bronze' ? 0x4a2408 : crownMetal === 'silver' ? 0x30343c : 0x7a4a00);
+      }
+      // (an easy game: a golden bead on the band for each win from 10 to 14)
+      for (let i = 0; i < beads.length; i++) beads[i].visible = i < (s.crownBeads | 0);
       crown.position.y = 0.25 + Math.sin(t * 3) * 0.008;
       tips.forEach((p, n) => {
         const on = n < (s.crownStones || 0);
@@ -1854,6 +1913,74 @@ function rainbowBootGeometry() {
 
 // Sunglasses (5+ wins), in kitty head space (+x forward): two dark lenses facing forward with a slight wrap, just in
 // front of the eye whites, a white shine streak on each, a gold bridge and gold arms back to the ears.
+// An easy game's reading glasses (5+ wins), in head space like the sunglasses: two round wire frames low on the nose
+// (no lenses: the eyes show), a bridge and thin arms back to the ears
+function readingGlassesGeometry() {
+  return cgeo('readingGlasses', () => {
+    const WIRE = 0xe0b040, ring = new THREE.TorusGeometry(1, 0.13, 5, 16), parts = [];
+    for (const sz of [1, -1]) {
+      parts.push([ring, mtx([0.214, 0.04, 0.094 * sz], [0, Math.PI / 2 - 0.28 * sz, 0], [0.066, 0.066, 0.066]), WIRE]);
+      parts.push([P.box, mtx([0.078, 0.062, 0.2 * sz], [0, 0.1 * sz, 0], [0.22, 0.009, 0.008]), WIRE]);   // arm
+    }
+    parts.push([P.box, mtx([0.226, 0.058, 0], null, [0.009, 0.01, 0.062]), WIRE]);                       // bridge
+    const out = bake(parts);
+    ring.dispose();
+    return out;
+  });
+}
+// An easy game's collar (14+ wins), in rig space: a thin leather collar round the neck with a bronze name tag hanging
+// on the chest; medal (16 wins): a gold medal on a striped ribbon in its place (a little bigger than life, to show
+// under the chin from the game's camera)
+function collarGeometry(medal) {
+  return cgeo(medal ? 'collarMedal' : 'collarTag', () => {
+    const LEATHER = 0x8a4a2e, BRONZE = 0xcd7f32, GOLD = 0xffc93a, loop = new THREE.TorusGeometry(0.172, 0.024, 5, 22).rotateY(Math.PI / 2);
+    const parts = [[loop, mtx([0.1, 0.47, 0], [0, 0, -0.62], 1), LEATHER]];
+    if (medal) {
+      parts.push([P.box, mtx([0.292, 0.33, 0.034], [0.4, 0, -0.2], [0.012, 0.15, 0.04]), 0x3f6fd8]);
+      parts.push([P.box, mtx([0.292, 0.33, -0.034], [-0.4, 0, -0.2], [0.012, 0.15, 0.04]), 0xd8443a]);
+      parts.push([P.cyl18, mtx([0.318, 0.235, 0], [0, 0, Math.PI / 2 - 0.2], [0.074, 0.02, 0.074]), GOLD]);
+      parts.push([P.cyl18, mtx([0.33, 0.237, 0], [0, 0, Math.PI / 2 - 0.2], [0.05, 0.013, 0.05]), 0xffe9a0]);
+    } else {
+      parts.push([P.cyl8, mtx([0.3, 0.32, 0], [0, 0, -0.2], [0.008, 0.07, 0.008]), 0xb8c0cc]);                      // its ring
+      parts.push([P.cyl18, mtx([0.316, 0.258, 0], [0, 0, Math.PI / 2 - 0.2], [0.054, 0.017, 0.054]), BRONZE]);
+      parts.push([P.cyl18, mtx([0.326, 0.26, 0], [0, 0, Math.PI / 2 - 0.2], [0.034, 0.011, 0.034]), 0xe6a45a]);
+    }
+    const out = bake(parts);
+    loop.dispose();
+    return out;
+  });
+}
+// An easy game's tail bow (11+ wins, and its unlock), in a tail segment's space (y along the tail): a red ribbon bow
+// across the tail
+function bowGeometry() {
+  return cgeo('tailBow', () => {
+    const RED = 0xe2493b, DARK = 0xb8322a, parts = [[P.ico0, mtx([0, 0, 0], null, [0.028, 0.024, 0.028]), DARK]];
+    for (const sz of [1, -1]) {
+      parts.push([P.cone4, mtx([0, 0, 0.062 * sz], [-Math.PI / 2 * sz, 0, 0], [0.05, 0.09, 0.026]), RED]);          // loop
+      parts.push([P.box, mtx([-0.03, -0.045, 0.03 * sz], [0.5 * sz, 0, 0.3], [0.012, 0.075, 0.03]), DARK]);         // ribbon end
+    }
+    return bake(parts);
+  });
+}
+// An easy game's backpack passengers (8+ wins): balls of yarn in the other players' colours; at 13, 14 and 15 wins
+// one of them turns bronze, the next silver, the next gold
+const YARN_METALS = [0xcd7f32, 0xcfd6e0, 0xffc93a];
+function yarnBallGeometry(color) {
+  return cgeo('yarn:' + new THREE.Color(color).getHexString(), () => {
+    const base = new THREE.Color(color), dark = base.clone().multiplyScalar(0.72), light = base.clone().lerp(new THREE.Color(0xffffff), 0.35);
+    const band = new THREE.TorusGeometry(1, 0.085, 4, 14);
+    const out = bake([
+      [P.ico1, mtx([0, 0, 0], null, 0.056), base],
+      [band, mtx([0, 0, 0], [0.5, 0.3, 0], 0.057), dark],
+      [band, mtx([0, 0, 0], [1.5, 0.9, 0.4], 0.057), light],
+      [band, mtx([0, 0, 0], [-0.7, 1.9, 0.2], 0.057), dark],
+      [P.box, mtx([0.05, 0.035, 0.02], [0, 0.3, 0.7], [0.05, 0.008, 0.008]), light],   // a loose end
+    ]);
+    band.dispose();
+    return out;
+  });
+}
+
 function sunglassesGeometry() {
   return cgeo('sunglasses', () => {
     const LENS = 0x1e1a2b, SHINE = 0xffffff, GOLD = 0xffd34a, parts = [];
@@ -2222,14 +2349,16 @@ function kittenHeadGeometry(color) {
 
 // chunky solid crown (band, spikes, ball tips, red gems): reads from the top-down camera
 // (pearls = false: the worn crown, whose pearls are separate meshes so crown stones can replace them)
-function chunkyCrownGeometry(pearls = true) {
-  return cgeo(pearls ? 'crownChunky' : 'crownChunkyBare', () => bake([
-    [P.cyl18, mtx([0, 0, 0], null, [0.13, 0.08, 0.13]), 0xffc83a],
-    [P.cyl18, mtx([0, -0.035, 0], null, [0.14, 0.02, 0.14]), 0xe0a020],
+// metal: 'bronze' | 'silver' (an easy game's crown before it turns gold), otherwise gold
+function chunkyCrownGeometry(pearls = true, metal = null) {
+  const [BODY, BAND, POINT] = metal === 'bronze' ? [0xc9793a, 0x96521f, 0xd98c4c] : metal === 'silver' ? [0xcdd4de, 0x929cab, 0xe4e9f0] : [0xffc83a, 0xe0a020, 0xffd34a];
+  return cgeo((pearls ? 'crownChunky' : 'crownChunkyBare') + (metal || ''), () => bake([
+    [P.cyl18, mtx([0, 0, 0], null, [0.13, 0.08, 0.13]), BODY],
+    [P.cyl18, mtx([0, -0.035, 0], null, [0.14, 0.02, 0.14]), BAND],
     ...[0, 1, 2, 3, 4].flatMap((i) => {
       const a = (i / 5) * Math.PI * 2, x = Math.cos(a) * 0.11, z = Math.sin(a) * 0.11;
       return [
-        [P.cone5, mtx([x, 0.1, z], null, [0.05, 0.13, 0.05]), 0xffd34a],
+        [P.cone5, mtx([x, 0.1, z], null, [0.05, 0.13, 0.05]), POINT],
         ...(pearls ? [[P.ico1, mtx([x, 0.17, z], null, 0.022), 0xfff2b0]] : []),
         [P.ico0, mtx([Math.cos(a) * 0.135, 0, Math.sin(a) * 0.135], [0, -a, 0], [0.012, 0.022, 0.022]), 0xff3d6e],
       ];
@@ -2352,13 +2481,17 @@ function goldMat() {
   return cmat('rewardGoldMat', () => new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.3, emissive: 0x6a4300, emissiveIntensity: 0.55, flatShading: true }));
 }
 // 10+ wins: skates with golden boots (same shape as the ice skates) and rainbow blades
-function goldSkateGeometry() {
-  return cgeo('skateGold', () => bake([
-    [P.ico1, mtx([0.02, -0.2, 0], null, [0.085, 0.06, 0.075]), 0xffd34a],
-    [P.cyl8, mtx([0.0, -0.155, 0], null, [0.062, 0.05, 0.062]), 0xffd34a],
-    [P.box, mtx([0.01, -0.235, 0], null, [0.1, 0.022, 0.05]), 0xb8860b],
-    [P.box, mtx([0.0, -0.13, 0], null, [0.07, 0.012, 0.07]), 0xffeaa0],
+function goldSkateGeometry(silver) {   // silver: an easy game's skates (with plain golden blades)
+  const [A, B, C] = silver ? [0xd9dee6, 0x8e97a6, 0xffffff] : [0xffd34a, 0xb8860b, 0xffeaa0];
+  return cgeo(silver ? 'skateSilver' : 'skateGold', () => bake([
+    [P.ico1, mtx([0.02, -0.2, 0], null, [0.085, 0.06, 0.075]), A],
+    [P.cyl8, mtx([0.0, -0.155, 0], null, [0.062, 0.05, 0.062]), A],
+    [P.box, mtx([0.01, -0.235, 0], null, [0.1, 0.022, 0.05]), B],
+    [P.box, mtx([0.0, -0.13, 0], null, [0.07, 0.012, 0.07]), C],
   ]));
+}
+function silverMat() {
+  return cmat('rewardSilverMat', () => new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.6, roughness: 0.28, emissive: 0x30343c, emissiveIntensity: 0.5, flatShading: true }));
 }
 // the blades on their own (white: tinted by a material colour), recoloured along their length every frame
 function skateBladeGeometry() {
@@ -2444,21 +2577,32 @@ function cosmicMaterial() {
 // 16 wins without the revives: the chrome moon lion, mirror-silver fur no kitty colour has, with slow bands of light
 // sweeping over it. One material per kitty: the bands are anchored to the kitty (uOrigin), so running doesn't make
 // them flash past
-function chromeFurMaterial() {
+function chromeFurMaterial(metal) {   // metal: 'gold' | 'bronze' (an easy game's golden / bronze kitty), the same mirror in that metal
+  const v = (r, g, b) => ({ value: new THREE.Vector3(r, g, b) });
+  const [LO, HI, BAND, RIM] = metal === 'gold' ? [v(0.42, 0.24, 0.04), v(1.0, 0.84, 0.36), v(1.0, 0.95, 0.7), v(1.0, 0.88, 0.5)]
+    : metal === 'bronze' ? [v(0.2, 0.09, 0.03), v(0.84, 0.5, 0.24), v(1.0, 0.78, 0.55), v(0.9, 0.58, 0.32)]
+    : [v(0.22, 0.25, 0.32), v(0.96, 0.98, 1.0), v(1.0, 1.0, 1.0), v(0.85, 0.9, 1.0)];
   return new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uOrigin: { value: new THREE.Vector3() } },
-    vertexShader: `uniform vec3 uOrigin; varying vec3 vN; varying vec3 vR;
+    uniforms: { uTime: { value: 0 }, uOrigin: { value: new THREE.Vector3() },
+      uLo: LO, uHi: HI, uBand: BAND, uRim: RIM },
+    vertexShader: `uniform vec3 uOrigin; varying vec3 vN; varying vec3 vR; varying float vInst;
       void main() {
-        vec4 w = modelMatrix * vec4(position, 1.0); vR = w.xyz - uOrigin;
-        vec4 mv = viewMatrix * w; vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * mv;
+        vec4 p = vec4(position, 1.0); vec3 nn = normal; vInst = 0.0;
+        #ifdef USE_INSTANCING
+          p = instanceMatrix * p; nn = mat3(instanceMatrix) * nn; vInst = 1.0;   // (the golden kitty's wings: one instanced mesh)
+        #endif
+        vec4 w = modelMatrix * p; vR = w.xyz - uOrigin;
+        vec4 mv = viewMatrix * w; vN = normalize(normalMatrix * nn); gl_Position = projectionMatrix * mv;
       }`,
-    fragmentShader: `uniform float uTime; varying vec3 vN; varying vec3 vR;
+    fragmentShader: `uniform float uTime; uniform vec3 uLo; uniform vec3 uHi; uniform vec3 uBand; uniform vec3 uRim; varying vec3 vN; varying vec3 vR; varying float vInst;
       void main() {
         vec3 n = normalize(vN);
         float lit = 0.72 + 0.28 * max(dot(n, normalize(vec3(0.3, 1.0, 0.4))), 0.0), rim = pow(1.0 - max(n.z, 0.0), 2.5);
-        vec3 sky = mix(vec3(0.22, 0.25, 0.32), vec3(0.96, 0.98, 1.0), smoothstep(-0.25, 0.65, n.y));
+        // (flat feathers mostly face up: without this the wings would be all highlight, far paler than the body)
+        float up = smoothstep(-0.25, 0.65, n.y); up = mix(up, 0.12 + 0.42 * up, vInst); rim *= 1.0 - 0.65 * vInst;
+        vec3 sky = mix(uLo, uHi, up);
         float band = smoothstep(0.88, 1.0, sin(vR.x * 4.0 + vR.z * 2.5 + vR.y * 3.0 - uTime * 1.3));
-        gl_FragColor = vec4(sky * lit + vec3(1.0) * band * 0.6 + vec3(0.85, 0.9, 1.0) * rim * 0.55, 1.0);
+        gl_FragColor = vec4(sky * lit + uBand * band * 0.6 + uRim * rim * 0.55, 1.0);
       }`,
   });
 }

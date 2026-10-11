@@ -152,7 +152,7 @@ function createAccount(root) {
   let soloVer = 0, soloPending = null, soloT = null;
   // this player's offline progress: the account's, or this browser's
   const soloProg = () => (activeAcct() ? (A.account.unlocks && A.account.unlocks.solo) || {} : readJson(SOLO_KEY));
-  // an offline feat done ('l8' | 'l9' | 'win' | 'rev') in a mode
+  // an offline feat done ('l8' | 'l9' | 'e9' | 'win' | 'rev') in a mode
   function soloFeat(feat, mode, n = 1) {
     if (!UNLOCK_MODES.includes(mode)) return;
     soloVer++;
@@ -199,11 +199,12 @@ function createAccount(root) {
     const goals = (id) => { let g = soloRun.goals.get(id); if (!g) soloRun.goals.set(id, g = new Set()); return g; };
     for (const e of events) {
       if (e.type === 'enterCenter') goals(e.playerId).add(e.level ?? sim.level);
+      else if (sim.easy && e.type !== 'victory' && e.type !== 'revive') continue;   // an easy game: only the song and the revives
       else if (e.type === 'levelStart' && ((sim.levelData && sim.levelData.level) || sim.level) === SKATE_FINAL_LEVEL) {
         if (sim.players.some((p) => goals(p.id).size >= stageStep(sim.mode, sim.finales, 8, true))) soloFeat('l8', sim.mode);
       } else if (e.type === 'victory') {
         const party = Array.isArray(e.party) ? e.party : [];
-        if (sim.players.some((p) => !party.includes(p.id) && goals(p.id).size >= stageStep(sim.mode, sim.finales, SKATE_FINAL_LEVEL))) soloFeat('l9', sim.mode);
+        if (sim.players.some((p) => !party.includes(p.id) && goals(p.id).size >= stageStep(sim.mode, sim.finales, SKATE_FINAL_LEVEL))) soloFeat(sim.easy ? 'e9' : 'l9', sim.mode);
         soloFeat('win', sim.mode);
       } else if (e.type === 'revive') soloFeat('rev', sim.mode);
     }
@@ -324,6 +325,7 @@ function createAccount(root) {
       const SHORT = { run: 'Run', ice: 'Skate', mixed: 'Run + Skate' };
       const GOALS = { l8: 'Clear level 8 having reached the goal yourself on every level (both halves in Run + Skate). Each mode unlocks it for that mode:',
         l9: 'Beat level 9 having reached the goal yourself on every level, the final one too. Each mode unlocks it for that mode:',
+        e9: 'Beat level 9 in an easy game having reached the goal yourself on every level, the final one too. Each mode unlocks it for that mode:',
         win: 'Clear the final level to unlock a new song (any mode):',
         rev: 'Revive kitties (all modes together):' };
       let lastFeat = '';
@@ -331,10 +333,10 @@ function createAccount(root) {
       let seen9 = false;
       try { seen9 = localStorage.getItem('rkr-seen9') === '1'; } catch { /* ignore */ }
       const st = A.account && A.account.stats;
-      seen9 ||= ['online', 'local'].some((k) => st && st[k] && Object.values(st[k].reached || {}).some((v) => v >= 9));
+      seen9 ||= ['online', 'local', 'easy'].some((k) => st && st[k] && Object.values(st[k].reached || {}).some((v) => v >= 9));
       seen9 ||= Object.values((prog && prog.l9) || {}).some((v) => v > 0) || Object.values(solo.l9 || {}).some((v) => v > 0);
       for (const u of UNLOCKS) {
-        if (u.feat === 'l9' && !seen9) continue;
+        if ((u.feat === 'l9' || u.feat === 'e9') && !seen9) continue;
         if (u.feat !== lastFeat) { lastFeat = u.feat; ulist.appendChild(el('div', 'rka-ugoal', GOALS[u.feat])); }
         const onl = isUnlocked(prog, u), off_ = isUnlocked(solo, u), open_ = onl || off_;   // (in some mode, online or offline: its switch shows)
         const row = el('div', 'rka-urow' + (open_ ? '' : ' rka-locked'));
@@ -478,7 +480,7 @@ function createAccount(root) {
       // Stats & progress: online (counted by the game server) or solo / local (reported by this browser), a tab each
       const stats = section('STATS & PROGRESS');
       const tabs = el('div', 'rka-tabs');
-      for (const [k, label] of [['online', 'ONLINE'], ['local', 'SOLO & LOCAL']]) {
+      for (const [k, label] of [['online', 'ONLINE'], ['local', 'SOLO & LOCAL'], ['easy', 'EASY']]) {
         const t = el('button', 'rka-amt rka-tab' + (k === statsTab ? ' rka-on' : ''), label);
         t.addEventListener('click', () => { statsTab = k; open({ fresh: true }); });
         tabs.appendChild(t);
@@ -492,6 +494,7 @@ function createAccount(root) {
       }
       stats.append(tabs, what, statsView(a.stats && a.stats[statsTab]),
         el('div', 'rka-fine', statsTab === 'online' ? 'Counted by the game server in Multiplayer games.'
+          : statsTab === 'easy' ? 'Easy games: Multiplayer ones counted by the game server, solo and local ones by your own browser.'
           : 'Counted by your own browser in solo and local co-op games.'));
       const links = el('div', 'rka-links');
       const out = el('a', null, 'Sign out'), del = el('a', null, 'Delete account');
@@ -607,8 +610,8 @@ function createAccount(root) {
       const t = e.type === 'levelStart' ? 'reached' : e.type === 'levelClear' ? 'clear'
         : e.type === 'crown' && me && e.playerId === me.id ? 'crown' : e.type === 'revive' && me && e.by === me.id ? 'revive' : null;
       if (!t) continue;
-      if (local && local.mode !== sim.mode) sendLocal();
-      local ||= { mode: sim.mode, reached: 0, clears: [], times: [], crowns: 0, revives: 0 };
+      if (local && (local.mode !== sim.mode || !!local.easy !== !!sim.easy)) sendLocal();
+      local ||= { mode: sim.mode, reached: 0, clears: [], times: [], crowns: 0, revives: 0, ...(sim.easy ? { easy: true } : {}) };   // (an easy game: its own stats)
       const level = e.type === 'levelClear' ? e.level : (sim.levelData && sim.levelData.level) || sim.level;
       if (t === 'reached') local.reached = Math.max(local.reached, level);
       else if (t === 'clear') {

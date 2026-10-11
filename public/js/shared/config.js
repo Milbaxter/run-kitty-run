@@ -48,6 +48,7 @@ const CFG = {
 
   // Flow
   LEVEL_CLEAR_TIME: 2.4,     // seconds of celebration before next level
+  RETRY_TIME: 2.2,           // easy games: seconds after everyone went down before the level starts over
 };
 
 // Loops of the (fixed) square spiral map (see maze.js).
@@ -140,6 +141,6 @@ const stageStep = (mode, fv, level, night = false) => (mode === 'mixed' && (fv |
 //  15 = items: 8 a level (autumn 4 + the tree boots), at most 2 hearts and 3 shields, level 9's tree has big boots (finale version 11, rf 11)
 //  16 = Skate only's levels 1-8: the seasons from winter, as floodlit night levels (finale version 12, rf 12)
 //  17 = Run + Skate: every level by day (Run only's) then by night (Skate only's), see DAY_NIGHT_FV (finale version 13, rf 13)
-const PROTOCOL_VERSION = 18;   // 18: friend ids, who's online, invites (server/index.js 'seen' / 'invite')
+const PROTOCOL_VERSION = 19;   // 19: easy games (a level starts over when everyone is down; state 'retry', snapshot rt)
 
 export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION, DAY_NIGHT_FV, stageOf, stageStep };

@@ -40,6 +40,9 @@ const finaleFor = (mode, f) => (mode === 'run' ? (f >= 8 ? Math.min(f, 11) : Mat
 const runFinaleOk = (client, room) => !(room.phase === 'playing' && room.sim) || client.v >= FINALE_PROTOCOL[finaleFor(room.mode, room.sim.finales | 0)];
 const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
 const MODE_NAMES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
+// easy games (a level starts over when everyone is down): older clients would sit on a dead level
+const EASY_PROTOCOL = 19;
+const easyOk = (client, room) => !room.easy || client.v >= EASY_PROTOCOL;
 const updateHow = (client) => (client.app === 'web' ? 'reload the page' : 'update the app');
 const APPS = ['web', 'ios', 'android'];
 // Test hooks (scripts/server-test.mjs): 'start' may pick a level and 'dbg' can drop a kitty in the goal.
@@ -407,6 +410,7 @@ function handleOfflineSign(req, res) {
 
 // A room just won: everyone in it at this moment is on the board and may sign it; each gets the board right away.
 function legendsOnWin(room, e) {
+  if (room.easy) return;   // (the board is for games won without starting levels over)
   legends.recordWin(room.mode, e.time, room.members);
   for (const m of room.members) { const b = legends.boardFor(m); if (b) send(m.ws, b); }
 }
@@ -499,7 +503,7 @@ function handleInvite(client, msg) {
   if (Date.now() - last < INVITE_AGAIN_MS) return reply(false, 'Invited! Give them a moment.');
   invitedAt.set(key, Date.now());
   if (invitedAt.size > 5000) invitedAt.delete(invitedAt.keys().next().value);
-  const json = JSON.stringify({ t: 'invite', name: client.name || 'A kitty', color: client.color, code: room.code, mode: room.mode,
+  const json = JSON.stringify({ t: 'invite', name: client.name || 'A kitty', color: client.color, code: room.code, mode: room.mode, easy: room.easy || undefined,
     pass: room.pass || undefined, fid: client.fid || undefined });   // (fid: who it's from: the friend can block their invites)
   for (const c of to) send(c.ws, json);
   reply(true, 'Invite sent!');
@@ -507,7 +511,7 @@ function handleInvite(client, msg) {
 
 function roomInfo(room) {
   return {
-    t: 'room', code: room.code, host: room.hostId, phase: room.phase, mode: room.mode, max: room.max || NET.MAX_PLAYERS,
+    t: 'room', code: room.code, host: room.hostId, phase: room.phase, mode: room.mode, easy: room.easy || undefined, max: room.max || NET.MAX_PLAYERS,
     locked: !!room.pass, pass: room.pass || undefined,   // private lobby: its members see the password (to pass it on)
     members: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color, app: m.app, paid: m.paid || undefined,   // paid: cents (accounts.js)
       fid: m.fid || undefined,   // public friend id (invites)
@@ -524,11 +528,11 @@ function lobbyList(client) {
   const list = [];
   for (const r of rooms.values()) {
     if (r.members.length === 0) continue;
-    if (!modeOk(client, r.mode) || !runFinaleOk(client, r)) continue; // this client's build can't play that mode / game
+    if (!modeOk(client, r.mode) || !runFinaleOk(client, r) || !easyOk(client, r)) continue; // this client's build can't play that mode / game
     list.push({
       code: r.code, players: r.members.length, max: r.max || NET.MAX_PLAYERS, phase: r.phase, locked: !!r.pass,
       host: (r.members.find((m) => m.id === r.hostId) || r.members[0]).name,
-      level: r.sim ? r.sim.levelData.level || r.sim.level : 0, mode: r.mode,
+      level: r.sim ? r.sim.levelData.level || r.sim.level : 0, mode: r.mode, easy: r.easy || undefined,
     });
   }
   return list.sort((a, b) => (a.phase === 'lobby' ? 0 : 1) - (b.phase === 'lobby' ? 0 : 1) || b.players - a.players).slice(0, 30);
@@ -549,6 +553,7 @@ function joinRoom(client, room, name, pref, pass) {
   // Covers every way in: lobby list, code, invite deep link, reconnect rejoin, mid-game join.
   // 'code' in the text makes clients drop ?room= from the URL so they don't retry the link.
   if (!modeOk(client, room.mode)) return send(client.ws, { t: 'error', msg: `That lobby code is for ${MODE_NAMES[room.mode]}, which needs the latest version - ${updateHow(client)} to play it.` });
+  if (!easyOk(client, room)) return send(client.ws, { t: 'error', msg: `That lobby plays an easy game, which needs the latest version - ${updateHow(client)} to play it.` });
   if (!runFinaleOk(client, room)) return send(client.ws, { t: 'error', msg: `That game is playing the new level 9 - ${updateHow(client)} to join it.` });
   const max = room.max || NET.MAX_PLAYERS;
   if (room.members.length >= max) return send(client.ws, { t: 'error', msg: `That lobby is full (${max}/${max}).` });
@@ -647,6 +652,7 @@ function startMsg(room, withWolves) {
   const sim = room.sim;
   return {
     t: 'start', seed: sim.seed, mode: sim.mode, level: sim.level, tick: room.tick, lt: sim.enemyTicks, rf: sim.finales | 0,
+    easy: sim.easy ? 1 : undefined, rt: sim.retries || undefined,
     st: sim.state, vic: room.victory || null, // mid-game joiners: the run may already be won (the 'victory' event went out before)
     players: sim.players.map((p) => ({ id: p.id, name: p.name, color: p.color })),
     wolves: withWolves ? serializeEnemies(sim.enemies) : null,
@@ -666,7 +672,7 @@ function startGame(room, startLevel = 1) {
   room.left = new Map();
   const seed = hashSeed(Date.now(), Math.random(), room.code) >>> 0;
   room.sim = createSim({
-    seed, startLevel: stageStep(room.mode, finalesOf(room.members), startLevel), mode: room.mode, finales: finalesOf(room.members),
+    seed, startLevel: stageStep(room.mode, finalesOf(room.members), startLevel), mode: room.mode, finales: finalesOf(room.members), easy: !!room.easy,
     players: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
   });
   for (const m of room.members) { m.inputs.clear(); m.lastInput = null; }
@@ -723,6 +729,9 @@ function countForAccounts(room, events) {
   const goalsOf = (id) => { let g = room.goals.get(id); if (!g) room.goals.set(id, g = new Set()); return g; };
   const featDone = (id, feat) => { accounts.recordFeat(whoOf(id), feat, room.mode); feats.add(id); };
   const feats = new Set();
+  // easy games: their own stats (accounts.js 'easy'); of the unlocks the revives (the medic badge), the song and
+  // their own level 9 ones ('e9')
+  const easy = !!room.easy;
   for (const e of events) {
     if (e.type === 'enterCenter') { goalsOf(e.playerId).add(e.level ?? sim.level); continue; }
     if (e.type === 'stageClear') { room.dayTime = { level: e.level, time: sim.levelTime }; continue; }
@@ -735,11 +744,11 @@ function countForAccounts(room, events) {
         ev.time = sim.levelTime + day;   // the team's time for the level
         room.dayTime = null;
       }
-      for (const id of once(sim.players.map((p) => p.id))) accounts.recordOnline(subOf(id), ev);
+      for (const id of once(sim.players.map((p) => p.id))) accounts.recordOnline(subOf(id), ev, easy);
       // unlocks: level 8 cleared by a kitty that reached the goal itself on every level of the run so far (8, or 16
       // in Run + Skate: both halves), crowns or not. Checked as the game moves on to level 9, so a kitty that runs in
       // during the level-cleared pause still counts
-      if (e.type === 'levelStart' && level === SKATE_FINAL_LEVEL) {
+      if (!easy && e.type === 'levelStart' && level === SKATE_FINAL_LEVEL) {
         for (const id of once(sim.players.filter((p) => goalsOf(p.id).size >= stageStep(room.mode, sim.finales, 8, true)).map((p) => p.id))) featDone(id, 'l8');
       }
     } else if (e.type === 'victory') {
@@ -747,12 +756,13 @@ function countForAccounts(room, events) {
       // carried in for the party)
       const party = Array.isArray(e.party) ? e.party : [];
       const l9 = sim.players.filter((p) => !party.includes(p.id) && goalsOf(p.id).size >= stageStep(room.mode, sim.finales, SKATE_FINAL_LEVEL));   // (every step up to the last: 9, or 17 with day and night halves)
-      for (const id of once(l9.map((p) => p.id))) featDone(id, 'l9');
+      for (const id of once(l9.map((p) => p.id))) featDone(id, easy ? 'e9' : 'l9');   // (an easy game: its own unlocks)
       for (const id of once(sim.players.map((p) => p.id))) featDone(id, 'win');   // and the new song: everyone who was there
-    } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown' });
+    } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown' }, easy);
     else if (e.type === 'revive' && !samePlayer(memberOf(e.by), memberOf(e.playerId))) {
       featDone(e.by, 'rev');   // toward the medic badge (3000 revives); first, so an account's past revives are taken before this one
       accounts.recordOnline(subOf(e.by), { type: 'revive' });
+      if (easy) accounts.recordOnline(subOf(e.by), { type: 'revive' }, true);
     }
   }
   // a feat may have unlocked something: the room shows it right away
@@ -772,7 +782,7 @@ function sendSnapshot(room) {
   const sim = room.sim;
   const margins = new Map(room.members.map((m) => [m.id, m.margin]));
   broadcast(room, {
-    t: 'snap', k: room.tick, lvl: sim.level, st: sim.state, lt: sim.enemyTicks, tm: r3(sim.time),
+    t: 'snap', k: room.tick, lvl: sim.level, st: sim.state, lt: sim.enemyTicks, tm: r3(sim.time), rt: sim.retries || undefined,
     // [id, x, z, vx, vz, heading, alive, inCenter, lives, speedMult, invuln, shield, deaths, rescues, inputMargin, finishes, waitRelease, crowned, bonus,
     //  freeTurn] (new fields go at the end: older clients ignore them)
     p: sim.players.map((p) => [p.id, r3(p.x), r3(p.z), r3(p.vx), r3(p.vz), r3(p.heading), p.alive ? 1 : 0, p.inCenter ? 1 : 0,
@@ -952,7 +962,7 @@ wss.on('connection', (ws, req) => {
         if (!modeOk(client, mode)) return send(ws, { t: 'error', msg: `${MODE_NAMES[mode]} needs the latest version - ${updateHow(client)} to play it. The other modes work as usual.` });
         // max: how many kitties may join (2..NET.MAX_PLAYERS); pass: private lobby's password ('' = public)
         const maxReq = Number.isInteger(msg.max) ? msg.max : NET.MAX_PLAYERS;
-        const r = { code: makeCode(), mode, max: Math.max(2, Math.min(NET.MAX_PLAYERS, maxReq)), pass: cleanPass(msg.password), by: client.ipk,
+        const r = { code: makeCode(), mode, easy: msg.easy === true && client.v >= EASY_PROTOCOL, max: Math.max(2, Math.min(NET.MAX_PLAYERS, maxReq)), pass: cleanPass(msg.password), by: client.ipk,
           members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0, victory: null,
           left: new Map() }; // tab token -> state of a kitty that left this game (reconnect grace)
         stats.lobbyCreated();

@@ -713,6 +713,10 @@ function createEffects(scene) {
       g.fillStyle = INK; g.beginPath(); g.ellipse(14.3, 21.5, 2.3, 3.1, 0, 0, TAU); g.ellipse(25.7, 21.5, 2.3, 3.1, 0, 0, TAU); g.fill();
       g.fillStyle = '#fff'; g.beginPath(); g.arc(15, 20.4, 0.9, 0, TAU); g.arc(26.4, 20.4, 0.9, 0, TAU); g.fill();
     }
+    if (look.specs) {   // an easy game's reading glasses (ui.js SPECS_SVG)
+      g.strokeStyle = '#e0b040'; g.lineWidth = 1.4; g.stroke(P('M5 19.6 L9.4 20.4 M35 19.6 L30.6 20.4 M18.6 20.6 Q20 19.2 21.4 20.6'));
+      g.lineWidth = 1.5; g.beginPath(); g.arc(14.2, 21.5, 4.7, 0, TAU); g.stroke(); g.beginPath(); g.arc(25.8, 21.5, 4.7, 0, TAU); g.stroke();
+    }
     g.strokeStyle = INK;
     const nose = P('M18.2 26.4 L21.8 26.4 L20 28.6 Z');
     g.fillStyle = '#ff6f9f'; g.fill(nose); g.lineWidth = 1; g.stroke(nose);
@@ -722,7 +726,7 @@ function createEffects(scene) {
   // a rainbow face or mane slides: those cards get their own canvas, redrawn while they show (updateCards)
   const sliding = (look) => !!(look.rainbow || look.lionLook === 'rainbow') && look.lionLook !== 'chrome' && look.lionLook !== 'celestial';
   function cardTexture(color, look) {
-    const key = (color >>> 0) + ':' + (look.cool ? 'c' : '') + (look.lion ? 'l' : '') + (look.lionLook || '');
+    const key = (color >>> 0) + ':' + (look.cool ? 'c' : '') + (look.specs ? 's' : '') + (look.metal || '') + (look.lion ? 'l' : '') + (look.lionLook || '');
     const anim = sliding(look);
     if (!anim && cardTex.has(key)) return cardTex.get(key);
     const c = document.createElement('canvas');

@@ -4,7 +4,8 @@
 //       Run only and Skate only, 16 in Run + Skate: the day and night halves each), crowns or not
 //   l9: winning the final run (level 9) having reached the goal yourself on every level, the final one included (not
 //       carried into the victory party)
-//   win: the final run won, for every kitty in the game (crowns or not)
+//   e9: l9 in an easy game (a level starts over when everyone is down): the easy games' own unlocks
+//   win: the final run won, for every kitty in the game (crowns or not; easy games too)
 //   rev: a kitty revived (by the rescuer; not its own other tab). A swag account also counts the revives its stats had
 //        counted before this unlock existed ('past')
 // An item unlocks per mode: done `times` times in a mode, it's unlocked (and worn) in that mode only. (`any`: done in any
@@ -19,17 +20,19 @@ const UNLOCKS = [
   { id: 'lion', name: 'Lion mane', feat: 'l9', times: 1 },
   { id: 'tail', name: 'Fluffy tail', feat: 'l9', times: 1 },
   { id: 'chrome', name: 'Chrome lion', feat: 'l9', times: 1, all: true },   // (done in all three modes, worn in every one)
+  { id: 'bow', name: 'Tail bow', feat: 'e9', times: 1 },
+  { id: 'medal', name: 'Gold medal', feat: 'e9', times: 2 },
   { id: 'song5', name: 'New song: We Skate', feat: 'win', times: 1, any: true, song: true },
   // the medic badge on the player card (`medic`: its look; more revive rewards may add looks: the card shows the best)
   { id: 'medic', name: 'Medic badge', feat: 'rev', times: 3000, total: true, medic: 'base' },   // (in the kitty's colour)
 ];
-const FEAT_IDS = ['l8', 'l9', 'win', 'rev'];
+const FEAT_IDS = ['l8', 'l9', 'e9', 'win', 'rev'];
 // the medic badge looks, best first: the card shows the first one switched on (none: no badge)
 const MEDIC_TIERS = UNLOCKS.filter((u) => u.medic).sort((a, b) => b.times - a.times);
 const medicLook = (cos) => { for (const u of MEDIC_TIERS) if (cos.has(u.id)) return u.medic; return ''; };
 // a total item's count: every mode's, plus what was counted before (rev.past)
 const featTotal = (progress, feat) => { const p = (progress && progress[feat]) || {}; return UNLOCK_MODES.reduce((n, m) => n + (p[m] || 0), 0) + (Number(p.past) || 0); };
-const FEATS = { l8: 'Clear level 8 reaching every goal', l9: 'Beat level 9 reaching every goal', win: 'Clear the final level', rev: 'Revive kitties' };
+const FEATS = { l8: 'Clear level 8 reaching every goal', l9: 'Beat level 9 reaching every goal', e9: 'Beat level 9 in an easy game reaching every goal', win: 'Clear the final level', rev: 'Revive kitties' };
 // the wins a kitty can have by level 8 (one per level, two per level in Run + Skate)
 const winsNeeded = (mode) => (mode === 'mixed' ? 16 : 8);
 // progress: { l8: { run, ice, mixed }, l9: { ... } } -> is this item unlocked in this mode? (no mode: in any mode,

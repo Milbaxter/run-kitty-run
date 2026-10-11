@@ -211,6 +211,25 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     }
   }
 
+  // easy games: everyone down = the level starts over (same level, wolves as at its start), not game over
+  {
+    const mk = (easy) => { const s = createSim({ seed: 11, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }], startLevel: 3, mode: 'run', easy }); stepSim(s, {}, CFG.TICK); return s; };
+    const wipe = (s) => { const evs = []; for (const p of s.players) { p.invuln = 0; p.x = s.enemies[0].x; p.z = s.enemies[0].z; } for (let i = 0; i < 5 && s.state === 'playing'; i++) evs.push(...stepSim(s, {}, CFG.TICK)); return evs; };
+    const normal = mk(false);
+    ok(wipe(normal).some((e) => e.type === 'gameOver') && normal.state === 'gameover', 'normal game: everyone down is game over');
+    const easy = mk(true), fresh = mk(true);
+    easy.players[0].finishes = 2; easy.players[0].rescues = 5;
+    for (let i = 0; i < 300; i++) stepSim(easy, {}, CFG.TICK);
+    const evs = wipe(easy);
+    const wiped = evs.some((e) => e.type === 'wipe') && !evs.some((e) => e.type === 'gameOver') && easy.state === 'retry';
+    let started = null, ticks = 0;
+    while (!started && ticks++ < 600) started = stepSim(easy, {}, CFG.TICK).find((e) => e.type === 'levelStart') || null;
+    const same = easy.enemies.length === fresh.enemies.length && easy.enemies.every((e, i) => Math.abs(e.x - fresh.enemies[i].x) < 1e-9 && Math.abs(e.z - fresh.enemies[i].z) < 1e-9);
+    ok(wiped && started && started.retry && Math.abs(ticks * CFG.TICK - CFG.RETRY_TIME) < 0.1 && easy.level === 3 && easy.retries === 1 && easy.state === 'playing'
+      && easy.players.every((p) => p.alive) && easy.players[0].finishes === 2 && easy.players[0].rescues === 5 && easy.enemyTicks === 0 && same,
+    'easy game: everyone down starts the level over (kitties up at the start, crowns and rescues kept, wolves as at the level start)');
+  }
+
   // revive cooldown: standing on a fresh circle does nothing until REVIVE_DELAY has passed
   {
     const s = createSim({ seed: 8, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }] });

@@ -38,6 +38,12 @@ function chromeFill(g) {
   gr.addColorStop(0.7, '#8c96a8'); gr.addColorStop(1, '#dfe5ee');
   return gr;
 }
+// an easy game's bronze / golden kitty (main.js iconLook metal)
+function metalFill(g, kind) {
+  const gr = g.createLinearGradient(0, 2, 30, 38), c = kind === 'gold' ? ['#fff3c4', '#e0a020', '#ffe07a', '#b8791f', '#ffd34a'] : ['#f2c79a', '#b0662a', '#e3a068', '#7d4416', '#cd7f32'];
+  gr.addColorStop(0, c[0]); gr.addColorStop(0.35, c[1]); gr.addColorStop(0.5, c[2]); gr.addColorStop(0.7, c[3]); gr.addColorStop(1, c[4]);
+  return gr;
+}
 function cosmicFill(g) {
   const gr = g.createRadialGradient(20, 19, 1, 20, 21, 21);
   gr.addColorStop(0, '#a99bff'); gr.addColorStop(0.35, '#6a54e0'); gr.addColorStop(0.7, '#33208f'); gr.addColorStop(1, '#141045');
@@ -74,6 +80,7 @@ function drawMane(g, color, look, phase = 0) {
 function faceFill(g, look, phase = 0) {
   if (!look) return null;
   if (look.lionLook === 'chrome') return chromeFill(g);
+  if (look.metal) return metalFill(g, look.metal);
   if (look.lionLook === 'celestial') return cosmicFill(g);
   if (look.lionLook === 'rainbow' || look.rainbow) return rainbowFill(g, phase);
   return null;

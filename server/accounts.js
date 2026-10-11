@@ -272,7 +272,7 @@ function createAccounts(file, env = process.env) {
   const active = (a) => (Number(a && a.paid) || 0) > 0 && !(a && a.deleting);
   const pub = (a) => (a ? { name: a.name, email: a.email, via: a.via || 'google', paid: Number(a.paid) || 0, active: active(a), show: !a.hide, unlocks: unlocksOf(a),
     deleting: a.deleting ? new Date(a.deleting + DELETE_KEEP_MS).toISOString() : null,   // deleted: gone for good at this time
-    stats: { online: (a.stats && a.stats.online) || blankStats(), local: (a.stats && a.stats.local) || blankStats() } } : null);
+    stats: { online: (a.stats && a.stats.online) || blankStats(), local: (a.stats && a.stats.local) || blankStats(), easy: (a.stats && a.stats.easy) || blankStats() } } : null);
   function newSession(a) {
     const token = crypto.randomBytes(24).toString('base64url');
     const h = sha(token);
@@ -294,7 +294,9 @@ function createAccounts(file, env = process.env) {
 
   // ---- stats (the account menu) ----
   // Two separate sets: 'online' is counted by this server from the online games it runs; 'local' (solo / local co-op)
-  // is reported by the player's own browser, so the menu shows it apart as numbers anyone could edit.
+  // is reported by the player's own browser, so the menu shows it apart as numbers anyone could edit. A third, 'easy':
+  // easy games (a level starts over when everyone is down), online and offline ones together; their revives count
+  // in the usual set too.
   // { clears: { mode: { level: times the team cleared it } }, reached: { mode: highest level played }, crowns, revives }
   // best: the fastest clear per mode and level, in seconds (Run + Skate: the day and night halves together)
   function blankStats() { return { clears: { run: {}, ice: {}, mixed: {} }, reached: { run: 0, ice: 0, mixed: 0 }, best: { run: {}, ice: {}, mixed: {} }, crowns: 0, revives: 0 }; }
@@ -336,7 +338,7 @@ function createAccounts(file, env = process.env) {
     statsChanged();
   }
   // online games: the game server calls this for each signed-in player (by account id)
-  const recordOnline = (sub, ev) => { if (sub && accounts[sub]) record(accounts[sub], 'online', ev); };
+  const recordOnline = (sub, ev, easy = false) => { if (sub && accounts[sub]) record(accounts[sub], easy ? 'easy' : 'online', ev); };
 
   // ---- permanent unlocks (shared/unlocks.js): feats done online, per mode, and the items switched off ----
   function unlocksOf(a) {
@@ -569,22 +571,28 @@ function createAccounts(file, env = process.env) {
     }
     if (name === 'progress') {
       // solo / local co-op results, reported by the browser: { mode, reached, clears: [levels], times: [seconds per
-      // clear, newer browsers], crowns, revives }.
+      // clear, newer browsers], crowns, revives, easy? (an easy game: its own set, and only the song and the revives
+      // of the offline unlocks) }.
       // Capped per report (the endpoint is rate limited per IP too); shown apart from the online numbers.
       const mode = STAT_MODES.includes(m.mode) ? m.mode : null;
       if (!mode) return { ok: false };
       const lvl = (v) => (Number.isInteger(v) && v >= 1 && v <= MAX_LEVEL ? v : 0);
-      if (lvl(m.reached)) record(a, 'local', { type: 'reached', mode, level: lvl(m.reached) });
+      const easy = m.easy === true, kind = easy ? 'easy' : 'local';
+      if (lvl(m.reached)) record(a, kind, { type: 'reached', mode, level: lvl(m.reached) });
       const times = Array.isArray(m.times) ? m.times : [];
-      (Array.isArray(m.clears) ? m.clears : []).slice(0, 3).forEach((v, i) => { if (lvl(v)) record(a, 'local', { type: 'clear', mode, level: v, time: times[i] }); });
+      (Array.isArray(m.clears) ? m.clears : []).slice(0, 3).forEach((v, i) => { if (lvl(v)) record(a, kind, { type: 'clear', mode, level: v, time: times[i] }); });
       const count = (v, max) => (Number.isInteger(v) && v > 0 ? Math.min(v, max) : 0);
-      record(a, 'local', { type: 'crown' }, count(m.crowns, 3));
+      record(a, kind, { type: 'crown' }, count(m.crowns, 3));
       record(a, 'local', { type: 'revive' }, count(m.revives, 100));
+      if (easy) record(a, 'easy', { type: 'revive' }, count(m.revives, 100));
       // offline unlock progress ({ feat: count } in this mode): only ever worn offline, so a faked one shows only to its
       // own player. (Capped per report; bigger when a browser's own track moves onto the account.)
       if (m.solo && typeof m.solo === 'object' && active(a)) {
         const u = unlocksOf(a);
-        for (const f of FEAT_IDS) { const n = count(m.solo[f], f === 'rev' ? 5000 : 50); if (n) u.solo[f][mode] += n; }
+        for (const f of FEAT_IDS) {
+          if (easy ? !['rev', 'win', 'e9'].includes(f) : f === 'e9') continue;   // (an easy game: its own level 9 feat)
+          const n = count(m.solo[f], f === 'rev' ? 5000 : 50); if (n) u.solo[f][mode] += n;
+        }
         statsChanged();
       }
       return { ok: true, account: pub(a) };

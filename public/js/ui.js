@@ -55,6 +55,8 @@ const MANE_D = (() => {
 const MANE_SVG = `<svg viewBox="0 0 40 40" class="rkr-mane" aria-hidden="true"><path d="${MANE_D}"/></svg>`;
 const SHADES_SVG = `<svg viewBox="0 0 40 40" class="rkr-shades"><path d="M5 19.6 L10 18.8 M35 19.6 L30 18.8 M18.4 20.2 Q20 18.6 21.6 20.2" fill="none" stroke="#ffd34a" stroke-width="1.6" stroke-linecap="round"/><ellipse cx="14" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><ellipse cx="26" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><path d="M11.4 19.8 L14.6 19.1 M23.4 19.8 L26.6 19.1" stroke="#fff" stroke-width="1.2" stroke-linecap="round"/></svg>`;
 // ...and broken (5+ wins, kitty down): knocked crooked, both lenses cracked, a shard missing from the right one
+// an easy game's reading glasses (5+ wins): round wire frames, the eyes show through
+const SPECS_SVG = `<svg viewBox="0 0 40 40" class="rkr-specs"><path d="M5 19.6 L9.4 20.4 M35 19.6 L30.6 20.4 M18.6 20.6 Q20 19.2 21.4 20.6" fill="none" stroke="#e0b040" stroke-width="1.4" stroke-linecap="round"/><circle cx="14.2" cy="21.5" r="4.7" fill="rgba(255,255,255,.12)" stroke="#e0b040" stroke-width="1.5"/><circle cx="25.8" cy="21.5" r="4.7" fill="rgba(255,255,255,.12)" stroke="#e0b040" stroke-width="1.5"/></svg>`;
 const SHADES_BROKEN_SVG = `<svg viewBox="0 0 40 40" class="rkr-shades-broken"><g transform="rotate(-9 20 21)"><path d="M5 19.6 L10 18.8 M35 19.6 L30 18.8 M18.4 20.2 Q20 18.6 21.6 20.2" fill="none" stroke="#ffd34a" stroke-width="1.6" stroke-linecap="round"/><ellipse cx="14" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><ellipse cx="26" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><path d="M26 21.6 L30.4 18.6 L30.9 21.2 Z" fill="currentColor" stroke="${INK}" stroke-width=".6" stroke-linejoin="round"/><path d="M10 19.5 L13.2 22 L12 25.4 M13.2 22 L17.4 20.8 M13.2 22 L16 25.2 M22 23.6 L26 21.6 L24.4 18 M26 21.6 L27.6 25.6" fill="none" stroke="#fff" stroke-width=".8" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/></g></svg>`;
 // the medic badge (3000 revives): a star of life in the kitty's colour (currentColor), and on it the revive effects'
 // staff and snake (effects.js SHAPE_STAR, the particle shader's shape at 40 units): a thin staff with a knob, the snake
@@ -172,10 +174,13 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-card .rkr-head svg{display:block;width:100%;height:100%;}
 .rkr-card .rkr-shades,.rkr-card .rkr-shades-broken{position:absolute;inset:0;display:none !important;}
 .rkr-card.rkr-cool:not(.rkr-down) .rkr-shades{display:block !important;}
+.rkr-card .rkr-specs{position:absolute;inset:0;display:none !important;}
+.rkr-card.rkr-specson:not(.rkr-down) .rkr-specs{display:block !important;}
 /* 12+ wins: the name shimmers through the rainbow (player card and scoreboard) */
 @keyframes rkr-shim{to{background-position:-300% 0;}}
 .rkr-card.rkr-shimmer .rkr-name,.rkr-scores .rkr-shim{background:linear-gradient(90deg,#ff6b81,#ffd56b,#6bff9a,#6bd5ff,#c27bff,#ff6b81);background-size:300% 100%;
   -webkit-background-clip:text;background-clip:text;color:transparent !important;text-shadow:none;filter:drop-shadow(0 2px 0 rgba(0,0,0,.45));animation:rkr-shim 3s linear infinite;}
+.rkr-card.rkr-shimmer.rkr-goldname .rkr-name,.rkr-scores .rkr-shim.rkr-goldname{background-image:linear-gradient(90deg,#b8791f,#ffd56b,#fff6d0,#ffd56b,#b8791f,#ffd56b,#b8791f);}
 .rkr-card.rkr-cool.rkr-down .rkr-shades-broken{display:block !important;}
 .rkr-card.rkr-cool.rkr-down .rkr-xeyes{display:none;}
 .rkr-card.rkr-rainbow .rkr-cat > path:first-child{fill:url(#rkr-rainbow-fur);}
@@ -184,6 +189,8 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-card.rkr-lion .rkr-head .rkr-mane{display:block;}
 .rkr-card.rkr-rlion .rkr-mane path{fill:url(#rkr-rainbow-fur);}
 .rkr-card.rkr-chrome .rkr-mane path,.rkr-card.rkr-chrome .rkr-cat > path:first-child{fill:url(#rkr-chrome-fur);}
+.rkr-card.rkr-mbronze .rkr-cat > path:first-child{fill:url(#rkr-bronze-fur);}
+.rkr-card.rkr-mgold .rkr-cat > path:first-child{fill:url(#rkr-gold-fur);}
 .rkr-card.rkr-celestial .rkr-mane path,.rkr-card.rkr-celestial .rkr-cat > path:first-child{fill:url(#rkr-cosmic-fur);}
 .rkr-card.rkr-celestial .rkr-mane path{stroke:#8fb8ff;}
 .rkr-defs{position:absolute;width:0;height:0;overflow:hidden;}
@@ -612,6 +619,14 @@ function createUI(root) {
       <stop offset="1" stop-color="#ff5a5a"/>
       <animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="-1 -0.6" dur="2.2s" repeatCount="indefinite"/>
     </linearGradient>
+    <linearGradient id="rkr-bronze-fur" x1="0" y1="0" x2=".75" y2="1">
+      <stop offset="0" stop-color="#f2c79a"/><stop offset=".35" stop-color="#b0662a"/><stop offset=".5" stop-color="#e3a068"/>
+      <stop offset=".7" stop-color="#7d4416"/><stop offset="1" stop-color="#cd7f32"/>
+    </linearGradient>
+    <linearGradient id="rkr-gold-fur" x1="0" y1="0" x2=".75" y2="1">
+      <stop offset="0" stop-color="#fff3c4"/><stop offset=".35" stop-color="#e0a020"/><stop offset=".5" stop-color="#ffe07a"/>
+      <stop offset=".7" stop-color="#b8791f"/><stop offset="1" stop-color="#ffd34a"/>
+    </linearGradient>
     <linearGradient id="rkr-chrome-fur" x1="0" y1="0" x2=".75" y2="1">
       <stop offset="0" stop-color="#ffffff"/><stop offset=".35" stop-color="#b9c2d0"/><stop offset=".5" stop-color="#f4f7fb"/>
       <stop offset=".7" stop-color="#8c96a8"/><stop offset="1" stop-color="#dfe5ee"/>
@@ -635,7 +650,7 @@ function createUI(root) {
 
   function makeCard() {
     const c = el('div', 'rkr-card',
-      `<div class="rkr-head">${MANE_SVG}${ICONS.cat}${SHADES_SVG}${SHADES_BROKEN_SVG}</div>
+      `<div class="rkr-head">${MANE_SVG}${ICONS.cat}${SHADES_SVG}${SPECS_SVG}${SHADES_BROKEN_SVG}</div>
        <div class="rkr-cbody">
          <div class="rkr-crow"><span class="rkr-name"></span><span class="rkr-status">ALIVE</span><span class="rkr-medic rkr-hidden" title="Medic: 3000 revives">${MEDIC_SVG}</span><span class="rkr-hearts"></span></div>
          <div class="rkr-crow"><span class="rkr-paid rkr-hidden"></span><span class="rkr-boots">${ICONS.boots}<span>+0%</span></span></div>
@@ -666,7 +681,9 @@ function createUI(root) {
       card.root.classList.toggle('rkr-pale', isPale(p.color));   // (the medic badge's staff and snake go dark)
     }
     if (!!p.cool !== v.cool) { v.cool = !!p.cool; card.root.classList.toggle('rkr-cool', v.cool); }   // 5+ wins: sunglasses
+    if (!!p.specs !== v.specs) { v.specs = !!p.specs; card.root.classList.toggle('rkr-specson', v.specs); }   // (an easy game: reading glasses)
     if (!!p.shimmer !== v.shimmer) { v.shimmer = !!p.shimmer; card.root.classList.toggle('rkr-shimmer', v.shimmer); }   // 12+ wins: rainbow name
+    if (!!p.gold !== v.gold) { v.gold = !!p.gold; card.root.classList.toggle('rkr-goldname', v.gold); }   // (an easy game: a golden name)
     if ((p.paid || 0) !== v.paid) { v.paid = p.paid || 0; card.paid.textContent = fmtNum(v.paid); card.paid.classList.toggle('rkr-hidden', !v.paid); }
     if (!!p.you !== v.you) { v.you = !!p.you; card.root.classList.toggle('rkr-you', v.you); }
     if ((p.medic || '') !== v.medic) {   // the medic badge (revive unlocks): its look, or none
@@ -681,6 +698,11 @@ function createUI(root) {
       card.root.classList.toggle('rkr-chrome', v.lionLook === 'chrome');
       card.root.classList.toggle('rkr-rlion', v.lionLook === 'rainbow');
       card.root.classList.toggle('rkr-celestial', v.lionLook === 'celestial');
+    }
+    if ((p.metal || '') !== v.metal) {   // an easy game's bronze / golden kitty
+      v.metal = p.metal || '';
+      card.root.classList.toggle('rkr-mbronze', v.metal === 'bronze');
+      card.root.classList.toggle('rkr-mgold', v.metal === 'gold');
     }
     const alive = !!p.alive;
     if (alive !== v.alive) {
@@ -1408,6 +1430,7 @@ function createUI(root) {
       const r = el('div', 'rkr-sr' + (p.you ? ' rkr-me' : ''));
       const n = el('span'); n.textContent = p.name; n.style.color = hexColor(p.color);
       if (p.shimmer) n.classList.add('rkr-shim');   // 12+ wins
+      if (p.gold) n.classList.add('rkr-goldname');
       const v = el('span'); v.textContent = (p.score > 0 ? '+' : '') + p.score;
       r.append(n);
       // the crowns this kitty has won this run: a little crown and the count

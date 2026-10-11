@@ -5,6 +5,7 @@ const PATCH_NOTES = [
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
       'Sign in with Discord: swag accounts now work with a Discord account too, next to Google',
+      'Removed the heartbeat sound that played when a wolf was very close',
       'New EASY option for every mode: pick Normal or Easy under the mode, in Local and when you create a lobby. In an easy game, when everyone is down the level starts over instead of the game being over',
       'Easy games have their own EASY tab in the swag account stats',
       'Zoom out a little further than before (mouse wheel, the - key, a pinch or the right stick of a controller): up to 25% more of the level around your kitty',

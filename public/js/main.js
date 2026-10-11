@@ -1040,11 +1040,11 @@ function iconLook(p) {
   const wins = (p && p.finishes) || 0, res = (p && p.rescues) || 0, cos = cosOf(p);
   // an easy game: only the switched-on unlocks (its own rewards have no icon looks)
   // (specs: its reading glasses; metal: the bronze kitty at 8 wins with 60 revives, the golden one at 16 with 120)
-  if (sim.easy) return { cool: cos.has('shades'), specs: wins >= 5 && !cos.has('shades'), rainbow: false, lion: cos.has('lion') || cos.has('chrome'), lionLook: cos.has('chrome') ? 'chrome' : null,
+  if (sim.easy) return { cool: cos.has('shades'), specs: (wins >= 5 || cos.has('specs')) && !cos.has('shades'), rainbow: false, lion: cos.has('lion') || cos.has('chrome'), lionLook: cos.has('chrome') ? 'chrome' : null,
     metal: cos.has('chrome') ? null : wins >= 16 && res >= 120 ? 'gold' : wins >= 8 && res >= 60 ? 'bronze' : null };
   const rainbow = wins >= 8 && res >= 60;
   return {
-    cool: wins >= 5 || cos.has('shades'), rainbow, lion: wins >= 14 || cos.has('lion') || cos.has('chrome'),
+    cool: wins >= 5 || cos.has('shades'), specs: wins < 5 && !cos.has('shades') && cos.has('specs'), rainbow, lion: wins >= 14 || cos.has('lion') || cos.has('chrome'),
     // the 16-win looks come first; a switched-on chrome lion otherwise (but not over the rainbow cat's own rainbow)
     lionLook: wins >= 16 ? (res >= 120 ? 'celestial' : res >= 60 ? 'rainbow' : 'chrome') : cos.has('chrome') && !rainbow ? 'chrome' : null,
   };
@@ -1380,8 +1380,9 @@ function cycleColor(t, out, cols = PLAYER_COLORS) {
 }
 // the celestial lion's colours of space (its aura, fire trail, prints and skate marks cycle through these instead)
 const COSMIC_CYCLE = [0x7a3cff, 0x3a4dff, 0x1fa8ff, 0xc23cff, 0x5a24d0];
-// an easy game's rewards come in metals, not in the kitty's colour or the rainbow: bronze prints and aura (2, 3 wins),
-// silver with the aura trail (4), and from 6 they cycle bronze, silver, gold
+// an easy game's aura comes in metals, not in the kitty's colour or the rainbow: bronze (3 wins), silver (4). From 6
+// the aura, prints, skate marks and aura trail all cycle bronze, silver, gold and the kitty's own colour (before that
+// the prints, marks and trail are in the kitty's colour).
 const EASY_BRONZE = 0xcd7f32, EASY_SILVER = 0xcfd6e0, EASY_GOLD = 0xffc93a, METAL_CYCLE = [EASY_BRONZE, EASY_SILVER, EASY_GOLD];
 
 // ---------- the final run's giant fish: kitties next to it eat it ----------
@@ -1565,7 +1566,7 @@ function syncVisuals(dt, alpha) {
     const easy = !!sim.easy;   // an easy game: its own versions of the win rewards (the revive rewards are the same)
     const cosmic = !easy && wins >= 16 && (p.rescues || 0) >= 120;   // the celestial lion (see ka.celestial below)
     if (cosmic) cycleColor((t + p.id * 2.3) * 0.7, k.fx, COSMIC_CYCLE);
-    else if (easy) { if (wins >= 6) cycleColor((t + p.id * 2.3) * 0.6, k.fx, METAL_CYCLE); else k.fx.set(wins >= 4 ? EASY_SILVER : EASY_BRONZE); }
+    else if (easy) { if (wins >= 6) cycleColor((t + p.id * 2.3) * 0.6, k.fx, k.metals ||= [...METAL_CYCLE, p.color]); else k.fx.set(wins >= 4 ? EASY_SILVER : EASY_BRONZE); }
     else if (wins >= 6) cycleColor(t + p.id * 2.3, k.fx);
     const ka = _kitArgs;
     ka.speed01 = gliding ? 0 : eat && eat.walking ? 0.45 : Math.min(1, speed / (CFG.KITTY_SPEED * 1.2));
@@ -1578,7 +1579,7 @@ function syncVisuals(dt, alpha) {
     // turns bronze at 13, one silver at 14, one gold at 15), the crown turns silver (9), gets a golden bead on its band
     // per win (10-14) and turns gold (15), silver skates with golden blades (10), a bow on the tail (11), a collar with
     // a name tag (14), a gold medal on it (16; with 120 revives a golden kitty). A switched-on unlock shows as itself.
-    ka.crownMetal = !easy || wins >= 15 ? null : wins >= 9 ? 'silver' : 'bronze'; ka.crownBeads = easy ? Math.max(0, Math.min(5, wins - 9)) : 0; ka.glasses = easy && wins >= 5 && !ka.sunglasses; ka.goldBoots = easy && wins >= 7 && !ka.rainbowBoots;
+    ka.crownMetal = !easy || wins >= 15 ? null : wins >= 9 ? 'silver' : 'bronze'; ka.crownBeads = easy ? Math.max(0, Math.min(5, wins - 9)) : 0; ka.glasses = ((easy && wins >= 5) || cos.has('specs')) && !ka.sunglasses; ka.goldBoots = ((easy && wins >= 7) || cos.has('gboots')) && !ka.rainbowBoots;   // (both also unlocks)
     ka.packYarn = easy; ka.packMetal = !easy ? 0 : wins >= 15 ? 3 : wins >= 14 ? 2 : wins >= 13 ? 1 : 0;
     // wins 9-16: night crown (9) and its stars (10-14), golden skates (10), fluffy tail
     // with a glowing tip (11), a rainbow name (12, ui.js), backpack kittens turning rainbow (13: one, 14: two, 15: all),
@@ -1624,8 +1625,10 @@ function syncVisuals(dt, alpha) {
       }
     }
     k.model.update(dt, ka);
-    k.trail.update(dt, x, z, -k.model.group.rotation.y, gliding && speed > 0.5, paws ? k.fx : null);
-    k.auraTrail.update(dt, x, k.climb, z, -k.model.group.rotation.y, wins >= 4 && speed > 1, k.fx);
+    // (an easy game: the skate marks, aura trail and paw prints are the kitty's own colour until they cycle, from 6 wins)
+    const trailCol = easy && wins < 6 ? (k.own ||= new THREE.Color(p.color)) : k.fx;
+    k.trail.update(dt, x, z, -k.model.group.rotation.y, gliding && speed > 0.5, paws ? trailCol : null);
+    k.auraTrail.update(dt, x, k.climb, z, -k.model.group.rotation.y, wins >= 4 && speed > 1, trailCol);
     k.paws.update(dt);
     if (p.moving && !gliding && sim.state !== 'gameover') {
       k.dustT -= dt;
@@ -1633,7 +1636,7 @@ function syncVisuals(dt, alpha) {
         k.dustT = 0.13;
         const bx = x - Math.cos(p.heading) * 0.3, bz = z - Math.sin(p.heading) * 0.3;
         const gy = inTree(sim.levelData, bx, bz) ? 2.2 : 0;   // on the ground or up on a canopy
-        if (paws) k.paws.add(bx, gy, bz, p.heading, k.fx, cosmic);   // (the celestial lion's prints boom once)
+        if (paws) k.paws.add(bx, gy, bz, p.heading, trailCol, cosmic);   // (the celestial lion's prints boom once)
         else effects.dust(bx, bz);
         if (cosmic) effects.starStep(bx, gy, bz);   // the celestial lion's prints twinkle with a little star
         k.stepN++;

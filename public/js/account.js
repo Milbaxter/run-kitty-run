@@ -11,6 +11,14 @@ import { SKATE_FINAL_LEVEL, stageStep } from './shared/config.js';
 const SOLO_KEY = 'rkr-solo', SOLO_OFF_KEY = 'rkr-solo-off';
 const readJson = (k) => { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v && typeof v === 'object' ? v : {}; } catch { return {}; } };
 const writeJson = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } };
+// the easy games' level 8 unlocks ('e8') came a little after their level 9 ones: a browser that beat level 9 in an easy
+// game had cleared level 8 on the way, so it gets the count (its own offline track)
+{
+  const v = readJson(SOLO_KEY);
+  let moved = false;
+  for (const m of UNLOCK_MODES) { const n = Number(v.e9 && v.e9[m]) || 0; if (n > (Number(v.e8 && v.e8[m]) || 0)) { (v.e8 ||= {})[m] = n; moved = true; } }
+  if (moved) writeJson(SOLO_KEY, v);
+}
 import { progressId } from './net.js';
 
 const CSS = `
@@ -152,7 +160,7 @@ function createAccount(root) {
   let soloVer = 0, soloPending = null, soloT = null;
   // this player's offline progress: the account's, or this browser's
   const soloProg = () => (activeAcct() ? (A.account.unlocks && A.account.unlocks.solo) || {} : readJson(SOLO_KEY));
-  // an offline feat done ('l8' | 'l9' | 'e9' | 'win' | 'rev') in a mode
+  // an offline feat done ('l8' | 'l9' | 'e8' | 'e9' | 'win' | 'rev') in a mode
   function soloFeat(feat, mode, n = 1) {
     if (!UNLOCK_MODES.includes(mode)) return;
     soloVer++;
@@ -199,9 +207,9 @@ function createAccount(root) {
     const goals = (id) => { let g = soloRun.goals.get(id); if (!g) soloRun.goals.set(id, g = new Set()); return g; };
     for (const e of events) {
       if (e.type === 'enterCenter') goals(e.playerId).add(e.level ?? sim.level);
-      else if (sim.easy && e.type !== 'victory' && e.type !== 'revive') continue;   // an easy game: only the song and the revives
-      else if (e.type === 'levelStart' && ((sim.levelData && sim.levelData.level) || sim.level) === SKATE_FINAL_LEVEL) {
-        if (sim.players.some((p) => goals(p.id).size >= stageStep(sim.mode, sim.finales, 8, true))) soloFeat('l8', sim.mode);
+      // (an easy game: its own level 8 and 9 feats; not again when level 9 starts over)
+      else if (e.type === 'levelStart' && !e.retry && ((sim.levelData && sim.levelData.level) || sim.level) === SKATE_FINAL_LEVEL) {
+        if (sim.players.some((p) => goals(p.id).size >= stageStep(sim.mode, sim.finales, 8, true))) soloFeat(sim.easy ? 'e8' : 'l8', sim.mode);
       } else if (e.type === 'victory') {
         const party = Array.isArray(e.party) ? e.party : [];
         if (sim.players.some((p) => !party.includes(p.id) && goals(p.id).size >= stageStep(sim.mode, sim.finales, SKATE_FINAL_LEVEL))) soloFeat(sim.easy ? 'e9' : 'l9', sim.mode);
@@ -325,6 +333,7 @@ function createAccount(root) {
       const SHORT = { run: 'Run', ice: 'Skate', mixed: 'Run + Skate' };
       const GOALS = { l8: 'Clear level 8 having reached the goal yourself on every level (both halves in Run + Skate). Each mode unlocks it for that mode, Run + Skate for all three:',
         l9: 'Beat level 9 having reached the goal yourself on every level, the final one too. Each mode unlocks it for that mode, Run + Skate for all three:',
+        e8: 'Clear level 8 in an easy game having reached the goal yourself on every level (both halves in Run + Skate). Each mode unlocks it for that mode, Run + Skate for all three:',
         e9: 'Beat level 9 in an easy game having reached the goal yourself on every level, the final one too. Each mode unlocks it for that mode, Run + Skate for all three:',
         win: 'Clear the final level to unlock a new song (any mode):',
         rev: 'Revive kitties (all modes together):' };

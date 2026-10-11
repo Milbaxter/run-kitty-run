@@ -730,7 +730,7 @@ function countForAccounts(room, events) {
   const featDone = (id, feat) => { accounts.recordFeat(whoOf(id), feat, room.mode); feats.add(id); };
   const feats = new Set();
   // easy games: their own stats (accounts.js 'easy'); of the unlocks the revives (the medic badge), the song and
-  // their own level 9 ones ('e9')
+  // their own level 8 and 9 ones ('e8', 'e9')
   const easy = !!room.easy;
   for (const e of events) {
     if (e.type === 'enterCenter') { goalsOf(e.playerId).add(e.level ?? sim.level); continue; }
@@ -748,8 +748,8 @@ function countForAccounts(room, events) {
       // unlocks: level 8 cleared by a kitty that reached the goal itself on every level of the run so far (8, or 16
       // in Run + Skate: both halves), crowns or not. Checked as the game moves on to level 9, so a kitty that runs in
       // during the level-cleared pause still counts
-      if (!easy && e.type === 'levelStart' && level === SKATE_FINAL_LEVEL) {
-        for (const id of once(sim.players.filter((p) => goalsOf(p.id).size >= stageStep(room.mode, sim.finales, 8, true)).map((p) => p.id))) featDone(id, 'l8');
+      if (e.type === 'levelStart' && !e.retry && level === SKATE_FINAL_LEVEL) {   // (an easy game: its own unlocks; not again when level 9 starts over)
+        for (const id of once(sim.players.filter((p) => goalsOf(p.id).size >= stageStep(room.mode, sim.finales, 8, true)).map((p) => p.id))) featDone(id, easy ? 'e8' : 'l8');
       }
     } else if (e.type === 'victory') {
       // unlocks: the final run won by a kitty that reached the goal itself on every level, the final one included (not

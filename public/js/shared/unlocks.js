@@ -4,7 +4,7 @@
 //       Run only and Skate only, 16 in Run + Skate: the day and night halves each), crowns or not
 //   l9: winning the final run (level 9) having reached the goal yourself on every level, the final one included (not
 //       carried into the victory party)
-//   e9: l9 in an easy game (a level starts over when everyone is down): the easy games' own unlocks
+//   e8, e9: l8 and l9 in an easy game (a level starts over when everyone is down): the easy games' own unlocks
 //   win: the final run won, for every kitty in the game (crowns or not; easy games too)
 //   rev: a kitty revived (by the rescuer; not its own other tab). A swag account also counts the revives its stats had
 //        counted before this unlock existed ('past')
@@ -19,6 +19,8 @@ const UNLOCKS = [
   { id: 'shades', name: 'Sunglasses', feat: 'l8', times: 1 },
   { id: 'rboots', name: 'Rainbow boots', feat: 'l8', times: 2 },
   { id: 'gskates', name: 'Golden skates', feat: 'l8', times: 3, modes: ['ice', 'mixed'] },   // (skates: not in Run only, which has no ice)
+  { id: 'specs', name: 'Reading glasses', feat: 'e8', times: 1 },
+  { id: 'gboots', name: 'Golden boots', feat: 'e8', times: 2 },
   { id: 'lion', name: 'Lion mane', feat: 'l9', times: 1 },
   { id: 'tail', name: 'Fluffy tail', feat: 'l9', times: 1 },
   { id: 'chrome', name: 'Chrome lion', feat: 'l9', times: 1, all: true },   // (done in all three modes, worn in every one)
@@ -28,13 +30,13 @@ const UNLOCKS = [
   // the medic badge on the player card (`medic`: its look; more revive rewards may add looks: the card shows the best)
   { id: 'medic', name: 'Medic badge', feat: 'rev', times: 3000, total: true, medic: 'base' },   // (in the kitty's colour)
 ];
-const FEAT_IDS = ['l8', 'l9', 'e9', 'win', 'rev'];
+const FEAT_IDS = ['l8', 'l9', 'e8', 'e9', 'win', 'rev'];
 // the medic badge looks, best first: the card shows the first one switched on (none: no badge)
 const MEDIC_TIERS = UNLOCKS.filter((u) => u.medic).sort((a, b) => b.times - a.times);
 const medicLook = (cos) => { for (const u of MEDIC_TIERS) if (cos.has(u.id)) return u.medic; return ''; };
 // a total item's count: every mode's, plus what was counted before (rev.past)
 const featTotal = (progress, feat) => { const p = (progress && progress[feat]) || {}; return UNLOCK_MODES.reduce((n, m) => n + (p[m] || 0), 0) + (Number(p.past) || 0); };
-const FEATS = { l8: 'Clear level 8 reaching every goal', l9: 'Beat level 9 reaching every goal', e9: 'Beat level 9 in an easy game reaching every goal', win: 'Clear the final level', rev: 'Revive kitties' };
+const FEATS = { l8: 'Clear level 8 reaching every goal', l9: 'Beat level 9 reaching every goal', e8: 'Clear level 8 in an easy game reaching every goal', e9: 'Beat level 9 in an easy game reaching every goal', win: 'Clear the final level', rev: 'Revive kitties' };
 // the wins a kitty can have by level 8 (one per level, two per level in Run + Skate)
 const winsNeeded = (mode) => (mode === 'mixed' ? 16 : 8);
 // how often a feat counts as done in a mode: its own times, and in Run only and Skate only the Run + Skate ones too

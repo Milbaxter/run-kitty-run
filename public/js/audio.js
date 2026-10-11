@@ -22,7 +22,6 @@ function createAudio() {
   let current = null;          // active music instance
   const instances = [];        // all instances (incl. fading ones)
   let timer = null;
-  let hbNext = 0;              // heartbeat next time
   let lastStep = 0;
   let lastChomp = 0;
   let active = 0;              // active sfx voices
@@ -626,14 +625,6 @@ function createAudio() {
     }
   }
 
-  function heartbeat(t, k) {
-    const g = group();
-    const v = 0.1 + 0.25 * k;
-    tone(g, sfxBus, { type: 'sine', f: 95, to: 48, t, a: 0.004, d: 0.14, peak: v });
-    tone(g, sfxBus, { type: 'sine', f: 85, to: 45, t: t + 0.17, a: 0.004, d: 0.14, peak: v * 0.7 });
-    g.finish(false);
-  }
-
   function ensureTimer() {
     if (timer == null && ctx) timer = setTimeout(tick, 0);
   }
@@ -661,15 +652,9 @@ function createAudio() {
             inst.step++;
           }
         }
-        if (danger > 0.6) {
-          const k = (danger - 0.6) / 0.4;
-          const period = 60 / (70 + 70 * k);
-          if (hbNext < now) hbNext = now + 0.05;
-          while (hbNext < now + ahead) { heartbeat(hbNext, k); hbNext += period; }
-        } else hbNext = 0;
       } catch (e) { /* keep ticking */ }
     }
-    if (instances.length || danger > 0.6) timer = setTimeout(tick, TICK_MS);
+    if (instances.length) timer = setTimeout(tick, TICK_MS);
   }
 
   // ---------------------------------------------------------------- public: music
@@ -760,7 +745,6 @@ function createAudio() {
     danger = nv;
     if (!ctx) return;
     musicFilter.frequency.setTargetAtTime(dangerFreq(danger), ctx.currentTime, 0.25);
-    if (danger > 0.6) ensureTimer();
   }
 
   return { unlock, play, startMusic, stopMusic, setMuted, isMuted, setDanger, setBackground, attachTrack, setVolumes };

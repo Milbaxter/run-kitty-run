@@ -350,6 +350,18 @@ function createAccounts(file, env = process.env) {
     u.solo ||= {};
     for (const f of FEAT_IDS) { u.solo[f] ||= {}; for (const m of UNLOCK_MODES) u.solo[f][m] = Number(u.solo[f][m]) || 0; }
     u.off ||= {};
+    // the easy games' level 8 unlocks ('e8') came a little after easy games: once, whoever cleared level 8 in one before
+    // gets the count. A level 9 win there ('e9') had level 8 cleared on the way; an account's easy stats counted its
+    // level 8 clears (up to the 2 the unlocks need; online and offline ones together, so they go to the online track).
+    if (!u.e8Back) {
+      u.e8Back = 1;
+      const had = (a.stats && a.stats.easy && a.stats.easy.clears) || {};
+      for (const m of UNLOCK_MODES) {
+        u.e8[m] = Math.max(u.e8[m], u.e9[m], Math.min(2, Number(had[m] && had[m][8]) || 0));
+        u.solo.e8[m] = Math.max(u.solo.e8[m], u.solo.e9[m]);
+      }
+      statsChanged();
+    }
     return u;
   }
   // who's playing: { sub (account id, maybe not active), pid (the browser's progress id) } or just an account id.
@@ -590,7 +602,7 @@ function createAccounts(file, env = process.env) {
       if (m.solo && typeof m.solo === 'object' && active(a)) {
         const u = unlocksOf(a);
         for (const f of FEAT_IDS) {
-          if (easy ? !['rev', 'win', 'e9'].includes(f) : f === 'e9') continue;   // (an easy game: its own level 9 feat)
+          if (easy ? !['rev', 'win', 'e8', 'e9'].includes(f) : f === 'e8' || f === 'e9') continue;   // (an easy game: its own level 8 and 9 feats)
           const n = count(m.solo[f], f === 'rev' ? 5000 : 50); if (n) u.solo[f][mode] += n;
         }
         statsChanged();

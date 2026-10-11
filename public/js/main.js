@@ -1699,7 +1699,7 @@ function updateHUD() {
     if (!h) h = hudPlayers[i] = {};
     h.name = p.name; h.color = p.color; h.shimmer = shimmer; h.gold = gold; h.rainbow = !sim.easy && (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; const il = iconLook(p); h.cool = il.cool; h.specs = !!il.specs; h.metal = il.metal || ''; h.lion = il.lion; h.lionLook = il.lionLook; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
     h.medic = medicLook(cosOf(p));   // the medic badge (3000 revives), when switched on
-    h.paid = online.playing ? ((online.roster.get(p.id) || {}).paid || 0) : i === 0 && account.shown() ? account.paid() : 0;   // account total (unless switched off)
+    h.paid = online.playing ? ((online.roster.get(p.id) || {}).paid || 0) : i === 0 && account.shown() ? account.display() : 0;   // the account's number (unless switched off)
   }
   if (dirty) ui.setScores(hudScores);
   hudData.level = sim.levelData.level || sim.level; hudData.time = sim.time; hudData.rescues = sim.stats.rescues;

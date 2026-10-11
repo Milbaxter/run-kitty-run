@@ -270,7 +270,10 @@ function createAccounts(file, env = process.env) {
   // progress counted and its switched-on unlocks shown. Signing in alone is free (it's how the payment finds the account).
   // (a deleted account waiting out its grace period is not active: nothing shown or counted)
   const active = (a) => (Number(a && a.paid) || 0) > 0 && !(a && a.deleting);
-  const pub = (a) => (a ? { name: a.name, email: a.email, via: a.via || 'google', paid: Number(a.paid) || 0, active: active(a), show: !a.hide, unlocks: unlocksOf(a),
+  // the number shown next to the kitty: the total paid, or a lower one the player picked ('display' route: 1 cent up to
+  // the total)
+  const shownCents = (a) => { const paid = Number(a && a.paid) || 0, d = Number(a && a.display); return Number.isInteger(d) && d >= 1 && d <= paid ? d : paid; };
+  const pub = (a) => (a ? { name: a.name, email: a.email, via: a.via || 'google', paid: Number(a.paid) || 0, display: shownCents(a), active: active(a), show: !a.hide, unlocks: unlocksOf(a),
     deleting: a.deleting ? new Date(a.deleting + DELETE_KEEP_MS).toISOString() : null,   // deleted: gone for good at this time
     stats: { online: (a.stats && a.stats.online) || blankStats(), local: (a.stats && a.stats.local) || blankStats(), easy: (a.stats && a.stats.easy) || blankStats() } } : null);
   function newSession(a) {
@@ -288,7 +291,7 @@ function createAccounts(file, env = process.env) {
     return (sub && accounts[sub]) || null;
   };
   // total paid (cents) for a session token, 0 if none / unpaid / hidden: what the game server shows next to the name
-  const paidFor = (token) => { const a = fromToken(token); return a && !a.hide && !a.deleting ? Number(a.paid) || 0 : 0; };
+  const paidFor = (token) => { const a = fromToken(token); return a && !a.hide && !a.deleting ? shownCents(a) : 0; };
   // the account id behind a session token (the game server keeps this per player instead of the token itself)
   const subFor = (token) => { const a = fromToken(token); return a ? a.sub : null; };
 
@@ -581,6 +584,15 @@ function createAccounts(file, env = process.env) {
       try { saveNow(); } catch (e) { if (previous) a.hide = previous; else delete a.hide; throw e; }
       return { ok: true, account: pub(a) };
     }
+    if (name === 'display') {
+      // the number shown next to the kitty: any amount from 1 cent up to the total paid (cents); null: the total again
+      const paid = Number(a.paid) || 0, previous = a.display;
+      if (m.cents === null) delete a.display;
+      else if (Number.isInteger(m.cents) && m.cents >= 1 && m.cents <= paid) { if (m.cents === paid) delete a.display; else a.display = m.cents; }
+      else return { ok: false, msg: 'Pick a number up to your total.' };
+      try { saveNow(); } catch (e) { if (previous == null) delete a.display; else a.display = previous; throw e; }
+      return { ok: true, account: pub(a) };
+    }
     if (name === 'progress') {
       // solo / local co-op results, reported by the browser: { mode, reached, clears: [levels], times: [seconds per
       // clear, newer browsers], crowns, revives, easy? (an easy game: its own set, and only the song and the revives
@@ -658,7 +670,7 @@ function createAccounts(file, env = process.env) {
       discordCallback(req, res).catch((e) => { console.error('discord sign-in failed:', e.message); if (!res.headersSent) reply(res, 502, { ok: false }); });
       return true;
     }
-    if (!['google', 'handoff', 'me', 'pay', 'confirm', 'show', 'equip', 'guest', 'guestequip', 'progress', 'logout', 'delete', 'restore'].includes(name)) return false;
+    if (!['google', 'handoff', 'me', 'pay', 'confirm', 'show', 'display', 'equip', 'guest', 'guestequip', 'progress', 'logout', 'delete', 'restore'].includes(name)) return false;
     if (req.method !== (name === 'me' ? 'GET' : 'POST')) { reply(res, 405, { ok: false }); return true; }
     const go = (body) => route(name, req, body)
       .then((j) => reply(res, j ? 200 : 404, j || { ok: false }))

@@ -34,6 +34,7 @@ const CSS = `
 .rka-custom input{font:inherit;font-weight:900;width:110px;padding:8px 10px;border-radius:12px;border:2px solid rgba(255,255,255,.3);
   background:rgba(10,4,30,.6);color:#fff;outline:none;text-align:center;user-select:text;-webkit-user-select:text;}
 .rka-custom input:focus{border-color:#ffd56b;}
+.rka-shownum{font-size:14px;margin-top:6px;}
 .rka-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
 .rka-fine{font-size:12px;opacity:.6;}
 .rka-links{display:flex;gap:14px;justify-content:center;font-size:13px;}
@@ -475,8 +476,28 @@ function createAccount(root) {
         add.addEventListener('click', () => open({ view: 'pay' }));
         const r = el('div', 'rka-row');
         r.append(sw, add);
+        // the number next to your kitty: the total, or any lower number you like (server: accounts.js 'display')
+        const disp = Number(a.display) || paid;
+        const numRow = el('label', 'rka-custom rka-shownum', 'Number shown: ');
+        const numIn = el('input');
+        numIn.type = 'text'; numIn.inputMode = 'decimal'; numIn.value = fmtNum(disp); numIn.maxLength = 12;
+        const setBtn = el('button', 'rka-amt', 'SET');
+        const cents = () => {
+          const mm = /^\s*(\d{1,9})(?:[.,](\d{1,2}))?\s*$/.exec(numIn.value);
+          return mm ? +mm[1] * 100 + +(mm[2] || '0').padEnd(2, '0') : 0;
+        };
+        const setNum = async () => {
+          const c = cents();
+          if (!(c >= 1 && c <= paid)) { say(`Pick a number from 0.01 to ${fmtNum(paid)} (your total).`, 'err'); return; }
+          setBtn.disabled = true;
+          try { A.account = (await api('display', { cents: c })).account; changed(); open(); } catch (e) { say(e.message, 'err'); setBtn.disabled = false; }
+        };
+        setBtn.addEventListener('click', setNum);
+        numIn.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') setNum(); });
+        numRow.append(numIn, setBtn);
         swag.append(el('div', 'rka-big', fmtPaid(paid)),
-          el('div', 'rka-note', shown ? 'Shows next to your kitty for everyone online.' : 'Hidden: other players don\'t see it right now.'), r);
+          el('div', 'rka-note', shown ? (disp !== paid ? `Your kitty shows ${fmtNum(disp)} for everyone online.` : 'Shows next to your kitty for everyone online.') : 'Hidden: other players don\'t see it right now.'), r,
+          numRow, el('div', 'rka-fine', `The number next to your kitty can be anything from 0.01 up to your total (${fmtNum(paid)}).`));
       } else {
         const pick = el('button', 'rka-amt rka-on', 'PICK AN AMOUNT');
         pick.addEventListener('click', () => open({ view: 'pay' }));
@@ -642,6 +663,7 @@ function createAccount(root) {
     token: () => A.token,
     signedIn: () => !!(A.token && A.account),
     paid: () => (A.account ? Number(A.account.paid) || 0 : 0),
+    display: () => (A.account ? Number(A.account.display) || Number(A.account.paid) || 0 : 0),   // the number shown next to the kitty (the total, or a lower one picked)
     shown: () => !A.account || A.account.show !== false,   // the player's "shown online" switch
     onChange(fn) { changeFn = fn; },
     // an unlock this player has (an active account's, or this browser's), switched on or not (songs: settings.js)

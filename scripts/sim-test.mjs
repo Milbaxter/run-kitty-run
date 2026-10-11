@@ -655,6 +655,15 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(hide.ok && hide.account.show === false && total > 0 && hide.account.paid === total && hiddenAfterRestart === 0
       && unhide.ok && unhide.account.show === true && accounts.paidFor(token) === total && !badShow.ok,
     'shown-online switch hides the total from the game server, is saved, and turns back on');
+    // the number shown: any amount from 1 cent up to the total, saved; null (or the total itself) = the total again
+    const disp = (cents) => request(accounts, 'display', [Buffer.from(JSON.stringify({ cents }))]);
+    const low = await disp(1), lowShown = accounts.paidFor(token), lowAfterRestart = createAccounts(file, env).paidFor(token);
+    const over = await disp(total + 1), zero = await disp(0), frac = await disp(1.5), word = await disp('7');
+    const mid = await disp(total - 1), back = await disp(null);
+    ok(low.ok && low.account.display === 1 && low.account.paid === total && lowShown === 1 && lowAfterRestart === 1
+      && !over.ok && !zero.ok && !frac.ok && !word.ok && mid.ok && mid.account.display === total - 1
+      && back.ok && back.account.display === total && accounts.paidFor(token) === total,
+    'the number shown next to the kitty: 1 cent up to the total paid, never more, saved, and back to the total');
     // stats: online games counted by the server (by account id), solo / local reported by the browser (capped)
     accounts.recordOnline(sub, { type: 'reached', mode: 'run', level: 9 });
     accounts.recordOnline(sub, { type: 'clear', mode: 'run', level: 2 });

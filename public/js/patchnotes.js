@@ -5,6 +5,7 @@ const PATCH_NOTES = [
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
       'Sign in with Discord: swag accounts now work with a Discord account too, next to Google',
+      'Swag accounts: pick the number shown next to your kitty, anything from 0.01 up to your total (in the swag account menu)',
       'Removed the heartbeat sound that played when a wolf was very close',
       'New EASY option for every mode: pick Normal or Easy under the mode, in Local and when you create a lobby. In an easy game, when everyone is down the level starts over instead of the game being over',
       'Easy games have their own EASY tab in the swag account stats',

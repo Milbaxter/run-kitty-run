@@ -687,14 +687,18 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const inRun = accounts.cosFor(token, 'run'), inIce = accounts.cosFor(token, 'ice'), inMixed = accounts.cosFor(token, 'mixed');
     accounts.recordFeat(sub, 'l8', 'mixed'); accounts.recordFeat(sub, 'l8', 'nope'); accounts.recordFeat(sub, 'l7', 'run');
     const after = accounts.cosFor(token, 'mixed');
-    const lockedOn = await request(accounts, 'equip', [Buffer.from(JSON.stringify({ item: 'rboots', on: true }))]);
+    const lockedOn = await request(accounts, 'equip', [Buffer.from(JSON.stringify({ item: 'gskates', on: true }))]);   // (3 needed: Skate has its own 1 + Run + Skate's 1)
     const off = await request(accounts, 'equip', [Buffer.from(JSON.stringify({ item: 'shades', on: false }))]);
     ok(none.length === 0 && inRun.join() === 'shades' && inIce.join() === 'shades' && inMixed.length === 0 && after.join() === 'shades'
-      && !lockedOn.ok && off.ok && accounts.cosFor(token, 'run').length === 0 && accounts.cosFor(token, 'mixed').length === 0
+      && !lockedOn.ok && off.ok && accounts.cosFor(token, 'run').join() === 'rboots' && accounts.cosFor(token, 'mixed').length === 0   // (Run: its own clear + Run + Skate's = the 2 for the boots)
       && off.account.unlocks.l8.mixed === 1 && off.account.unlocks.off.shades === true,
-    'unlocks: each mode unlocks an item for that mode only, bad feats / modes are ignored, switched off it is not sent');
+    'unlocks: each mode unlocks an item for that mode (Run + Skate counts in the other two as well), bad feats / modes are ignored, switched off it is not sent');
     ok(isUnlocked({ l9: { ice: 1 } }, 'lion', 'ice') && !isUnlocked({ l9: { ice: 1 } }, 'lion', 'run') && isUnlocked({ l9: { ice: 1 } }, 'lion')
-      && !isUnlocked({ l8: { run: 1, ice: 1, mixed: 1 } }, 'rboots', 'run') && isUnlocked({ l8: { run: 2 } }, 'rboots', 'run')
+      && !isUnlocked({ l8: { run: 1, ice: 1 } }, 'rboots', 'run') && isUnlocked({ l8: { run: 2 } }, 'rboots', 'run')
+      // Run + Skate counts in the other two modes too (not the other way round); the chrome lion still needs each mode itself
+      && isUnlocked({ l9: { mixed: 1 } }, 'lion', 'run') && isUnlocked({ l9: { mixed: 1 } }, 'lion', 'ice') && !isUnlocked({ l9: { run: 1 } }, 'lion', 'mixed')
+      && isUnlocked({ l8: { run: 1, mixed: 1 } }, 'rboots', 'run') && !isUnlocked({ l8: { run: 1, mixed: 1 } }, 'rboots', 'mixed')
+      && !isUnlocked({ l9: { mixed: 1 } }, 'chrome', 'mixed') && !isUnlocked({ l8: { mixed: 3 } }, 'gskates', 'run') && isUnlocked({ l8: { mixed: 3 } }, 'gskates', 'ice')
       && isUnlocked({ win: { mixed: 1 } }, 'song5', 'run')
       && !isUnlocked({ l9: { run: 1, ice: 1 } }, 'chrome', 'run') && isUnlocked({ l9: { run: 1, ice: 1, mixed: 1 } }, 'chrome', 'ice')
       && !isUnlocked({ l8: { run: 3 } }, 'gskates') && !isUnlocked({ l8: { run: 3 } }, 'gskates', 'run') && isUnlocked({ l8: { ice: 3 } }, 'gskates', 'ice') && !isUnlocked({ l8: { ice: 3 } }, 'gskates', 'run'),
@@ -716,11 +720,11 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const guestCos = accounts.cosForPlayer({ sub: 'unpaid-sub', pid }, 'ice');
     const gOff = await request(accounts, 'guestequip', [Buffer.from(JSON.stringify({ pid, item: 'shades', on: false }))]);
     const gRead = await request(accounts, 'guest', [Buffer.from(JSON.stringify({ pid }))]);
-    const gBad = await request(accounts, 'guestequip', [Buffer.from(JSON.stringify({ pid, item: 'rboots', on: true }))]);
+    const gBad = await request(accounts, 'guestequip', [Buffer.from(JSON.stringify({ pid, item: 'gskates', on: true }))]);
     const beforeMerge = (await request(accounts, 'me')).account.unlocks.l8.run;
     accounts.mergeGuest(sub, pid);
     const merged = (await request(accounts, 'me')).account.unlocks;
-    ok(guestCos.join() === 'shades' && gOff.ok && gRead.unlocks.off.shades === true && !gBad.ok
+    ok(guestCos.join() === 'shades,rboots' && gOff.ok && gRead.unlocks.off.shades === true && !gBad.ok
       && merged.l8.run === beforeMerge + 1 && merged.l8.mixed >= 1 && (await request(accounts, 'guest', [Buffer.from(JSON.stringify({ pid }))])).unlocks === null,
     'unlocks without an account: kept under the progress id, switched there, moved onto the account once it is active');
     // the new song: the final level cleared once, in any mode, unlocks it; it is never worn (not sent) and has no switch

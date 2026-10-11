@@ -2,7 +2,7 @@
 // Checkout, and your total shows next to your kitty's name online. Server side: server/accounts.js.
 // The session token lives in localStorage; main.js passes it to the game server ('hi' / 'acct').
 import { accountApiUrl, NATIVE } from './platform.js';
-import { UNLOCKS, UNLOCK_MODES, isUnlocked, featTotal } from './shared/unlocks.js';
+import { UNLOCKS, UNLOCK_MODES, isUnlocked, featTotal, featCount } from './shared/unlocks.js';
 import { SKATE_FINAL_LEVEL, stageStep } from './shared/config.js';
 
 // The offline track (Solo and Local, one track): unlocks earned there are worn in Solo and Local games only, so a faked
@@ -323,9 +323,9 @@ function createAccount(root) {
       const box_ = section(title);
       const ulist = el('div', 'rka-unl');
       const SHORT = { run: 'Run', ice: 'Skate', mixed: 'Run + Skate' };
-      const GOALS = { l8: 'Clear level 8 having reached the goal yourself on every level (both halves in Run + Skate). Each mode unlocks it for that mode:',
-        l9: 'Beat level 9 having reached the goal yourself on every level, the final one too. Each mode unlocks it for that mode:',
-        e9: 'Beat level 9 in an easy game having reached the goal yourself on every level, the final one too. Each mode unlocks it for that mode:',
+      const GOALS = { l8: 'Clear level 8 having reached the goal yourself on every level (both halves in Run + Skate). Each mode unlocks it for that mode, Run + Skate for all three:',
+        l9: 'Beat level 9 having reached the goal yourself on every level, the final one too. Each mode unlocks it for that mode, Run + Skate for all three:',
+        e9: 'Beat level 9 in an easy game having reached the goal yourself on every level, the final one too. Each mode unlocks it for that mode, Run + Skate for all three:',
         win: 'Clear the final level to unlock a new song (any mode):',
         rev: 'Revive kitties (all modes together):' };
       let lastFeat = '';
@@ -353,7 +353,7 @@ function createAccount(root) {
             p.appendChild(el('i', null, label));
             if (u.total) p.appendChild(el(done ? 'b' : 'span', null, done ? '✓' : `${Math.min(u.times, featTotal(pr, u.feat))}/${u.times}`));
             else (u.modes || UNLOCK_MODES).forEach((m, i) => {   // (only the modes it can be earned in)
-              const n = Math.min(u.times, ((pr[u.feat] || {})[m]) || 0);
+              const n = Math.min(u.times, u.all ? ((pr[u.feat] || {})[m]) || 0 : featCount(pr, u.feat, m));   // (Run + Skate counts in the other two)
               if (i) p.append(' · ');
               p.appendChild(el(n >= u.times ? 'b' : 'span', null, n >= u.times ? `${SHORT[m]} ✓` : `${SHORT[m]} ${n}/${u.times}`));
             });

@@ -8,8 +8,10 @@
 //   win: the final run won, for every kitty in the game (crowns or not; easy games too)
 //   rev: a kitty revived (by the rescuer; not its own other tab). A swag account also counts the revives its stats had
 //        counted before this unlock existed ('past')
+// Run + Skate is both other modes in one (longer and harder): a feat done there counts in Run only and Skate only too.
 // An item unlocks per mode: done `times` times in a mode, it's unlocked (and worn) in that mode only. (`any`: done in any
-// mode, it's unlocked for good: the song. `all`: done in all three modes, it's unlocked in every one: the chrome lion.)
+// mode, it's unlocked for good: the song. `all`: done in all three modes themselves, it's unlocked in every one: the
+// chrome lion.)
 // `modes`: the modes it can be earned (and worn) in, when not all three. `total`: all modes added up, worn in every mode.
 // A `song` is a new song for the soundtrack (picked in the settings), not something the kitty wears.
 const UNLOCK_MODES = ['run', 'ice', 'mixed'];
@@ -35,6 +37,8 @@ const featTotal = (progress, feat) => { const p = (progress && progress[feat]) |
 const FEATS = { l8: 'Clear level 8 reaching every goal', l9: 'Beat level 9 reaching every goal', e9: 'Beat level 9 in an easy game reaching every goal', win: 'Clear the final level', rev: 'Revive kitties' };
 // the wins a kitty can have by level 8 (one per level, two per level in Run + Skate)
 const winsNeeded = (mode) => (mode === 'mixed' ? 16 : 8);
+// how often a feat counts as done in a mode: its own times, and in Run only and Skate only the Run + Skate ones too
+const featCount = (progress, feat, mode) => { const p = (progress && progress[feat]) || {}; return (p[mode] || 0) + (mode !== 'mixed' ? p.mixed || 0 : 0); };
 // progress: { l8: { run, ice, mixed }, l9: { ... } } -> is this item unlocked in this mode? (no mode: in any mode,
 // e.g. whether the menu shows its switch)
 function isUnlocked(progress, item, mode = null) {
@@ -43,9 +47,9 @@ function isUnlocked(progress, item, mode = null) {
   const p = (progress && progress[u.feat]) || {};
   if (u.total) return featTotal(progress, u.feat) >= u.times;
   const modes = u.modes || UNLOCK_MODES;
-  const done = (m) => modes.includes(m) && (p[m] || 0) >= u.times;
-  if (u.all) return modes.every(done);
+  const done = (m) => modes.includes(m) && featCount(progress, u.feat, m) >= u.times;
+  if (u.all) return modes.every((m) => (p[m] || 0) >= u.times);   // (each mode itself: Run + Skate doesn't stand in for the others)
   return u.any || !mode ? modes.some(done) : done(mode);
 }
 
-export { UNLOCKS, UNLOCK_MODES, FEATS, FEAT_IDS, winsNeeded, isUnlocked, featTotal, medicLook };
+export { UNLOCKS, UNLOCK_MODES, FEATS, FEAT_IDS, winsNeeded, isUnlocked, featTotal, featCount, medicLook };

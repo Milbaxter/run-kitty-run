@@ -1,0 +1,7 @@
+# Run Kitty Run: https://runkittyrun.fun
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /ws
+
+Sitemap: https://runkittyrun.fun/sitemap.xml

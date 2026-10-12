@@ -278,7 +278,7 @@ async function moderation() {
     const al = await r5.json();
     ok(r5.status === 200 && /application\/json/.test(r5.headers.get('content-type')) && al[0].target.package_name === 'io.runkittyrun.app'
       && JSON.stringify(al[0].target.sha256_cert_fingerprints) === '["AA:BB","CC:DD"]', 'assetlinks.json served');
-    for (const p of ['privacy.html', 'terms.html', 'support.html', 'privacy']) {
+    for (const p of ['privacy.html', 'terms.html', 'support.html', 'privacy', 'about', 'how-to-play', 'patch-notes']) {
       const r6 = await fetch(`${BASE}/${p}`);
       ok(r6.status === 200 && /text\/html/.test(r6.headers.get('content-type')), `/${p} served`);
     }

@@ -1,0 +1,18 @@
+# Run Kitty Run
+
+> Run Kitty Run (also written RunKittyRun or RKR) is a free online co-op game played in the web browser at https://runkittyrun.fun. Players are kitties in a square-spiral labyrinth full of wolves: reach the heart of the labyrinth, don't touch the wolves, and revive fallen teammates by running over their circle. 1 to 32 players per online lobby, plus solo and two-player local co-op. No download, no account and no ads. It is an independent game inspired by the classic Warcraft 3 custom map of the same name and is not affiliated with Blizzard Entertainment.
+
+Key facts:
+- Price: free. Platform: any modern browser on computers, phones and tablets (cross-play in the same lobbies).
+- Modes: Run + Skate, Run only, Skate only, each as Normal or Easy. Nine levels; level 9 is the final run.
+- Playing with friends: create a lobby under Multiplayer and share the 4-letter code or invite link.
+- Made by Benjamin and Maximilian. Launched 2 October 2026.
+
+## Pages
+
+- [Play Run Kitty Run](https://runkittyrun.fun/): the game itself
+- [About](https://runkittyrun.fun/about): what the game is, features, FAQ
+- [How to play](https://runkittyrun.fun/how-to-play): rules, controls, items, modes, multiplayer, tips
+- [Run Kitty Run and the Warcraft 3 custom map](https://runkittyrun.fun/warcraft-3-run-kitty-run): how the browser game relates to the WC3 map
+- [Patch notes](https://runkittyrun.fun/patch-notes): every update, newest first
+- [Support](https://runkittyrun.fun/support): help and contact

@@ -28,6 +28,15 @@ node scripts/bump-version.mjs patch    # bump app version everywhere
 Player-facing notes live in `public/js/patchnotes.js` (newest first) and show on the title screen on desktop.
 Add a line there whenever you ship something players will notice.
 
+## Search engines
+
+The game page itself is a canvas, so the words search engines read live elsewhere:
+
+- `public/index.html`: the title, description, canonical link, the JSON-LD block (what the game is) and the text inside `<canvas>` (never shown over the game).
+- `public/about.html`, `how-to-play.html`, `warcraft-3-run-kitty-run.html`: text pages at `/about`, `/how-to-play`, `/warcraft-3-run-kitty-run` (styled by `public/site.css`). Keep them true when the rules change.
+- `/patch-notes`: built by `server/pages.js` from `public/js/patchnotes.js`, nothing to keep in step.
+- `public/robots.txt`, `public/sitemap.xml` (add new pages there) and `public/llms.txt`.
+
 ## Player feedback
 
 Players can send feedback from the game (button shows while their kitty is down / on game over).

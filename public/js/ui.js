@@ -1067,7 +1067,9 @@ function createUI(root) {
     o.querySelector('.rkr-p1').style.color = hexColor(PLAYER_COLORS[s[0]]);
     o.querySelector('.rkr-p2').style.color = hexColor(PLAYER_COLORS[s[1]]);
     o.querySelectorAll('.rkr-legal a').forEach((a) => a.addEventListener('click', () => openExternal(`${SERVER_ORIGIN}/${a.dataset.page}.html`)));
-    const credits = el('div', 'rkr-credits', 'made by <a href="https://www.instagram.com/ben.bhc/" target="_blank" rel="noopener">Benjamin</a> and <a href="https://x.com/milimithrandir" target="_blank" rel="noopener">Maximilian</a>');
+    const credits = el('div', 'rkr-credits', 'made by <a href="https://www.instagram.com/ben.bhc/" target="_blank" rel="noopener">Benjamin</a> and <a href="https://x.com/milimithrandir" target="_blank" rel="noopener">Maximilian</a>'
+      // (on the website: the page about the game, how to play and the patch notes; the apps have their own links above)
+      + (NATIVE ? '' : ' &middot; <a href="/about" target="_blank">about</a>'));
     // desktop: anonymous play stats page
     const statsBtn = el('button', 'rkr-statsbtn rkr-desk', '📊 STATS');
     statsBtn.addEventListener('click', () => openStatsPage(root));

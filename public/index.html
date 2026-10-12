@@ -8,8 +8,12 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0d1020">
 <link rel="manifest" href="manifest.webmanifest">
-<title>Run Kitty Run</title>
-<meta name="description" content="Online co-op kitty runner for up to 32 players: dodge the wolves, skate the ice rink, and never leave a kitty behind.">
+<title>Run Kitty Run - Free Online Co-op Game for 1 to 32 Players</title>
+<meta name="description" content="Play Run Kitty Run free in your browser: an online co-op game for 1 to 32 players. Dodge the wolves, skate the ice and never leave a kitty behind.">
+<meta name="apple-mobile-web-app-title" content="Run Kitty Run">
+<meta name="application-name" content="Run Kitty Run">
+<meta name="robots" content="max-image-preview:large">
+<link rel="canonical" href="https://runkittyrun.fun/">
 <link rel="icon" href="favicon.ico" sizes="48x48">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="icon" type="image/png" sizes="64x64" href="icons/favicon-64.png">
@@ -43,6 +47,64 @@
   @media (orientation: portrait) { html.rkr-touch #rotate { display: flex; } }
   html.rkr-native #rotate { display: none !important; } /* the apps are locked to landscape */
 </style>
+<!-- for search engines: what this page is (not run by the browser) -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "https://runkittyrun.fun/#website",
+      "url": "https://runkittyrun.fun/",
+      "name": "Run Kitty Run",
+      "alternateName": ["RunKittyRun", "RKR", "runkittyrun.fun"],
+      "description": "Run Kitty Run is a free online co-op game for 1 to 32 players, played in the browser.",
+      "inLanguage": "en",
+      "publisher": { "@id": "https://runkittyrun.fun/#org" }
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://runkittyrun.fun/#org",
+      "name": "Run Kitty Run",
+      "url": "https://runkittyrun.fun/",
+      "logo": { "@type": "ImageObject", "url": "https://runkittyrun.fun/icons/icon-512.png", "width": 512, "height": 512 }
+    },
+    {
+      "@type": ["VideoGame", "WebApplication"],
+      "@id": "https://runkittyrun.fun/#game",
+      "name": "Run Kitty Run",
+      "alternateName": ["RunKittyRun", "RKR"],
+      "url": "https://runkittyrun.fun/",
+      "mainEntityOfPage": "https://runkittyrun.fun/about",
+      "description": "A free online co-op game played in the browser. You are a kitty in a square-spiral labyrinth full of wolves: reach the heart of the labyrinth, don't touch the wolves, and revive fallen teammates by running over their circle. Inspired by the classic Warcraft 3 custom map Run Kitty Run.",
+      "image": "https://runkittyrun.fun/og-image.jpg",
+      "screenshot": [
+        "https://runkittyrun.fun/img/run-kitty-run-eight-kitties.webp",
+        "https://runkittyrun.fun/img/run-kitty-run-wolves.webp",
+        "https://runkittyrun.fun/img/run-kitty-run-revive.webp",
+        "https://runkittyrun.fun/img/run-kitty-run-ice-skating.webp",
+        "https://runkittyrun.fun/img/run-kitty-run-goal.webp"
+      ],
+      "genre": ["Co-op", "Arcade", "Maze", "Party"],
+      "gamePlatform": ["Web browser"],
+      "applicationCategory": "GameApplication",
+      "operatingSystem": "Any (web browser)",
+      "browserRequirements": "Requires JavaScript and WebGL",
+      "playMode": ["SinglePlayer", "CoOp", "MultiPlayer"],
+      "numberOfPlayers": { "@type": "QuantitativeValue", "minValue": 1, "maxValue": 32 },
+      "inLanguage": "en",
+      "isAccessibleForFree": true,
+      "datePublished": "2026-10-02",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR", "availability": "https://schema.org/InStock", "url": "https://runkittyrun.fun/" },
+      "author": [
+        { "@type": "Person", "name": "Benjamin", "url": "https://www.instagram.com/ben.bhc/" },
+        { "@type": "Person", "name": "Maximilian", "url": "https://x.com/milimithrandir" }
+      ],
+      "publisher": { "@id": "https://runkittyrun.fun/#org" }
+    }
+  ]
+}
+</script>
 <script type="importmap">
 { "imports": {
   "three": "./vendor/three/build/three.module.js"
@@ -50,7 +112,23 @@
 </script>
 </head>
 <body>
-<canvas id="game"></canvas>
+<canvas id="game">
+<!-- What the game is, in words: for screen readers, search engines and browsers that can't draw it. Never shown over
+     the game (it is the canvas's fallback), and its links stay out of the Tab order so the menus keep theirs. -->
+<h1>Run Kitty Run</h1>
+<p>Run Kitty Run is a free online co-op game you play in your browser, for 1 to 32 players. You are a kitty in a labyrinth full of wolves. Reach the heart of the labyrinth, don't touch the wolves, and never leave a kitty behind: run over a fallen friend's circle to revive them.</p>
+<p>Play solo, in local co-op, or online with friends on computers, phones and tablets. Run on foot by day and skate the ice by night through nine levels. Inspired by the classic Warcraft 3 custom map Run Kitty Run. No download and no account needed.</p>
+<ul>
+<li><a href="/about" tabindex="-1">About Run Kitty Run</a></li>
+<li><a href="/how-to-play" tabindex="-1">How to play: rules, controls and tips</a></li>
+<li><a href="/warcraft-3-run-kitty-run" tabindex="-1">Run Kitty Run and the Warcraft 3 custom map</a></li>
+<li><a href="/patch-notes" tabindex="-1">Patch notes</a></li>
+<li><a href="/support" tabindex="-1">Support</a></li>
+<li><a href="/terms" tabindex="-1">Terms of Use</a></li>
+<li><a href="/privacy" tabindex="-1">Privacy Policy</a></li>
+</ul>
+</canvas>
+<noscript><p style="position:fixed;inset:0;margin:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:#fff6d8;font:800 18px/1.5 system-ui,sans-serif">Run Kitty Run needs JavaScript to play. <a href="/about" style="color:#ffcf5a;margin-left:.4em">About the game</a></p></noscript>
 <div id="ui"></div>
 <div id="rotate"><div class="ph"></div>Turn your phone sideways to play</div>
 <script type="module" src="js/main.js"></script>

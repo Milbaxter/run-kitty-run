@@ -15,6 +15,7 @@ import { createStats } from './stats.js';
 import { createLegends } from './legends.js';
 import { createAccounts, onePerPlayer, samePlayer } from './accounts.js';
 import { pregenNext } from './levelgen.js';
+import { SERVER_PAGES } from './pages.js';
 
 const PORT = +process.env.PORT || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -107,7 +108,8 @@ const CORS_ORIGINS = new Set(['capacitor://localhost', 'https://localhost', 'htt
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css',
   '.mp3': 'audio/mpeg', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.json': 'application/json',
-  '.webmanifest': 'application/manifest+json',
+  '.webmanifest': 'application/manifest+json', '.webp': 'image/webp',
+  '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml; charset=utf-8',
 };
 
 const WELL_KNOWN = {
@@ -119,7 +121,11 @@ const WELL_KNOWN = {
     target: { namespace: 'android_app', package_name: APP_ID, sha256_cert_fingerprints: ANDROID_CERT_SHA256 },
   }]),
 };
-const PAGES = { '/privacy': '/privacy.html', '/terms': '/terms.html', '/support': '/support.html' };
+// Clean addresses for the text pages (the ones search engines list: see public/sitemap.xml and the canonical links).
+const PAGES = {
+  '/privacy': '/privacy.html', '/terms': '/terms.html', '/support': '/support.html',
+  '/about': '/about.html', '/how-to-play': '/how-to-play.html', '/warcraft-3-run-kitty-run': '/warcraft-3-run-kitty-run.html',
+};
 
 // Browser security headers on every response. The CSP (set on pages) allows the game's own files, the inline
 // importmap in index.html (by hash, computed from the html at start so an edit can't break it), Sign in with Google
@@ -134,7 +140,7 @@ const INLINE_SCRIPT_HASHES = (() => {
       if (!f.endsWith('.html')) continue;
       const html = fs.readFileSync(path.join(ROOT, f), 'utf8');
       for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)) {
-        if (/\bsrc\s*=/.test(m[1])) continue;
+        if (/\bsrc\s*=/.test(m[1]) || /application\/ld\+json/.test(m[1])) continue;   // (ld+json is data: never run, needs no hash)
         // (as the browser hashes it: its HTML parser turns CRLF into LF, so a Windows checkout's file still matches)
         out.add(`'sha256-${crypto.createHash('sha256').update(m[2].replace(/\r\n?/g, '\n')).digest('base64')}'`);
       }
@@ -242,6 +248,12 @@ function handleHttp(req, res) {
   if (WELL_KNOWN[url.pathname]) {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' });
     res.end(JSON.stringify(WELL_KNOWN[url.pathname]()));
+    return;
+  }
+  if (SERVER_PAGES[url.pathname]) {
+    const body = Buffer.from(SERVER_PAGES[url.pathname]);
+    res.writeHead(200, { 'Content-Type': TYPES['.html'], 'Cache-Control': 'no-cache', 'Content-Length': body.length });
+    res.end(req.method === 'HEAD' ? undefined : body);
     return;
   }
   let p;

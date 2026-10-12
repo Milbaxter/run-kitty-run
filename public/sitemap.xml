@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+  <url>
+    <loc>https://runkittyrun.fun/</loc>
+    <image:image><image:loc>https://runkittyrun.fun/og-image.jpg</image:loc></image:image>
+  </url>
+  <url>
+    <loc>https://runkittyrun.fun/about</loc>
+    <image:image><image:loc>https://runkittyrun.fun/img/run-kitty-run-eight-kitties.webp</image:loc></image:image>
+    <image:image><image:loc>https://runkittyrun.fun/img/run-kitty-run-wolves.webp</image:loc></image:image>
+    <image:image><image:loc>https://runkittyrun.fun/img/run-kitty-run-revive.webp</image:loc></image:image>
+    <image:image><image:loc>https://runkittyrun.fun/img/run-kitty-run-ice-skating.webp</image:loc></image:image>
+    <image:image><image:loc>https://runkittyrun.fun/img/run-kitty-run-goal.webp</image:loc></image:image>
+  </url>
+  <url>
+    <loc>https://runkittyrun.fun/how-to-play</loc>
+    <image:image><image:loc>https://runkittyrun.fun/img/run-kitty-run-lobby.webp</image:loc></image:image>
+  </url>
+  <url><loc>https://runkittyrun.fun/warcraft-3-run-kitty-run</loc></url>
+  <url><loc>https://runkittyrun.fun/patch-notes</loc></url>
+  <url><loc>https://runkittyrun.fun/support</loc></url>
+  <url><loc>https://runkittyrun.fun/terms</loc></url>
+  <url><loc>https://runkittyrun.fun/privacy</loc></url>
+</urlset>

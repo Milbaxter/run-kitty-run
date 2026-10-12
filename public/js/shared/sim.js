@@ -1,4 +1,4 @@
-import { CFG, stageOf } from './config.js';
+import { CFG, LATEST_FV, stageOf } from './config.js';
 import { hashSeed } from './rng.js';
 import { generateLevel, collideCircle, inCenter, onIce, inTree } from './maze.js';
 import { createEnemies, updateEnemies } from './enemies.js';
@@ -135,7 +135,7 @@ function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales
   const sim = {
     seed: seed == null ? 0 : seed,
     mode: GAME_MODES.includes(mode) ? mode : 'mixed',
-    finales: Math.max(0, Math.min(13, finales | 0)),
+    finales: Math.max(0, Math.min(LATEST_FV, finales | 0)),
     easy: !!easy,
     retries: 0,     // easy: how often a level started over this run (snapshot rt: clients reload the level when it moves)
     level: lvl,

@@ -291,6 +291,10 @@ a.rkr-statsbtn{text-decoration:none;display:inline-block;line-height:normal;}
 .rkr-tcol{display:flex;flex-direction:column;align-items:center;gap:18px;max-width:980px;width:100%;margin:auto;}
 .rkr-logo{position:relative;display:flex;flex-wrap:wrap;justify-content:center;gap:0 .35em;font-weight:900;font-size:clamp(46px,9.5vw,118px);line-height:1.02;
   animation:rkr-logoin .9s cubic-bezier(.2,1.5,.4,1);}
+/* "Project:" above the logo: the logo's own letters (gradient, outline), small and still */
+.rkr-project{display:flex;justify-content:center;font-weight:900;font-size:clamp(18px,3.1vw,38px);line-height:1.1;letter-spacing:.04em;margin-bottom:.2em;
+  animation:rkr-logoin .9s cubic-bezier(.2,1.5,.4,1);}
+.rkr-project .rkr-l{animation:none;}
 .rkr-word{display:flex;}
 .rkr-l{position:relative;display:inline-block;color:#3a1650;-webkit-text-stroke:.16em #3a1650;
   text-shadow:0 .09em 0 #3a1650,0 .16em 0 rgba(0,0,0,.3),0 0 .4em rgba(255,120,200,.35);
@@ -1030,6 +1034,7 @@ function createUI(root) {
     const item = (icon, name, desc) => `<div class="rkr-item"><div class="rkr-ico">${icon}</div><div><b>${name}</b>${desc}</div></div>`;
     o.innerHTML = `
       <div class="rkr-tcol">
+        <div class="rkr-project">${[...'Project:'].map((ch) => `<span class="rkr-l" data-c="${ch}">${ch}</span>`).join('')}</div>
         <div class="rkr-logo">${word('RUN')}${word('KITTY', 'rkr-kitty')}<span style="position:relative">${word('RUN')}<span class="rkr-logocat">${ICONS.cat}</span></span></div>
         <div class="rkr-sub">Reach the <b>heart of the labyrinth</b>. Don't touch the wolves. <b>Never leave a kitty behind.</b></div>
         <div class="rkr-btns">
@@ -1257,7 +1262,7 @@ function createUI(root) {
         <div class="rkr-gcat">${ICONS.cat}</div>
         <h2>GAME OVER</h2>
         <div class="rkr-gsub">${esc(line)}</div>
-        ${stats.alone ? `<div class="rkr-alone">${ICONS.revive}<span><b>Hint:</b> Alone, nobody can revive you when you're caught. Run Kitty Run is made to be beaten together. ${stats.alone === 'online' ? 'Invite some into your lobby!' : 'Play Multiplayer or Local co-op!'}</span></div>` : ''}
+        ${stats.alone ? `<div class="rkr-alone">${ICONS.revive}<span><b>Hint:</b> Alone, nobody can revive you when you're caught. Project: Run Kitty Run is made to be beaten together. ${stats.alone === 'online' ? 'Invite some into your lobby!' : 'Play Multiplayer or Local co-op!'}</span></div>` : ''}
         <div class="rkr-stats">${rows.map((r) => `<div class="rkr-stat"><div class="rkr-ico" style="color:${r.color || '#fff'}">${r.icon}</div><span class="rkr-sl">${r.label}</span><span class="rkr-sv">${r.fmt(0)}</span></div>`).join('')}</div>
         <div class="rkr-btns"><button class="rkr-btn rkr-gomain">${esc(buttonLabel || 'TRY AGAIN')}</button>${onLeave ? '<button class="rkr-btn rkr-alt rkr-goleave">LEAVE GAME</button>' : ''}</div>
         <div class="rkr-keyhint">press <span class="rkr-k rkr-wide">Enter</span></div>

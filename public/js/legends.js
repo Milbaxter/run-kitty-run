@@ -179,7 +179,7 @@ function createLegends(root, { send, isOnline, onOpenChange }) {
     x.setAttribute('aria-label', 'Close');
     x.addEventListener('click', close);
     const h = el('h2', null, 'LEGENDS BOARD');
-    const sub = el('div', 'rkg-sub', 'Every team that beat Run Kitty Run, in their own words.');
+    const sub = el('div', 'rkg-sub', 'Every team that beat Project: Run Kitty Run, in their own words.');
     const tabs = el('div', 'rkg-tabs');
     const signSlot = el('div');
     const list = el('div', 'rkg-list');

@@ -506,6 +506,18 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   ok(ev.some((e) => e.type === 'levelClear' && e.level === 1) && a.finishes === 2 && sim.stats.levelsCleared === 1, 'Run + Skate (v13): the night goal clears level 1');
   for (let t = 0; t < 60 * 4 && sim.level === 2; t++) stepSim(sim, {}, CFG.TICK);
   ok(sim.level === 3 && sim.levelData.level === 2 && !sim.levelData.ice, 'Run + Skate (v13): then level 2 by day');
+  // version 14: the night half is in the day half's season (levels 1-8); the rink, wolves and pickups are version 13's
+  {
+    let same = true, moved = 0;
+    for (let L = 1; L <= 8; L++) {
+      const day = generateLevel(2 * L - 1, 5, 'mixed', 14), night = generateLevel(2 * L, 5, 'mixed', 14), old = generateLevel(2 * L, 5, 'mixed', 13);
+      if (night.theme !== day.theme || !night.ice || !night.night) same = false;
+      if (JSON.stringify(night.enemies) !== JSON.stringify(old.enemies) || JSON.stringify(night.items) !== JSON.stringify(old.items) || JSON.stringify(night.walls) !== JSON.stringify(old.walls)) same = false;
+      if (night.theme !== old.theme) moved++;
+    }
+    ok(same && moved > 0 && JSON.stringify(generateLevel(17, 5, 'mixed', 14).enemies) === JSON.stringify(generateLevel(17, 5, 'mixed', 13).enemies),
+      "Run + Skate (v14): every night rink is in the season of its day half, with the rink, wolves and pickups of version 13; level 9 is unchanged");
+  }
   const fin = generateLevel(17, 5, 'mixed', 13);
   ok(fin.finale && fin.level === SKATE_FINAL_LEVEL && fin.checkpoints.some((c) => c.medic), 'Run + Skate (v13): step 17 is the unchanged level 9 final run');
   ok(!generateLevel(2, 5, 'mixed', 12).night && generateLevel(2, 5, 'mixed', 12).level === 2, 'Run + Skate before v13: one level per level, as before');

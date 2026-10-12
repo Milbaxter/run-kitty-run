@@ -17,21 +17,21 @@ function patchNotesPage() {
 ${n.items.map((t) => `<li>${esc(t)}</li>`).join('\n')}
 </ul>
 </section>`).join('\n');
-  const desc = `What's new in Run Kitty Run. Latest: version ${latest.version}, ${latest.title} (${niceDate(latest.date)}). Every update to the free online co-op kitty game, newest first.`;
+  const desc = `What's new in Project: Run Kitty Run. Latest: version ${latest.version}, ${latest.title} (${niceDate(latest.date)}). Every update to the free online co-op kitty game, newest first.`;
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0d1020">
-<title>Run Kitty Run patch notes: what's new</title>
+<title>Project: Run Kitty Run patch notes: what's new</title>
 <meta name="description" content="${esc(desc)}">
 <link rel="canonical" href="${SITE}/patch-notes">
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
 <meta property="og:type" content="article">
-<meta property="og:site_name" content="Run Kitty Run">
-<meta property="og:title" content="Run Kitty Run patch notes">
+<meta property="og:site_name" content="Project: Run Kitty Run">
+<meta property="og:title" content="Project: Run Kitty Run patch notes">
 <meta property="og:description" content="${esc(desc)}">
 <meta property="og:url" content="${SITE}/patch-notes">
 <meta property="og:image" content="${SITE}/og-image.jpg">
@@ -40,15 +40,15 @@ ${n.items.map((t) => `<li>${esc(t)}</li>`).join('\n')}
 </head>
 <body>
 <nav class="top" aria-label="Site">
-  <a class="brand" href="/">🐾 Run Kitty Run</a>
+  <a class="brand" href="/">🐾 Project: Run Kitty Run</a>
   <a href="/about">About</a>
   <a href="/how-to-play">How to play</a>
   <a href="/patch-notes" aria-current="page">Patch notes</a>
   <a href="/">Play</a>
 </nav>
 <main>
-<h1>Run Kitty Run patch notes</h1>
-<p class="lede">Everything that changed in Run Kitty Run, newest first. The game updates itself: reload the page and you have the latest version.</p>
+<h1>Project: Run Kitty Run patch notes</h1>
+<p class="lede">Everything that changed in Project: Run Kitty Run, newest first. The game updates itself: reload the page and you have the latest version.</p>
 <div class="cta">
   <a class="play" href="/">▶ PLAY NOW</a>
   <small>Latest: version ${esc(latest.version)}, ${esc(niceDate(latest.date))}</small>

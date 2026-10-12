@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET, DAY_NIGHT_FV, stageOf, stageStep } from './shared/config.js';
+import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET, LATEST_FV, stageOf, stageStep } from './shared/config.js';
 import { hashSeed } from './shared/rng.js';
 import { collideCircle, onIce, inTree, levelHash } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
@@ -568,7 +568,7 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
 function startSim(players, startLevel, simMode = DEBUG_MODE, easy = false) {
-  sim = createSim({ seed: newSeed(), players, startLevel: stageStep(simMode || 'mixed', DAY_NIGHT_FV, startLevel, DEBUG_NIGHT), mode: simMode, finales: DAY_NIGHT_FV, easy });
+  sim = createSim({ seed: newSeed(), players, startLevel: stageStep(simMode || 'mixed', LATEST_FV, startLevel, DEBUG_NIGHT), mode: simMode, finales: LATEST_FV, easy });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   accumulator = 0;
@@ -1877,7 +1877,7 @@ function showOutdated(msg) {
   ui.hideTitle();
   ui.showNotice({
     title: 'UPDATE TIME',
-    text: msg || 'A new version of Run Kitty Run is out — update to keep playing online.',
+    text: msg || 'A new version of Project: Run Kitty Run is out — update to keep playing online.',
     button: NATIVE ? 'UPDATE' : 'RELOAD',
     onClick: () => (NATIVE ? openExternal(storeUrl()) : location.reload()),
     alt: 'PLAY SOLO',

@@ -26,10 +26,10 @@ function shareText_(r) {
   const bits = [clock(r.time)];
   if (r.crowns) bits.push(`${r.crowns} crown${r.crowns === 1 ? '' : 's'}`);
   if (r.revives) bits.push(`${r.revives} revive${r.revives === 1 ? '' : 's'}`);
-  if (r.win && (r.mode || 'mixed') === 'mixed') return `${we} beat Run Kitty Run: cleared the Run + Skate mode. Legend! 🐱👑 ${bits.join(' · ')}. Can you escape too? ${LINK}`;
+  if (r.win && (r.mode || 'mixed') === 'mixed') return `${we} beat Project: Run Kitty Run: cleared the Run + Skate mode. Legend! 🐱👑 ${bits.join(' · ')}. Can you escape too? ${LINK}`;
   return r.win
-    ? `${we} cleared the ${CLEARED[r.mode] || CLEARED.mixed} mode in Run Kitty Run! 🐱👑 ${bits.join(' · ')}. Can you escape too? ${LINK}`
-    : `${we} reached level ${r.level} in Run Kitty Run (${mode}) 🐱 ${bits.join(' · ')}. Can you get further? ${LINK}`;
+    ? `${we} cleared the ${CLEARED[r.mode] || CLEARED.mixed} mode in Project: Run Kitty Run! 🐱👑 ${bits.join(' · ')}. Can you escape too? ${LINK}`
+    : `${we} reached level ${r.level} in Project: Run Kitty Run (${mode}) 🐱 ${bits.join(' · ')}. Can you get further? ${LINK}`;
 }
 
 // the player card's cat face (ui.js ICONS.cat) in the kitty's colour, 40x40 units at (x, y), size s, wearing what
@@ -139,7 +139,7 @@ const toBlob = (c) => new Promise((ok) => c.toBlob((b) => ok(b), 'image/png'));
 // share the result: 'shared' | 'saved' (picture downloaded + text copied) | 'copied' | 'cancelled' | 'failed'
 async function shareResult(r) {
   const text = shareText_(r);
-  if (NATIVE) return shareText({ title: 'Run Kitty Run', text, url: '' });
+  if (NATIVE) return shareText({ title: 'Project: Run Kitty Run', text, url: '' });
   let file = null;
   try {
     const blob = await toBlob(drawCard(r));
@@ -147,7 +147,7 @@ async function shareResult(r) {
   } catch { /* text only */ }
   // phones and tablets: the system share menu (computers get the picture saved instead of the desktop share dialog)
   if (TOUCH && file && navigator.canShare && navigator.share && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file], text, title: 'Run Kitty Run' }); return 'shared'; } catch (e) { if (e && e.name === 'AbortError') return 'cancelled'; }
+    try { await navigator.share({ files: [file], text, title: 'Project: Run Kitty Run' }); return 'shared'; } catch (e) { if (e && e.name === 'AbortError') return 'cancelled'; }
   }
   // computers (and browsers without file sharing): the picture is saved and the text copied
   let copied = false;

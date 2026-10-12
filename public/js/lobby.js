@@ -604,7 +604,7 @@ function createLobbyUI(root, cb) {
         if (!roomRefs) return;
         const c = roomRefs.code.textContent;
         // a private lobby's link carries its password, so friends get straight in
-        const res = await share({ title: 'Run Kitty Run', text: `Join my Run Kitty Run lobby! Code ${c}`, url: inviteUrl(c, roomRefs.pass) });
+        const res = await share({ title: 'Project: Run Kitty Run', text: `Join my Project: Run Kitty Run lobby! Code ${c}`, url: inviteUrl(c, roomRefs.pass) });
         if (res !== 'copied' && res !== 'failed') return;
         linkBtn.textContent = res === 'copied' ? 'LINK COPIED!' : 'COPY FAILED';
         clearTimeout(copyT);

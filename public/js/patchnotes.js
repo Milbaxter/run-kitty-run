@@ -4,7 +4,8 @@ const PATCH_NOTES = [
   {
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
-      'New pages about the game: About, How to play (rules, controls, modes and tips) and these patch notes on a page of their own. On the website, the "about" link next to the credits takes you there',
+      'Run + Skate: the skating half of every level is now in the same season as its running half (summer by day, then summer by night, and so on). Online, everyone in the lobby needs the latest version for this',
+      'New pages about the game: About, How to play (rules, controls, modes and tips) and these patch notes on a page of their own. On the website, the ABOUT button on the main menu takes you there',
       'Sign in with Discord: swag accounts now work with a Discord account too, next to Google',
       'Easy Run + Skate: a broken checkpoint can be fixed by any kitty (no revives needed), and once it is fixed, everyone going down starts again from it',
       'Swag accounts: pick the number shown next to your kitty, anything from 0.01 up to your total (in the swag account menu)',

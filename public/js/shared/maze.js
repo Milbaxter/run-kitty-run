@@ -1,4 +1,4 @@
-import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, stageOf } from './config.js';
+import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, stageOf } from './config.js';
 import { createRng, hashSeed, ipow, legPoint } from './rng.js';
 import { buildPlan, patternPose, patternSpeed } from './enemies.js';
 
@@ -1486,11 +1486,13 @@ function generateCombo(L, seed, v = 3) {
 function generateLevel(level, seed, mode = 'mixed', fv = 0) {
   const st = stageOf(mode, fv, level);
   if (st.day) return generateLevelCore(st.level, seed, 'run', Math.min(fv, 11));
-  if (st.night) return generateLevelCore(st.level, seed, 'ice', Math.min(fv, 12));
+  // (fv 14+: the night rink in the day half's season, Run only's order; otherwise the level is Skate only's exactly)
+  if (st.night) return generateLevelCore(st.level, seed, 'ice', Math.min(fv, 12), (fv | 0) >= SAME_SEASON_FV ? THEME_ORDER[(st.level - 1) % 4] : null);
   return generateLevelCore(st.level, seed, mode, fv);
 }
 
-function generateLevelCore(level, seed, mode = 'mixed', fv = 0) {
+// season: a theme to give an ice level in place of Skate only's own (Run + Skate's night halves; looks only)
+function generateLevelCore(level, seed, mode = 'mixed', fv = 0, season = null) {
   const v = fv === true ? 1 : +fv || 0;
   if (v >= 3 && mode === 'mixed' && (Math.max(1, level | 0)) === SKATE_FINAL_LEVEL) return generateCombo(SKATE_FINAL_LEVEL, seed, v);
   const L = Math.max(1, level | 0);
@@ -1534,7 +1536,7 @@ function generateLevelCore(level, seed, mode = 'mixed', fv = 0) {
     items: [],
     path,
     // (finale version 12+: Skate only's levels 1-8 go through the seasons from winter, as floodlit night levels)
-    theme: !finale && mode === 'ice' && v >= 12 ? SKATE_THEME_ORDER[(L - 1) % 4]
+    theme: !finale && mode === 'ice' && v >= 12 ? (season ?? SKATE_THEME_ORDER[(L - 1) % 4])
       : CFG.ICE_TEST || mode === 'ice' || finale ? ICE_THEME : mode === 'mixed' ? MIXED_THEME_ORDER[(L - 1) % 3] : THEME_ORDER[(L - 1) % 4], // run mode: winter just isn't ice
     mode,
     finale,

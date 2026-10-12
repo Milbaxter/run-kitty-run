@@ -358,19 +358,24 @@ function createAccount(root) {
           // each mode on its own: a tick where it's unlocked (and worn), the count toward it elsewhere (a total item:
           // one count over all modes)
           // two lines: Multiplayer (worn everywhere) and Solo / Local (worn offline only)
-          const ticks = (pr, label, done) => {
+          // cover (the Solo / Local line): the Multiplayer progress. What's unlocked there is worn offline too, so a mode
+          // unlocked in Multiplayer has its tick on this line as well
+          const ticks = (pr, label, done, cover = null) => {
             const p = el('span', 'rka-uprog');
             p.appendChild(el('i', null, label));
-            if (u.total) p.appendChild(el(done ? 'b' : 'span', null, done ? '✓' : `${Math.min(u.times, featTotal(pr, u.feat))}/${u.times}`));
-            else (u.modes || UNLOCK_MODES).forEach((m, i) => {   // (only the modes it can be earned in)
-              const n = Math.min(u.times, u.all ? ((pr[u.feat] || {})[m]) || 0 : featCount(pr, u.feat, m));   // (Run + Skate counts in the other two)
+            const modes = u.modes || UNLOCK_MODES;   // (only the modes it can be earned in)
+            const own = (m) => Math.min(u.times, u.all ? ((pr[u.feat] || {})[m]) || 0 : featCount(pr, u.feat, m));   // (Run + Skate counts in the other two)
+            const covered = (m) => !!cover && isUnlocked(cover, u, m);
+            if (u.total) { const ok = done || covered(null); p.appendChild(el(ok ? 'b' : 'span', null, ok ? '✓' : `${Math.min(u.times, featTotal(pr, u.feat))}/${u.times}`)); }
+            else modes.forEach((m, i) => {
+              const n = own(m), ok = n >= u.times || covered(m);
               if (i) p.append(' · ');
-              p.appendChild(el(n >= u.times ? 'b' : 'span', null, n >= u.times ? `${SHORT[m]} ✓` : `${SHORT[m]} ${n}/${u.times}`));
+              p.appendChild(el(ok ? 'b' : 'span', null, ok ? `${SHORT[m]} ✓` : `${SHORT[m]} ${n}/${u.times}`));
             });
             return p;
           };
           const lines = el('div', 'rka-ulines');
-          lines.append(ticks(prog, 'Multiplayer: ', onl), ticks(solo, 'Solo / Local: ', off_));
+          lines.append(ticks(prog, 'Multiplayer: ', onl), ticks(solo, 'Solo / Local: ', off_, prog));
           row.appendChild(lines);
           if (open_) {   // one switch for every mode it's unlocked in
             const on = !offOf(u.id);

@@ -870,7 +870,7 @@ function handleEvents(events) {
         } else if (ev.medic) {   // the broken checkpoint, repaired by a kitty with 60+ revives
           ui.banner('MEDICAT TO THE RESCUE!!!', ev.revived.length ? `${by ? by.name : 'A medicat'} fixed the checkpoint: everyone is back on their paws` : `${by ? by.name : 'A medicat'} fixed the checkpoint`, 2600);
           if (view && view.world.repairCheckpoint) view.world.repairCheckpoint(ev.index);
-        } else ui.banner('CHECKPOINT!', ev.revived.length ? 'Everyone is back on their paws' : (by && sim.players.length > 1 ? `${by.name} gathered the team` : 'Progress saved'), 1600);
+        } else ui.banner('CHECKPOINT!', ev.revived.length ? 'Everyone is back on their paws' : (by && sim.players.length > 1 ? `${by.name} gathered the team` : 'Keep going!'), 1600);
         effects.teleport(ev.x, ev.z, by ? by.color : 0x8fdcff);
         effects.reviveBeam(ev.x, ev.z, ev.medic ? 0xff5a6a : 0x8fdcff);
         audio.play('revive');

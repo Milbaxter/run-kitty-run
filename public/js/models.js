@@ -764,6 +764,8 @@ function createKittyModel(color) {
   collar.castShadow = true; collar.visible = false;
   rig.add(collar);
   let crownMetal = null, yarnPack = false, silverSk = false, bladeGold = false;
+  const maneMetals = {};   // (a draft: the mane's own metal, s.maneMetal; the tail tip's, s.tipMetal)
+  let tipOwn = false;
   const metalFur = {};   // an easy game's bronze / golden kitty (s.metalCat): the fur material of each, made when first worn
   const METAL_HEX = { bronze: 0xcd7f32, gold: 0xffc93a };
   // backpack (8+ wins): a canvas pack on the back, open at the top, with little kittens in the other players'
@@ -948,7 +950,8 @@ function createKittyModel(color) {
     if (tipGlow.visible) {
       // the glow is the colour the kitty's fur has right now: its own, the rainbow fur's (as it runs past the tail tip),
       // the chrome lion's silver, the celestial lion's violet, a bronze / golden kitty's metal
-      if (s.celestial) rbC.set(0xb48cff);
+      if (s.tipMetal) rbC.set(s.tipMetal === 'chrome' ? 0xe8f0ff : METAL_HEX[s.tipMetal] || color);   // (a draft: the tip in a metal of its own)
+      else if (s.celestial) rbC.set(0xb48cff);
       else if (s.silver) rbC.set(0xe8f0ff);
       else if (s.metalCat) rbC.set(METAL_HEX[s.metalCat] || color);
       else if (s.rainbowCat) rbC.setHSL((((t * 0.45 + rainbowOff + 0.44) % 1) + 1) % 1, 0.9, 0.55);
@@ -961,7 +964,7 @@ function createKittyModel(color) {
     if (lion && (!maneMesh || maneTint !== tint)) {
       if (maneMesh) { maneMesh.removeFromParent(); if (maneMesh.userData.rb) maneMesh.userData.rb.geo.dispose(); }
       maneTint = tint;
-      maneMesh = new THREE.Mesh(maneGeometry(color, maneTint, !!s.longMane), mat);
+      maneMesh = new THREE.Mesh(maneGeometry(color, maneTint), mat);
       maneMesh.castShadow = true;
       head.add(maneMesh);
       meshes.push(maneMesh);
@@ -997,6 +1000,19 @@ function createKittyModel(color) {
     if (chromeMat) { chromeMat.uniforms.uTime.value = t; chromeMat.uniforms.uOrigin.value.copy(group.position); }
     if (mf) { mf.uniforms.uTime.value = t; mf.uniforms.uOrigin.value.copy(group.position); }
     if (cosmic) { cosmic.uniforms.uTime.value = t; if (maneMesh && maneMesh.material !== cosmic) maneMesh.material = cosmic; }
+    // a draft (?look=mane-gold / mane-bronze / mane-chrome): the mane in a metal of its own, whatever the body wears
+    if (maneMesh && s.maneMetal && !off) {
+      const mm = maneMetals[s.maneMetal] ||= chromeFurMaterial(s.maneMetal === 'chrome' ? null : s.maneMetal);
+      mm.uniforms.uTime.value = t; mm.uniforms.uOrigin.value.copy(group.position);
+      maneMesh.material = mm;
+    } else if (maneMesh && maneMesh.material !== (cosmic || mat)) maneMesh.material = cosmic || mat;
+    // a draft (?look=tip-gold / tip-bronze / tip-chrome): the fluffy tail's tip in a metal of its own, like the mane
+    const tipMesh = tailMeshes[N_TAIL - 1];
+    if (s.tipMetal && !off) {
+      const tm = maneMetals[s.tipMetal] ||= chromeFurMaterial(s.tipMetal === 'chrome' ? null : s.tipMetal);
+      tm.uniforms.uTime.value = t; tm.uniforms.uOrigin.value.copy(group.position);
+      tipMesh.material = tm; tipOwn = true;
+    } else if (tipOwn) { tipOwn = false; tipMesh.material = (furMeshes.includes(tipMesh) && cosmic) || mat; }
     wingMesh.material = s.celestial && cosmic ? cosmic : mf && cosmic === mf ? mf : wingMat;   // the wings turn celestial (or bronze / golden) too
     // backpack heads turn rainbow one by one (13, 14), all of them at 15
     const nr = off || yarnPack ? 0 : s.packRainbow | 0;
@@ -2519,9 +2535,10 @@ function skateBladeGeometry() {
 }
 // 14+ wins: a lion's mane, rings of tufts round the face (head space, behind the eyes), a gap on top for the crown;
 // in a deeper shade of the kitty's colour (silver for the moonlight lion)
-// long (a draft, ?look=longmane): the mane carries on back over the neck and shoulders instead of ending in a flat ring
-function maneGeometry(color, tint, long) {   // tint: 'silver' (the moonlight lion) or null
-  return cgeo('mane:' + new THREE.Color(color).getHexString() + (tint ? ':' + tint : '') + (long ? ':long' : ''), () => {
+// The mane: a ring of tufts round the head that carries on back over the neck and shoulders (it used to end in a flat
+// ring behind the head)
+function maneGeometry(color, tint) {   // tint: 'silver' (the moonlight lion) or null
+  return cgeo('mane2:' + new THREE.Color(color).getHexString() + (tint ? ':' + tint : ''), () => {
     // a deeper, richer shade of the kitty's own colour (or silver), in fluffy round tufts
     const hsl = {}, c0 = new THREE.Color(tint === 'silver' ? 0xd6dee9 : color);
     c0.getHSL(hsl);
@@ -2544,7 +2561,7 @@ function maneGeometry(color, tint, long) {   // tint: 'silver' (the moonlight li
     ringOf(0.2, 13, 0.08, -0.04, 0.5, base);
     ringOf(0.172, 11, 0.064, 0.02, 0.25, light);  // the fringe round the face
     parts.push([P.ico1, mtx([-0.1, -0.03, 0], null, [0.08, 0.23, 0.23]), dark]);   // fills the back of the ring
-    if (long) {   // back over the neck onto the shoulders: rings that sit lower (round the body) and get smaller and thinner.
+    {   // back over the neck onto the shoulders: rings that sit lower (round the body) and get smaller and thinner.
       // Each row is open wider on top than the one before (a V down the middle of the back), where the backpack sits
       // (the two rows nearest the head close over the back of the neck, low: no gap there, and nothing standing up)
       // (trimmed on the sides: each row closer to the body and lower than a plain continuation of the head's ring)

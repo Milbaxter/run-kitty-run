@@ -1048,7 +1048,7 @@ function updateVictory(dt) {
 function iconLook(p) {
   const look = iconLookOf(p);
   // local testing (?look=lion / chrome, as on the 3D kitty)
-  if (DEBUG_LOOK.has('lion') || DEBUG_LOOK.has('chrome') || DEBUG_LOOK.has('longmane')) look.lion = true;
+  if (DEBUG_LOOK.has('lion') || DEBUG_LOOK.has('chrome')) look.lion = true;
   if (DEBUG_LOOK.has('chrome')) look.lionLook = 'chrome';
   return look;
 }
@@ -1623,7 +1623,11 @@ function syncVisuals(dt, alpha) {
     if (DEBUG_LOOK.has('lion') || DEBUG_LOOK.has('chrome')) ka.lion = true;
     if (DEBUG_LOOK.has('chrome')) ka.silver = true;
     if (DEBUG_LOOK.has('medal')) ka.collar = 'medal';
-    if (DEBUG_LOOK.has('longmane')) { ka.lion = true; ka.longMane = true; }   // (a draft: the mane carried on over the shoulders)
+    // (drafts: a golden / bronze body, and the mane in a metal of its own)
+    if (DEBUG_LOOK.has('gold') || DEBUG_LOOK.has('bronze')) { ka.lion = true; ka.silver = false; ka.metalCat = DEBUG_LOOK.has('gold') ? 'gold' : 'bronze'; }
+    ka.maneMetal = DEBUG_LOOK.has('mane-gold') ? 'gold' : DEBUG_LOOK.has('mane-bronze') ? 'bronze' : DEBUG_LOOK.has('mane-chrome') ? 'chrome' : null;
+    ka.tipMetal = DEBUG_LOOK.has('tip-gold') ? 'gold' : DEBUG_LOOK.has('tip-bronze') ? 'bronze' : DEBUG_LOOK.has('tip-chrome') ? 'chrome' : null;
+    if (ka.tipMetal) ka.fluffyTail = true;
     if (DEBUG_LOOK.has('pack')) { ka.backpack = true; ka.packColors = DEBUG_PACK; }
     if (saves >= 30 && !ka.celestial && p.alive && speed > 1) {   // (celestial lion: its own space trail instead, below)
       k.heartT = (k.heartT || 0) - dt;

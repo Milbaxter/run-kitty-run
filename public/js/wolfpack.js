@@ -7,8 +7,33 @@ import * as THREE from 'three';
 // wolf type. rigs: [[rig, number of wolves using it], ...]
 const _c = new THREE.Color();
 
+// A wolf under a tree: its shape shows through the leaves, dark with a light rim. Drawn after everything solid, only
+// where a tree covers the wolf: the tree marked the pixel (stencil 2, world.js coversWolves; a kitty or wolf in front
+// of the tree takes the mark off, models.js VC_MAT) and the wolf is behind what is drawn there (GreaterDepth). Each
+// pixel once (the stencil counts up), so the parts of a wolf don't draw over one another.
+function xrayMaterial() {
+  return new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, depthFunc: THREE.GreaterDepth,
+    stencilWrite: true, stencilRef: 2, stencilFunc: THREE.EqualStencilFunc, stencilZPass: THREE.IncrementStencilOp,
+    vertexShader: `varying vec3 vN; varying vec3 vV;
+      void main() {
+        vec4 mv = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        vN = normalMatrix * mat3(instanceMatrix) * normal; vV = -mv.xyz;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `varying vec3 vN; varying vec3 vV;
+      void main() {
+        float rim = 1.0 - abs(dot(normalize(vN + vec3(1e-5)), normalize(vV)));
+        rim = smoothstep(0.35, 0.9, rim);
+        gl_FragColor = vec4(mix(vec3(0.06, 0.04, 0.08), vec3(1.0, 0.95, 0.85), rim), mix(0.4, 0.9, rim));
+        #include <colorspace_fragment>
+      }`,
+  });
+}
+
 function createWolfPack(scene, rigs) {
-  const packs = new Map();          // geometry -> { mesh, n, eye, cap }
+  const packs = new Map();          // geometry -> { mesh, xray, n, eye, cap }
+  const xrayMat = xrayMaterial();
   const cap = new Map();
   for (const [m, n] of rigs) m.group.traverse((o) => { if (o.isMesh) cap.set(o.geometry, (cap.get(o.geometry) || 0) + n); });
   const parts = new Map();          // rig -> [[proxyMesh, pack], ...]
@@ -32,7 +57,17 @@ function createWolfPack(scene, rigs) {
         mesh.count = 0;
         mesh.name = 'wolfPack';
         scene.add(mesh);
-        p = { mesh, n: 0, eye, cap: cap.get(o.geometry) };
+        // the see-through copy: the same geometry and instance matrices (the eyes and ember cracks stay hidden)
+        let xray = null;
+        if (!eye) {
+          xray = new THREE.InstancedMesh(o.geometry, xrayMat, cap.get(o.geometry));
+          xray.instanceMatrix = mesh.instanceMatrix;
+          xray.frustumCulled = false;
+          xray.count = 0;
+          xray.name = 'wolfXray';
+          scene.add(xray);
+        }
+        p = { mesh, xray, n: 0, eye, cap: cap.get(o.geometry) };
         packs.set(o.geometry, p);
       }
       list.push([o, p]);
@@ -54,6 +89,7 @@ function createWolfPack(scene, rigs) {
     for (const p of packs.values()) {
       p.mesh.count = p.n;
       p.mesh.visible = p.n > 0;   // skip empty packs (incl. shadow passes)
+      if (p.xray) { p.xray.count = p.n; p.xray.visible = p.n > 0; }
       if (!p.n) continue;
       const im = p.mesh.instanceMatrix;
       im.clearUpdateRanges(); im.addUpdateRange(0, p.n * 16); im.needsUpdate = true;
@@ -63,7 +99,11 @@ function createWolfPack(scene, rigs) {
   }
   // frees the instance buffers and the eye materials; the part geometries and the shared wolf material are cached
   function dispose() {
-    for (const p of packs.values()) { p.mesh.removeFromParent(); p.mesh.dispose(); if (p.eye) p.mesh.material.dispose(); }
+    for (const p of packs.values()) {
+      p.mesh.removeFromParent(); p.mesh.dispose(); if (p.eye) p.mesh.material.dispose();
+      if (p.xray) { p.xray.removeFromParent(); p.xray.dispose(); }
+    }
+    xrayMat.dispose();
     packs.clear();
     parts.clear();
   }

@@ -4,6 +4,12 @@ const PATCH_NOTES = [
   {
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
+      'Wolves under a tree no longer disappear: their outline shows through the leaves',
+      'A lucky checkpoint: once in a great while (1 in 100) a big chest stands on a checkpoint. Step on it and it throws boots, shields and extra lives all over the square, more of them the more kitties are playing',
+      'Chat: type /dance and your kitty dances for everyone, until you move',
+      'Chat: type /feedback and your idea or bug (for example: /feedback more hats please) to send feedback straight from the chat',
+      'Chat: while the chat is open, scroll up with the mouse wheel to read older messages',
+      'Save a few lives in a run and you may find yourself in the newspaper on the next level',
       'Run + Skate: the skating half of every level is now in the same season as its running half (summer by day, then summer by night, and so on). Online, everyone in the lobby needs the latest version for this',
       'New pages about the game: About, How to play (rules, controls, modes and tips) and these patch notes on a page of their own. On the website, the ABOUT button on the main menu takes you there',
       'Sign in with Discord: swag accounts now work with a Discord account too, next to Google',

@@ -43,6 +43,10 @@ const CFG = {
 
   // Items
   ITEM_RADIUS: 0.6,
+  CHEST_ODDS: 100,           // the lottery: one checkpoint in this many has a big chest waiting on it
+  CHEST_RADIUS: 1.1,         // a kitty this close to the chest opens it
+  CHEST_ARM: 1.0,            // seconds before it can be opened (so everyone sees it first)
+  CHEST_LOOT: [8, 4, 44],    // pickups it drops: this many + this many per kitty, at most this many
   CROWN_RADIUS: 1.0,         // pickup radius of the crown over the goal room's middle
   TREE_RADIUS: 1.7,          // autumn levels: a kitty this close to a climbable tree's trunk is up in it (safe)         // pickup radius of the crown over the goal's center
 

@@ -51,6 +51,16 @@ function createFeedback(root, { getContext }) {
     modal = null;
   }
 
+  // sends the text (the chat's /feedback uses it too); throws with a message for the player when it didn't go
+  async function post(text) {
+    const r = await fetch(apiUrl('/api/feedback'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, ...(getContext ? getContext() : {}), app: PLATFORM, ver: APP_VERSION }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) throw new Error(j.msg || 'Could not send right now.');
+  }
+
   function open() {
     if (modal) return;
     btn.classList.remove('rkf-on');
@@ -80,12 +90,7 @@ function createFeedback(root, { getContext }) {
       send.disabled = true;
       msg.className = 'rkf-msg'; msg.textContent = 'Sending…';
       try {
-        const r = await fetch(apiUrl('/api/feedback'), {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, ...(getContext ? getContext() : {}), app: PLATFORM, ver: APP_VERSION }),
-        });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || !j.ok) throw new Error(j.msg || 'Could not send right now.');
+        await post(text);
         msg.className = 'rkf-msg rkf-ok'; msg.textContent = 'Thank you! Sent. 🐾';
         ta.value = '';
         const sent = modal;
@@ -106,7 +111,7 @@ function createFeedback(root, { getContext }) {
     parent.appendChild(btn);
     btn.classList.toggle('rkf-docked', !!slot);
   }
-  return { open, close, setVisible, dock, isOpen: () => !!modal, root: () => modal };
+  return { open, close, post, setVisible, dock, isOpen: () => !!modal, root: () => modal };
 }
 
 export { createFeedback };

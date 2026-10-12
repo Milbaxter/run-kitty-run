@@ -5,7 +5,7 @@ import { collideCircle, onIce, inTree, levelHash } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
 import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
 import { pregenNext } from './levelpregen.js';
-import { ghostMaterial, disposeModel, createKittyModel, createWolfRig, newWolfState, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel } from './models.js';
+import { ghostMaterial, disposeModel, createKittyModel, createWolfRig, newWolfState, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel, createChestModel } from './models.js';
 import { createWolfPack } from './wolfpack.js';
 import { buildWorld, setupLighting } from './world.js';
 import { createEffects } from './effects.js';
@@ -42,12 +42,14 @@ const DEBUG_WINS = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) 
 const DEBUG_RESCUES = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? Math.max(0, parseInt(params.get('rescues') || '0', 10) || 0) : 0;
 const DEBUG_LOOK = new Set(/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) ? (params.get('look') || '').split(',') : []);
 // ?song: We Skate as if unlocked (localhost only): its button and speed in the settings
+// ?chest: every checkpoint has the lottery chest (localhost only)
+const DEBUG_CHEST = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) && params.has('chest');
 const DEBUG_SONG = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) && params.has('song');
 const DEBUG_PACK = [PLAYER_COLORS[1], PLAYER_COLORS[2], PLAYER_COLORS[3]];
 
 // ---------- renderer / scene ----------
 const canvas = document.getElementById('game');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: QUALITY.antialias, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: QUALITY.antialias, stencil: true, powerPreference: 'high-performance' });   // stencil: wolves show through trees (wolfpack.js)
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY.pixelRatio));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = QUALITY.shadows;   // (graphics: Low turns them off)
@@ -571,6 +573,7 @@ function startSim(players, startLevel, simMode = DEBUG_MODE, easy = false) {
   sim = createSim({ seed: newSeed(), players, startLevel: stageStep(simMode || 'mixed', LATEST_FV, startLevel, DEBUG_NIGHT), mode: simMode, finales: LATEST_FV, easy });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
+  if (DEBUG_CHEST) sim.chestAlways = true;
   accumulator = 0;
   gameOverShown = false;
   victory = null;
@@ -585,16 +588,21 @@ function clearView() {
   disposeModel(view.portal.group);
   disposeModel(view.crown.group);
   if (view.fish) disposeModel(view.fish.group);
+  if (view.chest) disposeModel(view.chest.group);
   view.wolfPack.dispose(); // wolf models are proxy rigs outside the scene (cached geometries, no GPU state)
   for (const it of view.items.values()) disposeModel(it.group);
   for (const c of view.circles.values()) disposeModel(c.group);
   view = null;
 }
 
+const HERO_SAVES = 5;
 function buildView() {
   clearView();
   const ld = sim.levelData;
-  const world = buildWorld(scene, ld);
+  // a newspaper about the kitty with the most revives this run (HERO_SAVES or more), if there is one
+  let hero = null;
+  for (const p of sim.players) if ((p.rescues || 0) >= HERO_SAVES && (!hero || p.rescues > hero.saves)) hero = { name: p.name, saves: p.rescues };
+  const world = buildWorld(scene, ld, hero);
   if (world.group.parent !== scene) scene.add(world.group);
   lighting.setTheme(ld.theme, ld);   // the final run: hell, warming to gold at the goal room
   const portal = createPortalModel();
@@ -624,7 +632,7 @@ function buildView() {
   // the final run: a giant fish waits in the goal room for the kitties (eaten client-side, see feast())
   let fish = null;
   if (ld.finale) { fish = createGiantFishModel(); scene.add(fish.group); }
-  view = { levelData: ld, world, portal, crown, fish, wolves, wolfPack, items, circles: new Map() };
+  view = { levelData: ld, world, portal, crown, fish, chest: null, wolves, wolfPack, items, circles: new Map() };
   prevPos.clear();
   warmShaders();
 }
@@ -874,6 +882,26 @@ function handleEvents(events) {
         effects.teleport(ev.x, ev.z, by ? by.color : 0x8fdcff);
         effects.reviveBeam(ev.x, ev.z, ev.medic ? 0xff5a6a : 0x8fdcff);
         audio.play('revive');
+        break;
+      }
+      case 'chest': {   // the lottery: a big chest on this checkpoint
+        if (!sim.chest) sim.chest = { x: ev.x, z: ev.z, open: false };   // (online: the server's sim made it)
+        ui.banner('LUCKY CHECKPOINT!', 'Step on the chest', 2600);
+        effects.confetti(ev.x, ev.z);
+        audio.play('extraLife');
+        break;
+      }
+      case 'chestOpen': {
+        if (!sim.chest) sim.chest = { x: ev.x, z: ev.z };
+        sim.chest.open = true;
+        for (const [id, type, x, z, mega] of ev.items) if (!sim.items.some((it) => it.id === id)) sim.items.push({ id, type, x, z, taken: false, ...(mega ? { mega: true } : {}) });
+        if (view && view.chest) view.chest.open();
+        const by = playerById(ev.by);
+        ui.banner('JACKPOT!', by && sim.players.length > 1 ? `${by.name} opened the chest` : 'Grab it all!', 2600);
+        effects.confetti(ev.x, ev.z);
+        effects.shake(0.4);
+        haptic('success');
+        audio.play('levelClear');
         break;
       }
       case 'pickup': {
@@ -1534,7 +1562,18 @@ function syncVisuals(dt, alpha) {
     const m = it.taken && view.items.get(it.id);
     if (m) { disposeModel(m.group); view.items.delete(it.id); }
   }
+  // pickups that came later (the lottery chest's)
+  for (const it of sim.items) if (it.id >= 1000 && !it.taken && !view.items.has(it.id)) view.items.set(it.id, itemView(it, view.levelData));
   for (const m of view.items.values()) m.update(dt, t);
+  // the lottery chest
+  if (!sim.chest && view.chest) { disposeModel(view.chest.group); view.chest = null; }   // (the level started over)
+  if (sim.chest && !view.chest) {
+    view.chest = createChestModel();
+    view.chest.group.position.set(sim.chest.x, 0, sim.chest.z);
+    if (sim.chest.open) view.chest.open(true);   // (joined later: already open)
+    scene.add(view.chest.group);
+  }
+  if (view.chest) view.chest.update(dt, t);
   // revive circles
   const seen = _seenCircles; seen.clear();
   for (const c of sim.circles) {
@@ -1648,6 +1687,9 @@ function syncVisuals(dt, alpha) {
         for (const side of [1, -1]) effects.cosmicTrail(x - fx * 0.12 - fz * 0.78 * side, cy + 0.54, z - fz * 0.12 + fx * 0.78 * side, 1, 0.04, 0.12, 0.55);
       }
     }
+    // /dance: a few seconds, or until the kitty moves or goes down
+    if (k.dance) { k.dance += dt; if (k.dance > DANCE_TIME || p.moving || !p.alive) k.dance = 0; }
+    ka.dance = k.dance || 0;
     k.model.update(dt, ka);
     // (an easy game: the skate marks, aura trail and paw prints are the kitty's own colour until they cycle, from 6 wins)
     const trailCol = easy && wins < 6 ? (k.own ||= new THREE.Color(p.color)) : k.fx;
@@ -1774,6 +1816,17 @@ const lobbyUI = createLobbyUI(document.getElementById('ui'), {
 const chat = createChat(document.getElementById('ui'), {
   touch: TOUCH,
   onSend: (text) => {
+    // /feedback some words: sent as feedback, not to the room (only you see the answer); /feedback alone opens the box
+    const fb = /^\/feedback(?:\s+([\s\S]*))?$/i.exec(text);
+    if (fb) {
+      const words = (fb[1] || '').trim();
+      if (words.length < 2) { feedback.open(); return; }
+      feedback.post(words.slice(0, 1000)).then(
+        () => chat.add({ sys: true, text: 'Feedback sent. Thank you! 🐾' }),
+        (err) => chat.add({ sys: true, text: 'Feedback not sent: ' + (err.message || 'could not send right now.') }));
+      return;
+    }
+    if (/^\/dance\b/i.test(text)) { if (online.playing) net.send({ t: 'emote', e: 'dance' }); return; }
     if (online.room) net.send({ t: 'chat', text });
   },
   onOpen: () => keys.clear(), // don't keep running while typing
@@ -1797,6 +1850,12 @@ net.on('signed', (m) => legends.onSigned(m));
 // back in the lobby while you can still sign: a small shortcut to the board (only the winners ever see it)
 setInterval(() => legends.setFab(legends.canSign() && lobbyUI.isOpen() && lobbyUI.view() === 'room'), 1000);
 
+// /dance: that player's kitty dances (see syncVisuals)
+const DANCE_TIME = 5.6;
+net.on('emote', (m) => {
+  const k = m.e === 'dance' && kitties.get(m.id);
+  if (k && !chat.isHidden({ id: m.id })) k.dance = 0.001;
+});
 net.on('chat', (m) => {
   if (!chat.add(m)) return; // blocked player or chat hidden: no bubble either
   // speech bubble over the sender's kitty during a run
@@ -2073,6 +2132,9 @@ function beginOnlineGame(m) {
   sim.retries = m.rt | 0;
   analytics.runStart('online', m.mode || 'mixed');
   sim.started = true;
+  // joined mid-level: the lottery chest and what it dropped (ch, xi), then what is already taken
+  if (m.ch) sim.chest = { x: m.ch[0], z: m.ch[1], open: !!m.ch[2] };
+  for (const [id, type, x, z, mega] of m.xi || []) sim.items.push({ id, type, x, z, taken: false, ...(mega ? { mega: true } : {}) });
   if (m.it) { const taken = new Set(m.it); for (const it of sim.items) it.taken = taken.has(it.id); } // joined mid-level
   sim.crownTaken = !!m.ct;
   gameOverShown = false;

@@ -670,6 +670,9 @@ function startMsg(room, withWolves) {
     wolves: withWolves ? serializeEnemies(sim.enemies) : null,
     lh: levelHash(sim.levelData),   // level fingerprint: a client that differs takes our items and wolves (main.js)
     it: sim.items.filter((i) => i.taken).map((i) => i.id), ct: sim.crownTaken ? 1 : 0, // mid-game joiners: already picked up
+    // the lottery chest [x, z, open] and the pickups it dropped (not in the level: [id, type, x, z, mega])
+    ch: sim.chest ? [sim.chest.x, sim.chest.z, sim.chest.open ? 1 : 0] : undefined,
+    xi: sim.chest && sim.chest.open ? sim.items.filter((i) => i.id >= 1000).map((i) => [i.id, i.type, i.x, i.z, i.mega ? 1 : 0]) : undefined,
     cp: sim.checkpointsHit.slice(),   // ...and the checkpoints already reached (a repaired medic checkpoint shows repaired)
   };
 }
@@ -1033,6 +1036,12 @@ wss.on('connection', (ws, req) => {
         client.chatLog.push({ at: new Date(now).toISOString(), room: room.code, text: raw });
         if (client.chatLog.length > CHAT_HISTORY) client.chatLog.shift();
         broadcast(room, { t: 'chat', id: client.id, name: client.name, color: client.color, text: raw }); // unfiltered (the apps mask on their side)
+        break;
+      }
+      case 'emote': {
+        // /dance in the chat: that player's kitty dances for everyone (clients draw it; the chat's rate limit)
+        if (!room || room.phase !== 'playing' || msg.e !== 'dance' || !take(client, 'chat', 1, 5, Date.now())) return;
+        broadcast(room, { t: 'emote', id: client.id, e: 'dance' });
         break;
       }
       case 'ping':

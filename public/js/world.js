@@ -1062,6 +1062,9 @@ function makeInstancedChunks(geo, mat, items, opts, chunk) {
   return out.length ? out : [makeInstanced(geo, mat, [], opts)];
 }
 
+// Trees mark the pixels they cover (stencil 2), so a wolf behind one is drawn as a see-through shape (wolfpack.js)
+function coversWolves(mat) { mat.stencilWrite = true; mat.stencilRef = 2; mat.stencilZPass = THREE.ReplaceStencilOp; return mat; }
+
 // Splits every big InstancedMesh of the finished world into size x size cells, so the off-screen ones are frustum-culled
 // (in the shadow pass too). An InstancedMesh is culled as a whole, so one mesh of trees spread over the level was drawn
 // in full every frame. Same geometry, material, matrices and colours: looks the same. Runs after nightDress (which
@@ -1578,8 +1581,8 @@ function buildDecor(levelData, theme, ti, T, rng) {
       place(new THREE.IcosahedronGeometry(0.66, 1), -0.5, 1.75, -0.3),
       place(new THREE.IcosahedronGeometry(0.6, 1), 0.1, 2.55, 0.1),
     ]));
-  const trunkMat = T.m(new THREE.MeshStandardMaterial({ color: theme.trunk, roughness: 1, flatShading: true }));
-  const crownMat = T.m(new THREE.MeshStandardMaterial({ roughness: 0.85, flatShading: true }));
+  const trunkMat = T.m(coversWolves(new THREE.MeshStandardMaterial({ color: theme.trunk, roughness: 1, flatShading: true })));
+  const crownMat = T.m(coversWolves(new THREE.MeshStandardMaterial({ roughness: 0.85, flatShading: true })));
   if (theme.crownEmissive > 0) { crownMat.emissive.set(0xffffff); crownMat.emissiveIntensity = theme.crownEmissive; emissiveByColor(crownMat); }
   const trees = [];
   const nTrees = Math.round(outerArea * 0.017);
@@ -1933,7 +1936,35 @@ function summerHail(ld, R, T) {
 
 // summer's easter egg: a weathered newspaper lying flat on one of the safe squares (feet go over it)
 function summerNewspaper(ld, T) {
-  const rng = createRng(hashSeed(ld.seed ?? 1, ld.level ?? 1, 'paper'));
+  return newspaper(ld, T, 'paper', (g) => {
+    g.font = 'italic 20px Georgia, serif'; g.fillText('Midsummer edition  ·  Meow-tropolis', 384, 140);
+    g.font = 'bold 44px Georgia, serif'; g.fillText('SURPRISE HAILSTORM', 384, 200); g.fillText('EXPECTED FOR MIDSUMMER', 384, 250); g.fillText('IN FINLAND', 384, 300);
+    g.fillStyle = '#8f969c'; g.fillRect(52, 330, 270, 180); g.fillStyle = '#545b63'; g.beginPath(); g.ellipse(185, 385, 95, 38, 0, 0, TAU); g.fill();
+    g.fillStyle = '#f3f3f0'; for (let i = 0; i < 24; i++) { g.beginPath(); g.arc(100 + (i % 8) * 24, 440 + Math.floor(i / 8) * 20, 5, 0, TAU); g.fill(); }
+  });
+}
+
+// another one: the kitty with the most revives this run makes the front page (hero: { name, saves }, from main.js as
+// the level is built; nobody with a few revives yet: no paper). The photo is a star of life with the count on it.
+function heroNewspaper(ld, T, hero) {
+  return newspaper(ld, T, 'heropaper', (g) => {
+    g.font = 'italic 20px Georgia, serif'; g.fillText('Extra edition  ·  Meow-tropolis', 384, 140);
+    const name = String(hero.name || 'A kitty').toUpperCase();
+    let px = 50; do { g.font = 'bold ' + px + 'px Georgia, serif'; px -= 2; } while (px > 18 && g.measureText(name).width > 660);
+    g.fillText(name, 384, 200);
+    g.font = 'bold 44px Georgia, serif'; g.fillText('IS SAVING LOTS OF', 384, 250); g.fillText('LIVES TODAY!', 384, 300);
+    g.fillStyle = '#8f969c'; g.fillRect(52, 330, 270, 180);
+    g.save(); g.translate(187, 420); g.fillStyle = '#3f6fb5';
+    for (let i = 0; i < 3; i++) { g.fillRect(-21, -70, 42, 140); g.rotate(Math.PI / 3); }
+    g.restore();
+    g.fillStyle = '#f3f3f0'; g.font = 'bold 40px Georgia, serif'; g.fillText(String(hero.saves), 187, 434);
+  });
+}
+
+// the sheet itself (torn edge, masthead, columns of text, fold, creases, stains, a paw print), lying on a safe square
+// picked by the level's seed; print(g) draws the headline and the photo (centred dark ink is set)
+function newspaper(ld, T, salt, print) {
+  const rng = createRng(hashSeed(ld.seed ?? 1, ld.level ?? 1, salt));
   const cv = document.createElement('canvas'); cv.width = 768; cv.height = 560; const g = cv.getContext('2d');
   g.save(); g.beginPath(); const pts = [];
   const edge = (x0, y0, x1, y1, n) => { for (let i = 0; i <= n; i++) { const t = i / n; pts.push([x0 + (x1 - x0) * t + rng.range(-7, 7), y0 + (y1 - y0) * t + rng.range(-7, 7)]); } };
@@ -1941,10 +1972,7 @@ function summerNewspaper(ld, T) {
   g.moveTo(...pts[0]); for (const q of pts) g.lineTo(...q); g.closePath(); g.clip();
   const grd = g.createLinearGradient(0, 0, 768, 560); grd.addColorStop(0, '#e9dfc4'); grd.addColorStop(1, '#d8cba6'); g.fillStyle = grd; g.fillRect(0, 0, 768, 560);
   g.fillStyle = '#2a2622'; g.textAlign = 'center'; g.font = 'bold 62px Georgia, serif'; g.fillText('THE DAILY WHISKER', 384, 92); g.fillRect(44, 112, 680, 5);
-  g.font = 'italic 20px Georgia, serif'; g.fillText('Midsummer edition  ·  Meow-tropolis', 384, 140);
-  g.font = 'bold 44px Georgia, serif'; g.fillText('SURPRISE HAILSTORM', 384, 200); g.fillText('EXPECTED FOR MIDSUMMER', 384, 250); g.fillText('IN FINLAND', 384, 300);
-  g.fillStyle = '#8f969c'; g.fillRect(52, 330, 270, 180); g.fillStyle = '#545b63'; g.beginPath(); g.ellipse(185, 385, 95, 38, 0, 0, TAU); g.fill();
-  g.fillStyle = '#f3f3f0'; for (let i = 0; i < 24; i++) { g.beginPath(); g.arc(100 + (i % 8) * 24, 440 + Math.floor(i / 8) * 20, 5, 0, TAU); g.fill(); }
+  print(g);
   g.fillStyle = '#6d6a64'; for (let col = 0; col < 2; col++) for (let r = 0; r < 9; r++) g.fillRect(350 + col * 190, 336 + r * 19, 170 - ((r * 7 + col) % 4) * 18, 7);
   const fold = g.createLinearGradient(370, 0, 398, 0); fold.addColorStop(0, 'rgba(0,0,0,0)'); fold.addColorStop(0.5, 'rgba(60,45,20,0.28)'); fold.addColorStop(0.55, 'rgba(255,255,255,0.18)'); fold.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = fold; g.fillRect(360, 0, 48, 560);
   for (let i = 0; i < 14; i++) { const x = rng.range(40, 720), y = rng.range(40, 520), a = rng.range(0, Math.PI), l = rng.range(60, 180); g.strokeStyle = 'rgba(70,55,30,' + rng.range(0.06, 0.14).toFixed(3) + ')'; g.lineWidth = rng.range(2, 5); g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
@@ -2050,8 +2078,8 @@ function buildClimbTrees(levelData, theme, T) {
   const trunkGeo = T.g(new THREE.CylinderGeometry(0.28, 0.42, CLIMB_Y, 7));
   trunkGeo.translate(0, CLIMB_Y / 2 - 0.1, 0);
   const blobGeo = T.g(new THREE.IcosahedronGeometry(1, 1));
-  const trunkMat = T.m(new THREE.MeshStandardMaterial({ color: theme.trunk, roughness: 1, flatShading: true }));
-  const leafMat = T.m(new THREE.MeshStandardMaterial({ roughness: 0.9, flatShading: true }));
+  const trunkMat = T.m(coversWolves(new THREE.MeshStandardMaterial({ color: theme.trunk, roughness: 1, flatShading: true })));
+  const leafMat = T.m(coversWolves(new THREE.MeshStandardMaterial({ roughness: 0.9, flatShading: true })));
   const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, trees.length);
   const per = 6;
   const blobs = new THREE.InstancedMesh(blobGeo, leafMat, trees.length * per);
@@ -2110,7 +2138,7 @@ function buildClimbTrees(levelData, theme, T) {
   const out = [trunks, blobs,
     makeInstanced(T.g(new THREE.IcosahedronGeometry(1, 1)), emberMat, coals),
     makeInstanced(T.g(new THREE.BoxGeometry(1, 1, 1)), emberMat, cracks)];
-  if (caps.length) out.push(makeInstanced(T.g(new THREE.IcosahedronGeometry(1, 1)), T.m(new THREE.MeshStandardMaterial({ color: 0xf6faff, roughness: 0.7, flatShading: true })), caps, { cast: true, receive: true }));
+  if (caps.length) out.push(makeInstanced(T.g(new THREE.IcosahedronGeometry(1, 1)), T.m(coversWolves(new THREE.MeshStandardMaterial({ color: 0xf6faff, roughness: 0.7, flatShading: true }))), caps, { cast: true, receive: true }));
   return out;
 }
 
@@ -2599,7 +2627,7 @@ function buildRewardRoom(levelData, T, rng, glowGeo, glowMat) {
 
 // ---------------------------------------------------------------- public API
 
-function buildWorld(scene, levelData) {
+function buildWorld(scene, levelData, hero) {
   const T = makeTracker();
   const ti = (((levelData.theme ?? ((levelData.level || 1) - 1)) % THEMES.length) + THEMES.length) % THEMES.length;
   const base = THEMES[ti];
@@ -2620,6 +2648,7 @@ function buildWorld(scene, levelData) {
   for (const m of lanterns.meshes) group.add(m);
   for (const m of buildDecor(levelData, theme, ti, T, rng)) group.add(m);
   if (night) for (const m of nightDress(group, levelData, ti, T)) group.add(m);
+  if (hero && !levelData.finale && levelData.safeCorners.length) group.add(heroNewspaper(levelData, T, hero));
   let finale = null;
   if (levelData.sections) {   // Run + Skate's level 9: each half dressed as on its own, moved into place
     const parts = levelData.sections.map((sec) => {

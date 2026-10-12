@@ -12,6 +12,9 @@ const CSS = `
 .rkc-line.rkc-sys{color:#cdbfff;font-style:italic;font-weight:700;}
 .rkc-line.rkc-old{opacity:0;}
 .rkc.rkc-open .rkc-line.rkc-old{opacity:.85;}
+.rkc.rkc-open .rkc-log{justify-content:flex-start;overflow-y:auto;pointer-events:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.35) transparent;}
+.rkc.rkc-open .rkc-line{flex-shrink:0;}
+.rkc.rkc-open .rkc-line:first-child{margin-top:auto;}
 .rkc-in{pointer-events:auto;font:inherit;font-weight:800;font-size:15px;padding:8px 12px;border-radius:12px;
   border:2px solid #ffcf5a;background:rgba(10,4,30,.8);color:#fff;outline:none;display:none;user-select:text;-webkit-user-select:text;}
 .rkc.rkc-open .rkc-in{display:block;}
@@ -59,7 +62,7 @@ const CSS = `
 `;
 
 const SHOW_MS = 10000;
-const MAX_LINES = 40;
+const MAX_LINES = 100;
 const BLOCK_KEY = 'rkr-blocked';
 const HIDE_KEY = 'rkr-chat-off';
 const REASONS = [['spam', 'Spam'], ['abuse', 'Abusive'], ['name', 'Offensive name'], ['other', 'Other']];
@@ -83,7 +86,8 @@ function createChat(root, { onSend, onOpen, onReport, onClose, touch = false }) 
   const input = document.createElement('input');
   input.className = 'rkc-in';
   input.maxLength = 120;
-  input.placeholder = touch ? 'Say something…' : 'Say something… (Enter to send, Esc to close)';
+  input.addEventListener('input', () => { input.maxLength = /^\/feedback/i.test(input.value) ? 1000 : 120; });   // /feedback (main.js): room for more words
+  input.placeholder = touch ? 'Say something…' : 'Say something… (/dance, /feedback your idea)';
   const hint = document.createElement('div');
   hint.className = 'rkc-hint';
   hint.textContent = touch ? '' : 'Press Enter to chat';
@@ -271,6 +275,8 @@ function createChat(root, { onSend, onOpen, onReport, onClose, touch = false }) 
     btns.append(btn, histBtn);
     box.appendChild(btns);
   }
+  log.addEventListener('mousedown', (e) => { if (isOpen()) e.preventDefault(); });   // a click in the log keeps the chat open (the input's blur closes it)
+  log.addEventListener('wheel', (e) => { if (isOpen()) e.stopPropagation(); }, { passive: true });   // scrolls the log, not the camera's zoom
   root.appendChild(box);
 
   let enabled = false;
@@ -281,11 +287,13 @@ function createChat(root, { onSend, onOpen, onReport, onClose, touch = false }) 
     box.classList.add('rkc-open');
     input.value = '';
     input.focus();
+    log.scrollTop = log.scrollHeight;   // open: the log scrolls (mouse wheel, or drag), from the newest line
     if (onOpen) onOpen();
   }
   function close() {
     box.classList.remove('rkc-open');
     input.blur();
+    log.scrollTop = 0;
   }
 
   // Keys typed into the chat never reach the game's key handlers.
@@ -319,8 +327,10 @@ function createChat(root, { onSend, onOpen, onReport, onClose, touch = false }) 
       line._msg = msg;
       line.append(name, document.createTextNode(msg.text));
     }
+    const logEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 24;   // (reading older lines: stay there)
     log.appendChild(line);
     while (log.children.length > MAX_LINES) log.firstChild.remove();
+    if (isOpen() && logEnd) log.scrollTop = log.scrollHeight;
     if (histList) {
       const atEnd = histList.scrollHeight - histList.scrollTop - histList.clientHeight < 24;
       fillHist();

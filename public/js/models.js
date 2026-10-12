@@ -104,7 +104,9 @@ function bake(parts) {
   return out;
 }
 
-const VC_MAT = () => cmat('vc', () => new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.82, metalness: 0.0 }));
+// stencil 1: a kitty or wolf in front of a tree takes the tree's mark (2) off its pixels, so no wolf under the tree
+// shows through it (wolfpack.js)
+const VC_MAT = () => cmat('vc', () => new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.82, metalness: 0.0, stencilWrite: true, stencilRef: 1, stencilZPass: THREE.ReplaceStencilOp }));
 
 function basicGlow(key, hex, opts) {
   return cmat('glow:' + key + ':' + hex, () => new THREE.MeshBasicMaterial(Object.assign({
@@ -599,6 +601,22 @@ function createKittyModel(color) {
     head.rotation.z = 0.1 * runAmt + Math.sin(phase * 2 + 0.6) * 0.05 * runAmt + Math.sin(time * 0.9 + seedOff) * 0.05 * idle;
     head.rotation.x = Math.sin(time * 0.55 + seedOff) * 0.12 * idle;
     head.rotation.y = Math.sin(time * 0.37 + seedOff * 2) * 0.2 * idle;
+
+    // dancing (/dance in the chat; s.dance: seconds danced so far, 0 = not dancing): up on the hind legs, bouncing to
+    // a beat with the hips swaying, the front paws pumping in turn and the head nodding, and a spin every other bar
+    const dn = Math.min(1, (s.dance || 0) * 5) * idle;
+    if (dn > 0) {
+      const b = s.dance * 9, bar = (s.dance % 2.8) / 2.8;
+      rig.position.y += Math.abs(Math.sin(b)) * 0.2 * dn;
+      rig.rotation.z += (0.55 + Math.sin(b * 2) * 0.06) * dn;
+      rig.rotation.x = Math.sin(b) * 0.2 * dn;
+      rig.rotation.y = bar > 0.7 ? ((bar - 0.7) / 0.3) * Math.PI * 2 * dn : 0;
+      legs[0].rotation.z = (-0.9 + Math.sin(b) * 0.8) * dn;
+      legs[1].rotation.z = (-0.9 - Math.sin(b) * 0.8) * dn;
+      legs[2].rotation.z = legs[3].rotation.z = -0.5 * dn;   // hind legs stay under it
+      head.rotation.z += (-0.35 + Math.sin(b * 2) * 0.15) * dn;
+      head.rotation.x += Math.sin(b) * 0.25 * dn;
+    } else if (rig.rotation.x || rig.rotation.y) { rig.rotation.x = 0; rig.rotation.y = 0; }
 
     // ears: flatten back when running, occasional twitch at idle
     earT -= dt;
@@ -2423,6 +2441,45 @@ function createCrownPickupModel() {
   return { group, update };
 }
 
+// The lottery chest (a lucky checkpoint, shared/sim.js): a big wooden chest with gold bands, bobbing a little in a
+// golden glow so it reads as 'step on me'. open(): the lid flies up and stays up, gold shining out of it.
+function createChestModel() {
+  const group = new THREE.Group();
+  group.name = 'chest';
+  const wood = new THREE.MeshStandardMaterial({ color: 0x8a5230, roughness: 0.85, flatShading: true });
+  const gold = new THREE.MeshStandardMaterial({ color: 0xffc83a, emissive: 0x7a4a00, emissiveIntensity: 0.6, metalness: 0.5, roughness: 0.35, flatShading: true });
+  const body = new THREE.Group();
+  body.scale.setScalar(1.5);
+  group.add(body);
+  const add = (parent, geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; };
+  add(body, new THREE.BoxGeometry(1.5, 0.7, 1.0), wood, 0, 0.35, 0);
+  for (const x of [-0.5, 0.5]) add(body, new THREE.BoxGeometry(0.16, 0.74, 1.04), gold, x, 0.35, 0);
+  // the lid: hinged along the back edge
+  const lid = new THREE.Group();
+  lid.position.set(0, 0.7, -0.5);
+  body.add(lid);
+  const lidGeo = new THREE.CylinderGeometry(0.5, 0.5, 1.5, 10, 1, false, 0, Math.PI);
+  lidGeo.rotateZ(Math.PI / 2); lidGeo.rotateX(-Math.PI / 2);   // a half barrel, round side up
+  add(lid, lidGeo, wood, 0, 0, 0.5);
+  for (const x of [-0.5, 0.5]) { const g = new THREE.CylinderGeometry(0.52, 0.52, 0.16, 10, 1, false, 0, Math.PI); g.rotateZ(Math.PI / 2); g.rotateX(-Math.PI / 2); add(lid, g, gold, x, 0, 0.5); }
+  add(body, new THREE.BoxGeometry(0.26, 0.3, 0.1), gold, 0, 0.66, 0.52);   // the lock
+  const shine = add(body, new THREE.BoxGeometry(1.3, 0.1, 0.8), new THREE.MeshBasicMaterial({ color: 0xffe27a }), 0, 0.68, 0);   // the gold inside
+  shine.castShadow = false; shine.visible = false;
+  const glow = new THREE.Mesh(cgeo('chestGlow', () => new THREE.PlaneGeometry(6, 6)), new THREE.MeshBasicMaterial({ map: radialTexture(), color: 0xffc23a, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  glow.rotation.x = -Math.PI / 2; glow.position.y = 0.05; glow.renderOrder = 1;
+  group.add(glow);
+  let opened = false, k = 0;
+  function update(dt, t) {
+    if (opened) k = Math.min(1, k + dt * 4);
+    lid.rotation.x = -1.9 * (1 - (1 - k) * (1 - k));
+    body.position.y = opened ? 0 : 0.12 + Math.sin(t * 3) * 0.08;
+    body.rotation.z = opened ? 0 : Math.sin(t * 9) * 0.03;   // rattling: something wants out
+    glow.material.opacity = (opened ? 0.3 : 0.55) + 0.2 * Math.sin(t * 4);
+  }
+  function open(now) { opened = true; shine.visible = true; if (now) k = 1; }
+  return { group, update, open };
+}
+
 
 // ---------------------------------------------------------------------------
 // Win rewards 9-16 and the 120-revive reward
@@ -3014,4 +3071,4 @@ function createGiantFishModel() {
   };
 }
 
-export { WOLF_TYPES, ghostMaterial, disposeModel, createKittyModel, createWolfModel, createWolfRig, newWolfState, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel };
+export { WOLF_TYPES, ghostMaterial, disposeModel, createKittyModel, createWolfModel, createWolfRig, newWolfState, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel, createChestModel };

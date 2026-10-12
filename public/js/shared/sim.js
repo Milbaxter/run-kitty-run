@@ -52,6 +52,7 @@ function makeLevel(sim, level) {
   sim.circles = [];
   sim.enteredCenter = [];
   sim.checkpointsHit = [];
+  sim.chest = null;            // the lottery chest: { x, z, cx, cz, h, t, open } once a lucky checkpoint is reached
   sim.crownTaken = false;     // the crown floating over the goal, up for grabs each level
   sim.levelTime = 0;
   sim.state = 'playing';
@@ -488,6 +489,39 @@ function stepSim(sim, inputs, dt) {
     }
     sim.circles = sim.circles.filter((circ) => { const q = findPlayer(sim, circ.playerId); return q && !q.alive; });
     events.push({ type: 'checkpoint', index: c, by: by.id, x: cp.x, z: cp.z, revived, moved, ...(cp.medic ? { medic: true } : {}) });
+    // the lottery: once in CFG.CHEST_ODDS checkpoints a big chest stands in the square, a little ahead of the middle
+    // (by the seed, so it is the same for everyone; sim.chestAlways: local testing). One a level at most.
+    if (!cp.medic && !sim.chest && (sim.chestAlways || hashSeed(sim.seed, sim.level, 'chest', c, sim.retries | 0) % CFG.CHEST_ODDS === 0)) {
+      sim.chest = { x: cp.x + Math.cos(cp.heading) * h * 0.5, z: cp.z + Math.sin(cp.heading) * h * 0.5, cx: cp.x, cz: cp.z, h, t: CFG.CHEST_ARM, open: false };
+      events.push({ type: 'chest', x: sim.chest.x, z: sim.chest.z });
+    }
+  }
+
+  // --- the lottery chest: the first kitty to step on it opens it, and it throws boots, shields and lives all over the
+  // square, more of them the more kitties play (new pickups, ids from 1000; the event lists them for the clients) ---
+  const ch = sim.chest;
+  if (ch && !ch.open && sim.state === 'playing') {
+    const cr = CFG.KITTY_RADIUS + CFG.CHEST_RADIUS;
+    const by = ch.t > 0 ? null : players.find((p) => p.alive && Math.hypot(p.x - ch.x, p.z - ch.z) < cr);
+    if (ch.t > 0) ch.t -= dt;
+    if (by) {
+      ch.open = true;
+      const [base, per, max] = CFG.CHEST_LOOT, n = Math.min(max, base + per * players.length);
+      const a0 = (hashSeed(sim.seed, sim.level, 'loot') % 628) / 100, loot = [];
+      for (let i = 0; i < n; i++) {
+        // a sunflower spiral over the square, out from the chest
+        const r = 1.5 + (ch.h * 1.25 - 1.5) * Math.sqrt((i + 0.5) / n), a = a0 + i * 2.39996;
+        const x = Math.max(ch.cx - ch.h + 0.7, Math.min(ch.cx + ch.h - 0.7, ch.x + Math.cos(a) * r));
+        const z = Math.max(ch.cz - ch.h + 0.7, Math.min(ch.cz + ch.h - 0.7, ch.z + Math.sin(a) * r));
+        const type = i % 3 === 0 ? 'boots' : i % 3 === 1 ? 'shield' : 'life';
+        const it = { id: 1000 + i, type, x, z, taken: false, ...(type === 'boots' && i % 12 === 0 ? { mega: true } : {}) };
+        sim.items.push(it);
+        loot.push([it.id, it.type, Math.round(x * 1000) / 1000, Math.round(z * 1000) / 1000, it.mega ? 1 : 0]);
+      }
+      // (the sim keeps the rounded spots too, so the server and every client agree on them)
+      for (let i = 0; i < n; i++) { const it = sim.items[sim.items.length - n + i]; it.x = loot[i][2]; it.z = loot[i][3]; }
+      events.push({ type: 'chestOpen', by: by.id, x: ch.x, z: ch.z, items: loot });
+    }
   }
 
   // --- hits ---

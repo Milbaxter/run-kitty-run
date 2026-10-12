@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
+      'New pages about the game: About, How to play (rules, controls, modes and tips) and these patch notes on a page of their own. On the website, the "about" link next to the credits takes you there',
       'Sign in with Discord: swag accounts now work with a Discord account too, next to Google',
       'Swag accounts: pick the number shown next to your kitty, anything from 0.01 up to your total (in the swag account menu)',
       'Removed the heartbeat sound that played when a wolf was very close',

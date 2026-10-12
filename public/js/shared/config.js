@@ -150,6 +150,7 @@ const stageStep = (mode, fv, level, night = false) => (mode === 'mixed' && (fv |
 //  16 = Skate only's levels 1-8: the seasons from winter, as floodlit night levels (finale version 12, rf 12)
 //  17 = Run + Skate: every level by day (Run only's) then by night (Skate only's), see DAY_NIGHT_FV (finale version 13, rf 13)
 //  19 = easy games (a level starts over when everyone is down; state 'retry', snapshot rt)
-const PROTOCOL_VERSION = 20;   // 20: Run + Skate's night half in the day's season (finale version 14, rf 14)
+//  20 = Run + Skate's night half in the day's season (finale version 14, rf 14)
+const PROTOCOL_VERSION = 21;   // 21: the lottery chest on a lucky checkpoint (events chest / chestOpen; only in rooms where everyone has 21+)
 
 export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION, DAY_NIGHT_FV, SAME_SEASON_FV, LATEST_FV, stageOf, stageStep };

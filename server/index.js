@@ -34,6 +34,7 @@ const MODE_MIN_PROTOCOL = { ice: 4, mixed: 4, run: 4 };
 // every member has (older clients would build the older level 9 and desync); once it plays one, older clients can't
 // join it mid-game.
 const FINALE_PROTOCOL = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20];   // 1 = Run only's level 9 final run, 2 = the wide skate final run, 3 = Run + Skate's both in a row, 4 = skate goal rooms without their back wolves, 5 = no lane-before-last wolf turning in the open, 6 = junction chargers, 7 = wolves per lane, 8 = running levels' long lanes, 9 = their other lanes, 10 = running levels' rests, 11 = items, 12 = Skate only's night seasons, 13 = Run + Skate by day then by night, 14 = its night half in the day's season
+const CHEST_PROTOCOL = 21;   // clients from this protocol on draw the lottery chest (shared/sim.js)
 const finalesOf = (members) => Math.min(...members.map((m) => FINALE_PROTOCOL.filter((p) => m.v >= p).length - 1));
 // the newest finale version that changes this mode's levels (older ones build them the same): Run only 1 and 8 to 11,
 // Skate only 2, 4 to 7, 11 and 12, Run + Skate 2 to 11, 13 and 14
@@ -706,6 +707,7 @@ function stepRoom(room) {
     inputs[m.id] = m.lastInput;
     for (const key of m.inputs.keys()) if (key <= k) m.inputs.delete(key);
   }
+  sim.noChest = room.members.some((m) => m.v < CHEST_PROTOCOL);   // (an older client would not see the chest or its pickups)
   const events = stepSim(sim, inputs, CFG.TICK);
   room.tick = k;
   for (const e of events) room.pending.push(e);

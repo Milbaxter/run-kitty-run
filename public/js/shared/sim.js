@@ -491,7 +491,8 @@ function stepSim(sim, inputs, dt) {
     events.push({ type: 'checkpoint', index: c, by: by.id, x: cp.x, z: cp.z, revived, moved, ...(cp.medic ? { medic: true } : {}) });
     // the lottery: once in CFG.CHEST_ODDS checkpoints a big chest stands in the square, a little ahead of the middle
     // (by the seed, so it is the same for everyone; sim.chestAlways: local testing). One a level at most.
-    if (!cp.medic && !sim.chest && (sim.chestAlways || hashSeed(sim.seed, sim.level, 'chest', c, sim.retries | 0) % CFG.CHEST_ODDS === 0)) {
+    // sim.noChest: the server's, while a client too old to draw it is in the room.
+    if (!cp.medic && !sim.chest && !sim.noChest && (sim.chestAlways || hashSeed(sim.seed, sim.level, 'chest', c, sim.retries | 0) % CFG.CHEST_ODDS === 0)) {
       sim.chest = { x: cp.x + Math.cos(cp.heading) * h * 0.5, z: cp.z + Math.sin(cp.heading) * h * 0.5, cx: cp.x, cz: cp.z, h, t: CFG.CHEST_ARM, open: false };
       events.push({ type: 'chest', x: sim.chest.x, z: sim.chest.z });
     }

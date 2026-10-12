@@ -279,6 +279,7 @@ html.rkr-touch .rkr-touchonly{display:block;}
   pointer-events:auto;cursor:pointer;font:inherit;font-weight:900;font-size:14px;letter-spacing:.06em;color:#fff6d8;
   padding:7px 14px;border-radius:999px;border:2px solid rgba(255,255,255,.25);background:rgba(20,8,48,.55);}
 .rkr-statsbtn:hover{background:rgba(60,30,110,.75);}
+a.rkr-statsbtn{text-decoration:none;display:inline-block;line-height:normal;}
 /* the main menu's SETTINGS: in the green of the Esc menu's SETTINGS button */
 .rkr-statsbtn.rkr-setbtn{color:#3a1650;border-color:#3a1650;background:linear-gradient(180deg,#eafff0,#94f0b0 55%,#3ccf8e);box-shadow:0 3px 0 #3a1650;}
 .rkr-statsbtn.rkr-setbtn:hover{background:linear-gradient(180deg,#f4fff7,#a8f5c0 55%,#52d99c);}
@@ -1067,9 +1068,7 @@ function createUI(root) {
     o.querySelector('.rkr-p1').style.color = hexColor(PLAYER_COLORS[s[0]]);
     o.querySelector('.rkr-p2').style.color = hexColor(PLAYER_COLORS[s[1]]);
     o.querySelectorAll('.rkr-legal a').forEach((a) => a.addEventListener('click', () => openExternal(`${SERVER_ORIGIN}/${a.dataset.page}.html`)));
-    const credits = el('div', 'rkr-credits', 'made by <a href="https://www.instagram.com/ben.bhc/" target="_blank" rel="noopener">Benjamin</a> and <a href="https://x.com/milimithrandir" target="_blank" rel="noopener">Maximilian</a>'
-      // (on the website: the page about the game, how to play and the patch notes; the apps have their own links above)
-      + (NATIVE ? '' : ' &middot; <a href="/about" target="_blank">about</a>'));
+    const credits = el('div', 'rkr-credits', 'made by <a href="https://www.instagram.com/ben.bhc/" target="_blank" rel="noopener">Benjamin</a> and <a href="https://x.com/milimithrandir" target="_blank" rel="noopener">Maximilian</a>');
     // desktop: anonymous play stats page
     const statsBtn = el('button', 'rkr-statsbtn rkr-desk', '📊 STATS');
     statsBtn.addEventListener('click', () => openStatsPage(root));
@@ -1091,6 +1090,13 @@ function createUI(root) {
       sb.addEventListener('mousedown', (e) => e.preventDefault());   // keep Enter / gamepad on the menu buttons
       sb.addEventListener('click', () => settingsHandler());
       footl.prepend(sb);   // (leftmost)
+    }
+    // on the website: the page about the game, how to play and the patch notes (a real link, so search engines follow
+    // it; the apps have their own links above)
+    if (!NATIVE) {
+      const ab = el('a', 'rkr-statsbtn', 'ℹ️ ABOUT');
+      ab.href = '/about'; ab.target = '_blank';
+      footl.appendChild(ab);
     }
     // 4: optional account (account.js), hidden until accounts are on
     acctBtn = o.querySelector('.rkr-swag');

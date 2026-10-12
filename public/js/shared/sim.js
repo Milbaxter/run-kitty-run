@@ -272,11 +272,24 @@ function movePlayer(sim, p, inp, dt) {
 
 // easy games: everyone went down, the level starts over (same level, wolves and pickups as at its start; the kitties
 // keep their crowns and rescues)
+// A repaired (medic) checkpoint is kept (Run + Skate's level 9: the run half's start): everyone starts again there,
+// the checkpoint still repaired (the event's cp: its index).
 function retryLevel(sim, events) {
+  const cps = sim.levelData.checkpoints || [];
+  const at = sim.checkpointsHit.find((c) => cps[c] && cps[c].medic);
   sim.retries = (sim.retries | 0) + 1;
   makeLevel(sim, sim.level);
-  for (let i = 0; i < sim.players.length; i++) placeAtSpawn(sim, sim.players[i], i);
-  events.push({ type: 'levelStart', level: sim.level, retry: true });
+  if (at === undefined) for (let i = 0; i < sim.players.length; i++) placeAtSpawn(sim, sim.players[i], i);
+  else {
+    sim.checkpointsHit.push(at);
+    for (let i = 0; i < sim.players.length; i++) {
+      placeAtSpawn(sim, sim.players[i], i);   // (up again, safe for a moment)
+      const p = sim.players[i], sp = squareSlot(cps[at].x, cps[at].z, cps[at].heading, i);
+      p.x = sp.x; p.z = sp.z; p.heading = cps[at].heading;
+      holdUntilRelease(sim, p);
+    }
+  }
+  events.push({ type: 'levelStart', level: sim.level, retry: true, ...(at === undefined ? {} : { cp: at }) });
 }
 
 function nextLevel(sim, events) {
@@ -448,8 +461,8 @@ function stepSim(sim, inputs, dt) {
     if (sim.state !== 'playing' || sim.checkpointsHit.indexOf(c) >= 0) continue;
     const cp = cps[c];
     const h = (ld.safeSize || ld.corridorWidth) / 2 - CFG.WALL_THICKNESS / 2;
-    // a broken (medic) checkpoint: only a kitty with cp.minRescues revives this run can repair it
-    const by = players.find((p) => p.alive && !p.inCenter && Math.abs(p.x - cp.x) < h && Math.abs(p.z - cp.z) < h && (p.rescues || 0) >= (cp.minRescues || 0));
+    // a broken (medic) checkpoint: only a kitty with cp.minRescues revives this run can repair it (an easy game: any kitty)
+    const by = players.find((p) => p.alive && !p.inCenter && Math.abs(p.x - cp.x) < h && Math.abs(p.z - cp.z) < h && (sim.easy || (p.rescues || 0) >= (cp.minRescues || 0)));
     if (!by) continue;
     sim.checkpointsHit.push(c);
     const revived = [], moved = [];

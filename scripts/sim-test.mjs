@@ -2,7 +2,7 @@
 // Add new checks here rather than new scripts. Account checks use disposable temporary files and fake Stripe responses.
 // Exit code 1 if any check fails.
 import { createSim, stepSim } from '../public/js/shared/sim.js';
-import { CFG, SKATE_FINAL_LEVEL, FINAL_MODES, PLAYER_NAMES } from '../public/js/shared/config.js';
+import { CFG, SKATE_FINAL_LEVEL, FINAL_MODES, PLAYER_NAMES, stageStep } from '../public/js/shared/config.js';
 import { generateLevel, mazeSelfTest, collideCircle, onIce } from '../public/js/shared/maze.js';
 import { filterChat, filterName } from '../public/js/shared/filter.js';
 import { isUnlocked, featTotal, medicLook } from '../public/js/shared/unlocks.js';
@@ -228,6 +228,23 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(wiped && started && started.retry && Math.abs(ticks * CFG.TICK - CFG.RETRY_TIME) < 0.1 && easy.level === 3 && easy.retries === 1 && easy.state === 'playing'
       && easy.players.every((p) => p.alive) && easy.players[0].finishes === 2 && easy.players[0].rescues === 5 && easy.enemyTicks === 0 && same,
     'easy game: everyone down starts the level over (kitties up at the start, crowns and rescues kept, wolves as at the level start)');
+  }
+
+  // easy Run + Skate, level 9: any kitty repairs the broken checkpoint (no revives needed), and from then on everyone
+  // down starts again from it; a normal game still needs the revives
+  {
+    const mk = (easy) => { const s = createSim({ seed: 31, players: [{ id: 1, name: 'a' }, { id: 2, name: 'b' }], startLevel: stageStep('mixed', 13, 9), mode: 'mixed', finales: 13, easy }); stepSim(s, {}, CFG.TICK); return s; };
+    const onto = (s) => { const cp = s.levelData.checkpoints.find((c) => c.medic), p = s.players[0]; p.invuln = 99; p.x = cp.x; p.z = cp.z; p.waitRelease = false; return { cp, ev: stepSim(s, {}, CFG.TICK) }; };
+    const normal = mk(false), easy = mk(true);
+    const n = onto(normal), e = onto(easy), ci = easy.levelData.checkpoints.indexOf(e.cp);
+    const fixed = !n.ev.some((x) => x.type === 'checkpoint') && e.ev.some((x) => x.type === 'checkpoint' && x.medic) && easy.checkpointsHit.includes(ci);
+    for (const p of easy.players) { p.invuln = 0; p.alive = false; }
+    let started = null, ticks = 0;
+    while (!started && ticks++ < 600) started = stepSim(easy, {}, CFG.TICK).find((x) => x.type === 'levelStart') || null;
+    const half = (easy.levelData.safeSize || easy.levelData.corridorWidth) / 2;
+    ok(fixed && started && started.retry && started.cp === ci && easy.checkpointsHit.includes(ci) && easy.enemyTicks === 0
+      && easy.players.every((p) => p.alive && p.invuln > 0 && Math.abs(p.x - e.cp.x) < half && Math.abs(p.z - e.cp.z) < half),
+    'easy Run + Skate level 9: any kitty repairs the checkpoint, and everyone down starts again there (a normal game needs the revives)');
   }
 
   // revive cooldown: standing on a fresh circle does nothing until REVIVE_DELAY has passed

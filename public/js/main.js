@@ -783,6 +783,11 @@ function handleEvents(events) {
         buildView();
         ensureKitties();
         for (const k of kitties.values()) k.paws.clear(); // prints belong to the old map
+        // an easy game starting over from its repaired checkpoint (Run + Skate's level 9): it is still repaired
+        if (ev.retry && ev.cp != null) {
+          if (!sim.checkpointsHit.includes(ev.cp)) sim.checkpointsHit.push(ev.cp);
+          if (view && view.world.repairCheckpoint) view.world.repairCheckpoint(ev.cp);
+        }
         for (const p of sim.players) effects.teleport(p.x, p.z, p.color);
         const finale = !!sim.levelData.finale;
         const L = sim.levelData.level || ev.level, night = stageOf(sim.mode, sim.finales, sim.level).night;
@@ -806,7 +811,8 @@ function handleEvents(events) {
       }
       case 'wipe': {   // an easy game: everyone is down, the level starts over in a moment
         haptic('error');
-        ui.toast('Everyone is down: the level starts over', '#ffcf5a', 'down');
+        const cps = sim.levelData.checkpoints || [];
+        ui.toast(sim.checkpointsHit.some((c) => cps[c] && cps[c].medic) ? 'Everyone is down: back to the checkpoint' : 'Everyone is down: the level starts over', '#ffcf5a', 'down');
         break;
       }
       case 'death': {
@@ -858,7 +864,10 @@ function handleEvents(events) {
         // one of the kitties the camera follows was moved there: show it at once (no glide while it can already run)
         const wasMoved = (id) => (ev.moved ? ev.moved.includes(id) : id !== ev.by);
         if (sim.players.some((p) => (!online.playing || p.id === online.me) && wasMoved(p.id))) cameraSnap = true;
-        if (ev.medic) {   // the broken checkpoint, repaired by a kitty with 60+ revives
+        if (ev.medic && sim.easy) {   // an easy game: any kitty repairs it, and everyone starts again from it
+          ui.banner('CHECKPOINT FIXED!', 'If everyone goes down, you start again from here', 3200);
+          if (view && view.world.repairCheckpoint) view.world.repairCheckpoint(ev.index);
+        } else if (ev.medic) {   // the broken checkpoint, repaired by a kitty with 60+ revives
           ui.banner('MEDICAT TO THE RESCUE!!!', ev.revived.length ? `${by ? by.name : 'A medicat'} fixed the checkpoint: everyone is back on their paws` : `${by ? by.name : 'A medicat'} fixed the checkpoint`, 2600);
           if (view && view.world.repairCheckpoint) view.world.repairCheckpoint(ev.index);
         } else ui.banner('CHECKPOINT!', ev.revived.length ? 'Everyone is back on their paws' : (by && sim.players.length > 1 ? `${by.name} gathered the team` : 'Progress saved'), 1600);

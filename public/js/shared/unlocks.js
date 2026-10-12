@@ -18,9 +18,10 @@ const UNLOCK_MODES = ['run', 'ice', 'mixed'];
 const UNLOCKS = [
   { id: 'shades', name: 'Sunglasses', feat: 'l8', times: 1 },
   { id: 'rboots', name: 'Rainbow boots', feat: 'l8', times: 2 },
-  { id: 'gskates', name: 'Golden skates', feat: 'l8', times: 3, modes: ['ice', 'mixed'] },   // (skates: not in Run only, which has no ice)
+  { id: 'gskates', name: 'Rainbow skates', feat: 'l8', times: 3, modes: ['ice', 'mixed'] },   // golden boots, rainbow blades (skates: not in Run only, which has no ice)
   { id: 'specs', name: 'Reading glasses', feat: 'e8', times: 1 },
   { id: 'gboots', name: 'Golden boots', feat: 'e8', times: 2 },
+  { id: 'sskates', name: 'Golden skates', feat: 'e8', times: 3, modes: ['ice', 'mixed'] },   // silver boots, golden blades
   { id: 'lion', name: 'Lion mane', feat: 'l9', times: 1 },
   { id: 'tail', name: 'Fluffy tail', feat: 'l9', times: 1 },
   { id: 'chrome', name: 'Chrome lion', feat: 'l9', times: 1, all: true },   // (done in all three modes, worn in every one)

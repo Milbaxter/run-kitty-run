@@ -355,12 +355,13 @@ function createAccounts(file, env = process.env) {
     u.off ||= {};
     // the easy games' level 8 unlocks ('e8') came a little after easy games: once, whoever cleared level 8 in one before
     // gets the count. A level 9 win there ('e9') had level 8 cleared on the way; an account's easy stats counted its
-    // level 8 clears (up to the 2 the unlocks need; online and offline ones together, so they go to the online track).
-    if (!u.e8Back) {
-      u.e8Back = 1;
+    // level 8 clears (up to the 3 the unlocks need; online and offline ones together, so they go to the online track).
+    // (2: done again when the third unlock, the skates, came: it counted up to 2 before)
+    if ((u.e8Back | 0) < 2) {
+      u.e8Back = 2;
       const had = (a.stats && a.stats.easy && a.stats.easy.clears) || {};
       for (const m of UNLOCK_MODES) {
-        u.e8[m] = Math.max(u.e8[m], u.e9[m], Math.min(2, Number(had[m] && had[m][8]) || 0));
+        u.e8[m] = Math.max(u.e8[m], u.e9[m], Math.min(3, Number(had[m] && had[m][8]) || 0));
         u.solo.e8[m] = Math.max(u.solo.e8[m], u.solo.e9[m]);
       }
       statsChanged();

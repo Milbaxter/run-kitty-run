@@ -1590,12 +1590,12 @@ function syncVisuals(dt, alpha) {
     // a name tag (14), a gold medal on it (16; with 120 revives a golden kitty). A switched-on unlock shows as itself.
     ka.crownMetal = !easy || wins >= 15 ? null : wins >= 9 ? 'silver' : 'bronze'; ka.crownBeads = easy ? Math.max(0, Math.min(5, wins - 9)) : 0; ka.glasses = ((easy && wins >= 5) || cos.has('specs')) && !ka.sunglasses; ka.goldBoots = ((easy && wins >= 7) || cos.has('gboots')) && !ka.rainbowBoots;   // (both also unlocks)
     ka.packYarn = easy; ka.packMetal = !easy ? 0 : wins >= 15 ? 3 : wins >= 14 ? 2 : wins >= 13 ? 1 : 0;
-    // wins 9-16: night crown (9) and its stars (10-14), golden skates (10), fluffy tail
+    // wins 9-16: night crown (9) and its stars (10-14), rainbow skates (10: golden boots, rainbow blades), fluffy tail
     // with a glowing tip (11), a rainbow name (12, ui.js), backpack kittens turning rainbow (13: one, 14: two, 15: all),
     // lion (14; at 16 a celestial or silver lion, see below). 120 revives: medevac rotor blades on the back
     ka.moonCrown = !easy && wins >= 9; ka.crownStars = Math.max(0, Math.min(5, wins - 9));
     ka.goldSkates = (!easy && wins >= 10) || cos.has('gskates'); ka.fluffyTail = (!easy && wins >= 11) || cos.has('tail');
-    ka.silverSkates = easy && wins >= 10; ka.tailBow = (easy && wins >= 11) || cos.has('bow');   // (the bow: also an unlock, on a fluffy tail too)
+    ka.silverSkates = (easy && wins >= 10) || cos.has('sskates'); ka.tailBow = (easy && wins >= 11) || cos.has('bow');   // (the bow: also an unlock, on a fluffy tail too)
     ka.packRainbow = easy ? 0 : wins >= 15 ? 99 : wins >= 14 ? 2 : wins >= 13 ? 1 : 0;
     // 14: the lion (and the crown's moon lights up); 16: celestial lion with 120 revives, the rainbow cat stays rainbow
     // (60+ revives), otherwise the chrome moon lion; 120 revives: the medevac rotor

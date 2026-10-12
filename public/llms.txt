@@ -4,7 +4,7 @@
 
 Key facts:
 - Price: free. Platform: any modern browser on computers, phones and tablets (cross-play in the same lobbies).
-- Modes: Run + Skate, Run only, Skate only, each as Normal or Easy. Nine levels; level 9 is the final run.
+- Modes: Run + Skate, Run only, Skate only, each as Normal or Easy. Eight levels through the seasons.
 - Playing with friends: create a lobby under Multiplayer and share the 4-letter code or invite link.
 - Made by Benjamin and Maximilian. Launched 2 October 2026.
 

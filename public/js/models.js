@@ -1941,10 +1941,20 @@ function readingGlassesGeometry() {
 function collarGeometry(medal) {
   return cgeo(medal ? 'collarMedal' : 'collarTag', () => {
     const LEATHER = 0x8a4a2e, BRONZE = 0xcd7f32, GOLD = 0xffc93a, loop = new THREE.TorusGeometry(0.172, 0.024, 5, 22).rotateY(Math.PI / 2);
-    const parts = [[loop, mtx([0.1, 0.47, 0], [0, 0, -0.62], 1), LEATHER]];
+    // the loop round the neck: the tag's leather collar; the medal's own ribbon (blue on one side, red on the other, as
+    // its two strands), so what shows beside the neck reads as the ribbon, not as a brown band
+    const BLUE = 0x3f6fd8, RED = 0xd8443a;
+    // (it runs from the nape, behind the head, down and forward to the chest, where the tag or medal hangs)
+    const parts = [[loop, mtx([0.14, 0.47, 0], [0, 0, 0.7], 1), medal ? (x, y, z, c) => c.set(z >= 0 ? BLUE : RED) : LEATHER]];
     if (medal) {
-      parts.push([P.box, mtx([0.292, 0.33, 0.034], [0.4, 0, -0.2], [0.012, 0.15, 0.04]), 0x3f6fd8]);
-      parts.push([P.box, mtx([0.292, 0.33, -0.034], [-0.4, 0, -0.2], [0.012, 0.15, 0.04]), 0xd8443a]);
+      // the two strands: each from its side of the loop (a little up from its lowest point) down to the top of the medal
+      const R = 0.172, TILT = 0.7, PHI = 0.55, up = new THREE.Vector3(0, 1, 0), q = new THREE.Quaternion();
+      for (const sz of [1, -1]) {
+        const a = new THREE.Vector3(0.14 + R * Math.cos(PHI) * Math.sin(TILT), 0.47 - R * Math.cos(PHI) * Math.cos(TILT), R * Math.sin(PHI) * sz);
+        const b = new THREE.Vector3(0.312, 0.292, 0.012 * sz), d = b.clone().sub(a);
+        q.setFromUnitVectors(up, d.clone().normalize());
+        parts.push([P.box, new THREE.Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), q, new THREE.Vector3(0.04, d.length() + 0.02, 0.012)), sz > 0 ? BLUE : RED]);
+      }
       parts.push([P.cyl18, mtx([0.318, 0.235, 0], [0, 0, Math.PI / 2 - 0.2], [0.074, 0.02, 0.074]), GOLD]);
       parts.push([P.cyl18, mtx([0.33, 0.237, 0], [0, 0, Math.PI / 2 - 0.2], [0.05, 0.013, 0.05]), 0xffe9a0]);
     } else {

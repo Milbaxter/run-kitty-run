@@ -1613,6 +1613,9 @@ function syncVisuals(dt, alpha) {
     ka.rainbowCat = !easy && wins >= 8 && saves >= 60;   // every win reward and every revive reward: rainbow fur
     if (DEBUG_LOOK.has('crown')) ka.crown = true;
     if (DEBUG_LOOK.has('tail')) ka.fluffyTail = true;
+    if (DEBUG_LOOK.has('lion') || DEBUG_LOOK.has('chrome')) ka.lion = true;
+    if (DEBUG_LOOK.has('chrome')) ka.silver = true;
+    if (DEBUG_LOOK.has('medal')) ka.collar = 'medal';
     if (DEBUG_LOOK.has('pack')) { ka.backpack = true; ka.packColors = DEBUG_PACK; }
     if (saves >= 30 && !ka.celestial && p.alive && speed > 1) {   // (celestial lion: its own space trail instead, below)
       k.heartT = (k.heartT || 0) - dt;

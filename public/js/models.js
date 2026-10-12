@@ -961,7 +961,7 @@ function createKittyModel(color) {
     if (lion && (!maneMesh || maneTint !== tint)) {
       if (maneMesh) { maneMesh.removeFromParent(); if (maneMesh.userData.rb) maneMesh.userData.rb.geo.dispose(); }
       maneTint = tint;
-      maneMesh = new THREE.Mesh(maneGeometry(color, maneTint), mat);
+      maneMesh = new THREE.Mesh(maneGeometry(color, maneTint, !!s.longMane), mat);
       maneMesh.castShadow = true;
       head.add(maneMesh);
       meshes.push(maneMesh);
@@ -2519,18 +2519,24 @@ function skateBladeGeometry() {
 }
 // 14+ wins: a lion's mane, rings of tufts round the face (head space, behind the eyes), a gap on top for the crown;
 // in a deeper shade of the kitty's colour (silver for the moonlight lion)
-function maneGeometry(color, tint) {   // tint: 'silver' (the moonlight lion) or null
-  return cgeo('mane:' + new THREE.Color(color).getHexString() + (tint ? ':' + tint : ''), () => {
+// long (a draft, ?look=longmane): the mane carries on back over the neck and shoulders instead of ending in a flat ring
+function maneGeometry(color, tint, long) {   // tint: 'silver' (the moonlight lion) or null
+  return cgeo('mane:' + new THREE.Color(color).getHexString() + (tint ? ':' + tint : '') + (long ? ':long' : ''), () => {
     // a deeper, richer shade of the kitty's own colour (or silver), in fluffy round tufts
     const hsl = {}, c0 = new THREE.Color(tint === 'silver' ? 0xd6dee9 : color);
     c0.getHSL(hsl);
     const shade = (l) => new THREE.Color().setHSL(hsl.h, Math.min(1, hsl.s * 1.1), hsl.l * l);
     const base = shade(0.78), dark = shade(0.58), light = shade(0.95);
     const parts = [];
-    const ringOf = (r, n, sz, x, off, col) => {
+    // cap: the tufts that would stand above the gap lie low across it instead (at that height), so the ring is closed
+    // there without getting any taller
+    const ringOf = (r, n, sz, x, off, col, yo = -0.03, top = 0.72, cap = null) => {
       for (let i = 0; i < n; i++) {
-        const a = ((i + off) / n) * TAU_, y = Math.sin(a) * r - 0.03, z = Math.cos(a) * r;
-        if (Math.sin(a) > 0.72) continue;   // a gap on top, where the crown sits
+        const a = ((i + off) / n) * TAU_, y = Math.sin(a) * r + yo, z = Math.cos(a) * r;
+        if (Math.sin(a) > top) {   // a gap on top, where the crown sits
+          if (cap != null) parts.push([P.ico1, mtx([x, cap, z], null, [sz * 0.75, sz * 0.7, sz]), col]);
+          continue;
+        }
         parts.push([P.ico1, mtx([x, y, z], [Math.PI / 2 - a, 0, 0], [sz * 0.75, sz * 1.15, sz]), col]);
       }
     };
@@ -2538,6 +2544,17 @@ function maneGeometry(color, tint) {   // tint: 'silver' (the moonlight lion) or
     ringOf(0.2, 13, 0.08, -0.04, 0.5, base);
     ringOf(0.172, 11, 0.064, 0.02, 0.25, light);  // the fringe round the face
     parts.push([P.ico1, mtx([-0.1, -0.03, 0], null, [0.08, 0.23, 0.23]), dark]);   // fills the back of the ring
+    if (long) {   // back over the neck onto the shoulders: rings that sit lower (round the body) and get smaller and thinner.
+      // Each row is open wider on top than the one before (a V down the middle of the back), where the backpack sits
+      // (the two rows nearest the head close over the back of the neck, low: no gap there, and nothing standing up)
+      // (trimmed on the sides: each row closer to the body and lower than a plain continuation of the head's ring)
+      ringOf(0.2, 13, 0.08, -0.15, 0.5, base, -0.06, 0.45, 0.075);
+      ringOf(0.184, 12, 0.073, -0.21, 0, dark, -0.08, 0.25, 0.055);
+      ringOf(0.166, 11, 0.064, -0.265, 0.5, base, -0.095, 0.0);
+      ringOf(0.146, 9, 0.054, -0.315, 0, dark, -0.105, -0.25);
+      ringOf(0.124, 8, 0.042, -0.355, 0.5, base, -0.11, -0.4);
+      parts.push([P.ico1, mtx([-0.19, -0.12, 0], null, [0.11, 0.14, 0.19]), dark]);
+    }
     return bake(parts);
   });
 }

@@ -1046,6 +1046,13 @@ function updateVictory(dt) {
 // rainbow 8+ wins and 60+ revives, lion 14+ wins, and at 16 wins the chrome (under 60 revives), rainbow (60-119) or
 // celestial lion (120+)
 function iconLook(p) {
+  const look = iconLookOf(p);
+  // local testing (?look=lion / chrome, as on the 3D kitty)
+  if (DEBUG_LOOK.has('lion') || DEBUG_LOOK.has('chrome') || DEBUG_LOOK.has('longmane')) look.lion = true;
+  if (DEBUG_LOOK.has('chrome')) look.lionLook = 'chrome';
+  return look;
+}
+function iconLookOf(p) {
   const wins = (p && p.finishes) || 0, res = (p && p.rescues) || 0, cos = cosOf(p);
   // an easy game: only the switched-on unlocks (its own rewards have no icon looks)
   // (specs: its reading glasses; metal: the bronze kitty at 8 wins with 60 revives, the golden one at 16 with 120)
@@ -1616,6 +1623,7 @@ function syncVisuals(dt, alpha) {
     if (DEBUG_LOOK.has('lion') || DEBUG_LOOK.has('chrome')) ka.lion = true;
     if (DEBUG_LOOK.has('chrome')) ka.silver = true;
     if (DEBUG_LOOK.has('medal')) ka.collar = 'medal';
+    if (DEBUG_LOOK.has('longmane')) { ka.lion = true; ka.longMane = true; }   // (a draft: the mane carried on over the shoulders)
     if (DEBUG_LOOK.has('pack')) { ka.backpack = true; ka.packColors = DEBUG_PACK; }
     if (saves >= 30 && !ka.celestial && p.alive && speed > 1) {   // (celestial lion: its own space trail instead, below)
       k.heartT = (k.heartT || 0) - dt;

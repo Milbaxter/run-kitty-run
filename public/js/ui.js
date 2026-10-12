@@ -189,8 +189,8 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-card.rkr-lion .rkr-head .rkr-mane{display:block;}
 .rkr-card.rkr-rlion .rkr-mane path{fill:url(#rkr-rainbow-fur);}
 .rkr-card.rkr-chrome .rkr-mane path,.rkr-card.rkr-chrome .rkr-cat > path:first-child{fill:url(#rkr-chrome-fur);}
-.rkr-card.rkr-mbronze .rkr-cat > path:first-child{fill:url(#rkr-bronze-fur);}
-.rkr-card.rkr-mgold .rkr-cat > path:first-child{fill:url(#rkr-gold-fur);}
+.rkr-card.rkr-mbronze .rkr-mane path,.rkr-card.rkr-mbronze .rkr-cat > path:first-child{fill:url(#rkr-bronze-fur);}
+.rkr-card.rkr-mgold .rkr-mane path,.rkr-card.rkr-mgold .rkr-cat > path:first-child{fill:url(#rkr-gold-fur);}
 .rkr-card.rkr-celestial .rkr-mane path,.rkr-card.rkr-celestial .rkr-cat > path:first-child{fill:url(#rkr-cosmic-fur);}
 .rkr-card.rkr-celestial .rkr-mane path{stroke:#8fb8ff;}
 .rkr-defs{position:absolute;width:0;height:0;overflow:hidden;}
@@ -620,13 +620,18 @@ function createUI(root) {
       <stop offset="1" stop-color="#ff5a5a"/>
       <animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="-1 -0.6" dur="2.2s" repeatCount="indefinite"/>
     </linearGradient>
-    <linearGradient id="rkr-bronze-fur" x1="0" y1="0" x2=".75" y2="1">
-      <stop offset="0" stop-color="#f2c79a"/><stop offset=".35" stop-color="#b0662a"/><stop offset=".5" stop-color="#e3a068"/>
-      <stop offset=".7" stop-color="#7d4416"/><stop offset="1" stop-color="#cd7f32"/>
+    <!-- an easy game's bronze / golden kitty: the same sliding band of light as the chrome lion's (below), in its metal -->
+    <linearGradient id="rkr-bronze-fur" x1="0" y1="0" x2=".75" y2="1" spreadMethod="repeat">
+      <stop offset="0" stop-color="#b0662a"/><stop offset=".2" stop-color="#e3a068"/><stop offset=".4" stop-color="#7d4416"/>
+      <stop offset=".56" stop-color="#cd7f32"/><stop offset=".66" stop-color="#ffe2c2"/><stop offset=".76" stop-color="#cd7f32"/>
+      <stop offset="1" stop-color="#b0662a"/>
+      <animateTransform attributeName="gradientTransform" type="translate" from="-0.75 -1" to="0 0" dur="3.4s" repeatCount="indefinite"/>
     </linearGradient>
-    <linearGradient id="rkr-gold-fur" x1="0" y1="0" x2=".75" y2="1">
-      <stop offset="0" stop-color="#fff3c4"/><stop offset=".35" stop-color="#e0a020"/><stop offset=".5" stop-color="#ffe07a"/>
-      <stop offset=".7" stop-color="#b8791f"/><stop offset="1" stop-color="#ffd34a"/>
+    <linearGradient id="rkr-gold-fur" x1="0" y1="0" x2=".75" y2="1" spreadMethod="repeat">
+      <stop offset="0" stop-color="#e0a020"/><stop offset=".2" stop-color="#ffe07a"/><stop offset=".4" stop-color="#b8791f"/>
+      <stop offset=".56" stop-color="#ffd34a"/><stop offset=".66" stop-color="#fffbe6"/><stop offset=".76" stop-color="#ffd34a"/>
+      <stop offset="1" stop-color="#e0a020"/>
+      <animateTransform attributeName="gradientTransform" type="translate" from="-0.75 -1" to="0 0" dur="3.4s" repeatCount="indefinite"/>
     </linearGradient>
     <!-- the chrome lion: a band of light slides across the mirror fur, like on its 3D model. The gradient repeats and
          moves by exactly its own length, so the loop has no seam -->

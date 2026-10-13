@@ -89,6 +89,9 @@ function drawChart(canvas, days) {
   const padL = 44, padR = 46, padT = 16, padB = 26, BAR_H = 0.55;   // (the bars fill the lower part)
   const w = W - padL - padR, h = H - padT - padB;
   g.font = '700 11px system-ui, sans-serif';
+  // only days that are over: today's is still being counted (the server's days are UTC)
+  const today = new Date().toISOString().slice(0, 10);
+  days = days.filter((d) => d.day < today);
   if (!days.length) { g.fillStyle = 'rgba(255,255,255,.6)'; g.fillText('No data yet', W / 2 - 30, H / 2); return; }
   let cum = 0;
   const pts = days.map((d) => ({ day: d.day, cum: (cum += d.newPlayers), hours: (d.seconds || 0) / 3600 }));

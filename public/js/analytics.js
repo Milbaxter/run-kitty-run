@@ -79,20 +79,20 @@ function fmtTime(sec) {
   return Math.round(sec / 60) + ' min';
 }
 
-// Cumulative players (line) over daily active players (bars).
+// Cumulative players (line, left axis) over the time played each day (bars, right axis: hours of kitty time).
 function drawChart(canvas, days) {
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.clientWidth, H = canvas.clientHeight;
   canvas.width = W * dpr; canvas.height = H * dpr;
   const g = canvas.getContext('2d');
   g.scale(dpr, dpr);
-  const padL = 44, padR = 14, padT = 16, padB = 26;
+  const padL = 44, padR = 46, padT = 16, padB = 26, BAR_H = 0.55;   // (the bars fill the lower part)
   const w = W - padL - padR, h = H - padT - padB;
   g.font = '700 11px system-ui, sans-serif';
   if (!days.length) { g.fillStyle = 'rgba(255,255,255,.6)'; g.fillText('No data yet', W / 2 - 30, H / 2); return; }
   let cum = 0;
-  const pts = days.map((d) => ({ day: d.day, cum: (cum += d.newPlayers), active: d.players }));
-  const maxCum = Math.max(1, ...pts.map((p) => p.cum)), maxAct = Math.max(1, ...pts.map((p) => p.active));
+  const pts = days.map((d) => ({ day: d.day, cum: (cum += d.newPlayers), hours: (d.seconds || 0) / 3600 }));
+  const maxCum = Math.max(1, ...pts.map((p) => p.cum)), maxHrs = Math.max(0.5, ...pts.map((p) => p.hours));
   const n = pts.length, step = w / Math.max(1, n);
   // grid + left axis (cumulative)
   g.strokeStyle = 'rgba(255,255,255,.08)'; g.fillStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 1;
@@ -101,9 +101,11 @@ function drawChart(canvas, days) {
     g.beginPath(); g.moveTo(padL, y); g.lineTo(padL + w, y); g.stroke();
     g.fillText(fmt(Math.round((maxCum * i) / 4)), 6, y + 4);
   }
-  // daily active bars
+  // time played that day: bars, with their own scale on the right
   g.fillStyle = 'rgba(110,198,255,.45)';
-  pts.forEach((p, i) => { const bh = (p.active / maxAct) * h * 0.55; g.fillRect(padL + i * step + step * 0.18, padT + h - bh, Math.max(1, step * 0.64), bh); });
+  pts.forEach((p, i) => { const bh = (p.hours / maxHrs) * h * BAR_H; g.fillRect(padL + i * step + step * 0.18, padT + h - bh, Math.max(1, step * 0.64), bh); });
+  g.fillStyle = 'rgba(110,198,255,.8)';
+  for (const f of [0.5, 1]) { const v = maxHrs * f; g.fillText((v >= 10 ? Math.round(v) : v.toFixed(1)) + ' h', padL + w + 6, padT + h - h * BAR_H * f + 4); }
   // cumulative line
   g.strokeStyle = '#ffcf5a'; g.lineWidth = 3; g.lineJoin = 'round';
   g.beginPath();
@@ -119,7 +121,7 @@ function drawChart(canvas, days) {
   g.fillStyle = '#ffcf5a'; g.fillRect(padL + 6, padT - 10, 14, 4);
   g.fillStyle = 'rgba(255,255,255,.7)'; g.fillText('total players', padL + 24, padT - 5);
   g.fillStyle = 'rgba(110,198,255,.7)'; g.fillRect(padL + 120, padT - 12, 10, 8);
-  g.fillStyle = 'rgba(255,255,255,.7)'; g.fillText('played that day', padL + 136, padT - 5);
+  g.fillStyle = 'rgba(255,255,255,.7)'; g.fillText('time played that day', padL + 136, padT - 5);
 }
 
 // the soundtrack's average song length (music/catjam2-3.mp3: 3:05 and 3:23): songs played = time played / this
@@ -185,7 +187,7 @@ function openStatsPage(root) {
     }
     body.append(
       grid,
-      el('div', 'rks-h', 'Players over time'), cv,
+      el('div', 'rks-h', 'Players and time played'), cv,
       el('div', 'rks-h', 'Modes played (runs)'), bars,
       ...pills('Devices', d.devices, { desktop: 'Computer', touch: 'Phone / tablet', ios: 'iOS app', android: 'Android app' }),
       el('div', 'rks-note', `Counting since ${d.since}. Anonymous: each browser gets a random id, nothing else is stored.`),

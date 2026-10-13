@@ -4,6 +4,11 @@ const PATCH_NOTES = [
   {
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
+      'Watch a friend while your own kitty is still standing (Multiplayer): press Tab to look at the next kitty and Space to come back. On phones, the binoculars button in the corner; with a controller, LB / RB and B. Your kitty keeps going the way it was',
+      'Settings: choose whether moving brings the camera back to your kitty while you watch a friend. Off: you steer while you watch, and only Space (or the binoculars button, or B) brings it back. The two keys can be changed under Controls',
+      'Minimap: little flags show where the checkpoints are, a shield is a yellow star and boots are a small boot. Kitties that need a revive are drawn on top of everything, the same size as the others',
+      'Dance without typing: a dancing kitty button on phones, and Y on a controller',
+      'Controllers: the Settings window and the swag account menu can now be used with a controller (left / right move the volume sliders)',
       'Wolves under a tree no longer disappear: their outline shows through the leaves',
       'A lucky checkpoint: once in a great while (1 in 100) a big chest stands on a checkpoint. Step on it and it throws boots, shields and extra lives all over the square, more of them the more kitties are playing',
       'Chat: type /dance and your kitty dances for everyone, until you move',

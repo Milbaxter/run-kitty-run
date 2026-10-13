@@ -5,25 +5,29 @@
 import { TOUCH } from './device.js';
 
 const KEY = 'rkr-settings';
-const DEFAULT_KEYS = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', pause: 'KeyP', sound: 'KeyM', hud: 'KeyH', full: 'KeyF', zoomIn: 'Equal', zoomOut: 'Minus' };
+const DEFAULT_KEYS = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', pause: 'KeyP', sound: 'KeyM', hud: 'KeyH', full: 'KeyF', zoomIn: 'Equal', zoomOut: 'Minus', watch: 'Tab', back: 'Space' };
 const ACTIONS = [
   ['up', 'Move up'], ['down', 'Move down'], ['left', 'Move left'], ['right', 'Move right'],
   ['pause', 'Pause / menu'], ['sound', 'Sound on / off'], ['hud', 'Show / hide the HUD'], ['full', 'Full screen'], ['zoomIn', 'Zoom in'], ['zoomOut', 'Zoom out'],
+  ['watch', 'Watch the next kitty'], ['back', 'Camera back to your kitty'],
 ];
-// keys that keep their fixed job (arrows move, Esc pauses and cancels, Enter chats and confirms, Tab switches the watched kitty)
+// keys that keep their fixed job (arrows move, Esc pauses and cancels, Enter chats and confirms; Tab only watches a kitty)
+const TAB_OK = (action) => action === 'watch';
 const RESERVED = new Set(['Escape', 'Enter', 'NumpadEnter', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'MetaLeft', 'MetaRight']);
 const GFX = [['auto', 'AUTO'], ['high', 'HIGH'], ['medium', 'MEDIUM'], ['low', 'LOW'], ['ultra', 'ULTRA LOW']];
 // the frame rate limit (main.js frame()): 0 = none (the screen's own refresh)
 const FPS = [[0, 'MAX'], [240, '240'], [144, '144'], [120, '120'], [60, '60'], [30, '30']];
 
-const S = { music: 1, sfx: 1, gfx: 'auto', fps: 0, keys: { ...DEFAULT_KEYS } };
+// lookBack: watching a friend while standing (Tab, main.js): does a new move bring the camera back to your kitty?
+const S = { music: 1, sfx: 1, gfx: 'auto', fps: 0, lookBack: true, keys: { ...DEFAULT_KEYS } };
 try {
   const v = JSON.parse(localStorage.getItem(KEY) || '{}');
   const pct = (x, d) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : d);
   S.music = pct(v.music, 1); S.sfx = pct(v.sfx, 1);
   if (GFX.some(([id]) => id === v.gfx)) S.gfx = v.gfx;
   if (FPS.some(([n]) => n === v.fps)) S.fps = v.fps;
-  for (const [a] of ACTIONS) if (typeof (v.keys || {})[a] === 'string' && !RESERVED.has(v.keys[a])) S.keys[a] = v.keys[a];
+  if (typeof v.lookBack === 'boolean') S.lookBack = v.lookBack;
+  for (const [a] of ACTIONS) if (typeof (v.keys || {})[a] === 'string' && (!RESERVED.has(v.keys[a]) || (v.keys[a] === 'Tab' && TAB_OK(a)))) S.keys[a] = v.keys[a];
 } catch { /* defaults */ }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* ignore */ } }
 
@@ -176,7 +180,19 @@ function openSettings(root, opts = {}) {
   const fstack = el('div', 'rkst-stack');
   fstack.append(el('span', null, 'Frame rate limit'), fseg,
     el('div', 'rkst-note', 'MAX draws every refresh of your screen. A limit saves graphics work and heat; the game plays the same.'));
-  gfx.append(gseg, note, fstack);
+  // watching a friend (Tab, in Multiplayer): whether moving brings the camera back, or only Space / Tab
+  const lseg = el('div', 'rkst-seg');
+  const paintLook = () => { for (const b of lseg.children) b.classList.toggle('rkst-on', (b.dataset.v === '1') === S.lookBack); };
+  for (const [v, label] of [['1', 'ON'], ['0', 'OFF']]) {
+    const b = el('button', null, label); b.dataset.v = v; b.type = 'button';
+    b.addEventListener('click', () => { S.lookBack = v === '1'; save(); paintLook(); });
+    lseg.appendChild(b);
+  }
+  paintLook();
+  const lstack = el('div', 'rkst-stack');
+  lstack.append(el('span', null, 'Watching a friend: moving returns the camera'), lseg,
+    el('div', 'rkst-note', 'In Multiplayer, Tab looks at a friend while your kitty keeps going. On: a new move key or a click brings the camera back to you, and so does Tab after the last friend. Off: only Space brings it back, Tab just goes through the other kitties, so you can steer while you watch. (Both keys can be changed under Controls.)'));
+  gfx.append(gseg, note, fstack, lstack);
   left.appendChild(gfx);
 
   // ---- invites (Multiplayer): who may invite you, and unblocking the players you blocked
@@ -267,9 +283,10 @@ window.addEventListener('keydown', (e) => {
   if (capture) {
     e.preventDefault(); e.stopImmediatePropagation();
     if (e.code === 'Escape' || !e.code) { cancelCapture(); return; }
-    if (RESERVED.has(e.code)) return;   // keep waiting
+    if (RESERVED.has(e.code) && !(e.code === 'Tab' && TAB_OK(capture.action))) return;   // keep waiting
     const { action, paint } = capture;
     const other = Object.keys(S.keys).find((a) => a !== action && S.keys[a] === e.code);
+    if (other && S.keys[action] === 'Tab' && !TAB_OK(other)) return;   // (the swap would hand Tab to another action)
     if (other) S.keys[other] = S.keys[action];   // that key was taken: the two swap
     S.keys[action] = e.code;
     save();
@@ -287,4 +304,6 @@ const musicVolume = () => S.music;
 const sfxVolume = () => S.sfx;
 
 const fpsLimit = () => S.fps;
-export { openSettings, closeSettings, isOpen as settingsOpen, key, keyName, musicVolume, sfxVolume, fpsLimit, KEY as SETTINGS_KEY };
+const lookBack = () => S.lookBack;
+const settingsRoot = () => modal;   // (controller navigation, main.js)
+export { openSettings, closeSettings, isOpen as settingsOpen, settingsRoot, key, keyName, musicVolume, sfxVolume, fpsLimit, lookBack, KEY as SETTINGS_KEY };

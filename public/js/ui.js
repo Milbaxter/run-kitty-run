@@ -874,7 +874,7 @@ function createUI(root) {
 
   const ENEMY_COL = { wanderer: '#ff7a33' };   // pattern wolves: the default red
   const MAP_KIND_COLS = [...new Set([...Object.values(ENEMY_COL), '#ff4b4b'])], mapKinds = () => MAP_KIND_COLS;   // one path per colour
-  const ITEM_COL = { boots: '#33e0ff', life: '#ff6fa8', shield: '#5aaaff' };
+  const ITEM_COL = { boots: '#33e0ff', life: '#ff6fa8', shield: '#ffd83a' };   // boots: little cyan boots, lives: pink hearts, shields: yellow stars
 
   // the final run hides the minimap (and timer / hint): no telling how far is left
   let finaleOn = false;
@@ -905,6 +905,34 @@ function createUI(root) {
     g.fill();
     if (!sim) return;
 
+    // enemies
+    const en = sim.enemies || [];
+    g.lineWidth = 0.8; g.strokeStyle = 'rgba(40,0,0,.8)';
+    for (const col of mapKinds(en)) {
+      g.beginPath();
+      for (let i = 0; i < en.length; i++) {
+        const e = en[i];
+        if ((ENEMY_COL[e.type] || '#ff4b4b') !== col) continue;
+        const x = cx + e.x * sc, y = cy + e.z * sc;
+        g.moveTo(x + 2.6, y); g.arc(x, y, 2.6, 0, Math.PI * 2);
+      }
+      g.fillStyle = col; g.fill(); g.stroke();
+    }
+
+    // checkpoints: a little flag on each (above the wolves, so you can find them; a reached one fades)
+    const cps = ld.checkpoints || [], hit = sim.checkpointsHit || [];
+    for (let i = 0; i < cps.length; i++) {
+      const x = cx + cps[i].x * sc, y = cy + cps[i].z * sc, done = hit.indexOf(i) >= 0;
+      g.globalAlpha = done ? 0.45 : 1;
+      g.lineWidth = 2.6; g.strokeStyle = 'rgba(20,8,48,.9)';
+      g.beginPath(); g.moveTo(x - 2.5, y + 5); g.lineTo(x - 2.5, y - 6); g.stroke();
+      g.beginPath(); g.moveTo(x - 2.5, y - 6); g.lineTo(x + 5.5, y - 3.2); g.lineTo(x - 2.5, y - 0.4); g.closePath();
+      g.fillStyle = done ? '#b9c2d0' : '#3ee08f'; g.fill();
+      g.lineWidth = 1; g.strokeStyle = '#fff'; g.stroke();
+      g.lineWidth = 1.2; g.strokeStyle = '#fff'; g.beginPath(); g.moveTo(x - 2.5, y + 5); g.lineTo(x - 2.5, y - 6); g.stroke();
+      g.globalAlpha = 1;
+    }
+
     // items
     const items = sim.items || [];
     for (let i = 0; i < items.length; i++) {
@@ -915,7 +943,15 @@ function createUI(root) {
       {
         const r = 3 + 0.6 * Math.sin(t * 5 + i);
         g.beginPath();
-        if (it.type === 'boots') { g.rect(x - r * .75, y - r * .75, r * 1.5, r * 1.5); }
+        if (it.type === 'boots') {   // a little boot: shaft, then the foot out to the right
+          const u = r * 0.8;
+          g.moveTo(x - 0.75 * u, y - 1.25 * u); g.lineTo(x + 0.15 * u, y - 1.25 * u); g.lineTo(x + 0.15 * u, y + 0.05 * u);
+          g.lineTo(x + 1.25 * u, y + 0.4 * u); g.lineTo(x + 1.25 * u, y + 1.1 * u); g.lineTo(x - 0.75 * u, y + 1.1 * u); g.closePath();
+        }
+        else if (it.type === 'shield') {   // a five-pointed star
+          for (let k = 0; k < 10; k++) { const a = -Math.PI / 2 + k * Math.PI / 5, q = (k % 2 ? 0.62 : 1.45) * r; if (k) g.lineTo(x + Math.cos(a) * q, y + Math.sin(a) * q); else g.moveTo(x + Math.cos(a) * q, y + Math.sin(a) * q); }
+          g.closePath();
+        }
         else if (it.type === 'life') { g.moveTo(x, y + r); g.lineTo(x - r, y - r * .2); g.arc(x - r / 2, y - r * .3, r / 2, Math.PI, 0); g.arc(x + r / 2, y - r * .3, r / 2, Math.PI, 0); g.closePath(); }
         else { g.arc(x, y, r * .85, 0, Math.PI * 2); }
         g.fill();
@@ -935,25 +971,12 @@ function createUI(root) {
       const col = M.colorById.has(c.playerId) ? M.colorById.get(c.playerId) : 0xffffff;
       const x = cx + c.x * sc, y = cy + c.z * sc;
       const ph = (t * 1.4 + i * 0.3) % 1;
-      g.beginPath(); g.arc(x, y, 3 + ph * 8, 0, Math.PI * 2);
+      // (the dot is as big as a standing kitty's: a kitty that goes down doesn't shrink on the map)
+      g.beginPath(); g.arc(x, y, 4.2 + ph * 8, 0, Math.PI * 2);
       g.strokeStyle = rgba(col, 1 - ph); g.lineWidth = 2; g.stroke();
-      g.beginPath(); g.arc(x, y, 3.2, 0, Math.PI * 2);
+      g.beginPath(); g.arc(x, y, 4.2, 0, Math.PI * 2);
       g.fillStyle = rgba(col, 0.55 + 0.45 * Math.sin(t * 8)); g.fill();
-      g.lineWidth = 1.2; g.strokeStyle = '#fff'; g.stroke();
-    }
-
-    // enemies
-    const en = sim.enemies || [];
-    g.lineWidth = 0.8; g.strokeStyle = 'rgba(40,0,0,.8)';
-    for (const col of mapKinds(en)) {
-      g.beginPath();
-      for (let i = 0; i < en.length; i++) {
-        const e = en[i];
-        if ((ENEMY_COL[e.type] || '#ff4b4b') !== col) continue;
-        const x = cx + e.x * sc, y = cy + e.z * sc;
-        g.moveTo(x + 2.6, y); g.arc(x, y, 2.6, 0, Math.PI * 2);
-      }
-      g.fillStyle = col; g.fill(); g.stroke();
+      g.lineWidth = 1.8; g.strokeStyle = '#fff'; g.stroke();
     }
 
     // players

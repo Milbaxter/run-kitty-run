@@ -8,8 +8,9 @@ const CSS = `
 `;
 const REPEAT_FIRST = 0.38, REPEAT_EVERY = 0.13;   // holding a direction: first repeat, then every (s)
 
-// what a controller can land on: buttons, checkboxes and swatches; not text boxes (no typing with a pad)
-const SELECTOR = 'button, input[type=checkbox], [data-padnav]';
+// what a controller can land on: buttons, checkboxes, sliders (left / right change them) and swatches; not text
+// boxes (no typing with a pad)
+const SELECTOR = 'button, input[type=checkbox], input[type=range], [data-padnav]';
 
 function usable(e) {
   if (e.disabled || !e.getClientRects().length) return false;
@@ -88,12 +89,18 @@ function createPadNav() {
       }
     } else held = '';
     if (input.a && cur) {
-      if (cur.matches('input[type=checkbox]')) { cur.checked = !cur.checked; cur.dispatchEvent(new Event('change', { bubbles: true })); }
+      if (cur.matches('input[type=range]')) { /* (left / right) */ }
+      else if (cur.matches('input[type=checkbox]')) { cur.checked = !cur.checked; cur.dispatchEvent(new Event('change', { bubbles: true })); }
       else cur.click();
     }
     return input.b ? 'back' : null;
   }
   function move(dir) {
+    if (cur && cur.matches('input[type=range]') && (dir === 'left' || dir === 'right')) {   // a slider: one step
+      const v = Math.min(+cur.max, Math.max(+cur.min, +cur.value + (dir === 'left' ? -1 : 1) * (+cur.step || 1)));
+      if (v !== +cur.value) { cur.value = String(v); cur.dispatchEvent(new Event('input', { bubbles: true })); }
+      return;
+    }
     if (dir === 'up') step(0, -1);
     else if (dir === 'down') step(0, 1);
     else if (dir === 'left') step(-1, 0);

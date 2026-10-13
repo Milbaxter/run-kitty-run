@@ -26,7 +26,7 @@ import { createAccount } from './account.js';
 import { createLegends } from './legends.js';
 import { analytics, openStatsPage } from './analytics.js';
 import { TOUCH, QUALITY, setQuality, goFullscreenLandscape, setKeepAwake, hideSplash } from './device.js';
-import { openSettings, settingsOpen, key, musicVolume, sfxVolume, fpsLimit } from './settings.js';
+import { openSettings, closeSettings, settingsOpen, settingsRoot, key, keyName, musicVolume, sfxVolume, fpsLimit, lookBack } from './settings.js';
 import { NATIVE, haptic, plugin, call, storeUrl, openExternal, APP_VERSION } from './platform.js';
 
 // Integration: renderer, input, camera, presentation of the pure sim.
@@ -309,7 +309,7 @@ const keys = new Set();
 // Movement: the keys picked in the settings (WASD unless changed), the arrows always too. Co-op: P1 is mouse-driven
 // (see below), P2 uses these keys.
 const moveKeys = () => ({ up: [key('up'), 'ArrowUp'], down: [key('down'), 'ArrowDown'], left: [key('left'), 'ArrowLeft'], right: [key('right'), 'ArrowRight'] });
-const spectateDir = (code) => (code === 'ArrowLeft' || code === key('left') ? -1 : code === 'ArrowRight' || code === key('right') || code === 'Tab' ? 1 : 0);
+const spectateDir = (code) => (code === 'ArrowLeft' || code === key('left') ? -1 : code === 'ArrowRight' || code === key('right') || code === key('watch') ? 1 : 0);
 
 window.addEventListener('keydown', (e) => {
   if (!e.code) return;   // a synthetic event (the controller's B in the lobby): not a key to hold
@@ -320,12 +320,18 @@ window.addEventListener('keydown', (e) => {
   }
   audio.unlock();
   if (e.code !== key('sound')) syncTrack(); // browsers only start media after a user gesture
-  if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
+  if (e.code.startsWith('Arrow') || e.code === 'Space' || e.code === 'Tab') e.preventDefault();
+  // standing: Tab looks at the next kitty (Shift+Tab: the one before), round to your own again
+  if (e.code === key('watch') && canWatch() && !meDown() && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input, textarea')) {
+    e.preventDefault();
+    if (!e.repeat) cycleWatch(e.shiftKey ? -1 : 1);
+    return;
+  }
   // spectating (online, your kitty down): Left/Right/A/D/Tab switch the watched kitty. These presses are kept out
   // of `keys` so they don't count as movement held from before a revive (keyup deletes them harmlessly).
   if (spectateDir(e.code) && spectating() && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input, textarea')) {
     e.preventDefault();
-    if (!e.repeat) cycleWatch(e.code === 'Tab' && e.shiftKey ? -1 : spectateDir(e.code));
+    if (!e.repeat) cycleWatch(e.code === key('watch') && e.shiftKey ? -1 : spectateDir(e.code));
     return;
   }
   // zoom: + / - (also the number pad), not while typing
@@ -336,6 +342,8 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.repeat) { keys.add(e.code); return; }
+  // (Space: back to your own kitty; a new move too, unless switched off in the settings)
+  if (lookingAway() && (e.code === key('back') || (lookBack() && isMoveKey(e.code)))) watchId = null;
   keys.add(e.code);
   if (e.code === key('sound')) {
     toggleSound();
@@ -454,6 +462,10 @@ canvas.addEventListener('pointerdown', (e) => {
   audio.unlock();
   if (mode !== 'play' || paused || (e.button !== 0 && e.button !== 2)) return;
   if (warming()) return;   // the new level isn't on screen yet: a click would steer the kitty somewhere unseen
+  // looking at a friend: this click steers nothing (it is aimed at their view); it brings the camera back, unless
+  // that is switched off in the settings (then only Space / Tab do)
+  // (a finger is the joystick, not aimed at anything: it steers as always)
+  if (lookingAway()) { if (lookBack()) watchId = null; if (e.pointerType !== 'touch') return; }
   if (e.pointerType === 'touch') {
     if (touchId !== null) {   // a second finger: pinch to zoom
       if (pinch.id === null) { pinch.id = e.pointerId; pinch.x = e.clientX; pinch.y = e.clientY; pinch.d = fingerGap(); try { canvas.setPointerCapture(e.pointerId); } catch { /* ignore */ } }
@@ -505,7 +517,7 @@ function mouseInput(p, kb) {
     mouse.target = null; mouse.iceDir = null; mouse.held = false;
     return kb;
   }
-  if (mouse.held && mouse.has) mouse.target = mouseGround() || mouse.target;
+  if (mouse.held && mouse.has && !lookingAway()) mouse.target = mouseGround() || mouse.target;   // (not from a friend's view: it holds the last spot)
   if (!onIce(sim.levelData, p.x, p.z)) mouse.iceDir = null;
   else if (mouse.held || mouse.iceDir) {
     // ice: a click sets a direction to skate in (not a spot to stop at); holding keeps steering at the cursor
@@ -864,6 +876,7 @@ function handleEvents(events) {
         break;
       }
       case 'checkpoint': {
+        if (!sim.checkpointsHit.includes(ev.index)) sim.checkpointsHit.push(ev.index);   // (online: the minimap's flags)
         const by = playerById(ev.by);
         haptic('medium');
         // the kitties gathered there (ev.moved; older servers: everyone but the one that reached it) drop their old heading
@@ -1177,12 +1190,13 @@ let padNavAt = performance.now();
 function pollPadNav() {
   const now = performance.now(), dt = Math.min(0.1, (now - padNavAt) / 1000);
   padNavAt = now;
-  let confirm = false, prev = false, next = false, back = false, scroll = 0, spPrev = false, spNext = false;
-  let a = false, bBtn = false, start = false, select = false, up = false, down = false, left = false, right = false;
+  let confirm = false, prev = false, next = false, back = false, scroll = 0, spPrev = false, spNext = false, lb = false, rb = false;
+  let y = false, a = false, bBtn = false, start = false, select = false, up = false, down = false, left = false, right = false;
   for (const pad of framePads || []) {
     if (!pad || !pad.connected) continue;
     const b = (i) => !!(pad.buttons[i] && pad.buttons[i].pressed);
     const ax = pad.axes[0] || 0, ay = pad.axes[1] || 0;
+    lb = lb || b(4); rb = rb || b(5); y = y || b(3);
     spPrev = spPrev || b(4) || b(14); // LB / d-pad left
     spNext = spNext || b(5) || b(15); // RB / d-pad right
     confirm = confirm || b(0) || b(9);
@@ -1201,12 +1215,18 @@ function pollPadNav() {
   const pauseEl = ui.pauseRoot();
   const fbEl = feedback.isOpen() ? feedback.root() : null;
   const statsEl = document.querySelector('.rks-modal');   // the STATS window (analytics.js)
+  const setEl = settingsRoot();   // the SETTINGS window (over the title or the pause menu)
+  const acctEl = account.isOpen() ? document.querySelector('.rka-modal') : null;   // the SWAG ACCOUNT window (account.js)
   const menu = legends.isOpen() ? null
-    : fbEl || statsEl || pauseEl || ui.noticeRoot() || ui.gameOverRoot() || (lobbyUI.isOpen() && !(online.playing && mode === 'play') ? lobbyUI.root() : null) || ui.titleRoot();
+    : setEl || acctEl || fbEl || statsEl || pauseEl || ui.noticeRoot() || ui.gameOverRoot() || (lobbyUI.isOpen() && !(online.playing && mode === 'play') ? lobbyUI.root() : null) || ui.titleRoot();
   const res = menuPad.poll(menu, { dir, a: aEdge, b: bEdge }, dt);
   if (legends.isOpen()) {
     if (back && !padNav.back) legends.close();
     else if (scroll) legends.scrollBy(scroll * 14);
+  } else if (setEl) {
+    if (res === 'back') closeSettings();
+  } else if (acctEl) {
+    if (res === 'back') account.close();
   } else if (fbEl) {
     if (res === 'back') feedback.close();
   } else if (statsEl) {
@@ -1224,12 +1244,17 @@ function pollPadNav() {
     if (spectating()) {
       if (spPrev && !padNav.spPrev) cycleWatch(-1);
       if (spNext && !padNav.spNext) cycleWatch(1);
+    } else if (canWatch() && !meDown() && !chat.isOpen()) {   // standing: LB / RB look at a friend (the d-pad moves), B: back
+      if (lb && !padNav.lb) cycleWatch(-1);
+      if (rb && !padNav.rb) cycleWatch(1);
+      if (bEdge && lookingAway()) watchId = null;
     }
+    if (y && !padNav.y && !chat.isOpen()) dance();   // Y: dance (the first emote; a wheel once there are more)
     // Start in a run: pause (offline) / the online menu
     if (startEdge && mode === 'play' && !runOver() && !chat.isOpen()) { if (online.playing) toggleOnlineMenu(); else togglePause(); }
   }
   padNav.confirm = confirm; padNav.prev = prev; padNav.next = next; padNav.back = back;
-  padNav.spPrev = spPrev; padNav.spNext = spNext;
+  padNav.spPrev = spPrev; padNav.spNext = spNext; padNav.lb = lb; padNav.rb = rb; padNav.y = y;
   padNav.a = a; padNav.b = bBtn; padNav.start = start; padNav.select = select;
 }
 
@@ -1265,7 +1290,15 @@ const _orbDir = new THREE.Vector3(), _camDir = new THREE.Vector3();
 const smooth01 = (v) => { v = Math.max(0, Math.min(1, v)); return v * v * (3 - 2 * v); };
 // online, while your kitty is down: the camera stays on it (its revive circle), and you can switch to a kitty still
 // standing (cycleWatch). A watched kitty that falls too: back to your own. watchId: who is watched (your own id: you).
-let watchId = null;
+// Still standing yourself, you can look at a friend the same way (Tab): the camera follows them until you move, they
+// go down, or the level changes; watchId is then their id (null: your own kitty, as always).
+let watchId = null, wasDown = false, watchIdle = false;   // watchIdle: no move since looking away (myInput)
+const meDown = () => { const me = online.playing ? playerById(online.me) : null; return !!me && !me.alive; };
+// standing and looking at a friend: your kitty keeps running as it was (keys held, or toward the spot clicked); a new
+// move key or a click brings the camera back to you (and that click steers nothing: it was aimed at the friend's view)
+const lookingAway = () => watchId != null && watchId !== online.me && online.playing && !meDown();
+const MOVE_CODES = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+const isMoveKey = (code) => MOVE_CODES.includes(code) || code === key('up') || code === key('down') || code === key('left') || code === key('right');
 function pickWatch(meP) {
   const cur = watchId != null && watchId !== meP.id ? playerById(watchId) : null;
   if (cur && cur.alive) return cur;
@@ -1277,27 +1310,71 @@ function pickWatch(meP) {
 function watchCandidates() {
   return sim.players.filter((p) => p.alive || p.id === online.me);
 }
-function spectating() {
-  return online.playing && mode === 'play' && watchId != null && sim.state !== 'gameover' && !online.menu;
+function spectating() {   // (down: Left / Right / A / D switch too, they steer nothing)
+  return online.playing && mode === 'play' && watchId != null && sim.state !== 'gameover' && !online.menu && meDown();
 }
+function canWatch() { return online.playing && mode === 'play' && sim.state !== 'gameover' && !online.menu; }
 // manual switch: Left/Right/A/D/Tab, the pill's ‹ › buttons, or gamepad shoulders / d-pad. The pick sticks
 // (pickWatch keeps an alive watchId) until that kitty goes down (then: your own again) or you're revived.
 function cycleWatch(dir) {
-  if (!spectating()) return;
-  const list = watchCandidates();
-  if (list.length < 2) return;
-  const i = list.findIndex((p) => p.id === watchId);
-  watchId = list[((i < 0 ? 0 : i + dir) % list.length + list.length) % list.length].id;
+  if (!canWatch()) return;
+  const down = meDown();
+  if (down && watchId == null) return;
+  // (standing, with "moving returns the camera" off: Tab only goes through the other kitties, Space alone comes back)
+  const others = !down && !lookBack();
+  const list = watchCandidates().filter((p) => !others || p.id !== online.me);
+  if (list.length < (others ? 1 : 2)) return;
+  const i = list.findIndex((p) => p.id === (watchId != null ? watchId : online.me));
+  const next = list[((i < 0 ? (dir > 0 ? 0 : -1) : i + dir) % list.length + list.length) % list.length].id;
+  watchId = !down && next === online.me ? null : next;   // (standing: your own kitty is just the usual camera)
   haptic('light');
+}
+// phones: a binoculars button with the corner buttons looks at a friend, and brings the camera back (the pill's ‹ ›: the next)
+// A dance button beside it (Multiplayer, standing): the chat's /dance. (One emote so far; a wheel once there are more.)
+function dance() { if (online.playing && mode === 'play' && !meDown()) net.send({ t: 'emote', e: 'dance' }); }
+let watchBtn = null, danceBtn = null;
+function cornerBtn(label, svg, onClick) {
+  const row = document.querySelector('.rkr-tr');
+  if (!row) return null;
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'rkr-hudbtn';
+  b.innerHTML = svg;
+  b.title = label;
+  b.setAttribute('aria-label', label);
+  b.addEventListener('pointerdown', (e) => e.stopPropagation());
+  b.addEventListener('click', (e) => { e.preventDefault(); onClick(); b.blur(); });
+  row.prepend(b);
+  return b;
+}
+function updateWatchBtn() {
+  const standing = TOUCH && canWatch() && !meDown() && sim.state === 'playing';
+  const show = standing && watchCandidates().length > 1;
+  if (!danceBtn && standing) {
+    danceBtn = cornerBtn('Dance', '<svg viewBox="0 0 40 40"><path d="M12.5 9.5 L12 1.5 L18.5 5 Z M25.5 9.5 L26 1.5 L19.5 5 Z" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><ellipse cx="19" cy="11" rx="7.5" ry="6.2" fill="currentColor"/><ellipse cx="19" cy="24" rx="4.6" ry="6.5" fill="currentColor"/><path d="M15.5 20.5 L7 16 M22.5 20.5 L30 14.5 M16.5 28.5 L11 36 M21.5 28.5 L25 36 M23 27.5 Q34 30 33.5 21.5" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      () => { dance(); haptic('light'); });
+  }
+  if (danceBtn) danceBtn.style.display = standing ? '' : 'none';
+  if (!watchBtn && show) {
+    watchBtn = cornerBtn('Watch a friend', '<svg viewBox="0 0 40 40"><path d="M9 8 H16 V17 M31 8 H24 V17 M16 14 H24 M9 8 L5 22 M31 8 L35 22" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="11.5" cy="25.5" r="7" fill="none" stroke="currentColor" stroke-width="3.2"/><circle cx="28.5" cy="25.5" r="7" fill="none" stroke="currentColor" stroke-width="3.2"/><circle cx="11.5" cy="25.5" r="2.4" fill="currentColor"/><circle cx="28.5" cy="25.5" r="2.4" fill="currentColor"/></svg>',
+      () => { if (lookingAway()) watchId = null; else cycleWatch(1); });
+  }
+  if (!watchBtn) return;
+  const on = show && lookingAway();
+  watchBtn.style.display = show ? '' : 'none';
+  watchBtn.style.borderColor = on ? 'rgba(140,220,255,.8)' : '';
+  watchBtn.style.color = on ? '#bfeaff' : '';
+  watchBtn.setAttribute('aria-pressed', String(on));
 }
 const FINE_POINTER = typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches;
 let watchEl = null, watchNameEl = null, watchShown = '';
 function updateWatchLabel() {
   const p = online.playing && mode === 'play' && watchId != null && sim.state !== 'gameover' ? playerById(watchId) : null;
   const multi = !!p && watchCandidates().length > 1;
-  const key = p ? p.id + '|' + p.name + '|' + multi : '';
-  if (key === watchShown) return;
-  watchShown = key;
+  const hint = !multi || !FINE_POINTER ? '' : meDown() ? '  (← → to switch)' : `  (${keyName(key('watch'))} to switch · ${keyName(key('back'))} to go back)`;
+  const shown = p ? p.id + '|' + p.name + '|' + multi + '|' + hint : '';
+  if (shown === watchShown) return;
+  watchShown = shown;
   if (!watchEl) {
     watchEl = document.createElement('div');
     watchEl.style.cssText = 'position:fixed;left:50%;bottom:18%;transform:translateX(-50%);display:flex;align-items:center;gap:4px;' +
@@ -1321,7 +1398,7 @@ function updateWatchLabel() {
     watchEl.append(watchEl.prevBtn, watchNameEl, watchEl.nextBtn);
     document.body.appendChild(watchEl);
   }
-  watchNameEl.textContent = p ? 'Watching ' + (p.id === online.me ? 'your kitty' : p.name) + (multi && FINE_POINTER ? '  (← → to switch)' : '') : '';
+  watchNameEl.textContent = p ? 'Watching ' + (p.id === online.me ? 'your kitty' : p.name) + hint : '';
   watchEl.prevBtn.style.display = watchEl.nextBtn.style.display = multi ? '' : 'none';
   watchEl.style.pointerEvents = multi ? 'auto' : 'none';
   watchEl.style.display = p ? 'flex' : 'none';
@@ -1340,12 +1417,16 @@ function updateCamera(dt, alpha) {
     const meP = online.playing ? playerById(online.me) : null;
     const meAlive = !!(meP && meP.alive);
     const down = online.playing && !!meP && !meAlive && sim.state !== 'gameover';
-    const watch = down ? pickWatch(meP) : null;
-    if (!down) watchId = null;
+    let watch = null;
+    if (down) { watch = pickWatch(meP); wasDown = true; }
+    else if (wasDown || !meAlive || !canWatch() || sim.state !== 'playing') { watchId = null; wasDown = false; }   // (back up: your own kitty again)
+    else if (watchId != null) {   // standing, looking at a friend: until they go down or leave
+      watch = watchId !== meP.id ? playerById(watchId) : null;
+      if (!watch || !watch.alive) { watch = null; watchId = null; }
+    }
     for (const p of sim.players) {
       if (!p.alive) continue;
-      if (meAlive && p.id !== online.me) continue;
-      if (down && p !== watch) continue;
+      if (watch ? p !== watch : (meAlive && p.id !== online.me) || down) continue;
       const pp = prevPos.get('p' + p.id);
       const x = pp ? pp.x + (p.x - pp.x) * alpha : p.x;
       const z = pp ? pp.z + (p.z - pp.z) * alpha : p.z;
@@ -1826,7 +1907,7 @@ const chat = createChat(document.getElementById('ui'), {
         (err) => chat.add({ sys: true, text: 'Feedback not sent: ' + (err.message || 'could not send right now.') }));
       return;
     }
-    if (/^\/dance\b/i.test(text)) { if (online.playing) net.send({ t: 'emote', e: 'dance' }); return; }
+    if (/^\/dance\b/i.test(text)) { dance(); return; }
     if (online.room) net.send({ t: 'chat', text });
   },
   onOpen: () => keys.clear(), // don't keep running while typing
@@ -2243,7 +2324,12 @@ function myInput() {
   if (online.menu) return { x: 0, z: 0 };
   const me = sim.players.find((p) => p.id === online.me);
   const kb = readInput(0, 1);
-  return me ? mouseInput(me, kb) : kb;
+  const inp = me ? mouseInput(me, kb) : kb;   // (looking at a friend: the kitty keeps going as it was, see lookingAway)
+  // ... until a new move (stick or joystick; the keys: keydown), unless that is switched off in the settings
+  if (!lookingAway()) watchIdle = false;
+  else if (!(inp.x || inp.z)) watchIdle = true;
+  else if (watchIdle && lookBack()) watchId = null;
+  return inp;
 }
 
 function onlineFrame(dt) {
@@ -2462,6 +2548,7 @@ function tick(dt) {
   effects.update(vdt);
   updateCamera(dt, alpha);
   updateWatchLabel();
+  updateWatchBtn();
   updateHUD();
 
   // danger audio

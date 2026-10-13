@@ -603,16 +603,15 @@ function createKittyModel(color) {
     head.rotation.y = Math.sin(time * 0.37 + seedOff * 2) * 0.2 * idle;
 
     // dancing (/dance in the chat; s.dance: seconds danced so far, 0 = not dancing): up on the hind legs, bouncing to
-    // a beat with the hips swaying, the front paws pumping in turn and the head nodding, and a spin every other bar
+    // a beat with the hips swaying, the front paws pumping in turn and the head nodding (one loop, for as long as it dances)
     const dn = Math.min(1, (s.dance || 0) * 5) * idle;
     if (dn > 0) {
-      const b = s.dance * 9, bar = (s.dance % 2.8) / 2.8;
+      const b = s.dance * 9;
       rig.position.y += Math.abs(Math.sin(b)) * 0.2 * dn;
       rig.rotation.z += (0.55 + Math.sin(b * 2) * 0.06) * dn;
       rig.rotation.x = Math.sin(b) * 0.2 * dn;
-      rig.rotation.y = bar > 0.7 ? ((bar - 0.7) / 0.3) * Math.PI * 2 * dn : 0;
-      legs[0].rotation.z = (-0.9 + Math.sin(b) * 0.8) * dn;
-      legs[1].rotation.z = (-0.9 - Math.sin(b) * 0.8) * dn;
+      legs[0].rotation.z = (0.95 + Math.sin(b) * 0.65) * dn;   // (forward and up, out in front of the chest: the other way they swung back into the body)
+      legs[1].rotation.z = (0.95 - Math.sin(b) * 0.65) * dn;
       legs[2].rotation.z = legs[3].rotation.z = -0.5 * dn;   // hind legs stay under it
       head.rotation.z += (-0.35 + Math.sin(b * 2) * 0.15) * dn;
       head.rotation.x += Math.sin(b) * 0.25 * dn;

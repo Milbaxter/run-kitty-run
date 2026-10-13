@@ -1687,8 +1687,8 @@ function syncVisuals(dt, alpha) {
         for (const side of [1, -1]) effects.cosmicTrail(x - fx * 0.12 - fz * 0.78 * side, cy + 0.54, z - fz * 0.12 + fx * 0.78 * side, 1, 0.04, 0.12, 0.55);
       }
     }
-    // /dance: a few seconds, or until the kitty moves or goes down
-    if (k.dance) { k.dance += dt; if (k.dance > DANCE_TIME || p.moving || !p.alive) k.dance = 0; }
+    // /dance: on and on, until the kitty moves or goes down
+    if (k.dance) { k.dance += dt; if (p.moving || !p.alive) k.dance = 0; }
     ka.dance = k.dance || 0;
     k.model.update(dt, ka);
     // (an easy game: the skate marks, aura trail and paw prints are the kitty's own colour until they cycle, from 6 wins)
@@ -1851,7 +1851,6 @@ net.on('signed', (m) => legends.onSigned(m));
 setInterval(() => legends.setFab(legends.canSign() && lobbyUI.isOpen() && lobbyUI.view() === 'room'), 1000);
 
 // /dance: that player's kitty dances (see syncVisuals)
-const DANCE_TIME = 5.6;
 net.on('emote', (m) => {
   const k = m.e === 'dance' && kitties.get(m.id);
   if (k && !chat.isHidden({ id: m.id })) k.dance = 0.001;

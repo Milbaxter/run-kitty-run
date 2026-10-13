@@ -1084,7 +1084,7 @@ function createUI(root) {
               <div class="rkr-lab">or move with the keys<br><em class="rkr-p2">Player 2</em> in co-op</div>
               <div class="rkr-krow"><span class="rkr-k" data-act="sound"></span></div><div class="rkr-lab">sound on / off</div>
               <div class="rkr-krow"><span class="rkr-k" data-act="pause"></span><span class="rkr-k rkr-wide">Esc</span></div><div class="rkr-lab">pause</div>
-              <div class="rkr-krow"><span class="rkr-k rkr-wide">Enter</span></div><div class="rkr-lab">chat (online)</div>
+              <div class="rkr-krow"><span class="rkr-k rkr-wide">Enter</span></div><div class="rkr-lab">chat, /dance</div>
               <div class="rkr-krow"><span class="rkr-k" data-act="hud"></span></div><div class="rkr-lab">show / hide the HUD</div>
               <div class="rkr-krow rkr-desk"><span class="rkr-k" data-act="full"></span></div><div class="rkr-lab rkr-desk">full screen</div>
             </div>

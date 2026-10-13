@@ -313,7 +313,8 @@ const spectateDir = (code) => (code === 'ArrowLeft' || code === key('left') ? -1
 
 window.addEventListener('keydown', (e) => {
   if (!e.code) return;   // a synthetic event (the controller's B in the lobby): not a key to hold
-  if (e.key === 'Enter' && online.room && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input')) {
+  // (Solo / Local: the chat box is there too, for /dance and /feedback: soloChat)
+  if (e.key === 'Enter' && (online.room || (soloChat && !paused)) && !chat.isOpen() && !ui.isOverlayOpen() && !e.target.closest?.('input')) {
     e.preventDefault();
     chat.open();
     return;
@@ -1331,7 +1332,23 @@ function cycleWatch(dir) {
 }
 // phones: a binoculars button with the corner buttons looks at a friend, and brings the camera back (the pill's ‹ ›: the next)
 // A dance button beside it (Multiplayer, standing): the chat's /dance. (One emote so far; a wheel once there are more.)
-function dance() { if (online.playing && mode === 'play' && !meDown()) net.send({ t: 'emote', e: 'dance' }); }
+// Solo / Local: no server, the kitties here just dance.
+function dance() {
+  if (mode !== 'play') return;
+  if (online.playing) { if (!meDown()) net.send({ t: 'emote', e: 'dance' }); return; }
+  if (online.room || paused) return;
+  for (const p of sim.players) { const k = p.alive && kitties.get(p.id); if (k) k.dance = 0.001; }
+}
+// Solo / Local runs have the chat box too, as a place to type /dance and /feedback (nobody to talk to)
+let soloChat = false;
+function syncSoloChat() {
+  const on = mode === 'play' && !online.room && !online.playing;
+  if (on === soloChat) return;
+  soloChat = on;
+  if (online.room) return;   // (a lobby's chat is its own business)
+  if (on) chat.clear();
+  chat.setEnabled(on);
+}
 let watchBtn = null, danceBtn = null;
 function cornerBtn(label, svg, onClick) {
   const row = document.querySelector('.rkr-tr');
@@ -1344,17 +1361,20 @@ function cornerBtn(label, svg, onClick) {
   b.setAttribute('aria-label', label);
   b.addEventListener('pointerdown', (e) => e.stopPropagation());
   b.addEventListener('click', (e) => { e.preventDefault(); onClick(); b.blur(); });
-  row.prepend(b);
+  row.insertBefore(b, row.querySelector('button'));   // (left of the other buttons, right of the key hints)
+  b.addEventListener('mousedown', (e) => e.preventDefault());   // (keeps the keyboard focus off it, like the others)
   return b;
 }
 function updateWatchBtn() {
-  const standing = TOUCH && canWatch() && !meDown() && sim.state === 'playing';
-  const show = standing && watchCandidates().length > 1;
-  if (!danceBtn && standing) {
+  const standing = canWatch() && !meDown() && sim.state === 'playing';
+  const show = TOUCH && standing && watchCandidates().length > 1;
+  syncSoloChat();
+  const canDance = standing || (soloChat && !paused && sim.state === 'playing');   // (the dance button: computers and Solo / Local too)
+  if (!danceBtn && canDance) {
     danceBtn = cornerBtn('Dance', '<svg viewBox="0 0 40 40"><path d="M12.5 9.5 L12 1.5 L18.5 5 Z M25.5 9.5 L26 1.5 L19.5 5 Z" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><ellipse cx="19" cy="11" rx="7.5" ry="6.2" fill="currentColor"/><ellipse cx="19" cy="24" rx="4.6" ry="6.5" fill="currentColor"/><path d="M15.5 20.5 L7 16 M22.5 20.5 L30 14.5 M16.5 28.5 L11 36 M21.5 28.5 L25 36 M23 27.5 Q34 30 33.5 21.5" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
       () => { dance(); haptic('light'); });
   }
-  if (danceBtn) danceBtn.style.display = standing ? '' : 'none';
+  if (danceBtn) danceBtn.style.display = canDance ? '' : 'none';
   if (!watchBtn && show) {
     watchBtn = cornerBtn('Watch a friend', '<svg viewBox="0 0 40 40"><path d="M9 8 H16 V17 M31 8 H24 V17 M16 14 H24 M9 8 L5 22 M31 8 L35 22" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="11.5" cy="25.5" r="7" fill="none" stroke="currentColor" stroke-width="3.2"/><circle cx="28.5" cy="25.5" r="7" fill="none" stroke="currentColor" stroke-width="3.2"/><circle cx="11.5" cy="25.5" r="2.4" fill="currentColor"/><circle cx="28.5" cy="25.5" r="2.4" fill="currentColor"/></svg>',
       () => { if (lookingAway()) watchId = null; else cycleWatch(1); });
@@ -1909,6 +1929,7 @@ const chat = createChat(document.getElementById('ui'), {
     }
     if (/^\/dance\b/i.test(text)) { dance(); return; }
     if (online.room) net.send({ t: 'chat', text });
+    else chat.add({ sys: true, text: 'Nobody else is here. Try /dance, or /feedback and your idea.' });
   },
   onOpen: () => keys.clear(), // don't keep running while typing
   onReport: NATIVE ? (id, reason) => net.send({ t: 'report', id, reason }) : null, // Report only in the store apps

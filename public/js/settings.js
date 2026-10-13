@@ -242,7 +242,7 @@ function openSettings(root, opts = {}) {
     const reset = el('button', 'rkst-small', 'RESET KEYS');
     reset.type = 'button';
     reset.addEventListener('click', () => { S.keys = { ...DEFAULT_KEYS }; save(); cancelCapture(); paintKeys(); if (opts.onKeys) opts.onKeys(); });
-    ctl.append(grid, el('div', 'rkst-note', 'The arrow keys always move too, Esc always pauses and Enter opens the chat online.'), reset);
+    ctl.append(grid, el('div', 'rkst-note', 'The arrow keys always move too, Esc always pauses and Enter opens the chat.'), reset);
     cols.appendChild(ctl);
   }
 

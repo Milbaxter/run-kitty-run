@@ -5,7 +5,7 @@ import { createSim, stepSim } from '../public/js/shared/sim.js';
 import { CFG, SKATE_FINAL_LEVEL, FINAL_MODES, PLAYER_NAMES, stageStep } from '../public/js/shared/config.js';
 import { generateLevel, mazeSelfTest, collideCircle, onIce } from '../public/js/shared/maze.js';
 import { filterChat, filterName } from '../public/js/shared/filter.js';
-import { isUnlocked, featTotal, medicLook } from '../public/js/shared/unlocks.js';
+import { isUnlocked, featTotal, medicLook, slotMetal, UNLOCKS } from '../public/js/shared/unlocks.js';
 const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process.exitCode = 1; };
 
 // ======== rules: first kitty home clears the level, everyone respawns; wolves ramp toward the goal; pickups, crown, trees
@@ -720,6 +720,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     'account stats: fastest clear per mode and level (online and local apart), slower and implausible times ignored');
     // permanent unlocks, per mode: a feat done in a mode unlocks the item in that mode only (on by default); it can be
     // switched off (everywhere); locked ones can't
+    const EASY_IDS = ['specs', 'gboots', 'sskates'];   // (a normal level 8 counts for the easy unlocks too: checked on their own below)
     const none = accounts.cosFor(token, 'run');
     accounts.recordFeat(sub, 'l8', 'run'); accounts.recordFeat(sub, 'l8', 'ice');
     const inRun = accounts.cosFor(token, 'run'), inIce = accounts.cosFor(token, 'ice'), inMixed = accounts.cosFor(token, 'mixed');
@@ -727,8 +728,8 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const after = accounts.cosFor(token, 'mixed');
     const lockedOn = await request(accounts, 'equip', [Buffer.from(JSON.stringify({ item: 'gskates', on: true }))]);   // (3 needed: Skate has its own 1 + Run + Skate's 1)
     const off = await request(accounts, 'equip', [Buffer.from(JSON.stringify({ item: 'shades', on: false }))]);
-    ok(none.length === 0 && inRun.join() === 'shades' && inIce.join() === 'shades' && inMixed.length === 0 && after.join() === 'shades'
-      && !lockedOn.ok && off.ok && accounts.cosFor(token, 'run').join() === 'rboots' && accounts.cosFor(token, 'mixed').length === 0   // (Run: its own clear + Run + Skate's = the 2 for the boots)
+    ok(none.length === 0 && inRun.filter((id) => !EASY_IDS.includes(id)).join() === 'shades' && inIce.filter((id) => !EASY_IDS.includes(id)).join() === 'shades' && inMixed.length === 0 && after.filter((id) => !EASY_IDS.includes(id)).join() === 'shades'
+      && !lockedOn.ok && off.ok && accounts.cosFor(token, 'run').filter((id) => !EASY_IDS.includes(id)).join() === 'rboots' && accounts.cosFor(token, 'mixed').filter((id) => !EASY_IDS.includes(id)).length === 0   // (Run: its own clear + Run + Skate's = the 2 for the boots)
       && off.account.unlocks.l8.mixed === 1 && off.account.unlocks.off.shades === true,
     'unlocks: each mode unlocks an item for that mode (Run + Skate counts in the other two as well), bad feats / modes are ignored, switched off it is not sent');
     ok(isUnlocked({ l9: { ice: 1 } }, 'lion', 'ice') && !isUnlocked({ l9: { ice: 1 } }, 'lion', 'run') && isUnlocked({ l9: { ice: 1 } }, 'lion')
@@ -762,7 +763,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const beforeMerge = (await request(accounts, 'me')).account.unlocks.l8.run;
     accounts.mergeGuest(sub, pid);
     const merged = (await request(accounts, 'me')).account.unlocks;
-    ok(guestCos.join() === 'shades,rboots' && gOff.ok && gRead.unlocks.off.shades === true && !gBad.ok
+    ok(guestCos.filter((id) => !['specs', 'gboots', 'sskates'].includes(id)).join() === 'shades,rboots' && gOff.ok && gRead.unlocks.off.shades === true && !gBad.ok
       && merged.l8.run === beforeMerge + 1 && merged.l8.mixed >= 1 && (await request(accounts, 'guest', [Buffer.from(JSON.stringify({ pid }))])).unlocks === null,
     'unlocks without an account: kept under the progress id, switched there, moved onto the account once it is active');
     // the new song: the final level cleared once, in any mode, unlocks it; it is never worn (not sent) and has no switch
@@ -863,6 +864,12 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const rk = lg.ranksFor({ acct: 'acct-amy' }), rk2 = lg.ranksFor({ pids: ['b'.repeat(24)] }), rk0 = lg.ranksFor({ acct: 'nobody' });
     ok(rk.length === 1 && rk[0].mode === 'ice' && rk[0].first >= 1 && rk[0].fastest >= 1 && rk[0].total === 1500 && rk2.length === 1 && !rk0.length,
       'legends lists: an account (or a browser it played on) finds its places for the swag account menu');
+    // the golden kitty: everyone ever number 1 (the first team to win a mode, each new fastest game), kept for good
+    const P = (id, n) => ({ id, name: n, color: 1, acct: 'gk-' + n });
+    lg.recordWin('run', 100, [P(3001, 'A'), P(3002, 'B')], 3000); lg.recordWin('run', 100, [P(3003, 'C')], 3500); lg.recordWin('run', 100, [P(3004, 'D')], 2500); lg.recordWin('run', 100, [P(3005, 'E')], 2400);
+    const gk = (n) => lg.goldenFor({ acct: 'gk-' + n });
+    ok(gk('A') && gk('B') && !gk('C') && gk('D') && gk('E') && lg.goldenFor({ acct: 'acct-amy' }) && !lg.goldenFor({ acct: 'nobody' }),
+      'golden kitty: number 1 on a list (the first team of a mode, each new fastest game: A+B the first timed, then D, then E), kept when beaten');
     lg.flush();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -883,5 +890,19 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   const nS = c15.sections[0].ld.legs.length, runOf = (ld) => ld.enemies.filter((e) => e.leg >= nS && mid(e) - 8 < 150);
   const top = (ld) => runOf(ld).reduce((t, e) => t + e.speed, 0) / runOf(ld).length;
   ok(c14.enemies.length === c15.enemies.length && top(c15) < 0.95 * top(c14) && top(c15) > 0.85 * top(c14), 'Run + Skate level 9 (finale version 15): its running half tops out at about 92% too');
+}
+// the mane / tail tip metals: hidden until a reward (feat 'later') unlocks them; one per slot is worn
+{
+  const metals = UNLOCKS.filter((u) => u.slot), all = { run: 1, ice: 1, mixed: 1 };
+  ok(metals.length === 6 && metals.every((u) => u.hidden && !isUnlocked({}, u) && isUnlocked({ later: all }, u, 'run'))
+    && slotMetal(new Set(['mbronze', 'mgold']), 'mane') === 'gold' && slotMetal(new Set(['tchrome']), 'tip') === 'chrome' && slotMetal(new Set(['lion']), 'mane') === null,
+    'mane / tail tip metals: hidden and locked until their reward exists, one metal worn per slot');
+}
+// a normal game's level 8 / 9 counts for the easy games' unlocks too (not the other way round)
+{
+  const normal = { l8: { run: 2, ice: 0, mixed: 0 }, l9: { run: 0, ice: 0, mixed: 1 } }, easyOnly = { e8: { run: 1, ice: 0, mixed: 0 } };
+  ok(isUnlocked(normal, 'specs', 'run') && isUnlocked(normal, 'gboots', 'run') && !isUnlocked(normal, 'specs', 'ice') && isUnlocked(normal, 'bow', 'ice')
+    && !isUnlocked(normal, 'medal', 'ice') && !isUnlocked(easyOnly, 'shades', 'run'),
+    'easy unlocks: a normal game counts for them too (Run + Skate in every mode), an easy game not for the normal ones');
 }
 console.log(process.exitCode ? 'FAIL sim-test' : 'PASS sim-test');

@@ -63,11 +63,13 @@ function stars(g) {
   }
 }
 
-// the mane behind the face (call with the 40x40 transform already set); look: { lion, lionLook, rainbow }
+// the mane behind the face (call with the 40x40 transform already set); look: { lion, lionLook, rainbow, maneMetal }
+// (maneMetal: the mane in a metal of its own, unlocks.js slot 'mane')
 function drawMane(g, color, look, phase = 0) {
   if (!look || !look.lion) return;
   const p = manePath();
-  g.fillStyle = look.lionLook === 'chrome' ? chromeFill(g) : look.lionLook === 'celestial' ? cosmicFill(g)
+  g.fillStyle = look.maneMetal === 'chrome' ? chromeFill(g) : look.maneMetal ? metalFill(g, look.maneMetal)
+    : look.lionLook === 'chrome' ? chromeFill(g) : look.lionLook === 'celestial' ? cosmicFill(g)
     : look.lionLook === 'rainbow' ? rainbowFill(g, phase) : deeper(color);
   // outline first, fill over it: only the mane's outer edge keeps the ink line
   const fill = g.fillStyle;

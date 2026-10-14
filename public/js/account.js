@@ -334,10 +334,12 @@ function createAccount(root) {
       const SHORT = { run: 'Run', ice: 'Skate', mixed: 'Run + Skate' };
       const GOALS = { l8: 'Clear level 8 having reached the goal yourself on every level (both halves in Run + Skate). Each mode unlocks it for that mode, Run + Skate for all three:',
         l9: 'Beat level 9 having reached the goal yourself on every level, the final one too. Each mode unlocks it for that mode, Run + Skate for all three:',
-        e8: 'Clear level 8 in an easy game having reached the goal yourself on every level (both halves in Run + Skate). Each mode unlocks it for that mode, Run + Skate for all three:',
-        e9: 'Beat level 9 in an easy game having reached the goal yourself on every level, the final one too. Each mode unlocks it for that mode, Run + Skate for all three:',
+        e8: 'Clear level 8 in an easy game having reached the goal yourself on every level (both halves in Run + Skate); a normal game counts too. Each mode unlocks it for that mode, Run + Skate for all three:',
+        e9: 'Beat level 9 in an easy game having reached the goal yourself on every level, the final one too; a normal game counts too. Each mode unlocks it for that mode, Run + Skate for all three:',
         win: 'Clear the final level to unlock a new song (any mode):',
-        rev: 'Revive kitties (all modes together):' };
+        rev: 'Revive kitties (all modes together):',
+        top1: 'Number 1 on the legends board: the first team to beat a mode, or the fastest game in one. Worn in every mode:',
+        later: 'Special rewards: the lion mane and the fluffy tail tip in a metal of their own, on a metal kitty (one metal each at a time):' };
       let lastFeat = '';
       // no spoilers: level 9's unlocks only once this player has seen level 9 (this browser, the account's stats, or progress)
       let seen9 = false;
@@ -347,6 +349,7 @@ function createAccount(root) {
       seen9 ||= Object.values((prog && prog.l9) || {}).some((v) => v > 0) || Object.values(solo.l9 || {}).some((v) => v > 0);
       for (const u of UNLOCKS) {
         if ((u.feat === 'l9' || u.feat === 'e9') && !seen9) continue;
+        if (u.hidden && !isUnlocked(prog, u) && !isUnlocked(solo, u)) continue;   // (not shown at all until it's unlocked)
         if (u.feat !== lastFeat) { lastFeat = u.feat; ulist.appendChild(el('div', 'rka-ugoal', GOALS[u.feat])); }
         const onl = isUnlocked(prog, u), off_ = isUnlocked(solo, u), open_ = onl || off_;   // (in some mode, online or offline: its switch shows)
         const row = el('div', 'rka-urow' + (open_ ? '' : ' rka-locked'));
@@ -354,6 +357,20 @@ function createAccount(root) {
         if (u.song) {
           // a song has no switch: it joins the soundtrack, and the settings can play it on its own
           row.appendChild(el('span', 'rka-uprog', open_ ? 'Switch it on / off in Settings' : ''));
+        } else if (u.slot || u.feat === 'top1') {
+          // a metal for the mane / tail tip: one of its slot at a time (switching one on switches the others off)
+          row.appendChild(el('span', 'rka-uprog', 'Unlocked'));
+          const on = !offOf(u.id);
+          const t = el('button', 'rka-amt rka-utog' + (on ? ' rka-on' : ''), on ? 'ON' : 'OFF');
+          t.addEventListener('click', async () => {
+            t.disabled = true;
+            try {
+              await toggle(u.id, !on);
+              if (!on) for (const o of UNLOCKS) if (o.id !== u.id && ((u.slot && o.slot === u.slot) || (u.excl && o.excl === u.excl)) && !offOf(o.id) && (isUnlocked(prog, o) || isUnlocked(solo, o))) await toggle(o.id, false);
+              changed(); open({ fresh: true });
+            } catch (e) { t.disabled = false; say(e.message, 'err'); }
+          });
+          row.appendChild(t);
         } else {
           // each mode on its own: a tick where it's unlocked (and worn), the count toward it elsewhere (a total item:
           // one count over all modes)
@@ -382,7 +399,12 @@ function createAccount(root) {
             const t = el('button', 'rka-amt rka-utog' + (on ? ' rka-on' : ''), on ? 'ON' : 'OFF');
             t.addEventListener('click', async () => {
               t.disabled = true;
-              try { await toggle(u.id, !on); changed(); open({ fresh: true }); }
+              try {
+                await toggle(u.id, !on);
+                // (one of an excl group at a time: the chrome or the golden kitty)
+                if (!on && u.excl) for (const o of UNLOCKS) if (o.id !== u.id && o.excl === u.excl && !offOf(o.id) && (isUnlocked(prog, o) || isUnlocked(solo, o))) await toggle(o.id, false);
+                changed(); open({ fresh: true });
+              }
               catch (e) { t.disabled = false; say(e.message, 'err'); }
             });
             row.appendChild(t);

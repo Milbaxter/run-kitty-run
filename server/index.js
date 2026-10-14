@@ -85,7 +85,8 @@ const stats = createStats(process.env.STATS_FILE || path.join(path.dirname(FEEDB
 const legends = createLegends(process.env.LEGENDS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'legends.json'));
 // optional accounts (Google + Stripe): the total a player paid shows next to their name online
 const accounts = createAccounts(process.env.ACCOUNTS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'accounts.json'));
-accounts.setLegendRanks((a) => legends.ranksFor({ acct: a.sub, pids: a.pids }));   // (the swag account menu shows its places on the legends lists)
+accounts.setLegendRanks((a) => legends.ranksFor({ acct: a.sub, pids: a.pids }));
+accounts.setGoldenCheck((who) => legends.goldenFor(who));   // (the golden kitty: ever number 1 on the board)   // (the swag account menu shows its places on the legends lists)
 const accountHits = new Map(); // ip -> { tok, at } (token bucket)
 setInterval(() => { const now = Date.now(); for (const [ip, h] of accountHits) if (now - h.at > 600e3) accountHits.delete(ip); }, 600e3).unref();
 const SIGN_RATE = 0.2, SIGN_BURST = 3;     // legends: sign / edit your line

@@ -54,6 +54,7 @@ function createLegends(file) {
     for (const w of wins) (SET_LINES[w.id] || []).forEach((t, i) => { const e = w.entries[i]; if (e && !e.text && cleanText(t)) { e.text = cleanText(t); e.at = new Date().toISOString(); } });
   } catch { /* first run, or unreadable: start fresh */ }
   // firsts[mode]: [{ win, idx, at, total?, name, color, text, keys }]; fastest[mode]: [{ win, at, total, kind, team: [{ name, color, text }], keys: [[...]], teamKey }]
+  let golden = [];   // (see below: everyone ever number 1)
   let firsts = Object.fromEntries(LIST_MODES.map((m) => [m, []])), fastest = Object.fromEntries(LIST_MODES.map((m) => [m, []]));
   try {
     const old = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -69,6 +70,15 @@ function createLegends(file) {
     for (const f of firsts[m]) { const k = (ADD_KEYS[f.win] || [])[f.idx]; if (k && !f.keys.includes(k)) f.keys.push(k); }
     for (const f of fastest[m]) (ADD_KEYS[f.win] || []).forEach((k, i) => { if (k && f.keys[i] && !f.keys[i].includes(k)) f.keys[i].push(k); });
   }
+  // golden: everyone who has ever been number 1 on a list (the golden kitty): [{ win, keys }], kept for good (a faster
+  // game later doesn't take it away; a removed win does). Built from the lists when the board has none yet.
+  try { const old = JSON.parse(fs.readFileSync(file, 'utf8')); if (Array.isArray(old.golden)) golden = old.golden; } catch { /* none yet */ }
+  if (!golden.length) for (const m of LIST_MODES) {
+    const f0 = firsts[m][0], s0 = fastest[m][0];
+    if (f0) for (const f of firsts[m]) if (f.win === f0.win) golden.push({ win: f.win, keys: f.keys.slice() });   // (the whole first team)
+    if (s0) for (const k of s0.keys) golden.push({ win: s0.win, keys: k.slice() });
+  }
+  golden = golden.filter((g) => !REMOVED.has(g.win));
   // signer key (tab token / client id) -> { win, idx, until }; in memory only (a restart closes the signing windows)
   const elig = new Map();
   const offlineKeys = new Map(); // offline win id -> { key, until } (edit window; in memory only)
@@ -77,7 +87,7 @@ function createLegends(file) {
   function save() {
     saveT = null;
     const tmp = file + '.tmp';
-    fs.writeFile(tmp, JSON.stringify({ wins, firsts, fastest }), (err) => {
+    fs.writeFile(tmp, JSON.stringify({ wins, firsts, fastest, golden }), (err) => {
       if (err) { console.error('legends save failed:', err.message); return; }
       fs.rename(tmp, file, (e) => { if (e) console.error('legends save failed:', e.message); });
     });
@@ -89,7 +99,7 @@ function createLegends(file) {
   function flush() {
     if (!saveT) return;
     clearTimeout(saveT); saveT = null;
-    try { fs.writeFileSync(file, JSON.stringify({ wins, firsts, fastest })); } catch (e) { console.error('legends flush failed:', e.message); }
+    try { fs.writeFileSync(file, JSON.stringify({ wins, firsts, fastest, golden })); } catch (e) { console.error('legends flush failed:', e.message); }
   }
   setInterval(() => {
     const now = Date.now();
@@ -128,10 +138,12 @@ function createLegends(file) {
   function credit(win, keyList) {
     const m = LIST_MODES.includes(win.mode) ? win.mode : 'mixed';
     const F = firsts[m];
+    const firstEver = !F.length;   // (the first team to beat this mode: all of them number 1)
     win.entries.forEach((e, idx) => {
       if (F.length >= LIST_MAX || F.some((f) => samePerson(f, keyList[idx], e.name))) return;
       F.push({ win: win.id, idx, at: win.at, ...(Number.isFinite(win.total) ? { total: win.total } : {}), name: e.name, color: e.color, text: e.text || '', keys: keyList[idx] });
     });
+    if (firstEver) keyList.forEach((k) => golden.push({ win: win.id, keys: k.slice() }));
     if (!Number.isFinite(win.total)) return;
     const teamKey = keyList.map((k) => k[0]).sort().join('|');
     const L = fastest[m], mine = L.findIndex((f) => f.teamKey === teamKey);
@@ -139,6 +151,7 @@ function createLegends(file) {
     L.push({ win: win.id, at: win.at, total: win.total, kind: win.kind, team: win.entries.map((e) => ({ name: e.name, color: e.color, text: e.text || '' })), keys: keyList, teamKey });
     L.sort((a, b) => a.total - b.total || (a.at < b.at ? -1 : 1));
     if (L.length > LIST_MAX) L.length = LIST_MAX;
+    if (L[0].win === win.id) keyList.forEach((k) => golden.push({ win: win.id, keys: k.slice() }));   // (a new fastest game)
   }
   // a line was (re)signed: the lists show it too
   function syncLists(win) {
@@ -253,11 +266,30 @@ function createLegends(file) {
     return { win, left: k.until - Date.now() };
   }
 
+  // has this player ever been number 1 (the golden kitty)? (player: { acct, pids })
+  function goldenFor(p) {
+    const keys = keysOfPlayer(p);
+    if (keys.length) bindAccount(p, keys);
+    return keys.length > 0 && golden.some((g) => g.keys.some((k) => keys.includes(k)));
+  }
+  const keysOfPlayer = (p) => [p && p.acct && hash('a:' + p.acct), ...((p && p.pids) || []).map((x) => hash('p:' + x))].filter(Boolean);
+  // a place found through one of an account's browsers is tied to the account itself from then on (a new browser, or
+  // cleared browser data, doesn't lose it)
+  function bindAccount(p, keys) {
+    const a = p && p.acct && hash('a:' + p.acct);
+    if (!a) return;
+    let n = 0;
+    const bind = (ks) => { if (ks.some((k) => keys.includes(k)) && !ks.includes(a)) { ks.push(a); n++; } };
+    for (const g of golden) bind(g.keys);
+    for (const m of LIST_MODES) { for (const f of firsts[m]) bind(f.keys); for (const f of fastest[m]) for (const ks of f.keys) bind(ks); }
+    if (n) changed();
+  }
   // a player's places on the lists (the swag account menu): [{ mode, first: place or null, fastest: place or null, total }]
   // (player: { acct, pids }; a win counts when it was made signed in to that account, or in one of those browsers)
   function ranksFor(p) {
-    const keys = [p && p.acct && hash('a:' + p.acct), ...((p && p.pids) || []).map((x) => hash('p:' + x))].filter(Boolean);
+    const keys = keysOfPlayer(p);
     if (!keys.length) return [];
+    bindAccount(p, keys);
     const out = [];
     for (const m of LIST_MODES) {
       const fi = firsts[m].findIndex((f) => f.keys.some((k) => keys.includes(k)));
@@ -267,7 +299,7 @@ function createLegends(file) {
     return out;
   }
 
-  return { recordWin, eligibility, boardFor, sign, boardJson, ranksFor, flush, checkOffline, createOffline, editOffline, TEXT_MAX };
+  return { recordWin, eligibility, boardFor, sign, boardJson, ranksFor, goldenFor, flush, checkOffline, createOffline, editOffline, TEXT_MAX };
 }
 
 export { createLegends, cleanText };

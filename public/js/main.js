@@ -12,7 +12,7 @@ import { createEffects } from './effects.js';
 import { createIceTrail } from './trail.js';
 import { createAuraTrail } from './auratrail.js';
 import { createPawPrints } from './pawprints.js';
-import { medicLook } from './shared/unlocks.js';
+import { medicLook, slotMetal } from './shared/unlocks.js';
 import { createAudio } from './audio.js';
 import { createUI } from './ui.js';
 import { createNet } from './net.js';
@@ -1089,6 +1089,9 @@ function updateVictory(dt) {
 // celestial lion (120+)
 function iconLook(p) {
   const look = iconLookOf(p);
+  // the mane's own metal (a switched-on unlock), on a metal kitty only (chrome lion, bronze / golden kitty)
+  const mm = slotMetal(cosOf(p), 'mane');
+  if (mm && look.lion && (look.lionLook === 'chrome' || look.metal)) look.maneMetal = mm;
   // local testing (?look=lion / chrome, as on the 3D kitty)
   if (DEBUG_LOOK.has('lion') || DEBUG_LOOK.has('chrome')) look.lion = true;
   if (DEBUG_LOOK.has('chrome')) look.lionLook = 'chrome';
@@ -1096,15 +1099,18 @@ function iconLook(p) {
 }
 function iconLookOf(p) {
   const wins = (p && p.finishes) || 0, res = (p && p.rescues) || 0, cos = cosOf(p);
+  // the golden kitty (an unlock: ever number 1 on the legends board), unless this run earned a look of its own
+  const goldU = cos.has('gold') && (sim.easy || (wins < 16 && !(wins >= 8 && res >= 60)));
   // an easy game: only the switched-on unlocks (its own rewards have no icon looks)
   // (specs: its reading glasses; metal: the bronze kitty at 8 wins with 60 revives, the golden one at 16 with 120)
-  if (sim.easy) return { cool: cos.has('shades'), specs: (wins >= 5 || cos.has('specs')) && !cos.has('shades'), rainbow: false, lion: cos.has('lion') || cos.has('chrome'), lionLook: cos.has('chrome') ? 'chrome' : null,
-    metal: cos.has('chrome') ? null : wins >= 16 && res >= 120 ? 'gold' : wins >= 8 && res >= 60 ? 'bronze' : null };
+  if (sim.easy) return { cool: cos.has('shades'), specs: (wins >= 5 || cos.has('specs')) && !cos.has('shades'), rainbow: false, lion: cos.has('lion'), lionLook: cos.has('chrome') && !goldU ? 'chrome' : null,
+    metal: goldU ? 'gold' : cos.has('chrome') ? null : wins >= 16 && res >= 120 ? 'gold' : wins >= 8 && res >= 60 ? 'bronze' : null };
   const rainbow = wins >= 8 && res >= 60;
   return {
-    cool: wins >= 5 || cos.has('shades'), specs: wins < 5 && !cos.has('shades') && cos.has('specs'), rainbow, lion: wins >= 14 || cos.has('lion') || cos.has('chrome'),
+    cool: wins >= 5 || cos.has('shades'), specs: wins < 5 && !cos.has('shades') && cos.has('specs'), rainbow, lion: wins >= 14 || cos.has('lion'),   // (the chrome kitty: a mane only with the Lion mane switched on)
     // the 16-win looks come first; a switched-on chrome lion otherwise (but not over the rainbow cat's own rainbow)
-    lionLook: wins >= 16 ? (res >= 120 ? 'celestial' : res >= 60 ? 'rainbow' : 'chrome') : cos.has('chrome') && !rainbow ? 'chrome' : null,
+    lionLook: wins >= 16 ? (res >= 120 ? 'celestial' : res >= 60 ? 'rainbow' : 'chrome') : cos.has('chrome') && !rainbow && !goldU ? 'chrome' : null,
+    metal: goldU ? 'gold' : null,
   };
 }
 // A kitty's switched-on account unlocks (shared/unlocks.js): online from the room info (the server checked the
@@ -1747,13 +1753,15 @@ function syncVisuals(dt, alpha) {
     // 14: the lion (and the crown's moon lights up); 16: celestial lion with 120 revives, the rainbow cat stays rainbow
     // (60+ revives), otherwise the chrome moon lion; 120 revives: the medevac rotor
     const res = p.rescues || 0;
-    ka.lion = (!easy && wins >= 14) || cos.has('lion') || cos.has('chrome'); ka.moonGlow = wins >= 14; ka.moonCat = wins >= 15;
+    ka.lion = (!easy && wins >= 14) || cos.has('lion'); ka.moonGlow = wins >= 14; ka.moonCat = wins >= 15;   // (the chrome kitty wears a mane only with the Lion mane switched on)
     ka.collar = cos.has('medal') || (easy && wins >= 16) ? 'medal' : easy && wins >= 14 ? 'tag' : null;   // (the medal: also an unlock; over a lion's mane too)   // 15: the crown's moon becomes a moon cat
     ka.celestial = !easy && wins >= 16 && res >= 120; ka.rotor = res >= 120;
     // chrome: the 16-win look, or the switched-on unlock (never over a look earned this run: celestial, rainbow)
-    ka.silver = easy ? cos.has('chrome') : wins >= 16 ? res < 60 : cos.has('chrome') && !(wins >= 8 && res >= 60);
+    // the golden kitty (an unlock: ever number 1 on the legends board), over the chrome one, never over a look this run earned
+    const goldU = cos.has('gold') && (easy || (wins < 16 && !(wins >= 8 && res >= 60)));
+    ka.silver = easy ? cos.has('chrome') && !goldU : wins >= 16 ? res < 60 : cos.has('chrome') && !goldU && !(wins >= 8 && res >= 60);
     // an easy game: a bronze kitty at 8 wins with 60 revives (as the rainbow one in a normal game), a golden one at 16 with 120
-    ka.metalCat = !easy || ka.silver ? null : wins >= 16 && res >= 120 ? 'gold' : wins >= 8 && res >= 60 ? 'bronze' : null;
+    ka.metalCat = goldU ? 'gold' : !easy || ka.silver ? null : wins >= 16 && res >= 120 ? 'gold' : wins >= 8 && res >= 60 ? 'bronze' : null;
     // revive rewards (rescues this run): 10+ medic cape, 30+ a trail of little stars of life, 60+ angel wings (they add up)
     const saves = p.rescues || 0;
     ka.cape = saves >= 10; ka.wings = saves >= 60;
@@ -1765,8 +1773,13 @@ function syncVisuals(dt, alpha) {
     if (DEBUG_LOOK.has('medal')) ka.collar = 'medal';
     // (drafts: a golden / bronze body, and the mane in a metal of its own)
     if (DEBUG_LOOK.has('gold') || DEBUG_LOOK.has('bronze')) { ka.lion = true; ka.silver = false; ka.metalCat = DEBUG_LOOK.has('gold') ? 'gold' : 'bronze'; }
-    ka.maneMetal = DEBUG_LOOK.has('mane-gold') ? 'gold' : DEBUG_LOOK.has('mane-bronze') ? 'bronze' : DEBUG_LOOK.has('mane-chrome') ? 'chrome' : null;
-    ka.tipMetal = DEBUG_LOOK.has('tip-gold') ? 'gold' : DEBUG_LOOK.has('tip-bronze') ? 'bronze' : DEBUG_LOOK.has('tip-chrome') ? 'chrome' : null;
+    // the mane's and the fluffy tail tip's own metal (switched-on unlocks), on a metal kitty only (chrome or bronze / gold)
+    const metalBody = !!(ka.silver || ka.metalCat);
+    ka.maneMetal = metalBody && ka.lion ? slotMetal(cos, 'mane') : null;
+    ka.tipMetal = metalBody && ka.fluffyTail ? slotMetal(cos, 'tip') : null;
+    // (local test looks: ?look=mane-gold / tip-chrome ...)
+    ka.maneMetal = DEBUG_LOOK.has('mane-gold') ? 'gold' : DEBUG_LOOK.has('mane-bronze') ? 'bronze' : DEBUG_LOOK.has('mane-chrome') ? 'chrome' : ka.maneMetal;
+    ka.tipMetal = DEBUG_LOOK.has('tip-gold') ? 'gold' : DEBUG_LOOK.has('tip-bronze') ? 'bronze' : DEBUG_LOOK.has('tip-chrome') ? 'chrome' : ka.tipMetal;
     if (ka.tipMetal) ka.fluffyTail = true;
     if (DEBUG_LOOK.has('pack')) { ka.backpack = true; ka.packColors = DEBUG_PACK; }
     if (saves >= 30 && !ka.celestial && p.alive && speed > 1) {   // (celestial lion: its own space trail instead, below)
@@ -1864,7 +1877,7 @@ function updateHUD() {
     }
     let h = hudPlayers[i];
     if (!h) h = hudPlayers[i] = {};
-    h.name = p.name; h.color = p.color; h.shimmer = shimmer; h.gold = gold; h.rainbow = !sim.easy && (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; const il = iconLook(p); h.cool = il.cool; h.specs = !!il.specs; h.metal = il.metal || ''; h.lion = il.lion; h.lionLook = il.lionLook; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
+    h.name = p.name; h.color = p.color; h.shimmer = shimmer; h.gold = gold; h.rainbow = !sim.easy && (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; const il = iconLook(p); h.cool = il.cool; h.specs = !!il.specs; h.metal = il.metal || ''; h.lion = il.lion; h.lionLook = il.lionLook; h.maneMetal = il.maneMetal || ''; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
     h.medic = medicLook(cosOf(p));   // the medic badge (3000 revives), when switched on
     h.paid = online.playing ? ((online.roster.get(p.id) || {}).paid || 0) : i === 0 && account.shown() ? account.display() : 0;   // the account's number (unless switched off)
   }

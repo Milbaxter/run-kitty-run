@@ -193,6 +193,10 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-card.rkr-mgold .rkr-mane path,.rkr-card.rkr-mgold .rkr-cat > path:first-child{fill:url(#rkr-gold-fur);}
 .rkr-card.rkr-celestial .rkr-mane path,.rkr-card.rkr-celestial .rkr-cat > path:first-child{fill:url(#rkr-cosmic-fur);}
 .rkr-card.rkr-celestial .rkr-mane path{stroke:#8fb8ff;}
+/* the mane in a metal of its own (main.js iconLook maneMetal), over the body's */
+.rkr-card.rkr-lion.rkr-mm-chrome .rkr-mane path{fill:url(#rkr-chrome-fur);}
+.rkr-card.rkr-lion.rkr-mm-gold .rkr-mane path{fill:url(#rkr-gold-fur);}
+.rkr-card.rkr-lion.rkr-mm-bronze .rkr-mane path{fill:url(#rkr-bronze-fur);}
 .rkr-defs{position:absolute;width:0;height:0;overflow:hidden;}
 .rkr-xeyes{display:none;}
 .rkr-card.rkr-down .rkr-eyes{display:none;}
@@ -712,6 +716,10 @@ function createUI(root) {
       card.root.classList.toggle('rkr-chrome', v.lionLook === 'chrome');
       card.root.classList.toggle('rkr-rlion', v.lionLook === 'rainbow');
       card.root.classList.toggle('rkr-celestial', v.lionLook === 'celestial');
+    }
+    if ((p.maneMetal || '') !== v.maneMetal) {   // the mane's own metal
+      v.maneMetal = p.maneMetal || '';
+      for (const m of ['chrome', 'gold', 'bronze']) card.root.classList.toggle('rkr-mm-' + m, v.maneMetal === m);
     }
     if ((p.metal || '') !== v.metal) {   // an easy game's bronze / golden kitty
       v.metal = p.metal || '';

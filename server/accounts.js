@@ -276,6 +276,9 @@ function createAccounts(file, env = process.env) {
   // the account's places on the legends board's lists (index.js hands in legends.ranksFor)
   let legendRanks = () => [];
   const setLegendRanks = (fn) => { legendRanks = fn; };
+  // ever number 1 on the legends board (index.js hands in legends.goldenFor): the golden kitty, in every mode
+  let goldenCheck = () => false;
+  const setGoldenCheck = (fn) => { goldenCheck = fn; };
   const pub = (a) => (a ? { name: a.name, email: a.email, via: a.via || 'google', paid: Number(a.paid) || 0, display: shownCents(a), active: active(a), show: !a.hide, unlocks: unlocksOf(a),
     legends: legendRanks(a),
     deleting: a.deleting ? new Date(a.deleting + DELETE_KEEP_MS).toISOString() : null,   // deleted: gone for good at this time
@@ -357,6 +360,9 @@ function createAccounts(file, env = process.env) {
     u.solo ||= {};
     for (const f of FEAT_IDS) { u.solo[f] ||= {}; for (const m of UNLOCK_MODES) u.solo[f][m] = Number(u.solo[f][m]) || 0; }
     u.off ||= {};
+    // the golden kitty (unlocks.js 'top1'): from the legends board, not counted by games (an account: its browsers count too)
+    if (goldenCheck(a.sub ? { acct: a.sub, pids: a.pids } : { pids: a.pid ? [a.pid] : [] })) u.top1 = { run: 1, ice: 1, mixed: 1 };
+    else delete u.top1;
     // the easy games' level 8 unlocks ('e8') came a little after easy games: once, whoever cleared level 8 in one before
     // gets the count. A level 9 win there ('e9') had level 8 cleared on the way; an account's easy stats counted its
     // level 8 clears (up to the 3 the unlocks need; online and offline ones together, so they go to the online track).
@@ -383,6 +389,7 @@ function createAccounts(file, env = process.env) {
     const pid = validPid(who && who.pid);
     if (!pid) return null;
     if (!guests[pid] && create) guests[pid] = { at: Date.now() };
+    if (guests[pid]) guests[pid].pid ||= pid;   // (its own id, for the golden kitty's check)
     return guests[pid] || null;
   }
   // the game server: this kitty did a feat ('l8' | 'l9' | 'win') in a mode
@@ -688,7 +695,7 @@ function createAccounts(file, env = process.env) {
     return true;
   }
 
-  return { enabled, handle, webhook, setLegendRanks, paidFor, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
+  return { enabled, handle, webhook, setLegendRanks, setGoldenCheck, paidFor, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
 }
 
 // One credit per player, however many of its tabs are in the game: of these kitties (members: { acct, pid }), the

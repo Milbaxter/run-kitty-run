@@ -24,19 +24,20 @@
 // decided). `defaultOff`: not worn until switched on (isWorn; the others are worn as soon as they're unlocked).
 const UNLOCK_MODES = ['run', 'ice', 'mixed'];
 const UNLOCKS = [
-  { id: 'shades', name: 'Sunglasses', feat: 'l8', times: 1 },
-  { id: 'rboots', name: 'Rainbow boots', feat: 'l8', times: 2 },
-  { id: 'gskates', name: 'Rainbow skates', feat: 'l8', times: 3, modes: ['ice', 'mixed'] },   // golden boots, rainbow blades (skates: not in Run only, which has no ice)
+  // the easy games' rewards first (a normal game counts for them too), then the normal games' own
   { id: 'specs', name: 'Reading glasses', feat: 'e8', times: 1 },
   { id: 'gboots', name: 'Golden boots', feat: 'e8', times: 2 },
   { id: 'sskates', name: 'Golden skates', feat: 'e8', times: 3, modes: ['ice', 'mixed'] },   // silver boots, golden blades
+  { id: 'bow', name: 'Tail bow', feat: 'e9', times: 1 },
+  { id: 'medal', name: 'Gold medal', feat: 'e9', times: 2 },
+  { id: 'shades', name: 'Sunglasses', feat: 'l8', times: 1 },
+  { id: 'rboots', name: 'Rainbow boots', feat: 'l8', times: 2 },
+  { id: 'gskates', name: 'Rainbow skates', feat: 'l8', times: 3, modes: ['ice', 'mixed'] },   // golden boots, rainbow blades (skates: not in Run only, which has no ice)
   { id: 'lion', name: 'Lion mane', feat: 'l9', times: 1 },
   { id: 'tail', name: 'Fluffy tail', feat: 'l9', times: 1 },
   { id: 'chrome', name: 'Chrome kitty', feat: 'l9', times: 1, all: true, excl: 'body' },   // (done in all three modes, worn in every one; the mane is the Lion mane's own switch)
   { id: 'mchrome', name: 'Chrome mane', feat: 'l9', times: 1, all: true, hidden: true, defaultOff: true, slot: 'mane', metal: 'chrome' },
   { id: 'tchrome', name: 'Chrome tail tip', feat: 'l9', times: 1, all: true, hidden: true, defaultOff: true, slot: 'tip', metal: 'chrome' },
-  { id: 'bow', name: 'Tail bow', feat: 'e9', times: 1 },
-  { id: 'medal', name: 'Gold medal', feat: 'e9', times: 2 },
   // `excl`: one of these worn at a time (switching one on switches the others off; worn both: the golden one shows)
   { id: 'gold', name: 'Golden kitty', feat: 'top1', times: 1, any: true, hidden: true, excl: 'body' },
   { id: 'mgold', name: 'Golden mane', feat: 'top1', times: 1, any: true, hidden: true, defaultOff: true, slot: 'mane', metal: 'gold' },
@@ -57,7 +58,7 @@ const featTotal = (progress, feat) => { const p = (progress && progress[feat]) |
 const isWorn = (u, off) => (u.defaultOff ? !!off && off[u.id] === false : !(off && off[u.id]));
 // a slot's worn metal ('mane' / 'tip'): its first switched-on item's, or null (cos: a Set of worn ids)
 const slotMetal = (cos, slot) => { for (const u of UNLOCKS) if (u.slot === slot && cos.has(u.id)) return u.metal; return null; };
-const FEATS = { l8: 'Clear level 8 reaching every goal', l9: 'Beat level 9 reaching every goal', e8: 'Clear level 8 in an easy game reaching every goal', e9: 'Beat level 9 in an easy game reaching every goal', win: 'Clear the final level', rev: 'Revive kitties' };
+const FEATS = { l8: 'Clear level 8 in a normal game reaching every goal', l9: 'Beat level 9 in a normal game reaching every goal', e8: 'Clear level 8 in an easy game reaching every goal', e9: 'Beat level 9 in an easy game reaching every goal', win: 'Clear the final level', rev: 'Revive kitties' };
 // the wins a kitty can have by level 8 (one per level, two per level in Run + Skate)
 const winsNeeded = (mode) => (mode === 'mixed' ? 16 : 8);
 // how often a feat counts as done in a mode: its own times, and in Run only and Skate only the Run + Skate ones too;

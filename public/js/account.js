@@ -332,10 +332,10 @@ function createAccount(root) {
       const box_ = section(title);
       const ulist = el('div', 'rka-unl');
       const SHORT = { run: 'Run', ice: 'Skate', mixed: 'Run + Skate' };
-      const GOALS = { l8: 'Clear level 8 having reached the goal yourself on every level (both halves in Run + Skate). Each mode unlocks it for that mode, Run + Skate for all three:',
-        l9: 'Beat level 9 having reached the goal yourself on every level, the final one too. Each mode unlocks it for that mode, Run + Skate for all three:',
+      const GOALS = { l8: 'Clear level 8 in a normal game having reached the goal yourself on every level (both halves in Run + Skate). Each mode unlocks it for that mode, Run + Skate for all three:',
+        l9: 'Clear level 9 in a normal game having reached the goal yourself on every level, the final one too. Each mode unlocks it for that mode, Run + Skate for all three:',
         e8: 'Clear level 8 in an easy game having reached the goal yourself on every level (both halves in Run + Skate); a normal game counts too. Each mode unlocks it for that mode, Run + Skate for all three:',
-        e9: 'Beat level 9 in an easy game having reached the goal yourself on every level, the final one too; a normal game counts too. Each mode unlocks it for that mode, Run + Skate for all three:',
+        e9: 'Clear level 9 in an easy game having reached the goal yourself on every level, the final one too; a normal game counts too. Each mode unlocks it for that mode, Run + Skate for all three:',
         win: 'Clear the final level to unlock a new song (any mode):',
         rev: 'Revive kitties (all modes together):',
         top1: 'Number 1 on the legends board: the first team to beat a mode, or the fastest game in one. Worn in every mode:',

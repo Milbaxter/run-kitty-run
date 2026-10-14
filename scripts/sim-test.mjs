@@ -894,9 +894,11 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
 // the mane / tail tip metals: hidden until a reward (feat 'later') unlocks them; one per slot is worn
 {
   const metals = UNLOCKS.filter((u) => u.slot), all = { run: 1, ice: 1, mixed: 1 };
-  ok(metals.length === 6 && metals.every((u) => u.hidden && !isUnlocked({}, u) && isUnlocked({ later: all }, u, 'run'))
+  const featOf = (u) => ({ [u.feat]: all });
+  ok(metals.length === 6 && metals.every((u) => u.hidden && u.defaultOff && !isUnlocked({}, u) && isUnlocked(featOf(u), u, 'run'))
+    && metals.filter((u) => u.metal === 'chrome').every((u) => u.feat === 'l9') && metals.filter((u) => u.metal === 'gold').every((u) => u.feat === 'top1')
     && slotMetal(new Set(['mbronze', 'mgold']), 'mane') === 'gold' && slotMetal(new Set(['tchrome']), 'tip') === 'chrome' && slotMetal(new Set(['lion']), 'mane') === null,
-    'mane / tail tip metals: hidden and locked until their reward exists, one metal worn per slot');
+    'mane / tail tip metals: chrome with the Chrome kitty, gold with the Golden kitty, bronze still to come; hidden until then, off until switched on, one per slot');
 }
 // a normal game's level 8 / 9 counts for the easy games' unlocks too (not the other way round)
 {

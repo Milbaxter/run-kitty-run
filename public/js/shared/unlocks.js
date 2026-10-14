@@ -19,8 +19,9 @@
 // A `song` is a new song for the soundtrack (picked in the settings), not something the kitty wears.
 // `hidden`: not in the menu at all until it is unlocked (no "locked" row). `slot` + `metal`: one of a slot's items is worn
 // at a time (slotMetal: the first switched on, in this order): the lion mane's and the fluffy tail tip's own metal, worn
-// on a metal kitty (the chrome lion, an easy game's bronze / golden kitty). Their feat 'later' has no progress yet: they
-// can't be earned until it gets one (a reward still to be decided, e.g. a place on the legends board's lists).
+// on a metal kitty (the chrome / golden kitty, an easy game's bronze / golden one). A metal comes with its kitty (chrome
+// with the Chrome kitty, gold with the Golden kitty); bronze's feat 'later' has no progress yet (a reward still to be
+// decided). `defaultOff`: not worn until switched on (isWorn; the others are worn as soon as they're unlocked).
 const UNLOCK_MODES = ['run', 'ice', 'mixed'];
 const UNLOCKS = [
   { id: 'shades', name: 'Sunglasses', feat: 'l8', times: 1 },
@@ -32,16 +33,16 @@ const UNLOCKS = [
   { id: 'lion', name: 'Lion mane', feat: 'l9', times: 1 },
   { id: 'tail', name: 'Fluffy tail', feat: 'l9', times: 1 },
   { id: 'chrome', name: 'Chrome kitty', feat: 'l9', times: 1, all: true, excl: 'body' },   // (done in all three modes, worn in every one; the mane is the Lion mane's own switch)
+  { id: 'mchrome', name: 'Chrome mane', feat: 'l9', times: 1, all: true, hidden: true, defaultOff: true, slot: 'mane', metal: 'chrome' },
+  { id: 'tchrome', name: 'Chrome tail tip', feat: 'l9', times: 1, all: true, hidden: true, defaultOff: true, slot: 'tip', metal: 'chrome' },
   { id: 'bow', name: 'Tail bow', feat: 'e9', times: 1 },
   { id: 'medal', name: 'Gold medal', feat: 'e9', times: 2 },
   // `excl`: one of these worn at a time (switching one on switches the others off; worn both: the golden one shows)
   { id: 'gold', name: 'Golden kitty', feat: 'top1', times: 1, any: true, hidden: true, excl: 'body' },
-  { id: 'mchrome', name: 'Chrome mane', feat: 'later', times: 1, hidden: true, slot: 'mane', metal: 'chrome' },
-  { id: 'mgold', name: 'Golden mane', feat: 'later', times: 1, hidden: true, slot: 'mane', metal: 'gold' },
-  { id: 'mbronze', name: 'Bronze mane', feat: 'later', times: 1, hidden: true, slot: 'mane', metal: 'bronze' },
-  { id: 'tchrome', name: 'Chrome tail tip', feat: 'later', times: 1, hidden: true, slot: 'tip', metal: 'chrome' },
-  { id: 'tgold', name: 'Golden tail tip', feat: 'later', times: 1, hidden: true, slot: 'tip', metal: 'gold' },
-  { id: 'tbronze', name: 'Bronze tail tip', feat: 'later', times: 1, hidden: true, slot: 'tip', metal: 'bronze' },
+  { id: 'mgold', name: 'Golden mane', feat: 'top1', times: 1, any: true, hidden: true, defaultOff: true, slot: 'mane', metal: 'gold' },
+  { id: 'tgold', name: 'Golden tail tip', feat: 'top1', times: 1, any: true, hidden: true, defaultOff: true, slot: 'tip', metal: 'gold' },
+  { id: 'mbronze', name: 'Bronze mane', feat: 'later', times: 1, hidden: true, defaultOff: true, slot: 'mane', metal: 'bronze' },
+  { id: 'tbronze', name: 'Bronze tail tip', feat: 'later', times: 1, hidden: true, defaultOff: true, slot: 'tip', metal: 'bronze' },
   { id: 'song5', name: 'New song: We Skate', feat: 'win', times: 1, any: true, song: true },
   // the medic badge on the player card (`medic`: its look; more revive rewards may add looks: the card shows the best)
   { id: 'medic', name: 'Medic badge', feat: 'rev', times: 3000, total: true, medic: 'base' },   // (in the kitty's colour)
@@ -52,6 +53,8 @@ const MEDIC_TIERS = UNLOCKS.filter((u) => u.medic).sort((a, b) => b.times - a.ti
 const medicLook = (cos) => { for (const u of MEDIC_TIERS) if (cos.has(u.id)) return u.medic; return ''; };
 // a total item's count: every mode's, plus what was counted before (rev.past)
 const featTotal = (progress, feat) => { const p = (progress && progress[feat]) || {}; return UNLOCK_MODES.reduce((n, m) => n + (p[m] || 0), 0) + (Number(p.past) || 0); };
+// is an unlocked item worn, by its switch (off: { id: true (switched off) / false (switched on) })
+const isWorn = (u, off) => (u.defaultOff ? !!off && off[u.id] === false : !(off && off[u.id]));
 // a slot's worn metal ('mane' / 'tip'): its first switched-on item's, or null (cos: a Set of worn ids)
 const slotMetal = (cos, slot) => { for (const u of UNLOCKS) if (u.slot === slot && cos.has(u.id)) return u.metal; return null; };
 const FEATS = { l8: 'Clear level 8 reaching every goal', l9: 'Beat level 9 reaching every goal', e8: 'Clear level 8 in an easy game reaching every goal', e9: 'Beat level 9 in an easy game reaching every goal', win: 'Clear the final level', rev: 'Revive kitties' };
@@ -75,4 +78,4 @@ function isUnlocked(progress, item, mode = null) {
   return u.any || !mode ? modes.some(done) : done(mode);
 }
 
-export { UNLOCKS, UNLOCK_MODES, FEATS, FEAT_IDS, winsNeeded, isUnlocked, featTotal, featCount, medicLook, slotMetal };
+export { UNLOCKS, UNLOCK_MODES, FEATS, FEAT_IDS, winsNeeded, isUnlocked, featTotal, featCount, medicLook, slotMetal, isWorn };

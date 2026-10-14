@@ -16,7 +16,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { UNLOCKS, UNLOCK_MODES, FEAT_IDS, isUnlocked } from '../public/js/shared/unlocks.js';
+import { UNLOCKS, UNLOCK_MODES, FEAT_IDS, isUnlocked, isWorn } from '../public/js/shared/unlocks.js';
 
 const MIN_CENTS = 50;              // Stripe's minimum charge (EUR / USD; the account settles in EUR, so a USD charge must clear €0.50)
 // No cap of our own: this is only the largest amount Stripe's API takes (8 digits); card / payment-method limits still apply
@@ -405,7 +405,7 @@ function createAccounts(file, env = process.env) {
   const switchedOn = (h, mode) => {
     if (!h || !mode) return [];
     const u = unlocksOf(h);
-    return UNLOCKS.filter((x) => !x.song && isUnlocked(u, x, mode) && !u.off[x.id]).map((x) => x.id);   // (a song isn't worn)
+    return UNLOCKS.filter((x) => !x.song && isUnlocked(u, x, mode) && isWorn(x, u.off)).map((x) => x.id);   // (a song isn't worn)
   };
   // the unlocked items switched on (the game server sends them to everyone in the room)
   const cosFor = (token, mode) => { const a = fromToken(token); return a && active(a) ? switchedOn(a, mode) : []; };
@@ -436,7 +436,7 @@ function createAccounts(file, env = process.env) {
     if (!g || !item || typeof m.on !== 'boolean') return { ok: false };
     const u = unlocksOf(g);
     if (!isUnlocked(u, item)) return { ok: false, msg: 'Not unlocked yet.' };
-    if (m.on) delete u.off[item.id]; else u.off[item.id] = true;
+    if (!m.on) u.off[item.id] = true; else if (item.defaultOff) u.off[item.id] = false; else delete u.off[item.id];
     g.at = Date.now();
     statsChanged();
     return { ok: true, unlocks: u };
@@ -587,9 +587,9 @@ function createAccounts(file, env = process.env) {
       const u = unlocksOf(a);
       if (!active(a)) return { ok: false, msg: 'Activate your swag account first.' };
       if (!isUnlocked(u, item) && !isUnlocked(u.solo, item)) return { ok: false, msg: 'Not unlocked yet.' };   // (online or offline)
-      const previous = !!u.off[item.id];
-      if (m.on) delete u.off[item.id]; else u.off[item.id] = true;
-      try { saveNow(); } catch (e) { if (previous) u.off[item.id] = true; else delete u.off[item.id]; throw e; }
+      const had = item.id in u.off, previous = u.off[item.id];
+      if (!m.on) u.off[item.id] = true; else if (item.defaultOff) u.off[item.id] = false; else delete u.off[item.id];
+      try { saveNow(); } catch (e) { if (had) u.off[item.id] = previous; else delete u.off[item.id]; throw e; }
       return { ok: true, account: pub(a) };
     }
     if (name === 'show') {

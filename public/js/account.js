@@ -2,7 +2,7 @@
 // Checkout, and your total shows next to your kitty's name online. Server side: server/accounts.js.
 // The session token lives in localStorage; main.js passes it to the game server ('hi' / 'acct').
 import { accountApiUrl, NATIVE } from './platform.js';
-import { UNLOCKS, UNLOCK_MODES, isUnlocked, featTotal, featCount } from './shared/unlocks.js';
+import { UNLOCKS, UNLOCK_MODES, isUnlocked, featTotal, featCount, isWorn } from './shared/unlocks.js';
 import { SKATE_FINAL_LEVEL, stageStep } from './shared/config.js';
 
 // The offline track (Solo and Local, one track): unlocks earned there are worn in Solo and Local games only, so a faked
@@ -350,6 +350,9 @@ function createAccount(root) {
       for (const u of UNLOCKS) {
         if ((u.feat === 'l9' || u.feat === 'e9') && !seen9) continue;
         if (u.hidden && !isUnlocked(prog, u) && !isUnlocked(solo, u)) continue;   // (not shown at all until it's unlocked)
+        // a mane / tail tip metal: only once the player has the Lion mane / Fluffy tail to wear it on
+        const part = u.slot === 'mane' ? 'lion' : u.slot === 'tip' ? 'tail' : null;
+        if (part && !isUnlocked(prog, part) && !isUnlocked(solo, part)) continue;
         if (u.feat !== lastFeat) { lastFeat = u.feat; ulist.appendChild(el('div', 'rka-ugoal', GOALS[u.feat])); }
         const onl = isUnlocked(prog, u), off_ = isUnlocked(solo, u), open_ = onl || off_;   // (in some mode, online or offline: its switch shows)
         const row = el('div', 'rka-urow' + (open_ ? '' : ' rka-locked'));
@@ -359,14 +362,14 @@ function createAccount(root) {
           row.appendChild(el('span', 'rka-uprog', open_ ? 'Switch it on / off in Settings' : ''));
         } else if (u.slot || u.feat === 'top1') {
           // a metal for the mane / tail tip: one of its slot at a time (switching one on switches the others off)
-          row.appendChild(el('span', 'rka-uprog', 'Unlocked'));
-          const on = !offOf(u.id);
+          row.appendChild(el('span', 'rka-uprog', u.slot ? 'Unlocked (on a chrome or golden kitty)' : 'Unlocked'));
+          const on = u.defaultOff ? prog.off && prog.off[u.id] === false : !offOf(u.id);
           const t = el('button', 'rka-amt rka-utog' + (on ? ' rka-on' : ''), on ? 'ON' : 'OFF');
           t.addEventListener('click', async () => {
             t.disabled = true;
             try {
               await toggle(u.id, !on);
-              if (!on) for (const o of UNLOCKS) if (o.id !== u.id && ((u.slot && o.slot === u.slot) || (u.excl && o.excl === u.excl)) && !offOf(o.id) && (isUnlocked(prog, o) || isUnlocked(solo, o))) await toggle(o.id, false);
+              if (!on) for (const o of UNLOCKS) if (o.id !== u.id && ((u.slot && o.slot === u.slot) || (u.excl && o.excl === u.excl)) && isWorn(o, prog.off) && (isUnlocked(prog, o) || isUnlocked(solo, o))) await toggle(o.id, false);
               changed(); open({ fresh: true });
             } catch (e) { t.disabled = false; say(e.message, 'err'); }
           });
@@ -420,7 +423,7 @@ function createAccount(root) {
       async (id, on) => {
         if (A.guest && isUnlocked(A.guest, id)) A.guest = (await guestApi('guestequip', { pid: progressId(), item: id, on })).unlocks;
         const o = readJson(SOLO_OFF_KEY);
-        if (on) delete o[id]; else o[id] = true;
+        if (!on) o[id] = true; else if ((UNLOCKS.find((x) => x.id === id) || {}).defaultOff) o[id] = false; else delete o[id];   // (a defaultOff item: switched on on purpose)
         writeJson(SOLO_OFF_KEY, o); soloVer++;
       },
       'Multiplayer unlocks show for everyone; Solo / Local ones only in your own Solo and Local games. Saved on this browser only: clearing its data or another device loses them (and Multiplayer ones after two months without playing it). Activate a swag account to keep them safe.',
@@ -722,7 +725,7 @@ function createAccount(root) {
         eqFor = A.account; eqGuest = A.guest; eqMode = mode; eqSolo = soloVer;
         const u = (A.account && Number(A.account.paid) > 0 && A.account.unlocks) || A.guest || {};
         const solo = soloProg(), off = { ...(u.off || {}), ...soloOff() };
-        eqSet = new Set(UNLOCKS.filter((x) => !x.song && (isUnlocked(u, x, mode) || isUnlocked(solo, x, mode)) && !off[x.id]).map((x) => x.id));
+        eqSet = new Set(UNLOCKS.filter((x) => !x.song && (isUnlocked(u, x, mode) || isUnlocked(solo, x, mode)) && isWorn(x, off)).map((x) => x.id));
       }
       return eqSet;
     },

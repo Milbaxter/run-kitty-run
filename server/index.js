@@ -21,8 +21,10 @@ const PORT = +process.env.PORT || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../public');
 const GAMEOVER_TO_LOBBY_MS = 4000;
-// Skate only final run won (sim state 'victory'): keep the room stepping and snapshotting for the party, then lobby.
-const VICTORY_TO_LOBBY_MS = 12000;
+// The game won (sim state 'victory'): the room keeps stepping and snapshotting for the party (the song, the legends
+// board) until every kitty in it has gone back to the lobby ('tolobby', the victory screen's BACK TO LOBBY), or
+// VICTORY_TO_LOBBY_MS at most (older clients never say).
+const VICTORY_TO_LOBBY_MS = 15 * 60e3;
 // Client protocol versions (sent in the client's first 'hi' message, see net.js; clients that never send one
 // count as 0). Bump a mode's floor when the shared sim changes so that an older client would desync there.
 // Older clients can still play the other modes; they can't create or join these lobbies and don't see them listed.
@@ -83,6 +85,7 @@ const stats = createStats(process.env.STATS_FILE || path.join(path.dirname(FEEDB
 const legends = createLegends(process.env.LEGENDS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'legends.json'));
 // optional accounts (Google + Stripe): the total a player paid shows next to their name online
 const accounts = createAccounts(process.env.ACCOUNTS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'accounts.json'));
+accounts.setLegendRanks((a) => legends.ranksFor({ acct: a.sub, pids: a.pids }));   // (the swag account menu shows its places on the legends lists)
 const accountHits = new Map(); // ip -> { tok, at } (token bucket)
 setInterval(() => { const now = Date.now(); for (const [ip, h] of accountHits) if (now - h.at > 600e3) accountHits.delete(ip); }, 600e3).unref();
 const SIGN_RATE = 0.2, SIGN_BURST = 3;     // legends: sign / edit your line
@@ -657,8 +660,14 @@ function leaveRoom(client) {
   if (room.sim) removePlayer(room.sim, client.id);
   if (room.members.length === 0) { rooms.delete(room.code); return; }
   if (room.hostId === client.id) room.hostId = room.members[0].id; // next in join order
+  partyOver(room);
   sendRoom(room);
   broadcast(room, { t: 'chat', sys: true, text: `${client.name} left` });
+}
+
+// the victory party ends (back to the lobby on the next tick) once everyone still in the room has gone back to it
+function partyOver(room) {
+  if (room.phase === 'playing' && room.victory && room.backs && room.members.every((m) => room.backs.has(m.id))) room.overAt = Date.now();
 }
 
 function startMsg(room, withWolves) {
@@ -721,6 +730,7 @@ function stepRoom(room) {
       // final state: the sim keeps stepping (snapshots carry st 'victory') until the room goes back to the lobby
       room.victory = e;
       room.overAt = Date.now() + VICTORY_TO_LOBBY_MS;
+      room.backs = new Set();   // who has gone back to the lobby from the party
       stats.onlineGameWon(room.mode);
       legendsOnWin(room, e);
     }
@@ -994,6 +1004,10 @@ wss.on('connection', (ws, req) => {
         joinRoom(client, r, msg.name, msg.color, msg.password);
         break;
       }
+      case 'tolobby':
+        // back to the lobby from the victory party (the party goes on for the others until they all have)
+        if (room && room.phase === 'playing' && room.victory && room.backs) { room.backs.add(client.id); partyOver(room); }
+        break;
       case 'leave':
         leaveRoom(client);
         send(ws, { t: 'left' });

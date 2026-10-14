@@ -355,36 +355,47 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
       refs.views.appendChild(b);
     }
   }
-  // a name in its kitty colour
-  const nameEl = (n, c) => { const s = el('span', 'rkg-n', n); s.style.color = hex(c); return s; };
-  function rankCard(no, head, body) {
-    const card = el('div', 'rkg-card rkg-rank');
-    card.appendChild(el('div', 'rkg-no', '#' + no));
-    const b = el('div', 'rkg-body');
-    b.appendChild(head);
-    if (body) b.appendChild(body);
-    card.appendChild(b);
-    return card;
+  // a card's lines, the same on every view: each kitty's name first, then the line they wrote ("Name — “line”");
+  // the ones who wrote nothing together on one line after them
+  function cardLines(card, entries) {
+    const quiet = [];
+    for (const e of entries) {
+      if (!e || typeof e.name !== 'string') continue;
+      if (!e.text) { quiet.push(e); continue; }
+      const line = el('div', 'rkg-line');
+      const n = el('span', 'rkg-n', e.name);
+      n.style.color = hex(e.color);
+      line.append(n, ' — ', el('q', null, String(e.text)));
+      card.appendChild(line);
+    }
+    if (quiet.length) {
+      const line = el('div', 'rkg-line');
+      quiet.forEach((e, i) => {
+        if (i) line.append(', ');
+        const n = el('span', 'rkg-n', e.name);
+        n.style.color = hex(e.color);
+        line.appendChild(n);
+      });
+      card.appendChild(line);
+    }
   }
-  // the first 100 players to beat this mode / its 100 fastest games
+  // the first 100 players to beat this mode / its 100 fastest games (cards like LATEST's, their place first)
   function renderList(list) {
     const L = (lists[view] && lists[view][tab]) || [];
     if (!L.length) { list.appendChild(el('div', 'rkg-empty', view === 'firsts' ? 'Nobody has beaten this mode yet. The first spot is waiting!' : 'No timed games yet. The first one to win sets the record!')); return; }
+    const mine = can && can.id;
     L.forEach((f, i) => {
+      const card = el('div', 'rkg-card rkg-rank' + (f.win === mine ? ' rkg-mine' : ''));
+      card.appendChild(el('div', 'rkg-no', '#' + (i + 1)));
+      const body = el('div', 'rkg-body');
       const head = el('div', 'rkg-head');
-      if (view === 'firsts') {
-        head.appendChild(el('span', null, fmtDate(f.at)));
-        const line = el('div', 'rkg-line');
-        line.appendChild(nameEl(f.name, f.color));
-        if (f.text) line.append(' — ', el('q', null, String(f.text)));
-        list.appendChild(rankCard(i + 1, head, line));
-      } else {
-        head.appendChild(el('span', null, '⏱ ' + fmtTime(f.total)));
-        head.appendChild(el('span', null, fmtDate(f.at) + (f.kind === 'solo' ? ' · solo' : f.kind === 'coop' ? ' · co-op' : '')));
-        const who = el('div', 'rkg-also');
-        (f.team || []).forEach((p, k) => { if (k) who.append(', '); who.appendChild(nameEl(p.name, p.color)); });
-        list.appendChild(rankCard(i + 1, head, who));
-      }
+      head.appendChild(el('span', null, fmtDate(f.at)));
+      head.appendChild(el('span', null, (MODES[tab] || '') + (f.kind === 'solo' ? ' · solo' : f.kind === 'coop' ? ' · co-op' : '')));
+      if (Number.isFinite(f.total)) head.appendChild(el('span', null, '⏱ ' + fmtTime(f.total)));
+      body.appendChild(head);
+      cardLines(body, view === 'firsts' ? [{ name: f.name, color: f.color, text: f.text }] : f.team || []);
+      card.appendChild(body);
+      list.appendChild(card);
     });
   }
   function render() {
@@ -414,29 +425,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
       if (Number.isFinite(tt)) head.appendChild(el('span', null, '⏱ ' + fmtTime(tt)));
       if (w.id === mine) head.appendChild(el('span', 'rkg-you', 'YOUR TEAM'));
       card.appendChild(head);
-      const entries = Array.isArray(w.entries) ? w.entries : [];
-      const quiet = [];
-      for (const e of entries) {
-        if (!e || typeof e.name !== 'string') continue;
-        if (!e.text) { quiet.push(e); continue; }
-        const line = el('div', 'rkg-line');
-        line.append(el('q', null, String(e.text)), ' — ');
-        const n = el('span', 'rkg-n', e.name);
-        n.style.color = hex(e.color);
-        line.appendChild(n);
-        card.appendChild(line);
-      }
-      if (quiet.length) {
-        const also = el('div', 'rkg-also');
-        also.append(entries.some((e) => e && e.text) ? 'with ' : '');
-        quiet.forEach((e, i) => {
-          if (i) also.append(', ');
-          const n = el('span', 'rkg-n', e.name);
-          n.style.color = hex(e.color);
-          also.appendChild(n);
-        });
-        card.appendChild(also);
-      }
+      cardLines(card, Array.isArray(w.entries) ? w.entries : []);
       list.appendChild(card);
     }
     list.scrollTop = top;

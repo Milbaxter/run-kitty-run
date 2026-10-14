@@ -273,7 +273,11 @@ function createAccounts(file, env = process.env) {
   // the number shown next to the kitty: the total paid, or a lower one the player picked ('display' route: 1 cent up to
   // the total)
   const shownCents = (a) => { const paid = Number(a && a.paid) || 0, d = Number(a && a.display); return Number.isInteger(d) && d >= 1 && d <= paid ? d : paid; };
+  // the account's places on the legends board's lists (index.js hands in legends.ranksFor)
+  let legendRanks = () => [];
+  const setLegendRanks = (fn) => { legendRanks = fn; };
   const pub = (a) => (a ? { name: a.name, email: a.email, via: a.via || 'google', paid: Number(a.paid) || 0, display: shownCents(a), active: active(a), show: !a.hide, unlocks: unlocksOf(a),
+    legends: legendRanks(a),
     deleting: a.deleting ? new Date(a.deleting + DELETE_KEEP_MS).toISOString() : null,   // deleted: gone for good at this time
     stats: { online: (a.stats && a.stats.online) || blankStats(), local: (a.stats && a.stats.local) || blankStats(), easy: (a.stats && a.stats.easy) || blankStats() } } : null);
   function newSession(a) {
@@ -403,7 +407,11 @@ function createAccounts(file, env = process.env) {
   function seenGuest(pid) { const g = (pid = validPid(pid)) && guests[pid]; if (g) { g.at = Date.now(); statsChanged(); } }
   // an account that is active now takes over this browser's guest progress (counts add up; its own switches stay)
   function mergeGuest(sub, pid) {
-    const a = sub && accounts[sub], g = (pid = validPid(pid)) && guests[pid];
+    const a = sub && accounts[sub];
+    pid = validPid(pid);
+    // the browsers this account has played on (the last few): its legends board places count wins made in them too
+    if (a && pid && !(a.pids || []).includes(pid)) { a.pids = [...(a.pids || []), pid].slice(-10); statsChanged(); }
+    const g = pid && guests[pid];
     if (!a || !active(a) || !g || !g.unlocks) return;
     const u = unlocksOf(a), gu = unlocksOf(g);
     for (const f of FEAT_IDS) for (const m of UNLOCK_MODES) u[f][m] += gu[f][m];
@@ -680,7 +688,7 @@ function createAccounts(file, env = process.env) {
     return true;
   }
 
-  return { enabled, handle, webhook, paidFor, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
+  return { enabled, handle, webhook, setLegendRanks, paidFor, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
 }
 
 // One credit per player, however many of its tabs are in the game: of these kitties (members: { acct, pid }), the

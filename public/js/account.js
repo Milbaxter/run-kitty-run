@@ -570,7 +570,20 @@ function createAccount(root) {
       });
       links.append(out, del);
       // stats and unlocks only on an active account (one that has paid; the server counts nothing before)
-      box.append(swag, ...(paid > 0 ? [unl, stats] : [guestBox()]), msg, closeBtn, links, delBox, fine(`${signedInAs(a)}. `));
+      // the legends board's lists: this account's places (wins made while signed in to it)
+      const ranks = Array.isArray(a.legends) ? a.legends : [];
+      const leg = ranks.length ? section('LEGENDS') : null;
+      if (leg) {
+        const MODE_NAME = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
+        for (const r of ranks) {
+          if (r.first) leg.appendChild(el('div', 'rka-note', `🏆 #${r.first} of the first 100 to beat ${MODE_NAME[r.mode] || r.mode}`));
+          if (r.fastest) {
+            const t = Math.max(0, Math.floor(r.total || 0));
+            leg.appendChild(el('div', 'rka-note', `⏱ #${r.fastest} of the 100 fastest in ${MODE_NAME[r.mode] || r.mode} (${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')})`));
+          }
+        }
+      }
+      box.append(swag, ...(leg ? [leg] : []), ...(paid > 0 ? [unl, stats] : [guestBox()]), msg, closeBtn, links, delBox, fine(`${signedInAs(a)}. `));
       sayOpts();
       root.appendChild(modal);
       // fresh numbers (a game may have counted since this page loaded): redraw if the menu is still the one showing

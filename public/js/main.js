@@ -2275,6 +2275,7 @@ function beginOnlineGame(m) {
 
 function backToLobby() {
   if (online.menu) { online.menu = false; ui.hidePause(); }
+  if (online.playing && sim && sim.state === 'victory') net.send({ t: 'tolobby' });   // (the server ends the party once everyone has)
   online.playing = false;
   enterTitle(false);
   if (online.room) lobbyUI.showRoom(online.room);

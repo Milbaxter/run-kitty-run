@@ -154,12 +154,18 @@ async function victory() {
   const edit = await post({ id: made.id, key: made.key, players: [{ text: 'We did it!' }, { text: 'Me too' }] });
   ok(!bad.ok && edit.ok && edit.win.entries[1].text === 'Me too' && edit.win.entries[0].text === 'We did it!', 'offline lines editable with the key only');
 
-  // ---- snapshots keep coming, all 'victory', until the room returns to the lobby
+  // ---- snapshots keep coming, all 'victory', until everyone has gone back to the lobby ('tolobby'), one by one
   const n0 = guest.snaps.length;
-  while (!(guest.last.room && guest.last.room.phase === 'lobby') && Date.now() - tWin < 20000) await sleep(100);
-  const back = (Date.now() - tWin) / 1000;
+  await sleep(Math.max(0, 14000 - (Date.now() - tWin)));   // (past the old 12 s: the party goes on)
+  const stillOn = guest.last.room && guest.last.room.phase === 'playing';
+  host.send({ t: 'tolobby' }); late.send({ t: 'tolobby' }); await sleep(400);
+  const twoBack = guest.last.room && guest.last.room.phase === 'playing';
+  guest.send({ t: 'tolobby' });
+  const tAll = Date.now();
+  while (!(guest.last.room && guest.last.room.phase === 'lobby') && Date.now() - tAll < 3000) await sleep(50);
+  const back = (Date.now() - tAll) / 1000;
   const during = guest.snaps.slice(n0);
-  ok(guest.last.room.phase === 'lobby' && back > 11 && back < 14, `room back in the lobby ${back.toFixed(1)}s after the win`);
+  ok(stillOn && twoBack && guest.last.room.phase === 'lobby' && back < 1, `the party goes on past 12 s and while some are still in it; lobby ${back.toFixed(1)}s after the last one went back`);
   ok(during.length > 100 && during.every((s) => s.st === 'victory' && s.lvl === F), `${during.length} snapshots during the party, all st 'victory' on level ${F}`);
   ok(!during.some((s) => s.ev.some((e) => ['levelStart', 'gameOver', 'death'].includes(e.type))), 'no level change / game over / deaths during the party');
   const cnt = guest.snaps.length; await sleep(300);

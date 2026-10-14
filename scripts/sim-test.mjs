@@ -860,6 +860,9 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(lb.firsts.ice.filter((x) => x.name === 'Amy').length === 1 && lb.fastest.ice.filter((x) => x.team[0].name === 'Amy').map((x) => x.total).join() === '1500'
       && lb.firsts.run.length === 1 && lb.firsts.mixed.length === 1 && !/acct-amy|aaaaaaaa|"keys"/.test(lg.boardJson()),
       'legends lists: first 100 different players per mode (105 wins of one name: 1), each team only with its best time, no ids sent');
+    const rk = lg.ranksFor({ acct: 'acct-amy' }), rk2 = lg.ranksFor({ pids: ['b'.repeat(24)] }), rk0 = lg.ranksFor({ acct: 'nobody' });
+    ok(rk.length === 1 && rk[0].mode === 'ice' && rk[0].first >= 1 && rk[0].fastest >= 1 && rk[0].total === 1500 && rk2.length === 1 && !rk0.length,
+      'legends lists: an account (or a browser it played on) finds its places for the swag account menu');
     lg.flush();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

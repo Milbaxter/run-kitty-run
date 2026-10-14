@@ -50,7 +50,7 @@ function createLegends(file) {
     for (const w of wins) if (Number.isFinite(SET_TOTAL[w.id]) && !Number.isFinite(w.total)) w.total = Math.round(SET_TOTAL[w.id] * 10) / 10;
     for (const w of wins) (SET_LINES[w.id] || []).forEach((t, i) => { const e = w.entries[i]; if (e && !e.text && cleanText(t)) { e.text = cleanText(t); e.at = new Date().toISOString(); } });
   } catch { /* first run, or unreadable: start fresh */ }
-  // firsts[mode]: [{ win, idx, at, name, color, text, keys }]; fastest[mode]: [{ win, at, total, kind, team: [{ name, color, text }], keys: [[...]], teamKey }]
+  // firsts[mode]: [{ win, idx, at, total?, name, color, text, keys }]; fastest[mode]: [{ win, at, total, kind, team: [{ name, color, text }], keys: [[...]], teamKey }]
   let firsts = Object.fromEntries(LIST_MODES.map((m) => [m, []])), fastest = Object.fromEntries(LIST_MODES.map((m) => [m, []]));
   try {
     const old = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -101,7 +101,7 @@ function createLegends(file) {
     return out;
   };
   const publicLists = () => ({
-    firsts: Object.fromEntries(LIST_MODES.map((m) => [m, firsts[m].map((f) => ({ win: f.win, at: f.at, name: f.name, color: f.color, text: f.text || '' }))])),
+    firsts: Object.fromEntries(LIST_MODES.map((m) => [m, firsts[m].map((f) => ({ win: f.win, at: f.at, total: f.total, name: f.name, color: f.color, text: f.text || '' }))])),
     fastest: Object.fromEntries(LIST_MODES.map((m) => [m, fastest[m].map((f) => ({ win: f.win, at: f.at, total: f.total, kind: f.kind, team: f.team }))])),
   });
   function boardJson() { return (cache ||= JSON.stringify({ ok: true, wins: board(), ...publicLists() })); }
@@ -122,7 +122,7 @@ function createLegends(file) {
     const F = firsts[m];
     win.entries.forEach((e, idx) => {
       if (F.length >= LIST_MAX || F.some((f) => samePerson(f, keyList[idx], e.name))) return;
-      F.push({ win: win.id, idx, at: win.at, name: e.name, color: e.color, text: e.text || '', keys: keyList[idx] });
+      F.push({ win: win.id, idx, at: win.at, ...(Number.isFinite(win.total) ? { total: win.total } : {}), name: e.name, color: e.color, text: e.text || '', keys: keyList[idx] });
     });
     if (!Number.isFinite(win.total)) return;
     const teamKey = keyList.map((k) => k[0]).sort().join('|');
@@ -135,7 +135,10 @@ function createLegends(file) {
   // a line was (re)signed: the lists show it too
   function syncLists(win) {
     const m = LIST_MODES.includes(win.mode) ? win.mode : 'mixed';
-    for (const f of firsts[m]) if (f.win === win.id && win.entries[f.idx]) { f.text = win.entries[f.idx].text || ''; f.name = win.entries[f.idx].name; }
+    for (const f of firsts[m]) if (f.win === win.id && win.entries[f.idx]) {
+      f.text = win.entries[f.idx].text || ''; f.name = win.entries[f.idx].name;
+      if (!Number.isFinite(f.total) && Number.isFinite(win.total)) f.total = win.total;   // (lists saved before they kept the time)
+    }
     for (const f of fastest[m]) if (f.win === win.id) f.team = win.entries.map((e) => ({ name: e.name, color: e.color, text: e.text || '' }));
   }
   for (const w of wins) syncLists(w);   // (lines written in by hand at load)
@@ -242,7 +245,21 @@ function createLegends(file) {
     return { win, left: k.until - Date.now() };
   }
 
-  return { recordWin, eligibility, boardFor, sign, boardJson, flush, checkOffline, createOffline, editOffline, TEXT_MAX };
+  // a player's places on the lists (the swag account menu): [{ mode, first: place or null, fastest: place or null, total }]
+  // (player: { acct, pids }; a win counts when it was made signed in to that account, or in one of those browsers)
+  function ranksFor(p) {
+    const keys = [p && p.acct && hash('a:' + p.acct), ...((p && p.pids) || []).map((x) => hash('p:' + x))].filter(Boolean);
+    if (!keys.length) return [];
+    const out = [];
+    for (const m of LIST_MODES) {
+      const fi = firsts[m].findIndex((f) => f.keys.some((k) => keys.includes(k)));
+      const si = fastest[m].findIndex((f) => f.keys.some((ks) => ks.some((k) => keys.includes(k))));
+      if (fi >= 0 || si >= 0) out.push({ mode: m, first: fi >= 0 ? fi + 1 : null, fastest: si >= 0 ? si + 1 : null, total: si >= 0 ? fastest[m][si].total : null });
+    }
+    return out;
+  }
+
+  return { recordWin, eligibility, boardFor, sign, boardJson, ranksFor, flush, checkOffline, createOffline, editOffline, TEXT_MAX };
 }
 
 export { createLegends, cleanText };

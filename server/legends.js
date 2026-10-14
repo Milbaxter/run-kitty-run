@@ -27,7 +27,7 @@ const OFFLINE_PLAYERS = 2;              // solo or local co-op
 const LIST_MAX = 100;                   // firsts / fastest: entries per mode
 const LIST_MODES = ['mixed', 'run', 'ice'];
 // wins taken off the board by hand (by id): dropped when the board loads, so a deploy removes them
-const REMOVED = new Set(['murjptwl94a69a', 'mv8dky15adbec8']);   // (mv8dky15adbec8: a test run with a bot, 2026-10-14)
+const REMOVED = new Set(['murjptwl94a69a', 'mv8dky15adbec8', 'mv8g942e32c8f5']);   // (mv8dky15adbec8, mv8g942e32c8f5: test runs with a bot, 2026-10-14)
 // lines written in by hand (win id -> one line per kitty, in order), for a winner whose signing failed: filled in when
 // the board loads, only where that kitty has no line yet
 const SET_LINES = { mv7wofqk847338: ['the one and only'] };

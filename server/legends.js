@@ -20,6 +20,9 @@ const MIN_RUN_S = 15;                   // offline: the final run alone
 const OFFLINE_PLAYERS = 2;              // solo or local co-op
 // wins taken off the board by hand (by id): dropped when the board loads, so a deploy removes them
 const REMOVED = new Set(['murjptwl94a69a']);
+// lines written in by hand (win id -> one line per kitty, in order), for a winner whose signing failed: filled in when
+// the board loads, only where that kitty has no line yet
+const SET_LINES = { mv7wofqk847338: ['the one and only'] };
 
 // single line, no control / bidi-override characters, collapsed spaces, capped; no other filtering (the apps mask)
 function cleanText(v) {
@@ -32,6 +35,7 @@ function createLegends(file) {
   try {
     const old = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (Array.isArray(old.wins)) wins = old.wins.filter((w) => w && Array.isArray(w.entries) && !REMOVED.has(w.id)).slice(-MAX_WINS);
+    for (const w of wins) (SET_LINES[w.id] || []).forEach((t, i) => { const e = w.entries[i]; if (e && !e.text && cleanText(t)) { e.text = cleanText(t); e.at = new Date().toISOString(); } });
   } catch { /* first run, or unreadable: start fresh */ }
   // signer key (tab token / client id) -> { win, idx, until }; in memory only (a restart closes the signing windows)
   const elig = new Map();

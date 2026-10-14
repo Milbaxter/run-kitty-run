@@ -424,7 +424,7 @@ function handleOfflineSign(req, res) {
 // A room just won: everyone in it at this moment is on the board and may sign it; each gets the board right away.
 function legendsOnWin(room, e) {
   if (room.easy) return;   // (the board is for games won without starting levels over)
-  legends.recordWin(room.mode, e.time, room.members);
+  legends.recordWin(room.mode, e.time, room.members, room.sim ? room.sim.time : NaN);   // (the final level's time, the whole game's)
   for (const m of room.members) { const b = legends.boardFor(m); if (b) send(m.ws, b); }
 }
 

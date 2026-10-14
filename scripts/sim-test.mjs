@@ -850,6 +850,9 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const wins = JSON.parse(lg.boardJson()).wins;
     ok(wins.filter((w) => w.mode === 'mixed').length === 100 && wins.some((w) => w.mode === 'run') && wins[0].mode === 'mixed',
       'legends board: the newest 100 of each mode, newest first (an older win of a quieter mode stays on)');
+    lg.recordWin('ice', 300, [{ id: 999, name: 'Pip', color: 3 }], 2400);
+    const tw = JSON.parse(lg.boardJson()).wins.find((w) => w.mode === 'ice');
+    ok(tw && tw.runTime === 300 && tw.total === 2400, 'legends board: a win keeps the whole game time (total) next to the final level time');
     lg.flush();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

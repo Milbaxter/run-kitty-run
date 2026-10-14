@@ -23,6 +23,9 @@ const REMOVED = new Set(['murjptwl94a69a']);
 // lines written in by hand (win id -> one line per kitty, in order), for a winner whose signing failed: filled in when
 // the board loads, only where that kitty has no line yet
 const SET_LINES = { mv7wofqk847338: ['the one and only'] };
+// whole-game times set by hand (win id -> seconds) for wins from before the board kept them (filled in only where missing):
+// mv7wofqk847338 = its final level (895.7 s) + 17 minutes, as its winner asked
+const SET_TOTAL = { mv7wofqk847338: 895.7 + 17 * 60 };
 
 // single line, no control / bidi-override characters, collapsed spaces, capped; no other filtering (the apps mask)
 function cleanText(v) {
@@ -31,10 +34,12 @@ function cleanText(v) {
 }
 
 function createLegends(file) {
-  let wins = [];   // oldest first: { id, at, mode, kind?: 'solo' | 'coop' (offline wins), runTime, entries: [{ name, color, text, at }] }
+  // total: the whole game's time, levels 1-9 (wins from 2026-10-14 on; older ones only have runTime, the final level's)
+  let wins = [];   // oldest first: { id, at, mode, kind?: 'solo' | 'coop' (offline wins), runTime, total?, entries: [{ name, color, text, at }] }
   try {
     const old = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (Array.isArray(old.wins)) wins = old.wins.filter((w) => w && Array.isArray(w.entries) && !REMOVED.has(w.id)).slice(-MAX_WINS);
+    for (const w of wins) if (Number.isFinite(SET_TOTAL[w.id]) && !Number.isFinite(w.total)) w.total = Math.round(SET_TOTAL[w.id] * 10) / 10;
     for (const w of wins) (SET_LINES[w.id] || []).forEach((t, i) => { const e = w.entries[i]; if (e && !e.text && cleanText(t)) { e.text = cleanText(t); e.at = new Date().toISOString(); } });
   } catch { /* first run, or unreadable: start fresh */ }
   // signer key (tab token / client id) -> { win, idx, until }; in memory only (a restart closes the signing windows)
@@ -86,11 +91,12 @@ function createLegends(file) {
   }
 
   // A room won: one legend with everyone in it (names only until they write something), and a signing window each.
-  function recordWin(mode, runTime, members) {
+  function recordWin(mode, runTime, members, total) {
     const now = Date.now();
     const win = {
       id: newId(now), at: new Date(now).toISOString(), mode,
       runTime: Number.isFinite(runTime) ? Math.round(runTime * 10) / 10 : null,
+      ...(Number.isFinite(total) ? { total: Math.round(total * 10) / 10 } : {}),
       entries: members.map((m) => ({ name: m.name, color: m.color, text: '', at: null })),
     };
     members.forEach((m, idx) => { for (const k of keysOf(m)) elig.set(k, { win, idx, until: now + SIGN_WINDOW_MS }); });
@@ -147,7 +153,7 @@ function createLegends(file) {
     const ps = offlinePlayers(m);
     const win = {
       id: newId(now), at: new Date(now).toISOString(), mode: m.mode, kind: ps.length > 1 ? 'coop' : 'solo',
-      runTime: Math.round(+m.runTime * 10) / 10,
+      runTime: Math.round(+m.runTime * 10) / 10, total: Math.round(+m.time * 10) / 10,
       entries: ps.map((p) => ({ name: p.name, color: p.color, text: p.text, at: p.text ? new Date(now).toISOString() : null })),
     };
     const key = crypto.randomBytes(12).toString('hex');

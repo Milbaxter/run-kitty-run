@@ -1938,6 +1938,7 @@ const chat = createChat(document.getElementById('ui'), {
 const legends = createLegends(document.getElementById('ui'), {
   send: (m) => net.send(m),
   isOnline: () => net.connected,
+  reconnect: () => net.wake(),
   onOpenChange: (on) => { ui.setVictoryHidden(on); keys.clear(); },
 });
 ui.setBlocker(() => legends.isOpen());

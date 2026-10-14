@@ -82,8 +82,9 @@ function fmtDate(iso) {
   try { return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); } catch { return iso.slice(0, 10); }
 }
 
-// send(msg): ws send; isOnline(): connected to the server; onOpenChange(open): the board opened / closed
-function createLegends(root, { send, isOnline, onOpenChange }) {
+// send(msg): ws send; isOnline(): connected to the server; reconnect(): reconnect now if the connection is down;
+// onOpenChange(open): the board opened / closed
+function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
   const st = document.createElement('style');
   st.textContent = CSS;
   document.head.appendChild(st);
@@ -289,8 +290,23 @@ function createLegends(root, { send, isOnline, onOpenChange }) {
       go.disabled = true;
       setMsg('Signing…');
       if (can.offline) { signOffline(texts); return; }
-      if (!isOnline()) { go.disabled = false; setMsg('Not connected, try again in a moment.', 'err'); return; }
-      send({ t: 'sign', text: texts[0] });
+      // the connection dropped (the victory party can be long): reconnect now and sign as soon as it is back. The
+      // signing window belongs to this tab, so it is still there after the reconnect.
+      if (!isOnline()) {
+        setMsg('Reconnecting…');
+        if (reconnect) reconnect();
+        const t0 = performance.now();
+        const wait = setInterval(() => {
+          if (!refs || refs.go !== go || !canSign()) { clearInterval(wait); return; }   // (board closed / window over)
+          if (isOnline()) { clearInterval(wait); setTimeout(() => { if (refs && refs.go === go && canSign()) sendSign(texts[0]); }, 400); return; }
+          if (performance.now() - t0 > 30000) { clearInterval(wait); go.disabled = false; setMsg('Still not connected. Check your internet and press SIGN again.', 'err'); }
+        }, 300);
+        return;
+      }
+      sendSign(texts[0]);
+    };
+    const sendSign = (text) => {
+      send({ t: 'sign', text });
       go.textContent = 'UPDATE';
       setTimeout(() => { go.disabled = false; }, 1500); // in case no reply comes back
     };
@@ -332,7 +348,9 @@ function createLegends(root, { send, isOnline, onOpenChange }) {
       const head = el('div', 'rkg-head');
       head.appendChild(el('span', null, fmtDate(w.at)));
       head.appendChild(el('span', null, (MODES[w.mode] || 'Run Kitty Run') + (w.kind === 'solo' ? ' · solo' : w.kind === 'coop' ? ' · co-op' : '')));
-      if (Number.isFinite(w.runTime)) head.appendChild(el('span', null, '⏱ ' + fmtTime(w.runTime)));
+      // the whole game's time (wins before 2026-10-14 only have the final level's)
+      const tt = Number.isFinite(w.total) ? w.total : w.runTime;
+      if (Number.isFinite(tt)) head.appendChild(el('span', null, '⏱ ' + fmtTime(tt)));
       if (w.id === mine) head.appendChild(el('span', 'rkg-you', 'YOUR TEAM'));
       card.appendChild(head);
       const entries = Array.isArray(w.entries) ? w.entries : [];

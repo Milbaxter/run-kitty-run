@@ -1,4 +1,4 @@
-import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, stageOf } from './config.js';
+import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, stageOf } from './config.js';
 import { createRng, hashSeed, ipow, legPoint } from './rng.js';
 import { buildPlan, patternPose, patternSpeed } from './enemies.js';
 
@@ -1408,6 +1408,9 @@ const CLASSIC_RUN_SKATE_ICE = false;
 const COMBO_GAP = 6;   // between the two corridors' walls (room for the braziers outside them)
 const MEDIC_RESCUES = 60;   // revives this run that repair the broken checkpoint (= the wings)
 const COMBO_RUN_SPEED0 = 0.7;   // the run half's wolf speed at its start (of their usual), rising to 1 at the goal room
+// finale version 15+: the running final run's wolves (Run only's level 9 and Run + Skate's running half) only get up to
+// this at the goal room (of their usual), from COMBO_RUN_SPEED0 after the start room
+const RUN_RAMP_TOP = 0.92;
 function generateCombo(L, seed, v = 3) {
   const sk = generateLevel(L, hashSeed(seed, L, 'combo-skate'), 'mixed', 2);
   const rn = generateLevel(L, hashSeed(seed, L, 'combo-run'), 'run', 1);
@@ -1437,7 +1440,7 @@ function generateCombo(L, seed, v = 3) {
     // the hallway) and get evenly faster all the way to the goal room, where they're back at full speed
     ...rn.enemies.map((e) => {
       const x = e.frame.ox + e.frame.ux * (e.a0 + e.a1) / 2, k = Math.max(0, Math.min(1, (rs.x - x) / (rs.x - ROOM)));
-      return { ...e, leg: e.leg + nS, speed: e.speed * (COMBO_RUN_SPEED0 + (1 - COMBO_RUN_SPEED0) * k) };
+      return { ...e, leg: e.leg + nS, speed: e.speed * (COMBO_RUN_SPEED0 + ((v >= RUN_RAMP_FV ? RUN_RAMP_TOP : 1) - COMBO_RUN_SPEED0) * k) };
     }),
   ];
   enemies.forEach((e, i) => { e.id = i; e.seed = hashSeed(seed, L, 'wolf', i); });
@@ -1561,6 +1564,15 @@ function generateLevelCore(level, seed, mode = 'mixed', fv = 0, season = null) {
   const pattern = (finale && lvl.ice) || (lvl.ice && !(CLASSIC_RUN_SKATE_ICE && mode === 'mixed'));   // Run only's level 9: wandering wolves
   lvl.fv = v;   // the finale version (see above), for the wolf placement
   lvl.enemies = pattern ? placePatternEnemies(rng, lvl, p) : placeEnemies(rng, lvl, p);
+  // finale version 15+: Run only's level 9 wolves at COMBO_RUN_SPEED0 of their speed after the start room, evenly faster
+  // up to RUN_RAMP_TOP at the goal room, as in Run + Skate's running half (generateCombo)
+  if (runFinale && v >= RUN_RAMP_FV) {
+    const rs = corners[0];
+    lvl.enemies = lvl.enemies.map((e) => {
+      const x = e.frame.ox + e.frame.ux * (e.a0 + e.a1) / 2, k = Math.max(0, Math.min(1, (rs.x - x) / (rs.x - ROOM)));
+      return { ...e, speed: e.speed * (COMBO_RUN_SPEED0 + (RUN_RAMP_TOP - COMBO_RUN_SPEED0) * k) };
+    });
+  }
   if (v >= 11) {
     // version 11+: ITEMS_PER_LEVEL items (autumn: ITEMS_AUTUMN, hearts and shields only: every tree has boots), capped
     const autumn = lvl.trees.length > 0 && !finale;

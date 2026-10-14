@@ -869,4 +869,19 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   }
 }
 
+// finale version 15: Run only's level 9 wolves start slower and speed up to RUN_RAMP_TOP at the goal room (same wolves, same places)
+{
+  const a = generateLevel(SKATE_FINAL_LEVEL, 5, 'run', 14), b = generateLevel(SKATE_FINAL_LEVEL, 5, 'run', 15);
+  const xs = a.corners[0].x, mid = (e) => e.frame.ox + e.frame.ux * (e.a0 + e.a1) / 2;
+  const avg = (ld, f) => { const q = ld.enemies.filter(f); return q.reduce((t, e) => t + e.speed, 0) / q.length; };
+  const start = (e) => xs - mid(e) < 150, end = (e) => mid(e) - 8 < 150;
+  ok(a.enemies.length === b.enemies.length && avg(b, start) < 0.75 * avg(a, start) && avg(b, end) > 0.85 * avg(a, end) && avg(b, end) < 0.95 * avg(a, end)
+    && b.enemies.every((e, i) => e.a0 === a.enemies[i].a0 && e.rIn === a.enemies[i].rIn),
+    'Run only level 9 (finale version 15): the same wolves, slower at the start, up to about 92% of their speed at the goal room');
+  // ...and Run + Skate's running half the same (it already started slower; now it tops out at 92% too)
+  const c14 = generateLevel(stageStep('mixed', 15, SKATE_FINAL_LEVEL), 5, 'mixed', 14), c15 = generateLevel(stageStep('mixed', 15, SKATE_FINAL_LEVEL), 5, 'mixed', 15);
+  const nS = c15.sections[0].ld.legs.length, runOf = (ld) => ld.enemies.filter((e) => e.leg >= nS && mid(e) - 8 < 150);
+  const top = (ld) => runOf(ld).reduce((t, e) => t + e.speed, 0) / runOf(ld).length;
+  ok(c14.enemies.length === c15.enemies.length && top(c15) < 0.95 * top(c14) && top(c15) > 0.85 * top(c14), 'Run + Skate level 9 (finale version 15): its running half tops out at about 92% too');
+}
 console.log(process.exitCode ? 'FAIL sim-test' : 'PASS sim-test');

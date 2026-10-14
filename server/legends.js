@@ -34,6 +34,9 @@ const SET_LINES = { mv7wofqk847338: ['the one and only'] };
 // whole-game times set by hand (win id -> seconds) for wins from before the board kept them (filled in only where missing):
 // mv7wofqk847338 = its final level (895.7 s) + 17 minutes, as its winner asked
 const SET_TOTAL = { mv7wofqk847338: 895.7 + 17 * 60 };
+// players linked to a win by hand (win id -> one key per kitty, in order): the hashed browser id of a winner from before
+// the lists knew who anyone was, sent by that winner (legends hash of 'p:' + their browser's id; the id itself never left it)
+const ADD_KEYS = { mv7wofqk847338: ['2009d11be8285f7e0d9a'] };
 
 // single line, no control / bidi-override characters, collapsed spaces, capped; no other filtering (the apps mask)
 function cleanText(v) {
@@ -61,6 +64,10 @@ function createLegends(file) {
       for (const w of wins) credit(w, w.entries.map((e) => [nameKey(e.name)]));
     }
   } catch { /* none yet */ }
+  for (const m of LIST_MODES) {
+    for (const f of firsts[m]) { const k = (ADD_KEYS[f.win] || [])[f.idx]; if (k && !f.keys.includes(k)) f.keys.push(k); }
+    for (const f of fastest[m]) (ADD_KEYS[f.win] || []).forEach((k, i) => { if (k && f.keys[i] && !f.keys[i].includes(k)) f.keys[i].push(k); });
+  }
   // signer key (tab token / client id) -> { win, idx, until }; in memory only (a restart closes the signing windows)
   const elig = new Map();
   const offlineKeys = new Map(); // offline win id -> { key, until } (edit window; in memory only)

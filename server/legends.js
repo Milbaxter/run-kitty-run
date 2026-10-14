@@ -4,6 +4,12 @@
 // (POST /api/legends) with light checks: final-run mode, a plausible game time, one per IP per 10 minutes (index.js),
 // edits by the id + secret key the server hands back. Online winners get the board over ws; anyone can read it with
 // GET /api/legends (after an offline win, and from the main menu's LEGENDS button), the newest wins of each mode.
+// Two lists per mode are kept for good, whatever happens to the wins themselves (only the newest MAX_WINS are stored):
+//   firsts   the first LIST_MAX different players to beat that mode, in order (a player counts once: the same account or
+//            browser; wins from before the lists, and offline wins from older clients, can only tell players apart by name)
+//   fastest  the LIST_MAX fastest whole games (total), each player or team with only its best one: a faster run of theirs
+//            replaces it, and a new run faster than the slowest pushes that one off
+// Players are kept as hashes of their account / browser ids, never sent anywhere.
 import crypto from 'node:crypto';
 // State is one JSON file (newest MAX_WINS wins), saved atomically a moment after each change.
 import fs from 'node:fs';
@@ -18,6 +24,8 @@ const MIN_GAME_S = 300;                 // offline: the whole game (sim.time, le
 const MAX_GAME_S = 12 * 3600;
 const MIN_RUN_S = 15;                   // offline: the final run alone
 const OFFLINE_PLAYERS = 2;              // solo or local co-op
+const LIST_MAX = 100;                   // firsts / fastest: entries per mode
+const LIST_MODES = ['mixed', 'run', 'ice'];
 // wins taken off the board by hand (by id): dropped when the board loads, so a deploy removes them
 const REMOVED = new Set(['murjptwl94a69a']);
 // lines written in by hand (win id -> one line per kitty, in order), for a winner whose signing failed: filled in when
@@ -42,6 +50,17 @@ function createLegends(file) {
     for (const w of wins) if (Number.isFinite(SET_TOTAL[w.id]) && !Number.isFinite(w.total)) w.total = Math.round(SET_TOTAL[w.id] * 10) / 10;
     for (const w of wins) (SET_LINES[w.id] || []).forEach((t, i) => { const e = w.entries[i]; if (e && !e.text && cleanText(t)) { e.text = cleanText(t); e.at = new Date().toISOString(); } });
   } catch { /* first run, or unreadable: start fresh */ }
+  // firsts[mode]: [{ win, idx, at, name, color, text, keys }]; fastest[mode]: [{ win, at, total, kind, team: [{ name, color, text }], keys: [[...]], teamKey }]
+  let firsts = Object.fromEntries(LIST_MODES.map((m) => [m, []])), fastest = Object.fromEntries(LIST_MODES.map((m) => [m, []]));
+  try {
+    const old = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (old.firsts && old.fastest) {
+      for (const m of LIST_MODES) { if (Array.isArray(old.firsts[m])) firsts[m] = old.firsts[m]; if (Array.isArray(old.fastest[m])) fastest[m] = old.fastest[m]; }
+    } else if (wins.length) {
+      // (the lists are new: built from the wins kept so far, oldest first; those only know their players' names)
+      for (const w of wins) credit(w, w.entries.map((e) => [nameKey(e.name)]));
+    }
+  } catch { /* none yet */ }
   // signer key (tab token / client id) -> { win, idx, until }; in memory only (a restart closes the signing windows)
   const elig = new Map();
   const offlineKeys = new Map(); // offline win id -> { key, until } (edit window; in memory only)
@@ -50,7 +69,7 @@ function createLegends(file) {
   function save() {
     saveT = null;
     const tmp = file + '.tmp';
-    fs.writeFile(tmp, JSON.stringify({ wins }), (err) => {
+    fs.writeFile(tmp, JSON.stringify({ wins, firsts, fastest }), (err) => {
       if (err) { console.error('legends save failed:', err.message); return; }
       fs.rename(tmp, file, (e) => { if (e) console.error('legends save failed:', e.message); });
     });
@@ -62,7 +81,7 @@ function createLegends(file) {
   function flush() {
     if (!saveT) return;
     clearTimeout(saveT); saveT = null;
-    try { fs.writeFileSync(file, JSON.stringify({ wins })); } catch (e) { console.error('legends flush failed:', e.message); }
+    try { fs.writeFileSync(file, JSON.stringify({ wins, firsts, fastest })); } catch (e) { console.error('legends flush failed:', e.message); }
   }
   setInterval(() => {
     const now = Date.now();
@@ -81,7 +100,45 @@ function createLegends(file) {
     }
     return out;
   };
-  function boardJson() { return (cache ||= JSON.stringify({ ok: true, wins: board() })); }
+  const publicLists = () => ({
+    firsts: Object.fromEntries(LIST_MODES.map((m) => [m, firsts[m].map((f) => ({ win: f.win, at: f.at, name: f.name, color: f.color, text: f.text || '' }))])),
+    fastest: Object.fromEntries(LIST_MODES.map((m) => [m, fastest[m].map((f) => ({ win: f.win, at: f.at, total: f.total, kind: f.kind, team: f.team }))])),
+  });
+  function boardJson() { return (cache ||= JSON.stringify({ ok: true, wins: board(), ...publicLists() })); }
+
+  // ---- the permanent lists
+  // A player's keys: hashes of their account and browser ids (either one matching = the same player), or of their
+  // name when that is all there is. A list entry known only by name also matches a player of that name.
+  function nameKey(n) { return hash('n:' + String(n || '').toLowerCase()); }
+  function hash(s) { return crypto.createHash('sha256').update('rkr-legends:' + s).digest('hex').slice(0, 20); }
+  function keysOfMember(m) {
+    const k = [m && m.acct && hash('a:' + m.acct), m && m.pid && hash('p:' + m.pid)].filter(Boolean);
+    return k.length ? k : [nameKey(m && m.name)];
+  }
+  function samePerson(f, keys, name) { return f.keys.some((k) => keys.includes(k)) || (f.keys.length === 1 && f.keys[0] === nameKey(f.name) && f.keys[0] === nameKey(name)); }
+  // a new win: its players onto the firsts (those not on it yet, while there is room) and the team onto the fastest
+  function credit(win, keyList) {
+    const m = LIST_MODES.includes(win.mode) ? win.mode : 'mixed';
+    const F = firsts[m];
+    win.entries.forEach((e, idx) => {
+      if (F.length >= LIST_MAX || F.some((f) => samePerson(f, keyList[idx], e.name))) return;
+      F.push({ win: win.id, idx, at: win.at, name: e.name, color: e.color, text: e.text || '', keys: keyList[idx] });
+    });
+    if (!Number.isFinite(win.total)) return;
+    const teamKey = keyList.map((k) => k[0]).sort().join('|');
+    const L = fastest[m], mine = L.findIndex((f) => f.teamKey === teamKey);
+    if (mine >= 0) { if (L[mine].total <= win.total) return; L.splice(mine, 1); }
+    L.push({ win: win.id, at: win.at, total: win.total, kind: win.kind, team: win.entries.map((e) => ({ name: e.name, color: e.color, text: e.text || '' })), keys: keyList, teamKey });
+    L.sort((a, b) => a.total - b.total || (a.at < b.at ? -1 : 1));
+    if (L.length > LIST_MAX) L.length = LIST_MAX;
+  }
+  // a line was (re)signed: the lists show it too
+  function syncLists(win) {
+    const m = LIST_MODES.includes(win.mode) ? win.mode : 'mixed';
+    for (const f of firsts[m]) if (f.win === win.id && win.entries[f.idx]) { f.text = win.entries[f.idx].text || ''; f.name = win.entries[f.idx].name; }
+    for (const f of fastest[m]) if (f.win === win.id) f.team = win.entries.map((e) => ({ name: e.name, color: e.color, text: e.text || '' }));
+  }
+  for (const w of wins) syncLists(w);   // (lines written in by hand at load)
 
   const newId = (now) => now.toString(36) + crypto.randomBytes(3).toString('hex');
   function addWin(win) {
@@ -100,6 +157,7 @@ function createLegends(file) {
       entries: members.map((m) => ({ name: m.name, color: m.color, text: '', at: null })),
     };
     members.forEach((m, idx) => { for (const k of keysOf(m)) elig.set(k, { win, idx, until: now + SIGN_WINDOW_MS }); });
+    credit(win, members.map(keysOfMember));
     addWin(win);
     return win;
   }
@@ -118,7 +176,7 @@ function createLegends(file) {
   function boardFor(c) {
     const e = eligibility(c);
     if (!e) return null;
-    return { t: 'legends', wins: board(), can: { id: e.win.id, text: e.win.entries[e.idx].text, left: e.until - Date.now() } };
+    return { t: 'legends', wins: board(), ...publicLists(), can: { id: e.win.id, text: e.win.entries[e.idx].text, left: e.until - Date.now() } };
   }
 
   // sign (or replace / clear) this client's line; returns the updated win or an error message
@@ -129,6 +187,7 @@ function createLegends(file) {
     entry.text = cleanText(text);
     entry.at = entry.text ? new Date().toISOString() : null;
     if (c.name) entry.name = c.name; // signed with the in-game name the server knows, never a client-picked one
+    syncLists(e.win);
     changed();
     return { win: e.win, entry };
   }
@@ -158,6 +217,9 @@ function createLegends(file) {
     };
     const key = crypto.randomBytes(12).toString('hex');
     offlineKeys.set(win.id, { key, until: now + SIGN_WINDOW_MS });
+    // (players: the browser's id when the client sends it, one per seat; otherwise only their names)
+    const pid = typeof m.pid === 'string' && /^[a-z0-9]{24,40}$/.test(m.pid) ? m.pid : '';
+    credit(win, ps.map((p, i) => (pid ? [hash('p:' + pid + (i ? ':' + i : ''))] : [nameKey(p.name)])));
     addWin(win);
     return { win, key, left: SIGN_WINDOW_MS };
   }
@@ -175,6 +237,7 @@ function createLegends(file) {
       const text = cleanText(ps[i].text);
       if (text !== e.text) { e.text = text; e.at = text ? new Date().toISOString() : null; }
     });
+    syncLists(win);
     changed();
     return { win, left: k.until - Date.now() };
   }

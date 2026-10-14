@@ -853,6 +853,13 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     lg.recordWin('ice', 300, [{ id: 999, name: 'Pip', color: 3 }], 2400);
     const tw = JSON.parse(lg.boardJson()).wins.find((w) => w.mode === 'ice');
     ok(tw && tw.runTime === 300 && tw.total === 2400, 'legends board: a win keeps the whole game time (total) next to the final level time');
+    // the permanent lists: one entry per player (account or browser) on the firsts, best game per team on the fastest
+    const amy = { id: 2001, name: 'Amy', color: 4, acct: 'acct-amy', pid: 'a'.repeat(24) }, amyNew = { id: 2002, name: 'Amy', color: 4, acct: 'acct-amy', pid: 'b'.repeat(24) };
+    lg.recordWin('ice', 200, [amy], 2000); lg.recordWin('ice', 200, [amyNew], 1500); lg.recordWin('ice', 200, [amy], 1800);
+    const lb = JSON.parse(lg.boardJson());
+    ok(lb.firsts.ice.filter((x) => x.name === 'Amy').length === 1 && lb.fastest.ice.filter((x) => x.team[0].name === 'Amy').map((x) => x.total).join() === '1500'
+      && lb.firsts.run.length === 1 && lb.firsts.mixed.length === 1 && !/acct-amy|aaaaaaaa|"keys"/.test(lg.boardJson()),
+      'legends lists: first 100 different players per mode (105 wins of one name: 1), each team only with its best time, no ids sent');
     lg.flush();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

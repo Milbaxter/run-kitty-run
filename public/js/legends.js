@@ -5,7 +5,7 @@
 // from a small button in the lobby), and by anyone from the main menu (showPublic: read only, GET /api/legends). One tab
 // per mode. All player text goes in with textContent; the apps mask it like chat (net.js).
 import { apiUrl, NATIVE } from './platform.js';
-import { cleanForApp } from './net.js';
+import { cleanForApp, progressId } from './net.js';
 import { TOUCH } from './device.js';
 
 const MAX = 140;
@@ -51,6 +51,12 @@ const CSS = `
 .rkg-tab:hover{background:rgba(60,30,110,.75);}
 .rkg-tab.rkg-on{border-color:#ffcf5a;background:rgba(255,207,90,.22);}
 .rkg-tab small{font-size:11px;opacity:.75;margin-left:4px;}
+.rkg-views{display:flex;gap:4px;justify-content:center;}
+.rkg-view{font:inherit;font-weight:800;font-size:12px;letter-spacing:.06em;cursor:pointer;color:#efe7ff;padding:4px 10px;border-radius:8px;border:0;background:transparent;opacity:.7;}
+.rkg-view.rkg-on{background:rgba(255,255,255,.14);opacity:1;}
+.rkg-rank{display:flex;gap:10px;align-items:baseline;}
+.rkg-no{flex:none;min-width:30px;font-weight:900;font-size:15px;color:#ffcf5a;}
+.rkg-rank .rkg-body{flex:1;min-width:0;}
 .rkg-close{align-self:center;font-size:16px !important;padding:8px 22px !important;}
 .rkg-fab{position:absolute;z-index:44;right:max(16px,env(safe-area-inset-right));top:max(14px,env(safe-area-inset-top));pointer-events:auto;cursor:pointer;
   font:inherit;font-weight:900;font-size:14px;letter-spacing:.04em;color:#2b1840;padding:8px 14px;border-radius:999px;border:0;
@@ -97,6 +103,8 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
   let loadErr = '';
   let wrap = null, refs = null;
   let tab = 'mixed';        // the mode whose legends show (a tab each)
+  let view = 'latest';      // latest wins / the first 100 players / the 100 fastest games
+  let lists = null;         // { firsts: { mode: [...] }, fastest: { mode: [...] } } (servers from 2026-10-14 on)
   const modeOf = (w) => (MODES[w && w.mode] ? w.mode : 'mixed');
 
   const fab = el('button', 'rkg-fab', '📜 LEGENDS BOARD');
@@ -108,6 +116,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
   // ---- data ----
   function onBoard(m) {   // ws 'legends': the board plus this player's own slot
     wins = Array.isArray(m.wins) ? m.wins : [];
+    if (m.firsts && m.fastest) lists = { firsts: m.firsts, fastest: m.fastest };
     can = m.can ? { id: m.can.id, text: m.can.text || '', until: performance.now() + (m.can.left || 0) } : null;
     offline = false;
     loadErr = '';
@@ -131,6 +140,13 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
       refs.msg.textContent = m.msg || 'Could not sign right now.';
       if (/closed/.test(m.msg || '')) { can = null; render(); }
     }
+  }
+  // the apps mask the lists' names and lines like chat too
+  function maskLists(l) {
+    if (!NATIVE) return l;
+    for (const m of Object.keys(l.firsts || {})) l.firsts[m] = l.firsts[m].map((f) => { const w = appClean({ entries: [{ name: f.name, text: f.text }] }); return { ...f, name: w.entries[0].name, text: w.entries[0].text }; });
+    for (const m of Object.keys(l.fastest || {})) l.fastest[m] = l.fastest[m].map((f) => ({ ...f, team: appClean({ entries: f.team }).entries }));
+    return l;
   }
   const appClean = (w) => { const m = { t: 'legend', win: w }; if (NATIVE) cleanForApp(m); return m.win; }; // apps: mask like chat
   function putWin(w) {
@@ -157,6 +173,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
       if (!r.ok || !j.ok) throw new Error();
       const msg = { t: 'legends', wins: Array.isArray(j.wins) ? j.wins : [] };
       if (NATIVE) cleanForApp(msg); // the apps mask names and lines like chat
+      if (j.firsts && j.fastest) lists = maskLists({ firsts: j.firsts, fastest: j.fastest });
       if (offline) { const mine = can && can.id && wins && wins.find((w) => w.id === can.id); wins = msg.wins; if (mine) putWin(mine); }
     } catch {
       loadErr = 'The legends board is out of reach right now (no connection?).';
@@ -182,17 +199,18 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
     const h = el('h2', null, 'LEGENDS BOARD');
     const sub = el('div', 'rkg-sub', 'Every team that beat Project: Run Kitty Run, in their own words.');
     const tabs = el('div', 'rkg-tabs');
+    const views = el('div', 'rkg-views');
     const signSlot = el('div');
     const list = el('div', 'rkg-list');
     const closeBtn = el('button', 'rkr-btn rkr-alt rkg-close', 'CLOSE');
     closeBtn.addEventListener('click', close);
-    box.append(x, h, sub, tabs, signSlot, list, closeBtn);
+    box.append(x, h, sub, tabs, views, signSlot, list, closeBtn);
     wrap.appendChild(box);
     // typing must not move the kitty / trigger game keys (the board's own keys stop here, after the input saw them)
     wrap.addEventListener('keydown', (e) => e.stopPropagation());
     wrap.addEventListener('keyup', (e) => e.stopPropagation());
     root.appendChild(wrap);
-    refs = { box, tabs, signSlot, list, signKey: '' };
+    refs = { box, tabs, views, signSlot, list, signKey: '' };
     // a winner sees the mode they just won first, everyone else Run + Skate
     const own = can && wins && wins.find((w) => w.id === can.id);
     tab = own ? modeOf(own) : can && can.ctx && MODES[can.ctx.mode] ? can.ctx.mode : 'mixed';
@@ -218,7 +236,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
     const c = can;
     const body = c.id
       ? { id: c.id, key: c.key, players: texts.map((text) => ({ text })) }
-      : { ...c.ctx, players: c.players.map((p, i) => ({ name: p.name, color: p.color, text: texts[i] })) };
+      : { ...c.ctx, pid: progressId() || undefined, players: c.players.map((p, i) => ({ name: p.name, color: p.color, text: texts[i] })) };   // (pid: who you are, for the firsts / fastest lists)
     let j = {};
     try {
       const r = await fetch(apiUrl('/api/legends'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -328,14 +346,57 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
       refs.tabs.appendChild(b);
     }
   }
+  function renderViews() {
+    refs.views.textContent = '';
+    if (!lists) { view = 'latest'; return; }
+    for (const [id, label] of [['latest', 'LATEST'], ['firsts', 'FIRST 100'], ['fastest', 'FASTEST 100']]) {
+      const b = el('button', 'rkg-view' + (id === view ? ' rkg-on' : ''), label);
+      b.addEventListener('click', () => { view = id; refs.list.scrollTop = 0; render(); });
+      refs.views.appendChild(b);
+    }
+  }
+  // a name in its kitty colour
+  const nameEl = (n, c) => { const s = el('span', 'rkg-n', n); s.style.color = hex(c); return s; };
+  function rankCard(no, head, body) {
+    const card = el('div', 'rkg-card rkg-rank');
+    card.appendChild(el('div', 'rkg-no', '#' + no));
+    const b = el('div', 'rkg-body');
+    b.appendChild(head);
+    if (body) b.appendChild(body);
+    card.appendChild(b);
+    return card;
+  }
+  // the first 100 players to beat this mode / its 100 fastest games
+  function renderList(list) {
+    const L = (lists[view] && lists[view][tab]) || [];
+    if (!L.length) { list.appendChild(el('div', 'rkg-empty', view === 'firsts' ? 'Nobody has beaten this mode yet. The first spot is waiting!' : 'No timed games yet. The first one to win sets the record!')); return; }
+    L.forEach((f, i) => {
+      const head = el('div', 'rkg-head');
+      if (view === 'firsts') {
+        head.appendChild(el('span', null, fmtDate(f.at)));
+        const line = el('div', 'rkg-line');
+        line.appendChild(nameEl(f.name, f.color));
+        if (f.text) line.append(' — ', el('q', null, String(f.text)));
+        list.appendChild(rankCard(i + 1, head, line));
+      } else {
+        head.appendChild(el('span', null, '⏱ ' + fmtTime(f.total)));
+        head.appendChild(el('span', null, fmtDate(f.at) + (f.kind === 'solo' ? ' · solo' : f.kind === 'coop' ? ' · co-op' : '')));
+        const who = el('div', 'rkg-also');
+        (f.team || []).forEach((p, k) => { if (k) who.append(', '); who.appendChild(nameEl(p.name, p.color)); });
+        list.appendChild(rankCard(i + 1, head, who));
+      }
+    });
+  }
   function render() {
     if (!refs) return;
     renderTabs();
+    renderViews();
     renderSign();
     const list = refs.list;
     const top = list.scrollTop;
     list.textContent = '';
     if (!wins) { list.appendChild(el('div', 'rkg-empty', loadErr || 'Unrolling the scroll…')); return; }
+    if (view !== 'latest' && lists) { renderList(list); list.scrollTop = top; return; }
     const shown = wins.filter((w) => modeOf(w) === tab);
     if (!shown.length) {
       list.appendChild(el('div', 'rkg-empty', can ? 'No legends yet. Be the first team to sign!'

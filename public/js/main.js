@@ -1771,6 +1771,9 @@ function syncVisuals(dt, alpha) {
     if (DEBUG_LOOK.has('lion') || DEBUG_LOOK.has('chrome')) ka.lion = true;
     if (DEBUG_LOOK.has('chrome')) ka.silver = true;
     if (DEBUG_LOOK.has('medal')) ka.collar = 'medal';
+    // (test looks: ?look=rboots wears the rainbow boots with four pairs of speed boots, gskates the rainbow skates)
+    if (DEBUG_LOOK.has('rboots')) { ka.rainbowBoots = true; ka.boots = Math.max(ka.boots, 4); }
+    if (DEBUG_LOOK.has('gskates')) ka.goldSkates = true;
     // (drafts: a golden / bronze body, and the mane in a metal of its own)
     if (DEBUG_LOOK.has('gold') || DEBUG_LOOK.has('bronze')) { ka.lion = true; ka.silver = false; ka.metalCat = DEBUG_LOOK.has('gold') ? 'gold' : 'bronze'; }
     // the mane's and the fluffy tail tip's own metal (switched-on unlocks), on a metal kitty only (chrome or bronze / gold)

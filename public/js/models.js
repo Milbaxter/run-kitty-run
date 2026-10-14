@@ -588,7 +588,8 @@ function createKittyModel(color) {
     // 7+ wins: rainbow boots, a full rainbow every ~2.2 s on their own clock (not in step with the aura's colour cycle)
     const rainbow = !!s.rainbowBoots && !ghost && nb > 0, golden = !rainbow && !!s.goldBoots && !ghost && nb > 0;   // (an easy game: golden boots)
     for (const rb of rainbowBoots) rb.visible = rainbow || golden;
-    if (rainbow) { rainbowMat.color.setHSL((time * 0.45 + rainbowOff) % 1, 1, 0.58); rainbowMat.emissive.copy(rainbowMat.color); }
+    // (deep colours with little light of their own, so the colour itself shows, not a pastel glow)
+    if (rainbow) { rainbowMat.color.setHSL((time * 0.45 + rainbowOff) % 1, 1, 0.36); rainbowMat.emissive.copy(rainbowMat.color).multiplyScalar(0.35); }
     else if (golden) { rainbowMat.color.set(0xffc93a); rainbowMat.emissive.set(0x8a5600); }
     rig.position.y = bounce * 0.07 * runAmt + (onSkates ? 0.045 : 0);
     const by = 1 - sq + breath * 0.022 * idle;
@@ -950,7 +951,7 @@ function createKittyModel(color) {
       bladeAt = t; bladeGold = false;
       const col = bladeGeo.attributes.color.array, pos = bladeGeo.attributes.position.array;
       for (let j = 0; j < col.length / 3; j++) {
-        rbC.setHSL((((t * 0.45 + rainbowOff - pos[j * 3] * 4) % 1) + 1) % 1, 0.95, 0.55);
+        rbC.setHSL((((t * 0.45 + rainbowOff - pos[j * 3] * 4) % 1) + 1) % 1, 1, 0.45);   // (rich: darker, stronger than a pastel)
         col[j * 3] = rbC.r; col[j * 3 + 1] = rbC.g; col[j * 3 + 2] = rbC.b;
       }
       bladeGeo.attributes.color.needsUpdate = true;

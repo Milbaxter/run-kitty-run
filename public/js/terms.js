@@ -3,7 +3,7 @@
 // Styled with the rkr-* overlay look from ui.js (plus a fallback so it works on its own).
 
 const KEY = 'rkr-terms-v1';
-const PROD = 'https://80-47-225-25.nip.io';
+const PROD = 'https://runkittyrun.fun';
 
 const CSS = `
 .rkt-modal{position:fixed;inset:0;z-index:60;pointer-events:auto;display:flex;align-items:center;justify-content:center;padding:20px 16px;overflow:auto;

@@ -907,4 +907,16 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     && !isUnlocked(normal, 'medal', 'ice') && !isUnlocked(easyOnly, 'shades', 'run'),
     'easy unlocks: a normal game counts for them too (Run + Skate in every mode), an easy game not for the normal ones');
 }
+// finale version 16: any kitty repairs Run + Skate level 9's broken checkpoint (15: only one with 60 revives this run)
+{
+  const hit = (v) => {
+    const sim = createSim({ seed: 9, players: [{ id: 1, name: 'a', color: 1 }, { id: 2, name: 'b', color: 2 }], startLevel: stageStep('mixed', v, SKATE_FINAL_LEVEL), mode: 'mixed', finales: v });
+    stepSim(sim, {}, 1 / 60);
+    const cp = sim.levelData.checkpoints[0], p = sim.players[0];
+    p.x = cp.x; p.z = cp.z;
+    for (let i = 0; i < 5; i++) stepSim(sim, {}, 1 / 60);
+    return sim.checkpointsHit.length;
+  };
+  ok(hit(15) === 0 && hit(16) === 1, 'Run + Skate level 9 (finale version 16): any kitty repairs the broken checkpoint (version 15: not without 60 revives)');
+}
 console.log(process.exitCode ? 'FAIL sim-test' : 'PASS sim-test');

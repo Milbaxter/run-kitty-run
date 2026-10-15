@@ -121,7 +121,9 @@ const SAME_SEASON_FV = 14;
 // 15: Run only's level 9 wolves start slower and get evenly faster toward the goal room, like Run + Skate's running half,
 // and in both they only get up to 92% of their speed there (maze.js RUN_RAMP_TOP; same wolves, same places)
 const RUN_RAMP_FV = 15;
-const LATEST_FV = 15;   // the level version a game on this device plays (offline; online: the newest every member has)
+// 16: Run + Skate's level 9: any kitty can repair the broken checkpoint (no revives needed, as in an easy game)
+const ANYONE_MEDIC_FV = 16;
+const LATEST_FV = 16;   // the level version a game on this device plays (offline; online: the newest every member has)
 function stageOf(mode, fv, step) {
   if (mode !== 'mixed' || (fv | 0) < DAY_NIGHT_FV) return { level: step, day: false, night: false };
   const level = Math.min(SKATE_FINAL_LEVEL, Math.ceil(step / 2));
@@ -155,6 +157,7 @@ const stageStep = (mode, fv, level, night = false) => (mode === 'mixed' && (fv |
 //  19 = easy games (a level starts over when everyone is down; state 'retry', snapshot rt)
 //  20 = Run + Skate's night half in the day's season (finale version 14, rf 14)
 //  21 = the lottery chest on a lucky checkpoint (events chest / chestOpen; only in rooms where everyone has 21+)
-const PROTOCOL_VERSION = 22;   // 22: the running final run's wolves speed up toward the goal room, to 92% (finale version 15, rf 15)
+//  22 = the running final run's wolves speed up toward the goal room, to 92% (finale version 15, rf 15)
+const PROTOCOL_VERSION = 23;   // 23: any kitty repairs Run + Skate level 9's broken checkpoint (finale version 16, rf 16)
 
-export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION, DAY_NIGHT_FV, SAME_SEASON_FV, RUN_RAMP_FV, LATEST_FV, stageOf, stageStep };
+export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION, DAY_NIGHT_FV, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, LATEST_FV, stageOf, stageStep };

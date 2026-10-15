@@ -889,8 +889,10 @@ function handleEvents(events) {
         if (ev.medic && sim.easy) {   // an easy game: any kitty repairs it, and everyone starts again from it
           ui.banner('CHECKPOINT FIXED!', 'If everyone goes down, you start again from here', 3200);
           if (view && view.world.repairCheckpoint) view.world.repairCheckpoint(ev.index);
-        } else if (ev.medic) {   // the broken checkpoint, repaired by a kitty with 60+ revives
-          ui.banner('MEDICAT TO THE RESCUE!!!', ev.revived.length ? `${by ? by.name : 'A medicat'} fixed the checkpoint: everyone is back on their paws` : `${by ? by.name : 'A medicat'} fixed the checkpoint`, 2600);
+        } else if (ev.medic) {   // the broken checkpoint, repaired (level version 16+: by any kitty; before: one with 60+ revives)
+          // (a little bonus: repaired by a kitty with 60+ revives this run, the one with the wings, it's the medicat's banner)
+          const medicat = !!by && (by.rescues || 0) >= 60;
+          ui.banner(medicat ? 'MEDICAT TO THE RESCUE!!!' : 'CHECKPOINT FIXED!', ev.revived.length ? `${by ? by.name : 'A kitty'} fixed the checkpoint: everyone is back on their paws` : `${by ? by.name : 'A kitty'} fixed the checkpoint`, 2600);
           if (view && view.world.repairCheckpoint) view.world.repairCheckpoint(ev.index);
         } else ui.banner('CHECKPOINT!', ev.revived.length ? 'Everyone is back on their paws' : (by && sim.players.length > 1 ? `${by.name} gathered the team` : 'Keep going!'), 1600);
         effects.teleport(ev.x, ev.z, by ? by.color : 0x8fdcff);

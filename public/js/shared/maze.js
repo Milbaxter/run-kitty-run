@@ -1,4 +1,4 @@
-import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, stageOf } from './config.js';
+import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, stageOf } from './config.js';
 import { createRng, hashSeed, ipow, legPoint } from './rng.js';
 import { buildPlan, patternPose, patternSpeed } from './enemies.js';
 
@@ -1472,8 +1472,8 @@ function generateCombo(L, seed, v = 3) {
     runLength: sk.runLength + rn.runLength,
     outerRadius: Math.max(rn.outerRadius, Math.abs(sk.corners[0].x + dx) + h, Math.abs(dz) + h) + 2,
     // the run half's start room: a broken checkpoint that only a kitty with MEDIC_RESCUES+ revives this run can repair
-    // (then it works like any checkpoint: everyone back on their paws, gathered there)
-    checkpoints: [{ corner: sk.corners.length, x: rs.x, z: rs.z, heading: Math.atan2(-rn.legs[0].uz, -rn.legs[0].ux), medic: true, minRescues: MEDIC_RESCUES }],
+    // (then it works like any checkpoint: everyone back on their paws, gathered there). Finale version 16+: any kitty can
+    checkpoints: [{ corner: sk.corners.length, x: rs.x, z: rs.z, heading: Math.atan2(-rn.legs[0].uz, -rn.legs[0].ux), medic: true, minRescues: v >= ANYONE_MEDIC_FV ? 0 : MEDIC_RESCUES }],
     patternPlan: sk.patternPlan,
     extraFloors: [{ x0: xr0, x1: xr1, z0: dz + h, z1: -sH }],   // the hallway
     sections: [{ dx, dz, ld: { ...sk, noReward: true, endTrim: 2 * sH + 2 } }, { dx: 0, dz: 0, ld: rn }],

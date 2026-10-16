@@ -772,6 +772,9 @@ function createKittyModel(color) {
   const shades = new THREE.Mesh(sunglassesGeometry(), cmat('shades', () => new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.2, metalness: 0.35 })));
   shades.visible = false;
   head.add(shades);
+  const shadesMat = shades.material;
+  const shadesLens = new THREE.Mesh(sunglassesGeometry('lens'), shadesMat);   // (a chrome / golden / bronze kitty's: its metal)
+  shades.add(shadesLens);
   // ---- an easy game's own win rewards (main.js picks them in place of the usual ones) ----
   // reading glasses (5+): round wire frames, the eyes show through
   const glasses = new THREE.Mesh(readingGlassesGeometry(), goldMat());
@@ -1017,6 +1020,16 @@ function createKittyModel(color) {
     }
     if (chromeMat) { chromeMat.uniforms.uTime.value = t; chromeMat.uniforms.uOrigin.value.copy(group.position); }
     if (mf) { mf.uniforms.uTime.value = t; mf.uniforms.uOrigin.value.copy(group.position); }
+    // sunglasses on a chrome / golden / bronze kitty: lenses in its metal instead of black, a brighter mirror of its fur
+    // (facing forward, the fur's own would come out dark); the frame stays gold (s.shadesTone: a draft's other brightness)
+    const shMetal = off ? null : s.lensMetal || (s.silver ? 'chrome' : s.metalCat || null);   // (s.lensMetal: a draft, another metal's lenses)
+    let shM = shadesMat;
+    if (shMetal && s.sunglasses) {
+      const tone = s.shadesTone || (shMetal === 'gold' ? 1.9 : shMetal === 'chrome' ? 2.15 : 2.4);   // (gold, chrome and bronze: each picked by eye)
+      shM = maneMetals['lens' + tone + '-' + shMetal] ||= chromeFurMaterial(shMetal === 'chrome' ? null : shMetal, tone);
+      shM.uniforms.uTime.value = t; shM.uniforms.uOrigin.value.copy(group.position);
+    }
+    if (shadesLens.material !== shM) shadesLens.material = shM;
     if (cosmic) { cosmic.uniforms.uTime.value = t; if (maneMesh && maneMesh.material !== cosmic) maneMesh.material = cosmic; }
     // a draft (?look=mane-gold / mane-bronze / mane-chrome): the mane in a metal of its own, whatever the body wears
     if (maneMesh && s.maneMetal && !off) {
@@ -2032,16 +2045,18 @@ function yarnBallGeometry(color) {
   });
 }
 
-function sunglassesGeometry() {
-  return cgeo('sunglasses', () => {
+// part: 'frame' (the shine, the arms and the bridge) or 'lens' (the two dark lenses: their own mesh, so a metal kitty's can
+// be its metal)
+function sunglassesGeometry(part = 'frame') {
+  return cgeo('sunglasses-' + part, () => {
     const LENS = 0x1e1a2b, SHINE = 0xffffff, GOLD = 0xffd34a, parts = [];
     for (const sz of [1, -1]) {
       const yaw = -0.3 * sz, cx = 0.208, cy = 0.05, cz = 0.1 * sz;   // wrap: outer edge swept back
-      parts.push([P.cyl18, mtx([cx, cy, cz], [0, yaw, -Math.PI / 2], [0.07, 0.014, 0.088]), LENS]);
+      if (part === 'lens') { parts.push([P.cyl18, mtx([cx, cy, cz], [0, yaw, -Math.PI / 2], [0.07, 0.014, 0.088]), LENS]); continue; }
       parts.push([P.box, mtx([cx + 0.009, cy + 0.03, cz + 0.012 * sz], [0, yaw, 0], [0.004, 0.01, 0.042]), SHINE]);
       parts.push([P.box, mtx([0.075, 0.062, 0.2 * sz], [0, 0.1 * sz, 0], [0.22, 0.013, 0.01]), GOLD]);   // arm
     }
-    parts.push([P.box, mtx([0.214, 0.066, 0], null, [0.014, 0.013, 0.05]), GOLD]);               // bridge
+    if (part !== 'lens') parts.push([P.box, mtx([0.214, 0.066, 0], null, [0.014, 0.013, 0.05]), GOLD]);   // bridge
     return bake(parts);
   });
 }
@@ -2685,8 +2700,8 @@ function cosmicMaterial() {
 // 16 wins without the revives: the chrome moon lion, mirror-silver fur no kitty colour has, with slow bands of light
 // sweeping over it. One material per kitty: the bands are anchored to the kitty (uOrigin), so running doesn't make
 // them flash past
-function chromeFurMaterial(metal) {   // metal: 'gold' | 'bronze' (an easy game's golden / bronze kitty), the same mirror in that metal
-  const v = (r, g, b) => ({ value: new THREE.Vector3(r, g, b) });
+function chromeFurMaterial(metal, dark = 1) {   // metal: 'gold' | 'bronze' (an easy game's golden / bronze kitty), the same mirror in that metal; dark: < 1 a smoked mirror (sunglasses)
+  const v = (r, g, b) => ({ value: new THREE.Vector3(r * dark, g * dark, b * dark) });
   const [LO, HI, BAND, RIM] = metal === 'gold' ? [v(0.42, 0.24, 0.04), v(1.0, 0.84, 0.36), v(1.0, 0.95, 0.7), v(1.0, 0.88, 0.5)]
     : metal === 'bronze' ? [v(0.2, 0.09, 0.03), v(0.84, 0.5, 0.24), v(1.0, 0.78, 0.55), v(0.9, 0.58, 0.32)]
     : [v(0.22, 0.25, 0.32), v(0.96, 0.98, 1.0), v(1.0, 1.0, 1.0), v(0.85, 0.9, 1.0)];

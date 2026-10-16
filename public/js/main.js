@@ -1096,9 +1096,14 @@ function iconLook(p) {
   // the mane's own metal (a switched-on unlock), on a metal kitty only (chrome lion, bronze / golden kitty)
   const mm = slotMetal(cosOf(p), 'mane');
   if (mm && look.lion && (look.lionLook === 'chrome' || look.metal)) look.maneMetal = mm;
+  const lm = slotMetal(cosOf(p), 'lens');   // (the lenses' own metal, likewise)
+  if (lm && look.cool && (look.lionLook === 'chrome' || look.metal)) look.lensMetal = lm;
   // local testing (?look=lion / chrome, as on the 3D kitty)
   if (DEBUG_LOOK.has('lion') || DEBUG_LOOK.has('chrome')) look.lion = true;
   if (DEBUG_LOOK.has('chrome')) look.lionLook = 'chrome';
+  if (DEBUG_LOOK.has('shades') || DEBUG_LOOK.has('shades-dark') || DEBUG_LOOK.has('shades-bright')) look.cool = true;
+  if (DEBUG_LOOK.has('gold') || DEBUG_LOOK.has('bronze')) { look.lion = true; look.metal = DEBUG_LOOK.has('gold') ? 'gold' : 'bronze'; }
+  for (const m of ['chrome', 'gold', 'bronze']) { if (DEBUG_LOOK.has('mane-' + m)) look.maneMetal = m; if (DEBUG_LOOK.has('lens-' + m)) look.lensMetal = m; }   // (drafts)
   return look;
 }
 function iconLookOf(p) {
@@ -1775,6 +1780,9 @@ function syncVisuals(dt, alpha) {
     ka.cape = saves >= 10; ka.wings = saves >= 60;
     ka.rainbowCat = !easy && wins >= 8 && saves >= 60;   // every win reward and every revive reward: rainbow fur
     if (DEBUG_LOOK.has('crown')) ka.crown = true;
+    if (DEBUG_LOOK.has('shades') || DEBUG_LOOK.has('shades-dark') || DEBUG_LOOK.has('shades-bright')) ka.sunglasses = true;
+    ka.shadesTone = DEBUG_LOOK.has('shades-dark') ? 0.42 : DEBUG_LOOK.has('shades-bright') ? 1.9 : DEBUG_LOOK.has('lens-soft') ? 2.15 : 0;
+    ka.lensMetal = DEBUG_LOOK.has('lens-chrome') ? 'chrome' : DEBUG_LOOK.has('lens-gold') ? 'gold' : DEBUG_LOOK.has('lens-bronze') ? 'bronze' : null;   // (a draft: another metal's lenses)
     if (DEBUG_LOOK.has('tail')) ka.fluffyTail = true;
     if (DEBUG_LOOK.has('lion') || DEBUG_LOOK.has('chrome')) ka.lion = true;
     if (DEBUG_LOOK.has('chrome')) ka.silver = true;
@@ -1792,6 +1800,8 @@ function syncVisuals(dt, alpha) {
     ka.maneMetal = DEBUG_LOOK.has('mane-gold') ? 'gold' : DEBUG_LOOK.has('mane-bronze') ? 'bronze' : DEBUG_LOOK.has('mane-chrome') ? 'chrome' : ka.maneMetal;
     ka.tipMetal = DEBUG_LOOK.has('tip-gold') ? 'gold' : DEBUG_LOOK.has('tip-bronze') ? 'bronze' : DEBUG_LOOK.has('tip-chrome') ? 'chrome' : ka.tipMetal;
     if (ka.tipMetal) ka.fluffyTail = true;
+    // the sunglasses' lenses in a metal of their own (a switched-on unlock; none: the kitty's own metal), on a metal kitty
+    ka.lensMetal = ka.lensMetal || (metalBody && ka.sunglasses ? slotMetal(cos, 'lens') : null);
     if (DEBUG_LOOK.has('pack')) { ka.backpack = true; ka.packColors = DEBUG_PACK; }
     if (saves >= 30 && !ka.celestial && p.alive && speed > 1) {   // (celestial lion: its own space trail instead, below)
       k.heartT = (k.heartT || 0) - dt;
@@ -1888,7 +1898,7 @@ function updateHUD() {
     }
     let h = hudPlayers[i];
     if (!h) h = hudPlayers[i] = {};
-    h.name = p.name; h.color = p.color; h.shimmer = shimmer; h.gold = gold; h.rainbow = !sim.easy && (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; const il = iconLook(p); h.cool = il.cool; h.specs = !!il.specs; h.metal = il.metal || ''; h.lion = il.lion; h.lionLook = il.lionLook; h.maneMetal = il.maneMetal || ''; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
+    h.name = p.name; h.color = p.color; h.shimmer = shimmer; h.gold = gold; h.rainbow = !sim.easy && (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; const il = iconLook(p); h.cool = il.cool; h.specs = !!il.specs; h.metal = il.metal || ''; h.lion = il.lion; h.lionLook = il.lionLook; h.maneMetal = il.maneMetal || ''; h.lensMetal = il.lensMetal || ''; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
     h.medic = medicLook(cosOf(p));   // the medic badge (3000 revives), when switched on
     h.paid = online.playing ? ((online.roster.get(p.id) || {}).paid || 0) : i === 0 && account.shown() ? account.display() : 0;   // the account's number (unless switched off)
   }

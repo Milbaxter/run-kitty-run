@@ -362,7 +362,7 @@ function createAccount(root) {
         if ((u.feat === 'l9' || u.feat === 'e9') && !seen9) continue;
         if (u.hidden && !isUnlocked(prog, u) && !isUnlocked(solo, u)) continue;   // (not shown at all until it's unlocked)
         // a mane / tail tip metal: only once the player has the Lion mane / Fluffy tail to wear it on
-        const part = u.slot === 'mane' ? 'lion' : u.slot === 'tip' ? 'tail' : null;
+        const part = u.slot === 'mane' ? 'lion' : u.slot === 'tip' ? 'tail' : u.slot === 'lens' ? 'shades' : null;
         if (part && !isUnlocked(prog, part) && !isUnlocked(solo, part)) continue;
         if (u.feat !== lastFeat) { lastFeat = u.feat; ulist.appendChild(el('div', 'rka-ugoal', GOALS[u.feat])); }
         const onl = isUnlocked(prog, u), off_ = isUnlocked(solo, u), open_ = onl || off_;   // (in some mode, online or offline: its switch shows)

@@ -966,7 +966,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
 {
   const metals = UNLOCKS.filter((u) => u.slot), all = { run: 1, ice: 1, mixed: 1 };
   const featOf = (u) => ({ [u.feat]: all });
-  ok(metals.length === 6 && metals.every((u) => u.hidden && u.defaultOff && !isUnlocked({}, u) && isUnlocked(featOf(u), u, 'run'))
+  ok(metals.length === 9 && metals.every((u) => u.hidden && u.defaultOff && !isUnlocked({}, u) && isUnlocked(featOf(u), u, 'run'))
     && metals.filter((u) => u.metal === 'chrome').every((u) => u.feat === 'l9') && metals.filter((u) => u.metal === 'gold').every((u) => u.feat === 'top1')
     && metals.filter((u) => u.metal === 'bronze').every((u) => u.feat === 'fast1') && UNLOCKS.find((u) => u.id === 'bronze').excl === 'body'
     && slotMetal(new Set(['mbronze', 'mgold']), 'mane') === 'gold' && slotMetal(new Set(['tchrome']), 'tip') === 'chrome' && slotMetal(new Set(['lion']), 'mane') === null,

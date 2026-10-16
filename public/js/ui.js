@@ -189,6 +189,13 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-card.rkr-lion .rkr-head .rkr-mane{display:block;}
 .rkr-card.rkr-rlion .rkr-mane path{fill:url(#rkr-rainbow-fur);}
 .rkr-card.rkr-chrome .rkr-mane path,.rkr-card.rkr-chrome .rkr-cat > path:first-child{fill:url(#rkr-chrome-fur);}
+/* a chrome / golden / bronze kitty's sunglasses: its metal instead of black lenses */
+.rkr-card.rkr-chrome .rkr-shades ellipse{fill:url(#rkr-chrome-fur);}
+.rkr-card.rkr-mgold .rkr-shades ellipse{fill:url(#rkr-gold-fur);}
+.rkr-card.rkr-mbronze .rkr-shades ellipse{fill:url(#rkr-bronze-fur);}
+.rkr-card.rkr-lm-chrome .rkr-shades ellipse{fill:url(#rkr-chrome-fur);}
+.rkr-card.rkr-lm-gold .rkr-shades ellipse{fill:url(#rkr-gold-fur);}
+.rkr-card.rkr-lm-bronze .rkr-shades ellipse{fill:url(#rkr-bronze-fur);}
 .rkr-card.rkr-mbronze .rkr-mane path,.rkr-card.rkr-mbronze .rkr-cat > path:first-child{fill:url(#rkr-bronze-fur);}
 .rkr-card.rkr-mgold .rkr-mane path,.rkr-card.rkr-mgold .rkr-cat > path:first-child{fill:url(#rkr-gold-fur);}
 .rkr-card.rkr-celestial .rkr-mane path,.rkr-card.rkr-celestial .rkr-cat > path:first-child{fill:url(#rkr-cosmic-fur);}
@@ -716,6 +723,10 @@ function createUI(root) {
       card.root.classList.toggle('rkr-chrome', v.lionLook === 'chrome');
       card.root.classList.toggle('rkr-rlion', v.lionLook === 'rainbow');
       card.root.classList.toggle('rkr-celestial', v.lionLook === 'celestial');
+    }
+    if ((p.lensMetal || '') !== v.lensMetal) {   // (a draft: another metal's sunglass lenses)
+      v.lensMetal = p.lensMetal || '';
+      for (const m of ['chrome', 'gold', 'bronze']) card.root.classList.toggle('rkr-lm-' + m, v.lensMetal === m);
     }
     if ((p.maneMetal || '') !== v.maneMetal) {   // the mane's own metal
       v.maneMetal = p.maneMetal || '';

@@ -362,7 +362,7 @@ function createAccount(root) {
         if ((u.feat === 'l9' || u.feat === 'e9') && !seen9) continue;
         if (u.hidden && !isUnlocked(prog, u) && !isUnlocked(solo, u)) continue;   // (not shown at all until it's unlocked)
         // a mane / tail tip metal: only once the player has the Lion mane / Fluffy tail to wear it on
-        const part = u.slot === 'mane' ? 'lion' : u.slot === 'tip' ? 'tail' : u.slot === 'lens' ? 'shades' : null;
+        const part = u.part || (u.slot === 'mane' ? 'lion' : u.slot === 'tip' ? 'tail' : u.slot === 'lens' ? 'shades' : null);
         if (part && !isUnlocked(prog, part) && !isUnlocked(solo, part)) continue;
         if (u.feat !== lastFeat) { lastFeat = u.feat; ulist.appendChild(el('div', 'rka-ugoal', GOALS[u.feat])); }
         const onl = isUnlocked(prog, u), off_ = isUnlocked(solo, u), open_ = onl || off_;   // (in some mode, online or offline: its switch shows)
@@ -371,6 +371,16 @@ function createAccount(root) {
         if (u.song) {
           // a song has no switch: it joins the soundtrack, and the settings can play it on its own
           row.appendChild(el('span', 'rka-uprog', open_ ? 'Switch it on / off in Settings' : ''));
+        } else if (u.invert) {
+          // a switch for something the kitty has anyway (the tail tip's glow): ON shows it; switched OFF, the item is worn
+          row.appendChild(el('span', 'rka-uprog', 'Unlocked'));
+          const on = !(prog.off && prog.off[u.id] === false);
+          const t = el('button', 'rka-amt rka-utog' + (on ? ' rka-on' : ''), on ? 'ON' : 'OFF');
+          t.addEventListener('click', async () => {
+            t.disabled = true;
+            try { await toggle(u.id, on); changed(); open({ fresh: true }); } catch (e) { t.disabled = false; say(e.message, 'err'); }
+          });
+          row.appendChild(t);
         } else if (u.slot || u.feat === 'top1' || u.feat === 'fast1') {
           // a metal for the mane / tail tip: one of its slot at a time (switching one on switches the others off)
           row.appendChild(el('span', 'rka-uprog', u.slot ? 'Unlocked (on a metal kitty)' : 'Unlocked'));

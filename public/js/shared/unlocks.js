@@ -37,6 +37,8 @@ const UNLOCKS = [
   { id: 'gskates', name: 'Rainbow skates', feat: 'l8', times: 3, modes: ['ice', 'mixed'] },   // golden boots, rainbow blades (skates: not in Run only, which has no ice)
   { id: 'lion', name: 'Lion mane', feat: 'l9', times: 1 },
   { id: 'tail', name: 'Fluffy tail', feat: 'l9', times: 1 },
+  // the fluffy tail tip's glow switched off: shown as the switch 'Tail tip glow' (invert: ON = not worn), with the tail
+  { id: 'noglow', name: 'Tail tip glow', feat: 'l9', times: 1, hidden: true, defaultOff: true, invert: true, part: 'tail' },
   { id: 'chrome', name: 'Chrome kitty', feat: 'l9', times: 1, all: true, excl: 'body' },   // (done in all three modes, worn in every one; the mane is the Lion mane's own switch)
   { id: 'mchrome', name: 'Chrome mane', feat: 'l9', times: 1, all: true, hidden: true, defaultOff: true, slot: 'mane', metal: 'chrome' },
   { id: 'tchrome', name: 'Chrome tail tip', feat: 'l9', times: 1, all: true, hidden: true, defaultOff: true, slot: 'tip', metal: 'chrome' },

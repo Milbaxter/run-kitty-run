@@ -967,7 +967,7 @@ function createKittyModel(color) {
     }
     bow.visible = !!s.tailBow && !off;
     bow.scale.setScalar(fl ? 1 : 0.62);   // (made for the fluffy tail: smaller on a plain one)
-    tipGlow.visible = fl;
+    tipGlow.visible = fl && s.tailGlow !== false;   // (the glow can be switched off: unlocks.js 'noglow')
     if (tipGlow.visible) {
       // the glow is the colour the kitty's fur has right now: its own, the rainbow fur's (as it runs past the tail tip),
       // the chrome lion's silver, the celestial lion's violet, a bronze / golden kitty's metal

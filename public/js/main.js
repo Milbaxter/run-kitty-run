@@ -1759,7 +1759,7 @@ function syncVisuals(dt, alpha) {
     // with a glowing tip (11), a rainbow name (12, ui.js), backpack kittens turning rainbow (13: one, 14: two, 15: all),
     // lion (14; at 16 a celestial or silver lion, see below). 120 revives: medevac rotor blades on the back
     ka.moonCrown = !easy && wins >= 9; ka.crownStars = Math.max(0, Math.min(5, wins - 9));
-    ka.goldSkates = (!easy && wins >= 10) || cos.has('gskates'); ka.fluffyTail = (!easy && wins >= 11) || cos.has('tail');
+    ka.goldSkates = (!easy && wins >= 10) || cos.has('gskates'); ka.fluffyTail = (!easy && wins >= 11) || cos.has('tail'); ka.tailGlow = !cos.has('noglow');   // (its glow: unless switched off)
     ka.silverSkates = (easy && wins >= 10) || cos.has('sskates'); ka.tailBow = (easy && wins >= 11) || cos.has('bow');   // (the bow: also an unlock, on a fluffy tail too)
     ka.packRainbow = easy ? 0 : wins >= 15 ? 99 : wins >= 14 ? 2 : wins >= 13 ? 1 : 0;
     // 14: the lion (and the crown's moon lights up); 16: celestial lion with 120 revives, the rainbow cat stays rainbow

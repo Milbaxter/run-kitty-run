@@ -59,6 +59,7 @@ const CSS = `
 .rka-sec{align-self:stretch;display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 14px;border-radius:16px;background:rgba(10,4,30,.38);border:1px solid rgba(255,255,255,.12);}
 .rka-sech{align-self:flex-start;font-size:12px;font-weight:900;letter-spacing:.14em;opacity:.6;}
 .rka-note{font-size:14px;font-weight:700;opacity:.85;}
+.rka-gold{font-size:17px;font-weight:900;color:#ffd56b;text-shadow:0 2px 0 #3a1650,0 0 12px rgba(255,213,107,.45);padding:8px 12px;border-radius:12px;border:2px solid #ffd56b;background:rgba(255,213,107,.12);}
 .rka-tabs{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;}
 .rka-amt.rka-tab{font-size:13px;padding:6px 12px;min-width:0;}
 .rka-stats{align-self:stretch;display:flex;flex-direction:column;gap:8px;}
@@ -441,7 +442,7 @@ function createAccount(root) {
         b.href = accountApiUrl('/api/account/discord') + '?origin=' + encodeURIComponent(location.origin);
         return b;
       };
-      create.append(el('div', 'rka-note', `Totally optional, you do not need an account to play the game. Sign up, then chip in whatever you like once to activate it: the total shows next to your kitty for everyone online (can toggle it on and off), and your account keeps your stats and earns unlocks in Multiplayer games.`), gNew);
+      create.append(el('div', 'rka-gold', '✨ Your total donated is shown in gold next to your kitty for everyone online ✨'), el('div', 'rka-note', `Totally optional, you do not need an account to play the game. Sign up, then chip in whatever you like once to activate it (you can toggle the number on and off). Your account also keeps your stats and earns unlocks in Multiplayer games.`), gNew);
       back.append(el('div', 'rka-note', `Sign in with the same ${A.cfg.discord ? 'Google or Discord' : 'Google'} account as before and your swag comes back, on any browser.`), gBack);
       if (A.cfg.discord) { create.append(discordBtn('Sign up with Discord')); back.append(discordBtn('Sign in with Discord')); }
       box.append(el('h2', null, 'SWAG ACCOUNT'), create, back, guestBox(), msg, fine('By signing in you agree to the '), closeBtn);
@@ -531,7 +532,7 @@ function createAccount(root) {
       } else {
         const pick = el('button', 'rka-amt rka-on', 'PICK AN AMOUNT');
         pick.addEventListener('click', () => open({ view: 'pay' }));
-        swag.append(el('div', 'rka-note', `Chip in once, from ${fmtPaid(A.cfg.min)}, to activate your account: the total shows next to your kitty for everyone online (can toggle it on and off), the game keeps your stats and you can earn unlocks in Multiplayer games.`), pick);
+        swag.append(el('div', 'rka-gold', '✨ Your total donated is shown in gold next to your kitty for everyone online ✨'), el('div', 'rka-note', `Chip in once, from ${fmtPaid(A.cfg.min)}, to activate your account (you can toggle the number on and off). The game also keeps your stats and you can earn unlocks in Multiplayer games.`), pick);
       }
       // Unlocks (shared/unlocks.js): earned online, kept forever, each switched on or off here
       const unl = unlocksBox('UNLOCKS', a.unlocks || {}, async (id, on) => { A.account = (await api('equip', { item: id, on })).account; },
@@ -622,7 +623,7 @@ function createAccount(root) {
     // Amount picker
     box.append(el('h2', null, paid > 0 ? 'ADD SWAG' : 'CREATE SWAG ACCOUNT'),
       el('div', 'rkr-gsub', paid > 0 ? `You have ${fmtPaid(paid)}. Add more any time, it only goes up.`
-        : `Hi ${a.name || 'there'}! How much? Whatever you pick shows next to your kitty for everyone online (can toggle it on and off).`));
+        : `Hi ${a.name || 'there'}! How much?`), ...(paid > 0 ? [] : [el('div', 'rka-gold', '✨ Your total donated is shown in gold next to your kitty for everyone online ✨')]));
     let cents = 50;
     const amts = el('div', 'rka-amts');
     const btns = PRESETS.map((c) => {

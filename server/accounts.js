@@ -304,6 +304,8 @@ function createAccounts(file, env = process.env) {
   const paidFor = (token) => { const a = fromToken(token); return a && !a.hide && !a.deleting ? shownCents(a) : 0; };
   // the account id behind a session token (the game server keeps this per player instead of the token itself)
   const subFor = (token) => { const a = fromToken(token); return a ? a.sub : null; };
+  // every account whose number shows (not hidden, not being deleted): [[sub, cents]] (the boards show it on a name's hover)
+  const shownAll = () => Object.values(accounts).filter((a) => a && a.sub && !a.hide && !a.deleting && shownCents(a) > 0).map((a) => [a.sub, shownCents(a)]);
 
   // ---- stats (the account menu) ----
   // Two separate sets: 'online' is counted by this server from the online games it runs; 'local' (solo / local co-op)
@@ -702,7 +704,7 @@ function createAccounts(file, env = process.env) {
     return true;
   }
 
-  return { enabled, handle, webhook, setLegendRanks, setGoldenCheck, setBronzeCheck, paidFor, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
+  return { enabled, handle, webhook, setLegendRanks, setGoldenCheck, setBronzeCheck, paidFor, shownAll, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
 }
 
 // One credit per player, however many of its tabs are in the game: of these kitties (members: { acct, pid }), the

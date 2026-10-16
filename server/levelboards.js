@@ -165,9 +165,13 @@ function createLevelBoards(file) {
     tops.set(bk, L);
     return L;
   }
+  // the swag number of a player (its key) -> cents, or 0 (index.js: accounts whose number shows); on the board on hover
+  let paidOf = () => 0;
+  const setPaid = (fn) => { paidOf = fn; };
+  const acctKey = (sub) => 'a' + hash('a:' + sub);
   const row = (r, me) => {
-    const p = players[r[0]];
-    return { name: p.n, color: p.c, time: r[1], at: new Date(r[2]).toISOString(), team: r[3], ...(r[0] === me ? { me: true } : {}) };
+    const p = players[r[0]], paid = r[0][0] === 'a' ? paidOf(r[0]) : 0;
+    return { name: p.n, color: p.c, time: r[1], at: new Date(r[2]).toISOString(), team: r[3], ...(paid ? { paid } : {}), ...(r[0] === me ? { me: true } : {}) };
   };
 
   // a board: q = { board: { local, easy, mode, level, team }, scope: 'all' | 'friends' | 'group', fids: [...], group: id }
@@ -280,7 +284,7 @@ function createLevelBoards(file) {
     return {};
   }
 
-  return { record, reach, can9, query, groupsOf, createGroup, joinGroup, leaveGroup, removeMember, restartGroup, flush, keyOf, boardKey, MIN_S, MAX_S, SECRET_LEVEL, LEVELS };
+  return { setPaid, acctKey, record, reach, can9, query, groupsOf, createGroup, joinGroup, leaveGroup, removeMember, restartGroup, flush, keyOf, boardKey, MIN_S, MAX_S, SECRET_LEVEL, LEVELS };
 }
 
 export { createLevelBoards, parseBoard };

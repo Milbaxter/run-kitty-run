@@ -877,6 +877,12 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const fr = JSON.parse(lg.boardJson()).fastest.run, rkE = lg.ranksFor({ acct: 'gk-E' })[0], rkB = lg.ranksFor({ acct: 'gk-B' })[0];
     ok(fr.length === 5 && rkE.fastest === 1 && rkE.list === 'os' && rkB.fastest === 1 && rkB.list === 'ot',
       'legends fastest: solo and team games on lists of their own (each has its own number 1)');
+    // a swag number shows on the boards (on hover): only the accounts index.js hands in, by their key
+    lg.setPaid((keys) => (keys.includes(lg.acctKey('gk-E')) ? 1234 : 0));
+    const pb = JSON.parse(lg.boardJson()), eTeam = pb.fastest.run.find((x) => x.team[0].name === 'E');
+    ok(eTeam.team[0].paid === 1234 && !pb.fastest.run.find((x) => x.team[0].name === 'D').team[0].paid
+      && pb.wins.find((w) => w.entries[0] && w.entries[0].name === 'E').entries[0].paid === 1234 && !/gk-E/.test(lg.boardJson()),
+      'legends board: a player\'s swag number goes with their name (fastest list, latest wins), no ids sent');
     lg.flush();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -929,6 +935,9 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const acc = who('h', { acct: 'acct-h' });
     const after = q(acc, {});
     ok(after.me && after.me.time === 33 && after.rows.filter((r) => r.name === 'Kh').length === 1, 'level boards: a browser\'s times move to the account playing on it');
+    lb.setPaid((k) => (k === lb.acctKey('acct-h') ? 500 : 0));
+    ok(q(acc, {}).rows.find((r) => r.name === 'Kh').paid === 500 && !q(acc, {}).rows.find((r) => r.name === 'Ka').paid,
+      'level boards: a signed-in player\'s swag number goes with their name');
     lb.flush();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

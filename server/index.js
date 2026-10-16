@@ -91,6 +91,17 @@ accounts.setGoldenCheck((who) => legends.goldenFor(who));
 accounts.setBronzeCheck((who) => legends.bronzeFor(who));   // (the bronze kitty: number 1 of a fastest list)
 // Level boards (levelboards.js): every level's fastest clears, online ones counted here, local ones reported by the game
 const levels = createLevelBoards(process.env.LEVELS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'levels.json'));
+// the boards show a player's swag number on a name's hover: the accounts whose number shows, by each board's own key
+// for them (looked up again at most once a minute)
+let shownAt = 0, shownLegends = new Map(), shownLevels = new Map();
+function shownMaps() {
+  if (Date.now() - shownAt < 60e3) return;
+  shownAt = Date.now();
+  shownLegends = new Map(); shownLevels = new Map();
+  for (const [sub, cents] of accounts.shownAll()) { shownLegends.set(legends.acctKey(sub), cents); shownLevels.set(levels.acctKey(sub), cents); }
+}
+legends.setPaid((keys) => { shownMaps(); for (const k of keys) { const c = shownLegends.get(k); if (c) return c; } return 0; });
+levels.setPaid((key) => { shownMaps(); return shownLevels.get(key) || 0; });
 // (POST /api/levels, per IP: any request 30 burst then 2/s; a local game's cleared level 10 burst then 1 per 5 s)
 const levelHits = new Map(), localHits = new Map();   // ip -> { tok, at }
 setInterval(() => { const now = Date.now(); for (const m of [levelHits, localHits]) for (const [ip, h] of m) if (now - h.at > 600e3) m.delete(ip); }, 600e3).unref();   // (the golden kitty: ever number 1 on the board)   // (the swag account menu shows its places on the legends lists)
@@ -487,6 +498,25 @@ function handleLevelsHttp(req, res) {
       reply(400, { ok: false });
     } catch (err) { console.error('level boards failed:', err); if (!res.headersSent) reply(500, { ok: false }); }
   });
+}
+
+// ---- global chat: a message to everyone playing who has it switched on ('gsub'), from anywhere in the game (the title
+// screen, a Solo game, a lobby). Same limits as a room's chat but slower (one per 2 s, bursts of 3); unfiltered, the apps
+// mask on their side; kept in the sender's chat log for reports. In a lobby the name is the lobby's; elsewhere the one
+// the player picked (cleaned like a lobby name).
+function handleGlobalChat(client, msg) {
+  const now = Date.now();
+  if (!client.gsub) return;
+  if (!take(client, 'gchat', 0.5, 3, now)) return send(client.ws, { t: 'chat', sys: true, text: 'Slow down a little!' });
+  const text = str(msg.text).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 120);
+  if (!text) return;
+  const name = client.room ? client.name : cleanName(msg.name, 'Kitty');
+  if (!client.room) client.name = name;   // (a report shows who it was)
+  const color = client.room ? client.color : Number.isInteger(msg.color) && msg.color >= 0 && msg.color <= 0xffffff ? msg.color : PLAYER_COLORS[0];
+  client.chatLog.push({ at: new Date(now).toISOString(), room: 'global', text });
+  if (client.chatLog.length > CHAT_HISTORY) client.chatLog.shift();
+  const out = JSON.stringify({ t: 'gchat', id: client.id, name, color, text });
+  for (const c of clients.values()) if (c.gsub && c.ws.readyState === 1) send(c.ws, out);
 }
 
 function handleSign(client, msg) {
@@ -1121,6 +1151,11 @@ wss.on('connection', (ws, req) => {
         broadcast(room, { t: 'chat', id: client.id, name: client.name, color: client.color, text: raw }); // unfiltered (the apps mask on their side)
         break;
       }
+      case 'gsub':
+        // the global chat (everyone playing): this client wants its messages (or no more). Nothing from before is sent.
+        client.gsub = !!msg.on;
+        break;
+      case 'gchat': handleGlobalChat(client, msg); break;
       case 'emote': {
         // /dance in the chat: that player's kitty dances for everyone (clients draw it; the chat's rate limit)
         if (!room || room.phase !== 'playing' || msg.e !== 'dance' || !take(client, 'chat', 1, 5, Date.now())) return;

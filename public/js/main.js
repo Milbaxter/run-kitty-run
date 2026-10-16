@@ -277,6 +277,8 @@ ui.onSettingsClick(() => {
     onVolume: applyVolumes,
     onGraphics: applyGraphics,
     onKeys: () => ui.refreshKeys(),
+    // the global chat: on / off, and hidden while you play a Multiplayer game
+    globalChat: { get: () => gchatOn, set: setGchatOn, mp: () => gchatHideMp, setMp: setGchatHideMp },
   });
 });
 ui.onMenuClick(() => {
@@ -1938,7 +1940,7 @@ const lobbyUI = createLobbyUI(document.getElementById('ui'), {
 
 const chat = createChat(document.getElementById('ui'), {
   touch: TOUCH,
-  onSend: (text) => {
+  onSend: (text, channel) => {
     // /feedback some words: sent as feedback, not to the room (only you see the answer); /feedback alone opens the box
     const fb = /^\/feedback(?:\s+([\s\S]*))?$/i.exec(text);
     if (fb) {
@@ -1950,12 +1952,41 @@ const chat = createChat(document.getElementById('ui'), {
       return;
     }
     if (/^\/dance\b/i.test(text)) { dance(); return; }
+    if (channel === 'world') {   // (the global chat: everyone playing)
+      if (!net.connected) { chat.add({ sys: true, text: 'Not connected to the global chat right now.' }); net.wake(); return; }
+      net.send({ t: 'gchat', text, name: savedName() || 'Kitty', color: prefColor() });
+      return;
+    }
     if (online.room) net.send({ t: 'chat', text });
     else chat.add({ sys: true, text: 'Nobody else is here. Try /dance, or /feedback and your idea.' });
   },
   onOpen: () => keys.clear(), // don't keep running while typing
   onReport: NATIVE ? (id, reason) => net.send({ t: 'report', id, reason }) : null, // Report only in the store apps
 });
+// ---------- global chat: everyone playing, from anywhere (chat.js's 🌍 channel). On unless switched off in the settings;
+// shown in games too (Multiplayer ones as well, unless "hide it in Multiplayer games" is switched on). It needs the connection to the server: made
+// right away on the web, in the store apps once their terms were accepted (the first Multiplayer visit asks).
+const GCHAT_KEY = 'rkr-gchat', GCHAT_MP_KEY = 'rkr-gchat-mp';
+const loadFlag = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : v === '1'; } catch { return d; } };
+let gchatOn = loadFlag(GCHAT_KEY, true), gchatHideMp = loadFlag(GCHAT_MP_KEY, false);
+const termsOk = () => { if (!NATIVE) return true; try { return localStorage.getItem('rkr-terms-v1') === '1'; } catch { return false; } };
+function setGchatOn(on) {
+  gchatOn = !!on;
+  try { localStorage.setItem(GCHAT_KEY, gchatOn ? '1' : '0'); } catch { /* ignore */ }
+  if (gchatOn && termsOk()) net.connect();
+  if (net.connected) net.send({ t: 'gsub', on: gchatOn });
+  syncGlobalChat();
+}
+function setGchatHideMp(on) {
+  gchatHideMp = !!on;
+  try { localStorage.setItem(GCHAT_MP_KEY, gchatHideMp ? '1' : '0'); } catch { /* ignore */ }
+  syncGlobalChat();
+}
+const gchatShown = () => gchatOn && termsOk() && !net.outdated && !(gchatHideMp && online.playing);
+function syncGlobalChat() { chat.setWorld(gchatShown(), { room: !!online.room, onTitle: ui.isTitleOpen() }); }
+net.on('gchat', (m) => { if (gchatShown()) chat.add({ ...m, g: true }); });
+if (gchatOn && termsOk()) net.connect();
+
 // Legends board (legends.js): online winners get it over ws and may sign; offline winners read it over HTTP.
 const legends = createLegends(document.getElementById('ui'), {
   send: (m) => net.send(m),
@@ -2210,6 +2241,7 @@ net.on('open', () => {
   online.rejoin = null;
   if (code && !online.room) net.send({ t: 'join', code, name: savedName(), color: prefColor(), password: online.pass || '' });
   net.send({ t: 'legends' }); // a winner still in its signing window (same tab, even after a reload) gets the board back
+  if (gchatOn) net.send({ t: 'gsub', on: true });   // (the global chat)
 });
 net.on('close', () => {
   if (online.room) online.rejoin = online.room.code;
@@ -2549,6 +2581,7 @@ let vsyncPrev = last, vsyncMs = 1000 / 60, nextDraw = 0;
 
 function frame(now) {
   requestAnimationFrame(frame);
+  syncGlobalChat();   // (cheap when nothing changed)
   const iv = now - vsyncPrev;
   vsyncPrev = now;
   if (iv > 3 && iv < 40) vsyncMs += (iv - vsyncMs) * (iv < vsyncMs ? 0.1 : 0.02);   // leans to the short intervals (the real refresh)

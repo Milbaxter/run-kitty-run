@@ -11,6 +11,7 @@
 import { apiUrl, NATIVE } from './platform.js';
 import { cleanForApp, progressId } from './net.js';
 import { TOUCH } from './device.js';
+import { fmtNum } from './account.js';
 
 const MAX = 140;
 const MODES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
@@ -79,6 +80,13 @@ const CSS = `
 .rkg-lrow .rkg-t{flex:none;font-weight:900;font-size:15px;color:#fff6d8;font-variant-numeric:tabular-nums;}
 .rkg-lrow .rkg-d{flex:none;font-size:11px;font-weight:800;opacity:.65;text-align:right;min-width:62px;}
 @media (max-width:420px){ .rkg-lrow .rkg-d{display:none;} }   /* (a narrow screen: the names keep their room) */
+/* a player's swag number: next to the name while hovered (tapped, on a touch screen) */
+.rkg-paid{display:none;margin-left:6px;font-size:12px;font-weight:900;color:#ffd56b;background:rgba(20,8,40,.8);padding:1px 7px;border-radius:7px;
+  vertical-align:1px;-webkit-text-stroke:0;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.rkg-who2{cursor:default;}
+.rkg-who2:hover .rkg-paid,.rkg-who2.rkg-showpaid .rkg-paid{display:inline-block;}
+.rkg-lrow .rkg-who2{flex:1;min-width:0;display:flex;align-items:center;}
+.rkg-lrow .rkg-who2 .rkg-n{flex:0 1 auto;}
 .rkg-you2{text-align:center;font-weight:900;font-size:13px;color:#ffcf5a;}
 .rkg-grp{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:16px;background:rgba(0,0,0,.22);border:2px solid rgba(255,255,255,.12);}
 .rkg-grp h3{margin:0;font-size:14px;font-weight:900;letter-spacing:.06em;color:#ffcf5a;}
@@ -437,24 +445,30 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
   }
   // a card's lines, the same on every view: each kitty's name first, then the line they wrote ("Name — “line”");
   // the ones who wrote nothing together on one line after them
+  // a kitty's name in its colour; with a swag number, that shows next to it on hover / tap
+  function nameEl(e) {
+    const n = el('span', 'rkg-n', e.name);
+    n.style.color = hex(e.color);
+    if (!(e.paid > 0)) return n;
+    const w = el('span', 'rkg-who2');
+    w.append(n, el('span', 'rkg-paid', fmtNum(e.paid)));
+    w.addEventListener('click', () => w.classList.toggle('rkg-showpaid'));
+    return w;
+  }
   function cardLines(card, entries) {
     const quiet = [];
     for (const e of entries) {
       if (!e || typeof e.name !== 'string') continue;
       if (!e.text) { quiet.push(e); continue; }
       const line = el('div', 'rkg-line');
-      const n = el('span', 'rkg-n', e.name);
-      n.style.color = hex(e.color);
-      line.append(n, ' — ', el('q', null, String(e.text)));
+      line.append(nameEl(e), ' — ', el('q', null, String(e.text)));
       card.appendChild(line);
     }
     if (quiet.length) {
       const line = el('div', 'rkg-line');
       quiet.forEach((e, i) => {
         if (i) line.append(', ');
-        const n = el('span', 'rkg-n', e.name);
-        n.style.color = hex(e.color);
-        line.appendChild(n);
+        line.appendChild(nameEl(e));
       });
       card.appendChild(line);
     }
@@ -474,7 +488,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
       head.appendChild(el('span', null, (MODES[tab] || '') + (f.kind === 'solo' ? ' · solo' : f.kind === 'coop' ? ' · co-op' : '')));
       if (Number.isFinite(f.total)) head.appendChild(el('span', null, '⏱ ' + fmtTime(f.total)));
       body.appendChild(head);
-      cardLines(body, view === 'firsts' ? [{ name: f.name, color: f.color, text: f.text }] : f.team || []);
+      cardLines(body, view === 'firsts' ? [{ name: f.name, color: f.color, text: f.text, paid: f.paid }] : f.team || []);
       card.appendChild(body);
       list.appendChild(card);
     });
@@ -601,9 +615,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
     }
     rows.forEach((r, i) => {
       const row = el('div', 'rkg-lrow' + (r.me ? ' rkg-mine' : ''));
-      const n = el('span', 'rkg-n', r.name);
-      n.style.color = hex(r.color);
-      row.append(el('span', 'rkg-no', '#' + (i + 1)), n);
+      row.append(el('span', 'rkg-no', '#' + (i + 1)), nameEl(r));
       if (lv.team && r.team > 1) row.appendChild(el('span', 'rkg-d', r.team + ' kitties'));
       row.append(el('span', 'rkg-t', '⏱ ' + fmtLevel(r.time)), el('span', 'rkg-d', fmtDate(r.at)));
       list.appendChild(row);

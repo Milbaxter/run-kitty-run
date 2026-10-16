@@ -109,7 +109,20 @@ function createLegends(file) {
   // signer key (tab token / client id) -> { win, idx, until }; in memory only (a restart closes the signing windows)
   const elig = new Map();
   const offlineKeys = new Map(); // offline win id -> { key, until } (edit window; in memory only)
-  let saveT = null, cache = null;
+  let saveT = null, cache = null, cacheAt = 0;
+  // the swag number of a player (its keys) -> cents, or 0 (index.js: accounts whose number shows); on the board on hover
+  let paidOf = () => 0;
+  const setPaid = (fn) => { paidOf = fn; cache = null; };
+  const withPaid = (e, keys) => { const c = keys && keys.length ? paidOf(keys) : 0; return c ? { ...e, paid: c } : e; };
+  // a win's kitties' keys (the lists know them: the fastest list each kitty's, the firsts its own)
+  function winKeys(w) {
+    const m = LIST_MODES.includes(w.mode) ? w.mode : 'mixed';
+    const f = fastest[m].find((x) => x.win === w.id);
+    if (f) return f.keys;
+    const out = [];
+    for (const x of firsts[m]) if (x.win === w.id) out[x.idx] = x.keys;
+    return out;
+  }
 
   function save() {
     saveT = null;
@@ -141,15 +154,23 @@ function createLegends(file) {
     const out = [], per = {};
     for (let i = wins.length - 1; i >= 0; i--) {
       const m = wins[i].mode || 'mixed';
-      if ((per[m] = (per[m] || 0) + 1) <= SEND_WINS) out.push(wins[i]);
+      if ((per[m] = (per[m] || 0) + 1) <= SEND_WINS) {
+        const w = wins[i], ks = winKeys(w);
+        out.push(ks.some(Boolean) ? { ...w, entries: w.entries.map((e, j) => withPaid(e, ks[j])) } : w);
+      }
     }
     return out;
   };
   const publicLists = () => ({
-    firsts: Object.fromEntries(LIST_MODES.map((m) => [m, firsts[m].map((f) => ({ win: f.win, at: f.at, total: f.total, name: f.name, color: f.color, text: f.text || '' }))])),
-    fastest: Object.fromEntries(LIST_MODES.map((m) => [m, fastest[m].map((f) => ({ win: f.win, at: f.at, total: f.total, kind: f.kind, team: f.team }))])),
+    firsts: Object.fromEntries(LIST_MODES.map((m) => [m, firsts[m].map((f) => withPaid({ win: f.win, at: f.at, total: f.total, name: f.name, color: f.color, text: f.text || '' }, f.keys))])),
+    fastest: Object.fromEntries(LIST_MODES.map((m) => [m, fastest[m].map((f) => ({ win: f.win, at: f.at, total: f.total, kind: f.kind, team: (f.team || []).map((t, j) => withPaid(t, f.keys && f.keys[j])) }))])),
   });
-  function boardJson() { return (cache ||= JSON.stringify({ ok: true, wins: board(), ...publicLists() })); }
+  // (cached a minute: the swag numbers can change without the board changing)
+  function boardJson() {
+    if (!cache || Date.now() - cacheAt > 60e3) { cache = JSON.stringify({ ok: true, wins: board(), ...publicLists() }); cacheAt = Date.now(); }
+    return cache;
+  }
+  const acctKey = (sub) => hash('a:' + sub);
 
   // ---- the permanent lists
   // A player's keys: hashes of their account and browser ids (either one matching = the same player), or of their
@@ -341,7 +362,7 @@ function createLegends(file) {
     return out;
   }
 
-  return { recordWin, eligibility, boardFor, sign, boardJson, ranksFor, goldenFor, bronzeFor, flush, checkOffline, createOffline, editOffline, TEXT_MAX };
+  return { recordWin, eligibility, boardFor, sign, boardJson, ranksFor, goldenFor, bronzeFor, setPaid, acctKey, flush, checkOffline, createOffline, editOffline, TEXT_MAX };
 }
 
 export { createLegends, cleanText };

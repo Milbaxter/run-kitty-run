@@ -1,5 +1,8 @@
 // Lobby/game chat box (bottom-left). Enter opens it, Enter sends, Esc closes.
 // Tap a player's name to Mute them (and Report, in the store apps); "Hide chat" turns player messages off.
+// Two channels: the room's (lobby / game, and Solo / Local's own box for /dance and /feedback: setEnabled) and the global
+// chat with everyone playing (setWorld: its lines have a 🌍; on the title screen the box sits above the menu's footer and
+// opens with a click, Enter starts the game there). With both, a message goes to the room unless it starts with /global.
 // All message text is inserted with textContent.
 
 const CSS = `
@@ -19,6 +22,11 @@ const CSS = `
   border:2px solid #ffcf5a;background:rgba(10,4,30,.8);color:#fff;outline:none;display:none;user-select:text;-webkit-user-select:text;}
 .rkc.rkc-open .rkc-in{display:block;}
 .rkc-hint{opacity:.55;font-size:12px;font-weight:700;padding-left:4px;}
+.rkc-line.rkc-glob{background:rgba(20,40,70,.6);}
+.rkc-line .rkc-g{margin-right:5px;}
+.rkc.rkc-title{bottom:max(64px,calc(env(safe-area-inset-bottom) + 52px));}
+.rkc.rkc-title .rkc-hint{pointer-events:auto;cursor:pointer;opacity:.85;padding:6px 10px;border-radius:10px;background:rgba(20,10,40,.55);border:2px solid rgba(255,255,255,.18);}
+
 .rkc.rkc-open .rkc-hint{display:none;}
 .rkc-btn{pointer-events:auto;align-self:flex-start;width:42px;height:42px;border-radius:14px;background:rgba(20,10,40,.55);
   border:2px solid rgba(255,255,255,.18);font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
@@ -100,6 +108,7 @@ function createChat(root, { onSend, onOpen, onReport, onClose, touch = false }) 
   mutedBtn.className = 'rkc-tog';
   mutedBtn.title = 'Players you muted';
   bar.append(tog, mutedBtn, hint);
+  hint.addEventListener('click', (e) => { if (box.classList.contains('rkc-title')) { e.stopPropagation(); open(); } });
   box.append(log, input, bar);
 
   // moderation state: blocked names persist, blocked ids are for this session
@@ -279,12 +288,24 @@ function createChat(root, { onSend, onOpen, onReport, onClose, touch = false }) 
   log.addEventListener('wheel', (e) => { if (isOpen()) e.stopPropagation(); }, { passive: true });   // scrolls the log, not the camera's zoom
   root.appendChild(box);
 
-  let enabled = false;
+  let enabled = false;          // shown at all: the room's box (roomOn) or the global chat (world)
+  let roomOn = false, world = false, worldRoom = false, title = false;
+  function applyShown() {
+    const on = roomOn || world;
+    enabled = on;
+    box.style.display = on ? '' : 'none';
+    box.classList.toggle('rkc-title', world && title && !roomOn);
+    hint.textContent = world && title && !roomOn ? '💬 Chat with everyone' : touch ? '' : 'Press Enter to chat';
+    input.placeholder = world && roomOn && worldRoom ? 'Say something… (/global talks to everyone playing)'
+      : world ? 'Say something to everyone playing…' : touch ? 'Say something…' : 'Say something… (/dance, /feedback your idea)';
+    if (!on) { close(); closePop(); closeHist(); }
+  }
 
   function isOpen() { return box.classList.contains('rkc-open'); }
   function open() {
     if (!enabled || isOpen()) return;
     box.classList.add('rkc-open');
+    applyShown();
     input.value = '';
     input.focus();
     log.scrollTop = log.scrollHeight;   // open: the log scrolls (mouse wheel, or drag), from the newest line
@@ -302,7 +323,10 @@ function createChat(root, { onSend, onOpen, onReport, onClose, touch = false }) 
     if (e.key === 'Enter') {
       e.preventDefault();
       const text = input.value.trim();
-      if (text) onSend(text);
+      // /global (or /g) and a message: to everyone playing; without a room that's where everything goes anyway
+      const g = /^\/(?:global|g)(?:\s+([\s\S]*))?$/i.exec(text);
+      if (g && world) { if ((g[1] || '').trim()) onSend(g[1].trim(), 'world'); }
+      else if (text) onSend(text, world && (!roomOn || !worldRoom) ? 'world' : 'room');
       close();
     } else if (e.key === 'Escape') {
       e.preventDefault();
@@ -316,7 +340,7 @@ function createChat(root, { onSend, onOpen, onReport, onClose, touch = false }) 
   function add(msg) {
     if (!msg.sys && (off || isBlocked(msg))) return false;
     const line = document.createElement('div');
-    line.className = 'rkc-line' + (msg.sys ? ' rkc-sys' : '');
+    line.className = 'rkc-line' + (msg.sys ? ' rkc-sys' : '') + (msg.g ? ' rkc-glob' : '');
     if (msg.sys) {
       line.textContent = msg.text;
     } else {
@@ -325,6 +349,7 @@ function createChat(root, { onSend, onOpen, onReport, onClose, touch = false }) 
       name.style.color = hex(msg.color);
       name.addEventListener('click', (e) => { e.stopPropagation(); openPop(msg); });
       line._msg = msg;
+      if (msg.g) { const g = document.createElement('span'); g.className = 'rkc-g'; g.textContent = '🌍'; line.append(g); }
       line.append(name, document.createTextNode(msg.text));
     }
     const logEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 24;   // (reading older lines: stay there)
@@ -340,15 +365,21 @@ function createChat(root, { onSend, onOpen, onReport, onClose, touch = false }) 
     return true;
   }
 
-  function setEnabled(on) {
-    enabled = on;
-    box.style.display = on ? '' : 'none';
-    if (!on) { close(); closePop(); closeHist(); }
+  // the room's box (a lobby / game, or Solo / Local's)
+  function setEnabled(on) { roomOn = !!on; applyShown(); }
+  // the global chat: shown or not; room: a Multiplayer lobby / game is open too (its chat is the other channel);
+  // onTitle: the title screen is up
+  function setWorld(on, { room = false, onTitle = false } = {}) {
+    on = !!on; room = !!room; onTitle = !!onTitle;
+    if (on === world && room === worldRoom && onTitle === title) return;
+    if (!on) for (const line of [...log.children]) if (line._msg && line._msg.g) line.remove();   // (its lines go with it)
+    world = on; worldRoom = room; title = onTitle;
+    applyShown();
   }
 
   function clear() { log.textContent = ''; fillHist(); }
 
-  return { open, close, isOpen, add, setEnabled, clear, isHidden: (m) => !m.sys && (off || isBlocked(m)) };
+  return { open, close, isOpen, add, setEnabled, setWorld, clear, isHidden: (m) => !m.sys && (off || isBlocked(m)) };
 }
 
 export { createChat };

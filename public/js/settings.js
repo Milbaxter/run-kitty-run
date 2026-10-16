@@ -87,7 +87,7 @@ function el(tag, cls, text) {
   return e;
 }
 
-// opts (main.js): music: { songs: [[i, label]], on(i), toggle(i), speed: null | { choices: [[x, label]], get(), set(x) } },
+// opts (main.js): globalChat: { get(), set(on), mp(), setMp(on) } (the global chat; hidden in Multiplayer games), music: { songs: [[i, label]], on(i), toggle(i), speed: null | { choices: [[x, label]], get(), set(x) } },
 //   invites: { choices: [[id, label]], get(), set(id), blocked() -> count, clearBlocked() }, onVolume(), onGraphics(id) -> true if smooth edges wait for a reload, onKeys(), onClose()
 function openSettings(root, opts = {}) {
   if (!styled) { const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st); styled = true; }
@@ -194,6 +194,31 @@ function openSettings(root, opts = {}) {
     el('div', 'rkst-note', 'In Multiplayer, Tab looks at a friend while your kitty keeps going. On: a new move key or a click brings the camera back to you, and so does Tab after the last friend. Off: only Space brings it back, Tab just goes through the other kitties, so you can steer while you watch. (Both keys can be changed under Controls.)'));
   gfx.append(gseg, note, fstack, lstack);
   left.appendChild(gfx);
+
+  // ---- the global chat (everyone playing): on / off, and hidden while playing a Multiplayer game
+  if (opts.globalChat) {
+    const gc = opts.globalChat;
+    const sec = el('div', 'rkst-sec');
+    sec.appendChild(el('h3', null, 'GLOBAL CHAT'));
+    const onoff = (get, set) => {
+      const seg = el('div', 'rkst-seg');
+      const paint = () => { for (const b of seg.children) b.classList.toggle('rkst-on', (b.dataset.v === '1') === get()); };
+      for (const [v, label] of [['1', 'ON'], ['0', 'OFF']]) {
+        const b = el('button', null, label); b.dataset.v = v; b.type = 'button';
+        b.addEventListener('click', () => { set(v === '1'); paint(); });
+        seg.appendChild(b);
+      }
+      paint();
+      return seg;
+    };
+    const a = el('div', 'rkst-stack'), b = el('div', 'rkst-stack');
+    a.append(el('span', null, 'Chat with everyone playing'), onoff(gc.get, gc.set),
+      el('div', 'rkst-note', 'Messages from everyone playing the game, marked 🌍, wherever you are. Tap a name to mute that player.'));
+    b.append(el('span', null, 'Hide it in Multiplayer games'), onoff(gc.mp, gc.setMp),
+      el('div', 'rkst-note', 'On: while you play a Multiplayer game only your lobby\'s chat shows. In the lobby you can pick where a message goes.'));
+    sec.append(a, b);
+    left.appendChild(sec);
+  }
 
   // ---- invites (Multiplayer): who may invite you, and unblocking the players you blocked
   if (opts.invites) {

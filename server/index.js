@@ -102,6 +102,9 @@ function shownMaps() {
 }
 legends.setPaid((keys) => { shownMaps(); for (const k of keys) { const c = shownLegends.get(k); if (c) return c; } return 0; });
 levels.setPaid((key) => { shownMaps(); return shownLevels.get(key) || 0; });
+// level 9's board: also for whoever played level 9 before the boards existed (the account's stats; or the browser says so,
+// which only ever opens a board that shows times)
+levels.setReachedBefore((who) => !!who.seen9 || accounts.reachedFinal(who.acct));
 // (POST /api/levels, per IP: any request 30 burst then 2/s; a local game's cleared level 10 burst then 1 per 5 s)
 const levelHits = new Map(), localHits = new Map();   // ip -> { tok, at }
 setInterval(() => { const now = Date.now(); for (const m of [levelHits, localHits]) for (const [ip, h] of m) if (now - h.at > 600e3) m.delete(ip); }, 600e3).unref();   // (the golden kitty: ever number 1 on the board)   // (the swag account menu shows its places on the legends lists)
@@ -477,7 +480,7 @@ function handleLevelsHttp(req, res) {
     if (!m || typeof m !== 'object') return reply(400, { ok: false });
     try {
       const pid = accounts.validPid(m.pid);
-      const who = { acct: accounts.subFor(m.acct), pid, fid: friendId(pid) };
+      const who = { acct: accounts.subFor(m.acct), pid, fid: friendId(pid), seen9: m.seen9 === true };
       if (m.op === 'board') return reply(200, { ok: true, id: m.id, ...levels.query(who, m), groups: levels.groupsOf(who) });
       if (m.op === 'group') {
         const r = m.act === 'create' ? levels.createGroup({ ...who, name: m.who }, m.name, !!m.fresh) : m.act === 'join' ? levels.joinGroup({ ...who, name: m.who }, m.code)

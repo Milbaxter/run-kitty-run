@@ -912,6 +912,9 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(q(who('a'), { level: 9 }).err && !q(who('a'), {}).can9 && q(who('g'), { level: 9 }).rows.length === 1 && q(who('g'), {}).can9
       && (lb.reach(who('a')), q(who('a'), { level: 9 }).rows.length === 1),
       'level boards: level 9 only for players who have reached it');
+    lb.setReachedBefore((w) => !!w.seen9);
+    ok(q(who('k'), { level: 9 }).err && q(who('k', { seen9: true }), { level: 9 }).rows.length === 1 && q(who('k'), { level: 9 }).rows.length === 1,
+      'level boards: level 9 also for players who played it before the boards existed (remembered from then on)');
     const fr = q(who('a'), { team: true }, { scope: 'friends', fids: [who('b').fid] });
     ok(fr.rows.length === 1 && fr.rows[0].name === 'Kb', 'level boards: the friends board shows only the starred friends (by friend id)');
     const g = lb.createGroup(who('a'), 'Crew').group, j = lb.joinGroup(who('b'), g.code.toLowerCase());

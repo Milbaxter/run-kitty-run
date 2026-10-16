@@ -373,7 +373,7 @@ function createAccount(root) {
           row.appendChild(el('span', 'rka-uprog', open_ ? 'Switch it on / off in Settings' : ''));
         } else if (u.slot || u.feat === 'top1' || u.feat === 'fast1') {
           // a metal for the mane / tail tip: one of its slot at a time (switching one on switches the others off)
-          row.appendChild(el('span', 'rka-uprog', u.slot ? 'Unlocked (on a chrome, golden or bronze kitty)' : 'Unlocked'));
+          row.appendChild(el('span', 'rka-uprog', u.slot ? 'Unlocked (on a metal kitty)' : 'Unlocked'));
           const on = u.defaultOff ? prog.off && prog.off[u.id] === false : !offOf(u.id);
           const t = el('button', 'rka-amt rka-utog' + (on ? ' rka-on' : ''), on ? 'ON' : 'OFF');
           t.addEventListener('click', async () => {

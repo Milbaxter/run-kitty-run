@@ -155,6 +155,10 @@ function createLevelBoards(file) {
     if (me && !me.p.r9) { me.p.r9 = 1; changed(); }
   }
   const can9 = (who) => { const me = playerOf(who, false); return !!(me && me.p && me.p.r9); };
+  // played level 9 before these boards knew (index.js: the account's stats, or the browser says it saw it): from now on
+  // it's known here too
+  let reachedBefore = () => false;
+  const setReachedBefore = (fn) => { reachedBefore = fn; };
 
   function sorted(bk) {
     let L = tops.get(bk);
@@ -178,7 +182,9 @@ function createLevelBoards(file) {
   // -> { board, scope, group?, rows: [...] (rank order), me: { rank, time } | null, n (players on it), can9 }
   function query(who, q) {
     const b = parseBoard(q && q.board);
-    const me = playerOf(who, false), key = me ? me.key : '', mine = me && me.p;
+    let me = playerOf(who, false);
+    if (!(me && me.p && me.p.r9) && reachedBefore(who)) { reach(who); me = playerOf(who, false); }
+    const key = me ? me.key : '', mine = me && me.p;
     const out = { can9: !!(mine && mine.r9) };
     if (!b) return { ...out, err: 'No such board.' };
     if (b.level === SECRET_LEVEL && !out.can9) return { ...out, err: 'No such board.' };   // (not a word about it)
@@ -284,7 +290,7 @@ function createLevelBoards(file) {
     return {};
   }
 
-  return { setPaid, acctKey, record, reach, can9, query, groupsOf, createGroup, joinGroup, leaveGroup, removeMember, restartGroup, flush, keyOf, boardKey, MIN_S, MAX_S, SECRET_LEVEL, LEVELS };
+  return { setPaid, setReachedBefore, acctKey, record, reach, can9, query, groupsOf, createGroup, joinGroup, leaveGroup, removeMember, restartGroup, flush, keyOf, boardKey, MIN_S, MAX_S, SECRET_LEVEL, LEVELS };
 }
 
 export { createLevelBoards, parseBoard };

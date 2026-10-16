@@ -1994,7 +1994,7 @@ const legends = createLegends(document.getElementById('ui'), {
   reconnect: () => net.wake(),
   onOpenChange: (on) => { ui.setVictoryHidden(on); keys.clear(); },
   friends: () => recentPlayers().filter((p) => p.fav).map((p) => p.fid),   // (LEVEL TIMES: your starred friends)
-  who: () => ({ pid: progressId() || undefined, acct: account.token() || undefined }),
+  who: () => ({ pid: progressId() || undefined, acct: account.token() || undefined, seen9: (() => { try { return localStorage.getItem('rkr-seen9') === '1' || undefined; } catch { return undefined; } })() }),
 });
 // LEVEL TIMES, local boards: a solo / local co-op game's cleared levels (and level 9 reached, which opens its board),
 // sent as they happen (POST /api/levels); kept here when that fails (the newest 30) and tried again a minute later

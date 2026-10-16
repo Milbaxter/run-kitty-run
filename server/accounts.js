@@ -304,6 +304,11 @@ function createAccounts(file, env = process.env) {
   const paidFor = (token) => { const a = fromToken(token); return a && !a.hide && !a.deleting ? shownCents(a) : 0; };
   // the account id behind a session token (the game server keeps this per player instead of the token itself)
   const subFor = (token) => { const a = fromToken(token); return a ? a.sub : null; };
+  // has this account played level 9 (its stats, online or local or easy)? (the level boards open level 9's board)
+  const reachedFinal = (sub) => {
+    const st = sub && accounts[sub] && accounts[sub].stats;
+    return !!st && ['online', 'local', 'easy'].some((k) => st[k] && Object.values(st[k].reached || {}).some((v) => v >= 9));
+  };
   // every account whose number shows (not hidden, not being deleted): [[sub, cents]] (the boards show it on a name's hover)
   const shownAll = () => Object.values(accounts).filter((a) => a && a.sub && !a.hide && !a.deleting && shownCents(a) > 0).map((a) => [a.sub, shownCents(a)]);
 
@@ -704,7 +709,7 @@ function createAccounts(file, env = process.env) {
     return true;
   }
 
-  return { enabled, handle, webhook, setLegendRanks, setGoldenCheck, setBronzeCheck, paidFor, shownAll, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
+  return { enabled, handle, webhook, setLegendRanks, setGoldenCheck, setBronzeCheck, paidFor, shownAll, reachedFinal, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
 }
 
 // One credit per player, however many of its tabs are in the game: of these kitties (members: { acct, pid }), the

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET, LATEST_FV, stageOf, stageStep } from './shared/config.js';
+import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET, LATEST_FV, SKATE_FINAL_LEVEL, stageOf, stageStep } from './shared/config.js';
 import { hashSeed } from './shared/rng.js';
 import { collideCircle, onIce, inTree, levelHash } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
@@ -15,7 +15,7 @@ import { createPawPrints } from './pawprints.js';
 import { medicLook, slotMetal } from './shared/unlocks.js';
 import { createAudio } from './audio.js';
 import { createUI } from './ui.js';
-import { createNet } from './net.js';
+import { createNet, progressId } from './net.js';
 import { createLobbyUI } from './lobby.js';
 import { createPadNav } from './padnav.js';
 import { prefColor, localSlots } from './kittycolor.js';
@@ -1101,18 +1101,21 @@ function iconLook(p) {
 }
 function iconLookOf(p) {
   const wins = (p && p.finishes) || 0, res = (p && p.rescues) || 0, cos = cosOf(p);
-  // the golden kitty (an unlock: ever number 1 on the legends board), unless this run earned a look of its own
-  const goldU = cos.has('gold') && (sim.easy || (wins < 16 && !(wins >= 8 && res >= 60)));
+  // the golden / bronze kitty (unlocks: legends board number 1s), unless this run earned a look of its own
+  const metalU = (sim.easy || (wins < 16 && !(wins >= 8 && res >= 60))) ? (cos.has('gold') ? 'gold' : cos.has('bronze') ? 'bronze' : null) : null;
   // an easy game: only the switched-on unlocks (its own rewards have no icon looks)
   // (specs: its reading glasses; metal: the bronze kitty at 8 wins with 60 revives, the golden one at 16 with 120)
-  if (sim.easy) return { cool: cos.has('shades'), specs: (wins >= 5 || cos.has('specs')) && !cos.has('shades'), rainbow: false, lion: cos.has('lion'), lionLook: cos.has('chrome') && !goldU ? 'chrome' : null,
-    metal: goldU ? 'gold' : cos.has('chrome') ? null : wins >= 16 && res >= 120 ? 'gold' : wins >= 8 && res >= 60 ? 'bronze' : null };
+  if (sim.easy) {
+    const earned = cos.has('chrome') ? null : wins >= 16 && res >= 120 ? 'gold' : wins >= 8 && res >= 60 ? 'bronze' : null;
+    return { cool: cos.has('shades'), specs: (wins >= 5 || cos.has('specs')) && !cos.has('shades'), rainbow: false, lion: cos.has('lion'), lionLook: cos.has('chrome') && !metalU ? 'chrome' : null,
+      metal: metalU === 'gold' || earned === 'gold' ? 'gold' : metalU || earned };
+  }
   const rainbow = wins >= 8 && res >= 60;
   return {
     cool: wins >= 5 || cos.has('shades'), specs: wins < 5 && !cos.has('shades') && cos.has('specs'), rainbow, lion: wins >= 14 || cos.has('lion'),   // (the chrome kitty: a mane only with the Lion mane switched on)
     // the 16-win looks come first; a switched-on chrome lion otherwise (but not over the rainbow cat's own rainbow)
-    lionLook: wins >= 16 ? (res >= 120 ? 'celestial' : res >= 60 ? 'rainbow' : 'chrome') : cos.has('chrome') && !rainbow && !goldU ? 'chrome' : null,
-    metal: goldU ? 'gold' : null,
+    lionLook: wins >= 16 ? (res >= 120 ? 'celestial' : res >= 60 ? 'rainbow' : 'chrome') : cos.has('chrome') && !rainbow && !metalU ? 'chrome' : null,
+    metal: metalU,
   };
 }
 // A kitty's switched-on account unlocks (shared/unlocks.js): online from the room info (the server checked the
@@ -1759,11 +1762,12 @@ function syncVisuals(dt, alpha) {
     ka.collar = cos.has('medal') || (easy && wins >= 16) ? 'medal' : easy && wins >= 14 ? 'tag' : null;   // (the medal: also an unlock; over a lion's mane too)   // 15: the crown's moon becomes a moon cat
     ka.celestial = !easy && wins >= 16 && res >= 120; ka.rotor = res >= 120;
     // chrome: the 16-win look, or the switched-on unlock (never over a look earned this run: celestial, rainbow)
-    // the golden kitty (an unlock: ever number 1 on the legends board), over the chrome one, never over a look this run earned
-    const goldU = cos.has('gold') && (easy || (wins < 16 && !(wins >= 8 && res >= 60)));
-    ka.silver = easy ? cos.has('chrome') && !goldU : wins >= 16 ? res < 60 : cos.has('chrome') && !goldU && !(wins >= 8 && res >= 60);
+    // the golden / bronze kitty (unlocks: legends board number 1s), over the chrome one, never over a look this run earned
+    const metalU = (easy || (wins < 16 && !(wins >= 8 && res >= 60))) ? (cos.has('gold') ? 'gold' : cos.has('bronze') ? 'bronze' : null) : null;
+    ka.silver = easy ? cos.has('chrome') && !metalU : wins >= 16 ? res < 60 : cos.has('chrome') && !metalU && !(wins >= 8 && res >= 60);
     // an easy game: a bronze kitty at 8 wins with 60 revives (as the rainbow one in a normal game), a golden one at 16 with 120
-    ka.metalCat = goldU ? 'gold' : !easy || ka.silver ? null : wins >= 16 && res >= 120 ? 'gold' : wins >= 8 && res >= 60 ? 'bronze' : null;
+    const earned = !easy || ka.silver ? null : wins >= 16 && res >= 120 ? 'gold' : wins >= 8 && res >= 60 ? 'bronze' : null;
+    ka.metalCat = metalU === 'gold' || earned === 'gold' ? 'gold' : metalU || earned;
     // revive rewards (rescues this run): 10+ medic cape, 30+ a trail of little stars of life, 60+ angel wings (they add up)
     const saves = p.rescues || 0;
     ka.cape = saves >= 10; ka.wings = saves >= 60;
@@ -1958,7 +1962,38 @@ const legends = createLegends(document.getElementById('ui'), {
   isOnline: () => net.connected,
   reconnect: () => net.wake(),
   onOpenChange: (on) => { ui.setVictoryHidden(on); keys.clear(); },
+  friends: () => recentPlayers().filter((p) => p.fav).map((p) => p.fid),   // (LEVEL TIMES: your starred friends)
+  who: () => ({ pid: progressId() || undefined, acct: account.token() || undefined }),
 });
+// LEVEL TIMES, local boards: a solo / local co-op game's cleared levels (and level 9 reached, which opens its board),
+// sent as they happen (POST /api/levels); kept here when that fails (the newest 30) and tried again a minute later
+const lvPending = [];
+let lvDay = null, lvSending = false;
+async function sendLevelNotes() {
+  if (lvSending) return;
+  lvSending = true;
+  try { while (lvPending.length) { await legends.reportLocal(lvPending[0]); lvPending.shift(); } } catch { setTimeout(sendLevelNotes, 60e3); }
+  lvSending = false;
+}
+function noteLevels(events) {
+  for (const e of events) {
+    if (e.type === 'stageClear') { lvDay = { level: e.level, time: sim.levelTime }; continue; }   // (Run + Skate's day half)
+    if (e.type === 'gameOver') { lvDay = null; continue; }
+    const players = sim.players.slice(0, 2).map((p) => ({ name: p.name, color: p.color }));
+    let msg = null;
+    if (e.type === 'levelClear') {
+      const day = lvDay && lvDay.level === e.level ? lvDay.time : 0;
+      lvDay = null;
+      msg = { mode: sim.mode, level: e.level, time: sim.levelTime + day, easy: !!sim.easy, players };
+    } else if (e.type === 'levelStart' && !e.retry && ((sim.levelData && sim.levelData.level) || sim.level) === SKATE_FINAL_LEVEL) {
+      msg = { reached: SKATE_FINAL_LEVEL, players };
+    }
+    if (!msg) continue;
+    lvPending.push(msg);
+    if (lvPending.length > 30) lvPending.shift();
+  }
+  sendLevelNotes();
+}
 ui.setBlocker(() => legends.isOpen());
 ui.onLegendsClick(() => legends.showPublic());   // the main menu's LEGENDS button
 net.on('legends', (m) => {
@@ -2551,7 +2586,7 @@ function tick(dt) {
         if (window.__bot) Object.assign(inputs, window.__bot(sim));
       }
       const events = stepSim(sim, inputs, CFG.TICK);
-      if (mode === 'play') { handleEvents(events); account.noteLocal(sim, events); }   // solo / local stats (account.js)
+      if (mode === 'play') { handleEvents(events); account.noteLocal(sim, events); noteLevels(events); }   // solo / local stats (account.js), local level boards
       else if (events.some((e) => e.type === 'levelStart')) { pregenNext(sim); buildView(); }
       accumulator -= CFG.TICK;
       steps++;

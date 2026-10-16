@@ -13,6 +13,7 @@ import { serializeEnemies } from '../public/js/shared/enemies.js';
 import { levelHash } from '../public/js/shared/maze.js';
 import { createStats } from './stats.js';
 import { createLegends } from './legends.js';
+import { createLevelBoards } from './levelboards.js';
 import { createAccounts, onePerPlayer, samePlayer } from './accounts.js';
 import { pregenNext } from './levelgen.js';
 import { SERVER_PAGES } from './pages.js';
@@ -86,7 +87,13 @@ const legends = createLegends(process.env.LEGENDS_FILE || path.join(path.dirname
 // optional accounts (Google + Stripe): the total a player paid shows next to their name online
 const accounts = createAccounts(process.env.ACCOUNTS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'accounts.json'));
 accounts.setLegendRanks((a) => legends.ranksFor({ acct: a.sub, pids: a.pids }));
-accounts.setGoldenCheck((who) => legends.goldenFor(who));   // (the golden kitty: ever number 1 on the board)   // (the swag account menu shows its places on the legends lists)
+accounts.setGoldenCheck((who) => legends.goldenFor(who));
+accounts.setBronzeCheck((who) => legends.bronzeFor(who));   // (the bronze kitty: number 1 of a fastest list)
+// Level boards (levelboards.js): every level's fastest clears, online ones counted here, local ones reported by the game
+const levels = createLevelBoards(process.env.LEVELS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'levels.json'));
+// (POST /api/levels, per IP: any request 30 burst then 2/s; a local game's cleared level 10 burst then 1 per 5 s)
+const levelHits = new Map(), localHits = new Map();   // ip -> { tok, at }
+setInterval(() => { const now = Date.now(); for (const m of [levelHits, localHits]) for (const [ip, h] of m) if (now - h.at > 600e3) m.delete(ip); }, 600e3).unref();   // (the golden kitty: ever number 1 on the board)   // (the swag account menu shows its places on the legends lists)
 const accountHits = new Map(); // ip -> { tok, at } (token bucket)
 setInterval(() => { const now = Date.now(); for (const [ip, h] of accountHits) if (now - h.at > 600e3) accountHits.delete(ip); }, 600e3).unref();
 const SIGN_RATE = 0.2, SIGN_BURST = 3;     // legends: sign / edit your line
@@ -246,6 +253,7 @@ function handleHttp(req, res) {
       if (accounts.handle(req, res, url.pathname.slice('/api/account/'.length))) return;
     }
     if (url.pathname === '/api/legends') { handleLegends(req, res); return; }
+    if (url.pathname === '/api/levels') { handleLevelsHttp(req, res); return; }
     if (url.pathname === '/api/event' || url.pathname === '/api/stats') { stats.handle(req, res, clientIp(req), () => wss.clients.size); return; }
     res.writeHead(404, { 'Content-Type': 'application/json' }).end('{"ok":false}');
     return;
@@ -430,6 +438,55 @@ function legendsOnWin(room, e) {
   if (room.easy) return;   // (the board is for games won without starting levels over)
   legends.recordWin(room.mode, e.time, room.members, room.sim ? room.sim.time : NaN);   // (the final level's time, the whole game's)
   for (const m of room.members) { const b = legends.boardFor(m); if (b) send(m.ws, b); }
+}
+
+// ---- level boards (levelboards.js): POST /api/levels { op, pid, acct (session token), ... }, no game connection needed
+//   op 'board'  { id, board, scope, fids, group } -> the board (and this player's groups)
+//   op 'group'  { act: 'create' (name, fresh) | 'join' (code) | 'leave' (id) | 'list', or its owner's 'remove' (id,
+//               member) | 'restart' (id) } -> this player's groups
+//   op 'local'  { mode, level, time, easy, players: [{ name, color }] } (one or two kitties on this device), or
+//               { reached: 9, players }: a solo / local co-op game's cleared level, self-reported: on the local boards only
+const bucket = (map, ip, burst, rate) => {
+  const now = Date.now(), h = map.get(ip) || { tok: burst, at: now };
+  h.tok = Math.min(burst, h.tok + (now - h.at) / 1000 * rate); h.at = now; map.set(ip, h);
+  if (h.tok < 1) return false;
+  h.tok -= 1;
+  return true;
+};
+function handleLevelsHttp(req, res) {
+  const reply = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
+  if (req.method !== 'POST') return reply(405, { ok: false });
+  const ip = clientIp(req);
+  if (!bucket(levelHits, ip, 30, 2)) return reply(429, { ok: false, msg: 'Slow down a little!' });
+  let body = '';
+  req.on('data', (c) => { body += c; if (body.length > 8192) req.destroy(); });
+  req.on('end', () => {
+    let m;
+    try { m = JSON.parse(body); } catch { return reply(400, { ok: false }); }
+    if (!m || typeof m !== 'object') return reply(400, { ok: false });
+    try {
+      const pid = accounts.validPid(m.pid);
+      const who = { acct: accounts.subFor(m.acct), pid, fid: friendId(pid) };
+      if (m.op === 'board') return reply(200, { ok: true, id: m.id, ...levels.query(who, m), groups: levels.groupsOf(who) });
+      if (m.op === 'group') {
+        const r = m.act === 'create' ? levels.createGroup({ ...who, name: m.who }, m.name, !!m.fresh) : m.act === 'join' ? levels.joinGroup({ ...who, name: m.who }, m.code)
+          : m.act === 'leave' ? levels.leaveGroup(who, m.id) : m.act === 'remove' ? levels.removeMember(who, m.id, m.member)
+          : m.act === 'restart' ? levels.restartGroup(who, m.id) : {};
+        return reply(200, { ok: !r.err, act: m.act, ...(r.err ? { msg: r.err } : {}), ...(r.group ? { group: r.group } : {}), groups: levels.groupsOf(who) });
+      }
+      if (m.op === 'local') {
+        if (!bucket(localHits, ip, 10, 0.2)) return reply(429, { ok: false });
+        const ps = Array.isArray(m.players) ? m.players.slice(0, 2) : [];
+        ps.forEach((p, seat) => {
+          const w = { acct: seat ? null : who.acct, pid, seat, fid: seat ? '' : who.fid, name: p && p.name, color: p && p.color };
+          if (m.reached === levels.SECRET_LEVEL) levels.reach(w);
+          else levels.record(w, { local: true, easy: !!m.easy, mode: m.mode, level: m.level, time: m.time, team: ps.length });
+        });
+        return reply(200, { ok: true });
+      }
+      reply(400, { ok: false });
+    } catch (err) { console.error('level boards failed:', err); if (!res.headersSent) reply(500, { ok: false }); }
+  });
 }
 
 function handleSign(client, msg) {
@@ -773,6 +830,15 @@ function countForAccounts(room, events) {
         room.dayTime = null;
       }
       for (const id of once(sim.players.map((p) => p.id))) accounts.recordOnline(subOf(id), ev, easy);
+      // level boards: the team's time for everyone in it (one per player); the secret level's board opens for whoever reaches it
+      const team = once(sim.players.map((p) => p.id));
+      for (const id of team) {
+        const m = memberOf(id), p = sim.players.find((q) => q.id === id);
+        if (!m) continue;
+        const who = { acct: m.acct, pid: m.pid, fid: m.fid, name: (p && p.name) || m.name, color: p ? p.color : m.color };
+        if (e.type === 'levelClear') levels.record(who, { local: false, easy, mode: room.mode, level, time: ev.time, team: team.length });
+        else if (level === levels.SECRET_LEVEL) levels.reach(who);
+      }
       // unlocks: level 8 cleared by a kitty that reached the goal itself on every level of the run so far (8, or 16
       // in Run + Skate: both halves), crowns or not. Checked as the game moves on to level 9, so a kitty that runs in
       // during the level-cleared pause still counts
@@ -1168,6 +1234,7 @@ process.on('uncaughtException', (err) => {
   console.error('uncaught:', err);
   try { stats.flush(); } catch { /* ignore */ }
   try { legends.flush(); } catch { /* ignore */ }
+  try { levels.flush(); } catch { /* ignore */ }
   try { accounts.flush(); } catch { /* ignore */ }
   process.exit(1);
 });
@@ -1183,6 +1250,7 @@ function shutdown() {
   for (const ws of wss.clients) { try { ws.close(1012, 'restarting'); } catch { /* ignore */ } }
   stats.flush();
   legends.flush();
+  levels.flush();
   accounts.flush();
   server.close();
   setTimeout(() => process.exit(0), 300);

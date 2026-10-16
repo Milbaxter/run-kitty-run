@@ -9,8 +9,10 @@
 //   win: the final run won, for every kitty in the game (crowns or not; easy games too)
 //   rev: a kitty revived (by the rescuer; not its own other tab). A swag account also counts the revives its stats had
 //        counted before this unlock existed ('past')
-//   top1: number 1 on a legends board list of any mode (the first team to beat it, or a fastest game when it was made),
-//         kept for good: set by the server from the board (server/legends.js goldenFor), not counted by games
+//   top1: number 1 on a legends board list of any mode (the first team to beat it; until 2026-10-16 also a fastest game
+//         when it was made), kept for good: set by the server from the board (server/legends.js goldenFor), not counted by games
+//   fast1: number 1 of a fastest list on the legends board (any mode; online or local, solo or team), kept for good: set
+//         by the server too (legends.js bronzeFor)
 // Run + Skate is both other modes in one (longer and harder): a feat done there counts in Run only and Skate only too.
 // An item unlocks per mode: done `times` times in a mode, it's unlocked (and worn) in that mode only. (`any`: done in any
 // mode, it's unlocked for good: the song. `all`: done in all three modes themselves, it's unlocked in every one: the
@@ -20,8 +22,7 @@
 // `hidden`: not in the menu at all until it is unlocked (no "locked" row). `slot` + `metal`: one of a slot's items is worn
 // at a time (slotMetal: the first switched on, in this order): the lion mane's and the fluffy tail tip's own metal, worn
 // on a metal kitty (the chrome / golden kitty, an easy game's bronze / golden one). A metal comes with its kitty (chrome
-// with the Chrome kitty, gold with the Golden kitty); bronze's feat 'later' has no progress yet (a reward still to be
-// decided). `defaultOff`: not worn until switched on (isWorn; the others are worn as soon as they're unlocked).
+// with the Chrome kitty, gold with the Golden kitty, bronze with the Bronze kitty). `defaultOff`: not worn until switched on (isWorn; the others are worn as soon as they're unlocked).
 const UNLOCK_MODES = ['run', 'ice', 'mixed'];
 const UNLOCKS = [
   // the easy games' rewards first (a normal game counts for them too), then the normal games' own
@@ -38,12 +39,13 @@ const UNLOCKS = [
   { id: 'chrome', name: 'Chrome kitty', feat: 'l9', times: 1, all: true, excl: 'body' },   // (done in all three modes, worn in every one; the mane is the Lion mane's own switch)
   { id: 'mchrome', name: 'Chrome mane', feat: 'l9', times: 1, all: true, hidden: true, defaultOff: true, slot: 'mane', metal: 'chrome' },
   { id: 'tchrome', name: 'Chrome tail tip', feat: 'l9', times: 1, all: true, hidden: true, defaultOff: true, slot: 'tip', metal: 'chrome' },
-  // `excl`: one of these worn at a time (switching one on switches the others off; worn both: the golden one shows)
+  // `excl`: one of these worn at a time (switching one on switches the others off; worn more: golden, then bronze, then chrome)
   { id: 'gold', name: 'Golden kitty', feat: 'top1', times: 1, any: true, hidden: true, excl: 'body' },
   { id: 'mgold', name: 'Golden mane', feat: 'top1', times: 1, any: true, hidden: true, defaultOff: true, slot: 'mane', metal: 'gold' },
   { id: 'tgold', name: 'Golden tail tip', feat: 'top1', times: 1, any: true, hidden: true, defaultOff: true, slot: 'tip', metal: 'gold' },
-  { id: 'mbronze', name: 'Bronze mane', feat: 'later', times: 1, hidden: true, defaultOff: true, slot: 'mane', metal: 'bronze' },
-  { id: 'tbronze', name: 'Bronze tail tip', feat: 'later', times: 1, hidden: true, defaultOff: true, slot: 'tip', metal: 'bronze' },
+  { id: 'bronze', name: 'Bronze kitty', feat: 'fast1', times: 1, any: true, hidden: true, excl: 'body' },
+  { id: 'mbronze', name: 'Bronze mane', feat: 'fast1', times: 1, any: true, hidden: true, defaultOff: true, slot: 'mane', metal: 'bronze' },
+  { id: 'tbronze', name: 'Bronze tail tip', feat: 'fast1', times: 1, any: true, hidden: true, defaultOff: true, slot: 'tip', metal: 'bronze' },
   { id: 'song5', name: 'New song: We Skate', feat: 'win', times: 1, any: true, song: true },
   // the medic badge on the player card (`medic`: its look; more revive rewards may add looks: the card shows the best)
   { id: 'medic', name: 'Medic badge', feat: 'rev', times: 3000, total: true, medic: 'base' },   // (in the kitty's colour)

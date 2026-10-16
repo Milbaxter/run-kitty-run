@@ -4,6 +4,10 @@
 // changed for 15 minutes after the win. Opened from the victory screen (and, while an online winner can still sign,
 // from a small button in the lobby), and by anyone from the main menu (showPublic: read only, GET /api/legends). One tab
 // per mode. All player text goes in with textContent; the apps mask it like chat (net.js).
+// FASTEST 100 is four lists (online / local games, solo / team: the server keeps 100 each, this splits them by their
+// kind). LEVEL TIMES: every level's fastest clears (server/levelboards.js, POST /api/levels: no game connection needed): normal / easy, solo / team,
+// online / local, everyone or your starred friends or a group (made here, joined with a code). Level 9's board shows
+// only once the server knows you have reached it (can9).
 import { apiUrl, NATIVE } from './platform.js';
 import { cleanForApp, progressId } from './net.js';
 import { TOUCH } from './device.js';
@@ -14,7 +18,7 @@ const MODES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
 const CSS = `
 .rkg-wrap{position:absolute;inset:0;z-index:45;display:flex;align-items:center;justify-content:flex-end;pointer-events:none;
   padding:max(14px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(14px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));}
-.rkg-box{pointer-events:auto;position:relative;width:100%;max-width:480px;max-height:100%;display:flex;flex-direction:column;gap:10px;padding:18px 18px 14px;
+.rkg-box{pointer-events:auto;position:relative;width:100%;max-width:480px;max-height:100%;height:min(820px,100%);display:flex;   /* (one height: the title stays put whatever the tab shows) */flex-direction:column;gap:10px;padding:18px 18px 14px;
   border-radius:26px;background:linear-gradient(160deg,rgba(52,30,96,.94),rgba(26,12,52,.94));border:3px solid rgba(255,215,100,.75);
   box-shadow:0 20px 60px rgba(0,0,0,.5),0 0 40px rgba(255,200,80,.25),inset 0 1px 0 rgba(255,255,255,.35);animation:rkr-cardin .4s cubic-bezier(.2,1.4,.4,1);
   user-select:text;-webkit-user-select:text;}
@@ -58,6 +62,34 @@ const CSS = `
 .rkg-no{flex:none;min-width:30px;font-weight:900;font-size:15px;color:#ffcf5a;}
 .rkg-rank .rkg-body{flex:1;min-width:0;}
 .rkg-close{align-self:center;font-size:16px !important;padding:8px 22px !important;}
+.rkg-opts{display:flex;flex-direction:column;gap:6px;align-items:center;}
+.rkg-opts:empty{display:none;}
+.rkg-seg{display:inline-flex;border-radius:10px;overflow:hidden;border:2px solid rgba(255,255,255,.2);}
+.rkg-seg button{font:inherit;font-weight:900;font-size:11.5px;letter-spacing:.05em;cursor:pointer;color:#efe7ff;padding:4px 9px;border:0;background:rgba(20,8,48,.5);opacity:.75;}
+.rkg-seg button.rkg-on{background:rgba(255,207,90,.28);color:#fff6d8;opacity:1;}
+.rkg-segs{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;}
+.rkg-lv{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;align-items:center;}
+.rkg-lv b{font-size:11px;letter-spacing:.08em;opacity:.7;margin-right:2px;}
+.rkg-lv button{font:inherit;font-weight:900;font-size:13px;cursor:pointer;color:#fff6d8;width:30px;height:28px;border-radius:9px;border:2px solid rgba(255,255,255,.22);background:rgba(20,8,48,.55);}
+.rkg-lv button.rkg-on{border-color:#ffcf5a;background:rgba(255,207,90,.25);}
+.rkg-lrow{display:flex;gap:10px;align-items:center;padding:7px 12px;border-radius:12px;background:rgba(0,0,0,.24);border:2px solid rgba(255,255,255,.1);}
+.rkg-lrow.rkg-mine{border-color:rgba(255,215,100,.8);background:rgba(255,210,80,.1);}
+.rkg-lrow .rkg-no{min-width:34px;}
+.rkg-lrow .rkg-n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:15px;}
+.rkg-lrow .rkg-t{flex:none;font-weight:900;font-size:15px;color:#fff6d8;font-variant-numeric:tabular-nums;}
+.rkg-lrow .rkg-d{flex:none;font-size:11px;font-weight:800;opacity:.65;text-align:right;min-width:62px;}
+@media (max-width:420px){ .rkg-lrow .rkg-d{display:none;} }   /* (a narrow screen: the names keep their room) */
+.rkg-you2{text-align:center;font-weight:900;font-size:13px;color:#ffcf5a;}
+.rkg-grp{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:16px;background:rgba(0,0,0,.22);border:2px solid rgba(255,255,255,.12);}
+.rkg-grp h3{margin:0;font-size:14px;font-weight:900;letter-spacing:.06em;color:#ffcf5a;}
+.rkg-grp .rkg-in{font-size:14px;padding:6px 10px;}
+.rkg-gitem{display:flex;gap:8px;align-items:center;font-weight:800;font-size:14px;}
+.rkg-gitem span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;}
+.rkg-member{padding-left:10px;font-size:13px;opacity:.9;}
+.rkg-fresh{display:flex;gap:6px;align-items:center;font-weight:800;font-size:13px;cursor:pointer;}
+.rkg-fresh input{width:16px;height:16px;accent-color:#ffcf5a;}
+.rkg-gitem code{font-weight:900;letter-spacing:.12em;color:#9dff7a;user-select:all;-webkit-user-select:all;}
+.rkg-small{font:inherit;font-weight:900;font-size:11.5px;cursor:pointer;color:#fff;padding:4px 9px;border-radius:8px;border:2px solid rgba(255,255,255,.25);background:rgba(20,8,48,.6);}
 .rkg-fab{position:absolute;z-index:44;right:max(16px,env(safe-area-inset-right));top:max(14px,env(safe-area-inset-top));pointer-events:auto;cursor:pointer;
   font:inherit;font-weight:900;font-size:14px;letter-spacing:.04em;color:#2b1840;padding:8px 14px;border-radius:999px;border:0;
   background:linear-gradient(180deg,#fff3c4,#ffcf5a);box-shadow:0 4px 0 #3a1650,0 8px 18px rgba(0,0,0,.35);display:none;}
@@ -90,7 +122,12 @@ function fmtDate(iso) {
 
 // send(msg): ws send; isOnline(): connected to the server; reconnect(): reconnect now if the connection is down;
 // onOpenChange(open): the board opened / closed
-function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
+// friends(): the friend ids of the players starred in the recent players list (main.js); who(): { pid, acct } (this
+// browser's progress id, the swag account's session token): whose times and groups
+const fmtLevel = (t) => { t = Math.max(0, Math.round((t || 0) * 10)) / 10; const m = Math.floor(t / 60); return m + ':' + (t - m * 60).toFixed(1).padStart(4, '0'); };
+const LEVELS = 8, SECRET = 9;
+
+function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends, who }) {
   const st = document.createElement('style');
   st.textContent = CSS;
   document.head.appendChild(st);
@@ -105,6 +142,11 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
   let tab = 'mixed';        // the mode whose legends show (a tab each)
   let view = 'latest';      // latest wins / the first 100 players / the 100 fastest games
   let lists = null;         // { firsts: { mode: [...] }, fastest: { mode: [...] } } (servers from 2026-10-14 on)
+  let fast = { local: false, team: false };   // FASTEST 100: which of its four lists
+  // LEVEL TIMES: the board picked, what came back for it, this player's groups, level 9's board known to this player
+  const lv = { level: 1, easy: false, team: false, local: false, scope: 'all', group: null, groupsOpen: false };
+  let lvData = null, lvAsked = '', lvErr = '', lvGroups = [], can9 = false, lvSeq = 0, grpMsg = '';
+  const catOf = (f) => ({ local: !!f.kind, team: f.kind ? f.kind !== 'solo' : (f.team || []).length !== 1 });
   const modeOf = (w) => (MODES[w && w.mode] ? w.mode : 'mixed');
 
   const fab = el('button', 'rkg-fab', '📜 LEGENDS BOARD');
@@ -140,6 +182,43 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
       refs.msg.textContent = m.msg || 'Could not sign right now.';
       if (/closed/.test(m.msg || '')) { can = null; render(); }
     }
+  }
+  // ---- level boards (POST /api/levels)
+  async function levelsApi(body) {
+    const r = await fetch(apiUrl('/api/levels'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...(who ? who() : {}), ...body }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.msg || '');
+    return j;
+  }
+  const lvKey = () => JSON.stringify([tab, lv.level, lv.easy, lv.team, lv.local, lv.scope, lv.group]);
+  function askLevels() {
+    lvErr = '';
+    lvAsked = lvKey();
+    const fids = lv.scope === 'friends' ? (friends ? friends() : []) : undefined;
+    levelsApi({ op: 'board', id: ++lvSeq, board: { mode: tab, level: lv.level, easy: lv.easy, team: lv.team, local: lv.local }, scope: lv.scope, fids, group: lv.group })
+      .then(onLevels)
+      .catch((err) => { lvErr = err.message || 'The level times are out of reach right now (no connection?).'; render(); });
+  }
+  function groupApi(body) {
+    levelsApi({ op: 'group', ...body }).then(onLevelGroup).catch((err) => { grpMsg = err.message || 'Could not reach the server, try again in a moment.'; render(); });
+  }
+  // a local game's level (main.js): { mode, level, time, easy, players } or { reached: 9, players }; resolves when sent
+  const reportLocal = (m) => levelsApi({ op: 'local', ...m });
+  function onLevels(m) {
+    if (m.id !== lvSeq) return;   // (an older answer)
+    can9 = !!m.can9;
+    if (Array.isArray(m.groups)) lvGroups = m.groups;
+    if (m.err) { lvData = null; lvErr = m.err; if (lv.scope === 'group') { lv.scope = 'all'; lv.group = null; } }
+    else lvData = { ...m, rows: (Array.isArray(m.rows) ? m.rows : []).map((r) => (NATIVE ? { ...r, name: appClean({ entries: [{ name: r.name, text: '' }] }).entries[0].name } : r)) };
+    render();
+  }
+  function onLevelGroup(m) {
+    if (Array.isArray(m.groups)) lvGroups = m.groups;
+    grpMsg = m.ok ? (m.act === 'create' && m.group ? 'Group made! Share its code: ' + m.group.code : m.act === 'join' && m.group ? 'You joined ' + m.group.name + '.'
+      : m.act === 'restart' ? 'Fresh start! Only new times count from now on.' : m.act === 'remove' ? 'Removed.' : '') : m.msg || 'That didn\'t work, try again.';
+    if (m.ok && m.group && m.act === 'join') { lv.scope = 'group'; lv.group = m.group.id; lv.groupsOpen = false; askLevels(); }
+    if (m.ok && m.act === 'leave' && lv.scope === 'group' && !lvGroups.some((g) => g.id === lv.group)) { lv.scope = 'all'; lv.group = null; askLevels(); }
+    render();
   }
   // the apps mask the lists' names and lines like chat too
   function maskLists(l) {
@@ -201,16 +280,17 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
     const tabs = el('div', 'rkg-tabs');
     const views = el('div', 'rkg-views');
     const signSlot = el('div');
+    const opts = el('div', 'rkg-opts');
     const list = el('div', 'rkg-list');
     const closeBtn = el('button', 'rkr-btn rkr-alt rkg-close', 'CLOSE');
     closeBtn.addEventListener('click', close);
-    box.append(x, h, sub, tabs, views, signSlot, list, closeBtn);
+    box.append(x, h, sub, tabs, views, opts, signSlot, list, closeBtn);
     wrap.appendChild(box);
     // typing must not move the kitty / trigger game keys (the board's own keys stop here, after the input saw them)
     wrap.addEventListener('keydown', (e) => e.stopPropagation());
     wrap.addEventListener('keyup', (e) => e.stopPropagation());
     root.appendChild(wrap);
-    refs = { box, tabs, views, signSlot, list, signKey: '' };
+    refs = { box, sub, tabs, views, opts, signSlot, list, signKey: '' };
     // a winner sees the mode they just won first, everyone else Run + Skate
     const own = can && wins && wins.find((w) => w.id === can.id);
     tab = own ? modeOf(own) : can && can.ctx && MODES[can.ctx.mode] ? can.ctx.mode : 'mixed';
@@ -342,16 +422,16 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
       const n = wins ? wins.filter((w) => modeOf(w) === id).length : 0;
       const b = el('button', 'rkg-tab' + (id === tab ? ' rkg-on' : ''), label.toUpperCase());
       if (wins) b.appendChild(el('small', null, String(n)));
-      b.addEventListener('click', () => { tab = id; refs.list.scrollTop = 0; render(); });
+      b.addEventListener('click', () => { tab = id; refs.list.scrollTop = 0; if (view === 'levels') askLevels(); render(); });
       refs.tabs.appendChild(b);
     }
   }
   function renderViews() {
     refs.views.textContent = '';
-    if (!lists) { view = 'latest'; return; }
-    for (const [id, label] of [['latest', 'LATEST'], ['firsts', 'FIRST 100'], ['fastest', 'FASTEST 100']]) {
+    if (!lists && view !== 'levels') view = 'latest';
+    for (const [id, label] of [['latest', 'LATEST'], ['firsts', 'FIRST 100'], ['fastest', 'FASTEST 100'], ['levels', 'LEVEL TIMES']]) {
       const b = el('button', 'rkg-view' + (id === view ? ' rkg-on' : ''), label);
-      b.addEventListener('click', () => { view = id; refs.list.scrollTop = 0; render(); });
+      b.addEventListener('click', () => { view = id; refs.list.scrollTop = 0; if (id === 'levels' && lvAsked !== lvKey()) askLevels(); render(); });
       refs.views.appendChild(b);
     }
   }
@@ -381,8 +461,9 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
   }
   // the first 100 players to beat this mode / its 100 fastest games (cards like LATEST's, their place first)
   function renderList(list) {
-    const L = (lists[view] && lists[view][tab]) || [];
-    if (!L.length) { list.appendChild(el('div', 'rkg-empty', view === 'firsts' ? 'Nobody has beaten this mode yet. The first spot is waiting!' : 'No timed games yet. The first one to win sets the record!')); return; }
+    let L = (lists[view] && lists[view][tab]) || [];
+    if (view === 'fastest') L = L.filter((f) => { const c = catOf(f); return c.local === fast.local && c.team === fast.team; });
+    if (!L.length) { list.appendChild(el('div', 'rkg-empty', view === 'firsts' ? 'Nobody has beaten this mode yet. The first spot is waiting!' : 'No games on this list yet. The first one to win sets the record!')); return; }
     const mine = can && can.id;
     L.forEach((f, i) => {
       const card = el('div', 'rkg-card rkg-rank' + (f.win === mine ? ' rkg-mine' : ''));
@@ -398,14 +479,148 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
       list.appendChild(card);
     });
   }
+  // a two-way switch ([a, b] labels; on: the second is picked), for the options rows
+  function seg(a, b, on, set) {
+    const w = el('div', 'rkg-seg');
+    [a, b].forEach((label, i) => {
+      const x = el('button', (i ? on : !on) ? 'rkg-on' : '', label);
+      x.addEventListener('click', () => { if (!!i !== on) set(!!i); });
+      w.appendChild(x);
+    });
+    return w;
+  }
+  function renderOpts() {
+    const o = refs.opts;
+    o.textContent = '';
+    if (view === 'fastest' && lists) {
+      const segs = el('div', 'rkg-segs');
+      segs.append(seg('ONLINE', 'LOCAL', fast.local, (v) => { fast.local = v; refs.list.scrollTop = 0; render(); }),
+        seg('SOLO', 'TEAM', fast.team, (v) => { fast.team = v; refs.list.scrollTop = 0; render(); }));
+      o.appendChild(segs);
+    }
+    if (view !== 'levels') return;
+    const pick = (fn) => () => { fn(); refs.list.scrollTop = 0; askLevels(); render(); };
+    const lvRow = el('div', 'rkg-lv');
+    lvRow.appendChild(el('b', null, 'LEVEL'));
+    for (let n = 1; n <= (can9 ? SECRET : LEVELS); n++) {
+      const b = el('button', n === lv.level ? 'rkg-on' : '', String(n));
+      b.addEventListener('click', pick(() => { lv.level = n; }));
+      lvRow.appendChild(b);
+    }
+    const segs = el('div', 'rkg-segs');
+    segs.append(seg('NORMAL', 'EASY', lv.easy, pick(() => { lv.easy = !lv.easy; })),
+      seg('SOLO', 'TEAM', lv.team, pick(() => { lv.team = !lv.team; })),
+      seg('ONLINE', 'LOCAL', lv.local, pick(() => { lv.local = !lv.local; })));
+    const scopes = el('div', 'rkg-segs');
+    const sc = el('div', 'rkg-seg');
+    const scope = (label, on, fn) => { const b = el('button', on ? 'rkg-on' : '', label); b.addEventListener('click', fn); sc.appendChild(b); };
+    scope('EVERYONE', lv.scope === 'all' && !lv.groupsOpen, pick(() => { lv.scope = 'all'; lv.group = null; lv.groupsOpen = false; }));
+    scope('FRIENDS', lv.scope === 'friends' && !lv.groupsOpen, pick(() => { lv.scope = 'friends'; lv.group = null; lv.groupsOpen = false; }));
+    for (const g of lvGroups) scope(g.name.toUpperCase(), lv.scope === 'group' && lv.group === g.id && !lv.groupsOpen, pick(() => { lv.scope = 'group'; lv.group = g.id; lv.groupsOpen = false; }));
+    scope('＋ GROUPS', lv.groupsOpen, () => { lv.groupsOpen = !lv.groupsOpen; grpMsg = ''; render(); });
+    scopes.appendChild(sc);
+    o.append(lvRow, segs, scopes);
+  }
+  // groups: make one (a fresh start or not), join one with a code, see your groups' codes, leave one; a group's owner
+  // can remove players from it and restart its board fresh
+  let grpOpen = null;   // the group whose players its owner is looking at
+  function renderGroups(list) {
+    const box = el('div', 'rkg-grp');
+    box.appendChild(el('h3', null, 'YOUR GROUPS'));
+    if (!lvGroups.length) box.appendChild(el('div', 'rkg-line', 'Make a group and share its code with your friends, or join theirs. Everyone in it sees the same board.'));
+    for (const g of lvGroups) {
+      const row = el('div', 'rkg-gitem');
+      row.append(el('span', null, g.name + ' · ' + g.n + (g.n === 1 ? ' player' : ' players') + (g.fresh ? ' · new times since ' + fmtDate(g.fresh) : '')), el('code', null, g.code));
+      if (g.owner) {
+        const ppl = el('button', 'rkg-small', grpOpen === g.id ? 'DONE' : 'PLAYERS');
+        ppl.addEventListener('click', () => { grpOpen = grpOpen === g.id ? null : g.id; render(); });
+        row.appendChild(ppl);
+      }
+      const leave = el('button', 'rkg-small', 'LEAVE');
+      leave.addEventListener('click', () => { leave.disabled = true; groupApi({ act: 'leave', id: g.id }); });
+      row.appendChild(leave);
+      box.appendChild(row);
+      if (!g.owner || grpOpen !== g.id) continue;
+      // the owner's tools: remove a player (they can't join again with the code), restart the board from now on
+      for (const m of g.members || []) {
+        const mr = el('div', 'rkg-gitem rkg-member');
+        mr.appendChild(el('span', null, '· ' + m.name + (m.me ? ' (you)' : '')));
+        if (!m.me) {
+          const rm = el('button', 'rkg-small', 'REMOVE');
+          rm.addEventListener('click', () => { rm.disabled = true; groupApi({ act: 'remove', id: g.id, member: m.t }); });
+          mr.appendChild(rm);
+        }
+        box.appendChild(mr);
+      }
+      const rs = el('button', 'rkg-small', g.fresh ? 'RESTART FROM NOW' : 'FRESH START FROM NOW');
+      rs.addEventListener('click', () => {
+        if (rs.dataset.sure !== '1') { rs.dataset.sure = '1'; rs.textContent = 'SURE? CLEARS THE GROUP\'S TIMES'; return; }
+        rs.disabled = true;
+        groupApi({ act: 'restart', id: g.id });
+      });
+      const rrow = el('div', 'rkg-gitem rkg-member');
+      rrow.append(el('span', null, 'Only times set from now on will count on this group\'s board.'), rs);
+      box.appendChild(rrow);
+    }
+    const mk = (ph, btn, op, field, max) => {
+      const row = el('div', 'rkg-row');
+      const input = el('input', 'rkg-in');
+      input.type = 'text'; input.maxLength = max; input.placeholder = ph;
+      const go = el('button', 'rkg-small', btn);
+      const submit = () => {
+        const v = input.value.trim();
+        if (!v) { input.focus(); return; }
+        go.disabled = true;
+        groupApi({ act: op, [field]: v, ...(op === 'create' && lv.freshPick ? { fresh: true } : {}) });
+      };
+      go.addEventListener('click', submit);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+      row.append(input, go);
+      return row;
+    };
+    const make = mk('New group name', 'MAKE', 'create', 'name', 24);
+    // a fresh start: the group's board counts only times set after it's made
+    const fresh = el('label', 'rkg-fresh');
+    const cb = el('input');
+    cb.type = 'checkbox'; cb.checked = !!lv.freshPick;
+    cb.addEventListener('change', () => { lv.freshPick = cb.checked; });
+    fresh.append(cb, ' Fresh start: only new times count (race from zero)');
+    box.append(make, fresh, mk('Join with a code', 'JOIN', 'join', 'code', 8));
+    if (grpMsg) box.appendChild(el('div', 'rkg-msg rkg-ok', grpMsg));
+    list.appendChild(box);
+  }
+  function renderLevels(list) {
+    if (lv.groupsOpen) { renderGroups(list); return; }
+    if (!lvData || lvAsked !== lvKey()) { list.appendChild(el('div', 'rkg-empty', lvErr || 'Timing the kitties…')); return; }
+    const rows = lvData.rows || [];
+    if (!rows.length) {
+      const fr = lv.scope === 'friends' && !(friends && friends().length);
+      list.appendChild(el('div', 'rkg-empty', fr ? 'Star players in your recent players list (in a Multiplayer lobby) to race their times here.'
+        : lv.scope === 'friends' ? 'None of your friends has a time on this board yet.' : 'No times on this board yet. Clear the level to set the first one!'));
+      return;
+    }
+    rows.forEach((r, i) => {
+      const row = el('div', 'rkg-lrow' + (r.me ? ' rkg-mine' : ''));
+      const n = el('span', 'rkg-n', r.name);
+      n.style.color = hex(r.color);
+      row.append(el('span', 'rkg-no', '#' + (i + 1)), n);
+      if (lv.team && r.team > 1) row.appendChild(el('span', 'rkg-d', r.team + ' kitties'));
+      row.append(el('span', 'rkg-t', '⏱ ' + fmtLevel(r.time)), el('span', 'rkg-d', fmtDate(r.at)));
+      list.appendChild(row);
+    });
+    if (lvData.me && !rows.some((r) => r.me)) list.appendChild(el('div', 'rkg-you2', 'You: #' + lvData.me.rank + ' · ⏱ ' + fmtLevel(lvData.me.time)));
+  }
   function render() {
     if (!refs) return;
     renderTabs();
     renderViews();
+    renderOpts();
     renderSign();
+    refs.sub.textContent = view === 'levels' ? 'The fastest clear of every level. Race everyone, your friends or your group.' : 'Every team that beat Project: Run Kitty Run, in their own words.';
     const list = refs.list;
     const top = list.scrollTop;
     list.textContent = '';
+    if (view === 'levels') { renderLevels(list); list.scrollTop = top; return; }
     if (!wins) { list.appendChild(el('div', 'rkg-empty', loadErr || 'Unrolling the scroll…')); return; }
     if (view !== 'latest' && lists) { renderList(list); list.scrollTop = top; return; }
     const shown = wins.filter((w) => modeOf(w) === tab);
@@ -440,7 +655,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange }) {
   function showPublic() { if (canSign()) { open(); return; } fetchOffline(null); open(); }
 
   return {
-    onBoard, onLegend, onSigned, fetchOffline, open, showPublic, close, isOpen: () => !!wrap, scrollBy, setFab, reset,
+    onBoard, onLegend, onSigned, reportLocal, fetchOffline, open, showPublic, close, isOpen: () => !!wrap, scrollBy, setFab, reset,
     canSign, available: () => offline || !!wins,
   };
 }

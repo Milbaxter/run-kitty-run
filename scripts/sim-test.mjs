@@ -864,13 +864,72 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const rk = lg.ranksFor({ acct: 'acct-amy' }), rk2 = lg.ranksFor({ pids: ['b'.repeat(24)] }), rk0 = lg.ranksFor({ acct: 'nobody' });
     ok(rk.length === 1 && rk[0].mode === 'ice' && rk[0].first >= 1 && rk[0].fastest >= 1 && rk[0].total === 1500 && rk2.length === 1 && !rk0.length,
       'legends lists: an account (or a browser it played on) finds its places for the swag account menu');
-    // the golden kitty: everyone ever number 1 (the first team to win a mode, each new fastest game), kept for good
+    // the golden kitty: the first team to win a mode (Shadow in Run only); the bronze kitty: each new number 1 of a fastest
+    // list (four per mode: online / local, solo / team), kept for good
     const P = (id, n) => ({ id, name: n, color: 1, acct: 'gk-' + n });
     lg.recordWin('run', 100, [P(3001, 'A'), P(3002, 'B')], 3000); lg.recordWin('run', 100, [P(3003, 'C')], 3500); lg.recordWin('run', 100, [P(3004, 'D')], 2500); lg.recordWin('run', 100, [P(3005, 'E')], 2400);
-    const gk = (n) => lg.goldenFor({ acct: 'gk-' + n });
-    ok(gk('A') && gk('B') && !gk('C') && gk('D') && gk('E') && lg.goldenFor({ acct: 'acct-amy' }) && !lg.goldenFor({ acct: 'nobody' }),
-      'golden kitty: number 1 on a list (the first team of a mode, each new fastest game: A+B the first timed, then D, then E), kept when beaten');
+    lg.recordWin('run', 100, [P(3006, 'F')], 2600);
+    const gk = (n) => lg.goldenFor({ acct: 'gk-' + n }), bk = (n) => lg.bronzeFor({ acct: 'gk-' + n });
+    ok(!['A', 'B', 'C', 'D', 'E'].some(gk) && !lg.goldenFor({ acct: 'acct-amy' }) && lg.goldenFor({}) === false,
+      'golden kitty: only the first team to beat a mode, not a fastest game');
+    ok(bk('A') && bk('B') && bk('C') && bk('D') && bk('E') && !bk('F') && lg.bronzeFor({ acct: 'acct-amy' }) && !lg.bronzeFor({ acct: 'nobody' }),
+      'bronze kitty: each new number 1 of a fastest list (A+B the first team game; C, D, E solo), kept when beaten; not a slower one (F)');
+    const fr = JSON.parse(lg.boardJson()).fastest.run, rkE = lg.ranksFor({ acct: 'gk-E' })[0], rkB = lg.ranksFor({ acct: 'gk-B' })[0];
+    ok(fr.length === 5 && rkE.fastest === 1 && rkE.list === 'os' && rkB.fastest === 1 && rkB.list === 'ot',
+      'legends fastest: solo and team games on lists of their own (each has its own number 1)');
     lg.flush();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// ======== level boards: every level's fastest clears, a board per online / local, normal / easy, mode, level, solo / team
+{
+  const { createLevelBoards } = await import('../server/levelboards.js');
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rkr-levels-test-'));
+  try {
+    const lb = createLevelBoards(path.join(dir, 'levels.json'));
+    const pid = (c) => c.repeat(24), who = (c, extra = {}) => ({ pid: pid(c), fid: ('fid' + c).padEnd(16, c), name: 'K' + c, color: 1, ...extra });
+    const B = { mode: 'run', level: 1 };
+    lb.record(who('a'), { ...B, time: 40, team: 1 }); lb.record(who('a'), { ...B, time: 50, team: 1 }); lb.record(who('a'), { ...B, time: 35, team: 1 });
+    lb.record(who('b'), { ...B, time: 30, team: 2 }); lb.record(who('c'), { ...B, time: 30, team: 2 });
+    lb.record(who('d'), { ...B, time: 20, team: 1, easy: true }); lb.record(who('e'), { ...B, time: 10, team: 1, local: true });
+    lb.record(who('f'), { ...B, time: 2, team: 1 });   // (too quick to be real)
+    const q = (w, board, more = {}) => lb.query(w, { board: { ...B, ...board }, ...more });
+    const solo = q(who('a'), {}), team = q(who('z'), { team: true });
+    ok(solo.rows.length === 1 && solo.rows[0].time === 35 && solo.rows[0].me && solo.me.rank === 1 && team.rows.length === 2 && !team.me
+      && q(who('a'), { easy: true }).rows.map((r) => r.time).join() === '20' && q(who('a'), { local: true }).rows.map((r) => r.time).join() === '10'
+      && !JSON.stringify(solo).includes(pid('a')),
+      'level boards: each player only its best, solo / team / easy / local apart, too-quick times dropped, no ids sent');
+    lb.record(who('g'), { mode: 'run', level: 9, time: 300, team: 1 });
+    ok(q(who('a'), { level: 9 }).err && !q(who('a'), {}).can9 && q(who('g'), { level: 9 }).rows.length === 1 && q(who('g'), {}).can9
+      && (lb.reach(who('a')), q(who('a'), { level: 9 }).rows.length === 1),
+      'level boards: level 9 only for players who have reached it');
+    const fr = q(who('a'), { team: true }, { scope: 'friends', fids: [who('b').fid] });
+    ok(fr.rows.length === 1 && fr.rows[0].name === 'Kb', 'level boards: the friends board shows only the starred friends (by friend id)');
+    const g = lb.createGroup(who('a'), 'Crew').group, j = lb.joinGroup(who('b'), g.code.toLowerCase());
+    const gq = q(who('b'), { team: true }, { scope: 'group', group: g.id }), out = q(who('c'), { team: true }, { scope: 'group', group: g.id });
+    ok(g.code.length === 6 && j.group && gq.rows.length === 1 && gq.rows[0].me && out.err && lb.joinGroup(who('b'), 'NOPE99').err
+      && (lb.leaveGroup(who('b'), g.id), lb.groupsOf(who('b')).length === 0 && lb.groupsOf(who('a')).length === 1),
+      'level boards: a group by its join code (any case), members only, leaving it');
+    // a fresh-start group: only times set after it was made; its owner can remove a player (who can't join again)
+    const fg = lb.createGroup(who('a'), 'Fresh', true).group;
+    lb.joinGroup(who('b'), fg.code); lb.joinGroup(who('c'), fg.code);
+    lb.record(who('b'), { ...B, time: 45, team: 2 });   // (slower than b's best of 30, but new)
+    const fq = q(who('a'), { team: true }, { scope: 'group', group: fg.id });
+    const tokC = lb.groupsOf(who('a')).find((x) => x.id === fg.id).members.find((m) => m.name === 'Kc').t;
+    const notOwner = lb.removeMember(who('b'), fg.id, tokC).err, rm = lb.removeMember(who('a'), fg.id, tokC);
+    ok(fg.fresh && fq.rows.length === 1 && fq.rows[0].time === 45 && notOwner && !rm.err && lb.groupsOf(who('c')).every((x) => x.id !== fg.id)
+      && lb.joinGroup(who('c'), fg.code).err && !lb.groupsOf(who('b')).find((x) => x.id === fg.id).members
+      && (lb.restartGroup(who('a'), fg.id), q(who('a'), { team: true }, { scope: 'group', group: fg.id }).rows.length === 0),
+      'level boards: a fresh-start group counts only new times; its owner (only) removes players for good and restarts it');
+    // signing in on a browser moves its times to the account
+    lb.record(who('h'), { ...B, time: 33, team: 1 });
+    const acc = who('h', { acct: 'acct-h' });
+    const after = q(acc, {});
+    ok(after.me && after.me.time === 33 && after.rows.filter((r) => r.name === 'Kh').length === 1, 'level boards: a browser\'s times move to the account playing on it');
+    lb.flush();
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -891,14 +950,15 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   const top = (ld) => runOf(ld).reduce((t, e) => t + e.speed, 0) / runOf(ld).length;
   ok(c14.enemies.length === c15.enemies.length && top(c15) < 0.95 * top(c14) && top(c15) > 0.85 * top(c14), 'Run + Skate level 9 (finale version 15): its running half tops out at about 92% too');
 }
-// the mane / tail tip metals: hidden until a reward (feat 'later') unlocks them; one per slot is worn
+// the mane / tail tip metals: hidden until their kitty (chrome, golden, bronze) unlocks them; one per slot is worn
 {
   const metals = UNLOCKS.filter((u) => u.slot), all = { run: 1, ice: 1, mixed: 1 };
   const featOf = (u) => ({ [u.feat]: all });
   ok(metals.length === 6 && metals.every((u) => u.hidden && u.defaultOff && !isUnlocked({}, u) && isUnlocked(featOf(u), u, 'run'))
     && metals.filter((u) => u.metal === 'chrome').every((u) => u.feat === 'l9') && metals.filter((u) => u.metal === 'gold').every((u) => u.feat === 'top1')
+    && metals.filter((u) => u.metal === 'bronze').every((u) => u.feat === 'fast1') && UNLOCKS.find((u) => u.id === 'bronze').excl === 'body'
     && slotMetal(new Set(['mbronze', 'mgold']), 'mane') === 'gold' && slotMetal(new Set(['tchrome']), 'tip') === 'chrome' && slotMetal(new Set(['lion']), 'mane') === null,
-    'mane / tail tip metals: chrome with the Chrome kitty, gold with the Golden kitty, bronze still to come; hidden until then, off until switched on, one per slot');
+    'mane / tail tip metals: chrome with the Chrome kitty, gold with the Golden kitty, bronze with the Bronze kitty; hidden until then, off until switched on, one per slot');
 }
 // a normal game's level 8 / 9 counts for the easy games' unlocks too (not the other way round)
 {

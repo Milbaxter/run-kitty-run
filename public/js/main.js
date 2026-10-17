@@ -909,6 +909,12 @@ function handleEvents(events) {
         audio.play('extraLife');
         break;
       }
+      case 'medicGift': {   // the broken checkpoint repaired by a medic (60+ revives): a life and 4 boots in the square
+        for (const [id, type, x, z, mega] of ev.items) if (!sim.items.some((it) => it.id === id)) sim.items.push({ id, type, x, z, taken: false, ...(mega ? { mega: true } : {}) });
+        effects.confetti(ev.x, ev.z);
+        audio.play('extraLife');
+        break;
+      }
       case 'chestOpen': {
         if (!sim.chest) sim.chest = { x: ev.x, z: ev.z };
         sim.chest.open = true;

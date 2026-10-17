@@ -990,5 +990,21 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     return sim.checkpointsHit.length;
   };
   ok(hit(15) === 0 && hit(16) === 1, 'Run + Skate level 9 (finale version 16): any kitty repairs the broken checkpoint (version 15: not without 60 revives)');
+  // finale version 17: repaired by a kitty with 60+ revives this run, it gives a life and 4 boots in the square
+  const gift = (v, rescues) => {
+    const sim = createSim({ seed: 9, players: [{ id: 1, name: 'a', color: 1 }, { id: 2, name: 'b', color: 2 }], startLevel: stageStep('mixed', v, SKATE_FINAL_LEVEL), mode: 'mixed', finales: v });
+    stepSim(sim, {}, 1 / 60);
+    const cp = sim.levelData.checkpoints[0], p = sim.players[0];
+    p.x = cp.x; p.z = cp.z; p.rescues = rescues;
+    let ev = null;
+    for (let i = 0; i < 5; i++) for (const e of stepSim(sim, {}, 1 / 60)) if (e.type === 'medicGift') ev = e;
+    const items = sim.items.filter((it) => it.id >= 2000);
+    return { ev, items, cp };
+  };
+  const g = gift(17, 60), g0 = gift(17, 59), g16 = gift(16, 80);
+  const half = 6;
+  ok(g.ev && g.items.map((it) => it.type).join() === 'life,boots,boots,boots,boots' && g.ev.items.length === 5
+    && g.items.every((it) => Math.hypot(it.x - g.cp.x, it.z - g.cp.z) < 2 * half) && !g0.ev && !g0.items.length && !g16.ev && !g16.items.length,
+    'Run + Skate level 9 (finale version 17): repaired by a kitty with 60+ revives, the broken checkpoint gives a life and 4 boots (59 revives or version 16: nothing)');
 }
 console.log(process.exitCode ? 'FAIL sim-test' : 'PASS sim-test');

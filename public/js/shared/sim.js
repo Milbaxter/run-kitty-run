@@ -489,6 +489,18 @@ function stepSim(sim, inputs, dt) {
     }
     sim.circles = sim.circles.filter((circ) => { const q = findPlayer(sim, circ.playerId); return q && !q.alive; });
     events.push({ type: 'checkpoint', index: c, by: by.id, x: cp.x, z: cp.z, revived, moved, ...(cp.medic ? { medic: true } : {}) });
+    // the broken checkpoint repaired by a kitty with cp.giftRescues revives this run (level version 17+): a life and 4
+    // boots in the square, a little ahead of the middle (new pickups, ids from 2000; the event lists them for the clients)
+    if (cp.giftRescues && (by.rescues || 0) >= cp.giftRescues) {
+      const gift = [];
+      ['life', 'boots', 'boots', 'boots', 'boots'].forEach((type, i) => {
+        const a = cp.heading + (i ? (i - 2.5) * 0.75 : 0), r = i ? h * 0.55 : h * 0.3;
+        const x = Math.round((cp.x + Math.cos(a) * r) * 1000) / 1000, z = Math.round((cp.z + Math.sin(a) * r) * 1000) / 1000;
+        sim.items.push({ id: 2000 + i, type, x, z, taken: false });
+        gift.push([2000 + i, type, x, z, 0]);
+      });
+      events.push({ type: 'medicGift', by: by.id, x: cp.x, z: cp.z, items: gift });
+    }
     // the lottery: once in CFG.CHEST_ODDS checkpoints a big chest stands in the square, a little ahead of the middle
     // (by the seed, so it is the same for everyone; sim.chestAlways: local testing). One a level at most.
     // sim.noChest: the server's, while a client too old to draw it is in the room.

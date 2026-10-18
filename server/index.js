@@ -622,7 +622,8 @@ function roomInfo(room) {
     locked: !!room.pass, pass: room.pass || undefined,   // private lobby: its members see the password (to pass it on)
     members: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color, app: m.app, paid: m.paid || undefined,   // paid: cents (accounts.js)
       fid: m.fid || undefined,   // public friend id (invites)
-      cos: m.cos && m.cos.length ? m.cos : undefined })),   // cos: switched-on unlocks (shared/unlocks.js)
+      cos: m.cos && m.cos.length ? m.cos : undefined,   // cos: switched-on unlocks (shared/unlocks.js)
+      ps: m.paid && m.ps ? m.ps : undefined })),   // ps: how the number is drawn ('koi'; none: the classic tag)
   };
 }
 
@@ -1038,6 +1039,7 @@ wss.on('connection', (ws, req) => {
         client.ver = str(msg.ver).replace(/[^\w.+-]/g, '').slice(0, 16);
         if (typeof msg.tok === 'string' && /^[\w-]{8,64}$/.test(msg.tok)) client.tok = msg.tok; // reconnect grace (net.js)
         client.paid = accounts.paidFor(msg.acct);   // signed-in account: its total shows next to the name
+        client.ps = accounts.paidStyleFor(msg.acct);
         client.acct = accounts.subFor(msg.acct);    // ...and its stats count this player's online games
         client.pid = accounts.validPid(msg.pid);    // the browser's unlock progress id (players without an active account)
         client.fid = v >= INVITE_PROTOCOL ? friendId(client.pid) : '';   // public friend id (invites), from the secret pid
@@ -1053,13 +1055,13 @@ wss.on('connection', (ws, req) => {
       case 'acct': {
         // signed in / out (or paid more) after connecting
         if (!take(client, 'lobby', LOBBY_RATE, LOBBY_BURST, Date.now())) return;
-        const paid = accounts.paidFor(msg.acct);
+        const paid = accounts.paidFor(msg.acct), ps = accounts.paidStyleFor(msg.acct);
         client.acct = accounts.subFor(msg.acct);
         accounts.mergeGuest(client.acct, client.pid);
         const cos = room ? accounts.cosForPlayer({ sub: client.acct, pid: client.pid }, room.mode) : [];
         const cosChanged = cos.join() !== (client.cos || []).join();
         client.cos = cos;
-        if (paid !== (client.paid || 0) || cosChanged) { client.paid = paid; if (room) sendRoom(room); }
+        if (paid !== (client.paid || 0) || ps !== (client.ps || '') || cosChanged) { client.paid = paid; client.ps = ps; if (room) sendRoom(room); }
         break;
       }
       case 'report':

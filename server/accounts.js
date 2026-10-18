@@ -282,7 +282,7 @@ function createAccounts(file, env = process.env) {
   // number 1 of a fastest list (index.js hands in legends.bronzeFor): the bronze kitty, in every mode
   let bronzeCheck = () => false;
   const setBronzeCheck = (fn) => { bronzeCheck = fn; };
-  const pub = (a) => (a ? { name: a.name, email: a.email, via: a.via || 'google', paid: Number(a.paid) || 0, display: shownCents(a), active: active(a), show: !a.hide, unlocks: unlocksOf(a),
+  const pub = (a) => (a ? { name: a.name, email: a.email, via: a.via || 'google', paid: Number(a.paid) || 0, display: shownCents(a), active: active(a), show: !a.hide, style: a.style === 'koi' ? 'koi' : 'classic', unlocks: unlocksOf(a),
     legends: legendRanks(a),
     deleting: a.deleting ? new Date(a.deleting + DELETE_KEEP_MS).toISOString() : null,   // deleted: gone for good at this time
     stats: { online: (a.stats && a.stats.online) || blankStats(), local: (a.stats && a.stats.local) || blankStats(), easy: (a.stats && a.stats.easy) || blankStats() } } : null);
@@ -302,6 +302,8 @@ function createAccounts(file, env = process.env) {
   };
   // total paid (cents) for a session token, 0 if none / unpaid / hidden: what the game server shows next to the name
   const paidFor = (token) => { const a = fromToken(token); return a && !a.hide && !a.deleting ? shownCents(a) : 0; };
+  // how the number is drawn for everyone: 'koi' (the koi fish) or '' (the classic tag)
+  const paidStyleFor = (token) => { const a = fromToken(token); return a && a.style === 'koi' ? 'koi' : ''; };
   // the account id behind a session token (the game server keeps this per player instead of the token itself)
   const subFor = (token) => { const a = fromToken(token); return a ? a.sub : null; };
   // has this account played level 9 (its stats, online or local or easy)? (the level boards open level 9's board)
@@ -614,6 +616,14 @@ function createAccounts(file, env = process.env) {
       try { saveNow(); } catch (e) { if (previous) a.hide = previous; else delete a.hide; throw e; }
       return { ok: true, account: pub(a) };
     }
+    if (name === 'style') {
+      // how the number looks: 'classic' (the tag) or 'koi' (the koi fish)
+      if (m.style !== 'classic' && m.style !== 'koi') return { ok: false };
+      const previous = a.style;
+      if (m.style === 'koi') a.style = 'koi'; else delete a.style;
+      try { saveNow(); } catch (e) { if (previous) a.style = previous; else delete a.style; throw e; }
+      return { ok: true, account: pub(a) };
+    }
     if (name === 'display') {
       // the number shown next to the kitty: any amount from 1 cent up to the total paid (cents); null: the total again
       const paid = Number(a.paid) || 0, previous = a.display;
@@ -700,7 +710,7 @@ function createAccounts(file, env = process.env) {
       discordCallback(req, res).catch((e) => { console.error('discord sign-in failed:', e.message); if (!res.headersSent) reply(res, 502, { ok: false }); });
       return true;
     }
-    if (!['google', 'handoff', 'me', 'pay', 'confirm', 'show', 'display', 'equip', 'guest', 'guestequip', 'progress', 'logout', 'delete', 'restore'].includes(name)) return false;
+    if (!['google', 'handoff', 'me', 'pay', 'confirm', 'show', 'style', 'display', 'equip', 'guest', 'guestequip', 'progress', 'logout', 'delete', 'restore'].includes(name)) return false;
     if (req.method !== (name === 'me' ? 'GET' : 'POST')) { reply(res, 405, { ok: false }); return true; }
     const go = (body) => route(name, req, body)
       .then((j) => reply(res, j ? 200 : 404, j || { ok: false }))
@@ -709,7 +719,7 @@ function createAccounts(file, env = process.env) {
     return true;
   }
 
-  return { enabled, handle, webhook, setLegendRanks, setGoldenCheck, setBronzeCheck, paidFor, shownAll, reachedFinal, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
+  return { enabled, handle, webhook, setLegendRanks, setGoldenCheck, setBronzeCheck, paidFor, paidStyleFor, shownAll, reachedFinal, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
 }
 
 // One credit per player, however many of its tabs are in the game: of these kitties (members: { acct, pid }), the

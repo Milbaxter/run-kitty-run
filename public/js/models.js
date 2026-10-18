@@ -550,6 +550,14 @@ function createKittyModel(color) {
 
   const seedOff = Math.random() * 100;
   let phase = 0, runAmt = 0, clock = 0;
+  // the metal fur's band of light: its own clock, half as fast again while running or gliding
+  let shineT = 0, shineLast = null;
+  // the band's "front": where the kitty faces, or (a draft, s.lightDir: { x, z }) the side the main light comes from
+  const _shineFwd = new THREE.Vector2(), _lightDir = { x: 0, y: 0, z: 0, on: false };
+  function shineFwd() {
+    if (_lightDir.on) return _shineFwd.set(_lightDir.x, _lightDir.z);
+    return _shineFwd.set(Math.cos(group.rotation.y), -Math.sin(group.rotation.y));
+  }
   let blinkT = 0, nextBlink = 1.5 + Math.random() * 3;
   let earT = 0, nextEar = 2 + Math.random() * 4, earSide = 0;
   let shieldAmt = 0;
@@ -908,6 +916,12 @@ function createKittyModel(color) {
   const rbC = new THREE.Color();
   function updateRewards(s, t, mdt) {
     const off = ghost;
+    // (by the game's clock, not the frame's capped step: slow frames don't slow it down)
+    const sdt = shineLast == null ? 0 : Math.max(0, Math.min(1, t - shineLast));
+    shineLast = t;
+    shineT += sdt * (1 + 0.6 * Math.max(runAmt, Math.min(1, glideSp / 8)));   // (running, or gliding on the ice)
+    const ld = s.lightDir, ll = ld ? Math.hypot(ld.x, ld.z) : 0;
+    _lightDir.on = ll > 1e-3; if (_lightDir.on) { _lightDir.x = ld.x / ll; _lightDir.z = ld.z / ll; _lightDir.y = (ld.y || 0) / Math.hypot(ll, ld.y || 0); }
     // night crown
     const moonOn = !!s.crown && !!s.moonCrown && rig.visible && !off;
     moon.visible = moonOn;
@@ -1018,30 +1032,38 @@ function createKittyModel(color) {
       for (const m of furMeshes) m.material = cosmic || mat;
       if (maneMesh) maneMesh.material = cosmic || mat;
     }
-    if (chromeMat) { chromeMat.uniforms.uTime.value = t; chromeMat.uniforms.uOrigin.value.copy(group.position); }
-    if (mf) { mf.uniforms.uTime.value = t; mf.uniforms.uOrigin.value.copy(group.position); }
+    if (chromeMat) { chromeMat.uniforms.uTime.value = shineT; chromeMat.uniforms.uOrigin.value.copy(group.position); chromeMat.uniforms.uFwd.value.copy(shineFwd()); }
+    if (mf) { mf.uniforms.uTime.value = shineT; mf.uniforms.uOrigin.value.copy(group.position); mf.uniforms.uFwd.value.copy(shineFwd()); }
     // sunglasses on a chrome / golden / bronze kitty: lenses in its metal instead of black, a brighter mirror of its fur
     // (facing forward, the fur's own would come out dark); the frame stays gold (s.shadesTone: a draft's other brightness)
     const shMetal = off ? null : s.lensMetal || (s.silver ? 'chrome' : s.metalCat || null);   // (s.lensMetal: a draft, another metal's lenses)
     let shM = shadesMat;
     if (shMetal && s.sunglasses) {
       const tone = s.shadesTone || (shMetal === 'gold' ? 1.9 : shMetal === 'chrome' ? 2.15 : 2.4);   // (gold, chrome and bronze: each picked by eye)
-      shM = maneMetals['lens' + tone + '-' + shMetal] ||= chromeFurMaterial(shMetal === 'chrome' ? null : shMetal, tone);
-      shM.uniforms.uTime.value = t; shM.uniforms.uOrigin.value.copy(group.position);
+      shM = maneMetals['lens' + tone + '-' + shMetal] ||= chromeFurMaterial(shMetal === 'chrome' ? null : shMetal, tone, -0.16);
+      shM.uniforms.uTime.value = t; shM.uniforms.uGlint.value = s.lensShine === false ? 9 : s.lensGlint ?? (_lightDir.on ? 5 : -1);
+      if (_lightDir.on) {
+        // (the light seen from the kitty's face: how far to its right, how high; the lines come from that side)
+        const yaw = group.rotation.y, side = _lightDir.x * Math.sin(yaw) + _lightDir.z * Math.cos(yaw), up = Math.max(0.2, _lightDir.y);
+        const l = Math.hypot(side, up) || 1;
+        shM.uniforms.uGDir.value.set(side / l, up / l);
+        // (the same in the world: the kitty's right times side, plus up)
+        shM.uniforms.uGDirW.value.set(Math.sin(yaw) * side / l, up / l, Math.cos(yaw) * side / l);
+      }   // (their own lines, right to left as you look at the kitty; on the plain clock) shM.uniforms.uOrigin.value.copy(group.position); shM.uniforms.uFwd.value.copy(shineFwd());
     }
     if (shadesLens.material !== shM) shadesLens.material = shM;
     if (cosmic) { cosmic.uniforms.uTime.value = t; if (maneMesh && maneMesh.material !== cosmic) maneMesh.material = cosmic; }
     // a draft (?look=mane-gold / mane-bronze / mane-chrome): the mane in a metal of its own, whatever the body wears
     if (maneMesh && s.maneMetal && !off) {
       const mm = maneMetals[s.maneMetal] ||= chromeFurMaterial(s.maneMetal === 'chrome' ? null : s.maneMetal);
-      mm.uniforms.uTime.value = t; mm.uniforms.uOrigin.value.copy(group.position);
+      mm.uniforms.uTime.value = shineT; mm.uniforms.uOrigin.value.copy(group.position); mm.uniforms.uFwd.value.copy(shineFwd());
       maneMesh.material = mm;
     } else if (maneMesh && maneMesh.material !== (cosmic || mat)) maneMesh.material = cosmic || mat;
     // a draft (?look=tip-gold / tip-bronze / tip-chrome): the fluffy tail's tip in a metal of its own, like the mane
     const tipMesh = tailMeshes[N_TAIL - 1];
     if (s.tipMetal && !off) {
       const tm = maneMetals[s.tipMetal] ||= chromeFurMaterial(s.tipMetal === 'chrome' ? null : s.tipMetal);
-      tm.uniforms.uTime.value = t; tm.uniforms.uOrigin.value.copy(group.position);
+      tm.uniforms.uTime.value = shineT; tm.uniforms.uOrigin.value.copy(group.position); tm.uniforms.uFwd.value.copy(shineFwd());
       tipMesh.material = tm; tipOwn = true;
     } else if (tipOwn) { tipOwn = false; tipMesh.material = (furMeshes.includes(tipMesh) && cosmic) || mat; }
     wingMesh.material = s.celestial && cosmic ? cosmic : mf && cosmic === mf ? mf : wingMat;   // the wings turn celestial (or bronze / golden) too
@@ -2700,31 +2722,57 @@ function cosmicMaterial() {
 // 16 wins without the revives: the chrome moon lion, mirror-silver fur no kitty colour has, with slow bands of light
 // sweeping over it. One material per kitty: the bands are anchored to the kitty (uOrigin), so running doesn't make
 // them flash past
-function chromeFurMaterial(metal, dark = 1) {   // metal: 'gold' | 'bronze' (an easy game's golden / bronze kitty), the same mirror in that metal; dark: < 1 a smoked mirror (sunglasses)
+function chromeFurMaterial(metal, dark = 1, shift = 0) {   // shift: moves where the band is (the sunglasses: back to the face's)   // metal: 'gold' | 'bronze' (an easy game's golden / bronze kitty), the same mirror in that metal; dark: < 1 a smoked mirror (sunglasses)
   const v = (r, g, b) => ({ value: new THREE.Vector3(r * dark, g * dark, b * dark) });
   const [LO, HI, BAND, RIM] = metal === 'gold' ? [v(0.42, 0.24, 0.04), v(1.0, 0.84, 0.36), v(1.0, 0.95, 0.7), v(1.0, 0.88, 0.5)]
     : metal === 'bronze' ? [v(0.2, 0.09, 0.03), v(0.84, 0.5, 0.24), v(1.0, 0.78, 0.55), v(0.9, 0.58, 0.32)]
     : [v(0.22, 0.25, 0.32), v(0.96, 0.98, 1.0), v(1.0, 1.0, 1.0), v(0.85, 0.9, 1.0)];
   return new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uOrigin: { value: new THREE.Vector3() },
+    uniforms: { uTime: { value: 0 }, uOrigin: { value: new THREE.Vector3() }, uFwd: { value: new THREE.Vector2(1, 0) }, uShift: { value: shift }, uGlint: { value: 0 }, uGDir: { value: new THREE.Vector2(1, 0) }, uGDirW: { value: new THREE.Vector3(1, 0, 0) },
       uLo: LO, uHi: HI, uBand: BAND, uRim: RIM },
-    vertexShader: `uniform vec3 uOrigin; varying vec3 vN; varying vec3 vR; varying float vInst;
+    vertexShader: `uniform vec3 uOrigin; varying vec3 vN; varying vec3 vR; varying vec3 vL; varying vec3 vV; varying vec3 vA; varying float vInst;
       void main() {
-        vec4 p = vec4(position, 1.0); vec3 nn = normal; vInst = 0.0;
+        vec4 p = vec4(position, 1.0); vec3 nn = normal; vInst = 0.0; vL = position;
         #ifdef USE_INSTANCING
           p = instanceMatrix * p; nn = mat3(instanceMatrix) * nn; vInst = 1.0;   // (the golden kitty's wings: one instanced mesh)
         #endif
         vec4 w = modelMatrix * p; vR = w.xyz - uOrigin;
         vec4 mv = viewMatrix * w; vN = normalize(normalMatrix * nn); gl_Position = projectionMatrix * mv;
+        vV = mv.xyz; vA = (modelViewMatrix * vec4(0.208, 0.05, 0.0, 1.0)).xyz;
       }`,
-    fragmentShader: `uniform float uTime; uniform vec3 uLo; uniform vec3 uHi; uniform vec3 uBand; uniform vec3 uRim; varying vec3 vN; varying vec3 vR; varying float vInst;
+    fragmentShader: `uniform float uTime; uniform float uShift; uniform float uGlint; uniform vec2 uGDir; uniform vec3 uGDirW; uniform vec2 uFwd; uniform vec3 uLo; uniform vec3 uHi; uniform vec3 uBand; uniform vec3 uRim; varying vec3 vN; varying vec3 vR; varying vec3 vL; varying vec3 vV; varying vec3 vA; varying float vInst;
       void main() {
         vec3 n = normalize(vN);
         float lit = 0.72 + 0.28 * max(dot(n, normalize(vec3(0.3, 1.0, 0.4))), 0.0), rim = pow(1.0 - max(n.z, 0.0), 2.5);
         // (flat feathers mostly face up: without this the wings would be all highlight, far paler than the body)
         float up = smoothstep(-0.25, 0.65, n.y); up = mix(up, 0.12 + 0.42 * up, vInst); rim *= 1.0 - 0.65 * vInst;
         vec3 sky = mix(uLo, uHi, up);
-        float band = smoothstep(0.88, 1.0, sin(vR.x * 4.0 + vR.z * 2.5 + vR.y * 3.0 - uTime * 1.3));
+        // (along the kitty: uFwd its facing on the ground; the band starts at the face and slides back to the tail. At the
+        // front higher counts as further forward (the face before the paws), at the back further back (the raised tail's
+        // tip last), blended over the middle)
+        float fwd = vR.x * uFwd.x + vR.z * uFwd.y, h = vR.y - 0.45;
+        float along = fwd + mix(h * 0.6, -max(h, 0.0) * 0.9, smoothstep(0.15, -0.25, fwd)) + uShift;
+        // one band at a time: from in front of the nose (0.6) back past the tail tip, a pause, then the next
+        float pos = 0.6 - mod(uTime * 0.45, 2.3);
+        float band = 1.0 - smoothstep(0.03, 0.11, abs(along - pos));
+        if (uGlint > 8.5) { sky = mix(uLo, uHi, 0.3); band = 0.0; rim = 0.0; }   // (the shine switched off: a plain tinted lens)
+        else if (uGlint != 0.0) {
+          // (the sunglasses' own lines, separate from the body's band: uGlint -1 right to left as you look at the kitty (the
+          // lenses' look), 1 the other way, 2 / 3 from the top right / top left down)
+          float side = vL.z;   // (in the lenses' own space)
+          // (side: + the kitty's right = your left as you look at it; 2 and 3: down and to your left / right)
+          vec2 gv = normalize((mat3(viewMatrix) * uGDirW).xy + vec2(1e-5, 0.0));
+          float q = uGlint > 4.5 ? dot(vV.xy - vA.xy, gv) : uGlint > 1.5 ? (vL.y + (uGlint > 2.5 ? side : -side)) * 0.7071 : side * uGlint;
+          // the card's pattern (a soft glow, a dark stripe, a bright line) repeating every 0.2, sliding slowly across; only
+          // every other one's line bright white (one at a time on the glasses), the others' toned down
+          float ph = q / 0.2 + uTime * 0.3, x = fract(ph), odd = mod(floor(ph), 2.0);
+          float L = x < 0.2 ? mix(0.45, 0.85, x / 0.2) : x < 0.4 ? mix(0.85, 0.15, (x - 0.2) / 0.2) : x < 0.56 ? mix(0.15, 0.7, (x - 0.4) / 0.16)
+            : x < 0.66 ? mix(0.7, 1.0, (x - 0.56) / 0.1) : x < 0.76 ? mix(1.0, 0.7, (x - 0.66) / 0.1) : mix(0.7, 0.45, (x - 0.76) / 0.24);
+          if (odd > 0.5) L = min(L, 0.85);
+          sky = mix(uLo, uHi, L * 0.5);
+          band = smoothstep(0.92, 1.0, L);
+          rim = 0.0;
+        }
         gl_FragColor = vec4(sky * lit + uBand * band * 0.6 + uRim * rim * 0.55, 1.0);
       }`,
   });

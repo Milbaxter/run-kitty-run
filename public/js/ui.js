@@ -52,6 +52,54 @@ const MANE_D = (() => {
   for (let i = 0; i < 16; i++) { const a = (i / 16) * Math.PI * 2 + 0.2; d += c(20 + Math.cos(a) * 15.5, 21 + Math.sin(a) * 15.5, 6); }
   return d;
 })();
+// the goldfish around an account total (.rkr-fish): head, the number on its body, tail (text: digits only, from fmtNum)
+// A whole koi drawn for its number, facing right (drawn head left, then mirrored): a pointed head with a big bright
+// eye and a tiny smile, the body as long as the digits need (they sit on it) narrowing into a long flowing tail, a long fin
+// down its back and a side fin. Cream with ragged orange-red patches, the fins orange fading to white, and
+// the chrome kitty's bands of light over it, sliding head to tail as if it swims. text: digits only (fmtNum).
+const FISH_C = { body: ['#fff8e8', '#fff1d6', '#ffe2b8'], fin: ['#ff7a2e', '#ffffff'], line: '#d2501c', gill: '#e06a2c', spots: '#ff4a12' };
+let fishN = 0, fishCtx = null;
+function fishHTML(text) {
+  fishCtx ||= document.createElement('canvas').getContext('2d');
+  fishCtx.font = '900 12px ' + FONT;
+  const tw = Math.ceil(fishCtx.measureText(text).width);
+  const H = 18, head = 11, gap = 3, L = head + gap + tw + 7, W = L + 19;   // the digits from head + gap; the body's full height to L, the tail after it
+  const n = ++fishN, ink = '#2b1840', C = FISH_C, finFill = `url(#rkrff${n})`;
+  const body = `M.8 9.8C1.2 5.6 5 2.4 10.5 2.2L${L - 4} 2.2C${L} 2.4 ${L + 3} 5.2 ${L + 6} 7.1L${L + 6} 10.9C${L + 3} 12.8 ${L} 15.6 ${L - 4} 15.8L10.5 15.8C5 15.6 1.4 13.4 .8 9.8Z`;
+  const tail = `M${L + 5} 7.3C${L + 8} 5 ${L + 11} 1.4 ${W - .6} .6C${W - 2.6} 3.8 ${W - 5} 6.8 ${W - 4.2} 9C${W - 5} 11.2 ${W - 2.6} 14.2 ${W - .6} 17.4C${L + 11} 16.6 ${L + 8} 13 ${L + 5} 10.7Z`;
+  const d0 = Math.round(head + gap + tw * 0.2), d1 = L - 2;
+  const svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="transform:scaleX(-1)">`
+    + `<defs><linearGradient id="rkrfb${n}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${C.body[0]}"/><stop offset=".55" stop-color="${C.body[1]}"/><stop offset="1" stop-color="${C.body[2]}"/></linearGradient>`
+    + `<linearGradient id="rkrfs${n}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".16"/></linearGradient>`
+    + `<linearGradient id="rkrfl${n}" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="37" y2="-4.4" spreadMethod="repeat"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".2" stop-color="#fff" stop-opacity=".55"/><stop offset=".4" stop-color="#3a2a40" stop-opacity=".2"/><stop offset=".56" stop-color="#fff" stop-opacity="0"/><stop offset=".66" stop-color="#fff" stop-opacity=".85"/><stop offset=".76" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#fff" stop-opacity="0"/><animateTransform attributeName="gradientTransform" type="translate" from="-37 0" to="0 0" dur="3.4s" repeatCount="indefinite"/></linearGradient>`
+    + `<linearGradient id="rkrff${n}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${C.fin[0]}"/><stop offset="1" stop-color="${C.fin[1]}"/></linearGradient></defs>`
+    + `<path d="M${d0} 2.6C${d0 + 3} -.4 ${d1 - 4} -1.2 ${d1 + 1} -.6C${d1} .6 ${d1 + .5} 1.8 ${d1 + 1.5} 2.8Z" fill="${finFill}" stroke="${ink}" stroke-width="1" stroke-linejoin="round"/>`   // the long back fin
+    + `<path d="M${d0} 2.6C${d0 + 3} -.4 ${d1 - 4} -1.2 ${d1 + 1} -.6C${d1} .6 ${d1 + .5} 1.8 ${d1 + 1.5} 2.8Z" fill="url(#rkrfl${n})"/>`
+    + `<path d="M${d0 + 4} 1.9L${d0 + 5} .3M${(d0 + d1) / 2} 1.9L${(d0 + d1) / 2 + 1} -.2M${d1 - 3} 1.9L${d1 - 2} -.4" stroke="${C.line}" stroke-width=".6" stroke-linecap="round" opacity=".6"/>`
+    + `<path d="${tail}" fill="${finFill}" stroke="${ink}" stroke-width="1.2" stroke-linejoin="round"/>`
+    + `<path d="M${L + 6} 9C${L + 10} 7 ${L + 13} 4.5 ${W - 2} 2.4M${L + 6} 9C${L + 10} 11 ${L + 13} 13.5 ${W - 2} 15.6M${L + 6} 9C${L + 9} 8.3 ${L + 11} 7.5 ${W - 5.2} 6.6M${L + 6} 9C${L + 9} 9.7 ${L + 11} 10.5 ${W - 5.2} 11.4" fill="none" stroke="${C.line}" stroke-width=".6" stroke-linecap="round" opacity=".65"/>`   // tail rays
+    + `<path d="${tail}" fill="url(#rkrfl${n})"/>`   // (under the body, which overlaps the tail's root)
+    + `<path d="M${head - 5.4} 12.8C${head - 5} 16.8 ${head - 2} 19.8 ${head + 4.2} 19.8C${head + 1.6} 18.4 ${head + .2} 16.2 ${head - .4} 12.8Z" fill="#ff8a3d" stroke="${ink}" stroke-width=".9" stroke-linejoin="round"/>`   // side fin (behind the body: it pokes out under the belly; solid orange, so it shows)
+    + `<path d="M${head - 2.6} 16.2Q${head - .6} 18.2 ${head + 2.4} 19M${head - 1.4} 15.6Q${head + .4} 17 ${head + 2} 17.6" fill="none" stroke="${C.line}" stroke-width=".55" stroke-linecap="round" opacity=".6"/>`
+    + `<path d="M${head - 5.4} 12.8C${head - 5} 16.8 ${head - 2} 19.8 ${head + 4.2} 19.8C${head + 1.6} 18.4 ${head + .2} 16.2 ${head - .4} 12.8Z" fill="url(#rkrfl${n})"/>`
+    + `<path d="${body}" fill="url(#rkrfb${n})" stroke="${ink}" stroke-width="1.3" stroke-linejoin="round"/>`
+    + `<path d="M${head - 4} 2.3Q${head + 2} 5 ${head - 1} 9Q${head - 5} 7 ${head - 4} 2.3Z" fill="${C.spots}"/>`   // the patch on its head
+    + `<path d="M${L - 9} 2.3Q${L - 1} 3 ${L + 2} 6.6Q${L - 5} 8.5 ${L - 9} 2.3Z" fill="${C.spots}"/><path d="M${L - 6} 15.7Q${L} 14.5 ${L + 2} 11.4Q${L - 4} 12 ${L - 6} 15.7Z" fill="${C.spots}"/>`   // patches
+    + `<path d="${body}" fill="url(#rkrfs${n})"/>`   // round shading over everything on the body
+    + `<path d="${body}" fill="url(#rkrfl${n})"/>`   // the light
+    + `<path d="M${head - .8} 4.6Q${head - 3} 9 ${head - .8} 13.6" fill="none" stroke="${C.gill}" stroke-width=".9" stroke-linecap="round"/>`   // gill
+    + `<path d="M${head} 3.6H${L - 6}" stroke="#fff" stroke-width="1" stroke-linecap="round" opacity=".5"/>`   // shine
+    + `<ellipse cx="5.3" cy="7.4" rx="1.6" ry="1.9" fill="${ink}"/><circle cx="5.75" cy="6.75" r=".6" fill="#fff"/><circle cx="4.8" cy="8.2" r=".28" fill="#fff"/>`   // a big bright eye, like the kitties'
+    + `<path d="M1.7 11.1Q2.6 11.9 3.6 11.3" fill="none" stroke="${ink}" stroke-width=".55" stroke-linecap="round"/>`   // a tiny smile
+    + '</svg>';
+  return svg + `<b style="right:${head + gap}px;width:${tw}px">${text}</b>`;
+}
+
+// the classic tag: the number in gold on a dark tag, as before the koi
+const classicHTML = (text) => `<b class="rkr-ctag">${text}</b>`;
+// the number's look: the classic tag, or the koi (fishHTML) for a player who picked it
+const swagHTML = (text, ps = 'koi') => (ps === 'koi' ? fishHTML(text) : classicHTML(text));
+
 const MANE_SVG = `<svg viewBox="0 0 40 40" class="rkr-mane" aria-hidden="true"><path d="${MANE_D}"/></svg>`;
 const SHADES_SVG = `<svg viewBox="0 0 40 40" class="rkr-shades"><path d="M5 19.6 L10 18.8 M35 19.6 L30 18.8 M18.4 20.2 Q20 18.6 21.6 20.2" fill="none" stroke="#ffd34a" stroke-width="1.6" stroke-linecap="round"/><ellipse cx="14" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><ellipse cx="26" cy="21.6" rx="4.8" ry="4.2" fill="#1e1a2b" stroke="#ffd34a" stroke-width="1"/><path d="M11.4 19.8 L14.6 19.1 M23.4 19.8 L26.6 19.1" stroke="#fff" stroke-width="1.2" stroke-linecap="round"/></svg>`;
 // ...and broken (5+ wins, kitty down): knocked crooked, both lenses cracked, a shard missing from the right one
@@ -106,6 +154,17 @@ const CSS = `
   color:#ffd56b;background:rgba(20,8,40,.6);padding:3px 7px;border-radius:7px;text-shadow:none;
   margin-left:-7px;}   /* (its digits start right under the name) */
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you) .rkr-paid{display:none;}
+/* the account total in a little goldfish (fishHTML draws it as long as the number needs); the digits sit on its body */
+.rkr-fish{position:relative;display:inline-flex;align-items:center;height:18px;font-size:12px;font-weight:900;line-height:1;white-space:nowrap;
+  font-variant-numeric:tabular-nums;color:#4a1d00;text-shadow:none;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35));}
+.rkr-fish svg{display:block;flex:none;overflow:visible;}
+/* the classic tag in a label / beside the scoreboard (the card's own is .rkr-paid) */
+.rkr-ctag{font-size:13px;font-weight:900;line-height:1;white-space:nowrap;font-variant-numeric:tabular-nums;color:#ffd56b;background:rgba(20,8,40,.85);
+  padding:3px 7px;border-radius:7px;text-shadow:none;}
+.rkr-fish:has(> .rkr-ctag){filter:none;}
+.rkr-fish b.rkr-ctag{position:static;height:auto;display:inline-block;}
+.rkr-fish b{position:absolute;top:0;height:18px;display:flex;align-items:center;justify-content:center;font-weight:900;}
+
 
 /* ---------------- HUD ---------------- */
 .rkr-hud{position:absolute;inset:0;pointer-events:none;transition:opacity .4s;}
@@ -151,21 +210,52 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-scores .rkr-scr{display:flex;align-items:center;gap:2px;flex:none;font-size:12px;font-weight:900;color:#ffd56b;font-variant-numeric:tabular-nums;}
 .rkr-scores .rkr-scr svg{width:13px;height:13px;}
 .rkr-scores .rkr-sr.rkr-me{text-decoration:underline;text-underline-offset:3px;}
+/* the account total on the scoreboard: hidden, shown beside the row while its name is hovered or after a tap on it */
+.rkr-scores .rkr-sr[data-paid]{position:relative;pointer-events:auto;cursor:default;}
+/* (hidden, not display:none: the fish keeps drawing, so its shine is already moving when it shows) */
+.rkr-scores .rkr-sr .rkr-fish{position:absolute;right:calc(100% + 6px);top:50%;transform:translateY(-50%);visibility:hidden;}
+.rkr-card .rkr-paid.rkr-fish{background:none;padding:0;border-radius:0;margin-left:-3px;color:#4a1d00;}
+.rkr-scores .rkr-sr[data-paid]:hover .rkr-fish,.rkr-scores .rkr-sr[data-paid].rkr-showpaid .rkr-fish{visibility:visible;}
 .rkr-scores .rkr-best{opacity:.65;font-size:11px;margin-top:2px;}
 .rkr-cards.rkr-many .rkr-card{zoom:.68;}
+/* the fish on a card: a little bigger than the scoreboard's. In a big lobby your own card shrinks less than the
+   others (its name, speed and fish stay readable), and a face's hover label keeps its fish full size (1.75 x .68) */
+.rkr-card .rkr-fish{zoom:1.2;}
+.rkr-cards.rkr-many .rkr-card.rkr-you{zoom:.85;}
+.rkr-cards.rkr-tiny .rkr-card:not(.rkr-you) .rkr-tip .rkr-fish{zoom:.9;}   /* (.9 x the faces' 1.3) */
 /* big lobbies: everyone but you is just a face (colour + alive / down), no name */
 /* (faces keep the cards' zoom, so a face is exactly the size of the card's boots icon) */
-.rkr-cards.rkr-tiny{flex-direction:row;flex-wrap:wrap;gap:2px;max-width:150px;}
+.rkr-cards.rkr-tiny{display:grid;grid-template-columns:repeat(8,max-content);gap:1px 2px;align-items:center;justify-items:center;max-width:none;}   /* (8 faces a row) */
 .rkr-cards .rkr-card.rkr-you{order:-1;}   /* your own card always on top */
-.rkr-cards.rkr-tiny .rkr-card.rkr-you{flex-basis:100%;margin-bottom:2px;}
+.rkr-cards.rkr-tiny .rkr-card.rkr-you{grid-column:1 / -1;justify-self:start;margin-bottom:2px;min-width:max-content;}   /* (wider than the faces' rows when its line needs it) */
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you){min-width:0;padding:0;border-radius:5px;border-width:1px;gap:0;box-shadow:none;}
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you) .rkr-cbody{display:none;}
+.rkr-cards.rkr-tiny .rkr-card:not(.rkr-you){zoom:1.3;}   /* (the faces: a big lobby's 31 others take less room than 4 full cards; the koi rim scales with them) */
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you) .rkr-head{width:18px;height:18px;filter:none;}
 .rkr-cards.rkr-tiny .rkr-card.rkr-down:not(.rkr-you) .rkr-head{filter:grayscale(.6);}
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you){pointer-events:auto;}
 .rkr-cards.rkr-tiny .rkr-card:not(.rkr-you):hover{z-index:5;}
-.rkr-cards.rkr-tiny .rkr-card:not(.rkr-you):hover::after{content:attr(data-name);position:absolute;left:-2px;top:calc(100% + 4px);
-  padding:2px 8px;border-radius:8px;background:rgba(20,10,40,.9);border:1px solid rgba(255,255,255,.2);color:var(--pc);font-weight:900;font-size:17px;white-space:nowrap;pointer-events:none;}
+/* a face with an account total: a koi rim (cream with orange patches, the fish's band of light sliding right to left
+   over it) with four little koi swimming round it clockwise (one a side), their bellies tucked behind the face, and its fish in the hover label. A kitty that's down keeps
+   the down look (the red rim) */
+.rkr-cards.rkr-tiny .rkr-card:not(.rkr-you){border-width:2px;}
+.rkr-card .rkr-koibits{display:none;}
+.rkr-cards.rkr-tiny .rkr-card.rkr-haspaid.rkr-koi:not(.rkr-you):not(.rkr-down){margin:1px;}   /* (the fish may poke a little over the next face) */
+.rkr-cards.rkr-tiny .rkr-card.rkr-haspaid.rkr-koi:not(.rkr-you):not(.rkr-down) .rkr-koibits{display:block;position:absolute;left:-10px;top:-10px;width:38px;height:38px;
+  overflow:visible;pointer-events:none;}
+/* the classic tag's face: a gold rim */
+.rkr-cards.rkr-tiny .rkr-card.rkr-haspaid:not(.rkr-koi):not(.rkr-you):not(.rkr-down){border-color:#ffd56b;box-shadow:0 0 0 1px rgba(255,213,107,.5);}
+.rkr-cards.rkr-tiny .rkr-card.rkr-haspaid.rkr-koi:not(.rkr-you):not(.rkr-down){border-color:transparent;
+  background:linear-gradient(#24133f,#24133f) padding-box,
+    linear-gradient(100deg,transparent 30%,rgba(255,255,255,.85) 42%,rgba(58,42,64,.25) 50%,transparent 58%) border-box,
+    conic-gradient(from 20deg,#ff8a2e 0 12%,#fff1d6 12% 52%,#ff8a2e 52% 64%,#fff1d6 64%) border-box;
+  box-shadow:0 0 0 1px #2b1840;background-size:100% 100%,300% 100%,100% 100%;background-repeat:no-repeat;animation:rkr-koirim 3.4s linear infinite;}
+@keyframes rkr-koirim{from{background-position:0 0,0% 0,0 0;}to{background-position:0 0,100% 0,0 0;}}
+/* a face's hover label: its name, and its fish (kept drawn while hidden, so the fish's light is already moving) */
+.rkr-card .rkr-tip{display:none;}
+.rkr-cards.rkr-tiny .rkr-card:not(.rkr-you) .rkr-tip{display:flex;visibility:hidden;align-items:center;gap:8px;position:absolute;left:-2px;top:calc(100% + 4px);
+  padding:2px 8px;border-radius:8px;background:rgba(20,10,40,.9);border:1px solid rgba(255,255,255,.2);color:var(--pc);font-weight:900;font-size:13px;white-space:nowrap;pointer-events:none;}   /* (13 x the faces' 1.3: about the fish's size) */
+.rkr-cards.rkr-tiny .rkr-card:not(.rkr-you):hover .rkr-tip{visibility:visible;}
 .rkr-card{--pc:#ffb347;position:relative;display:flex;align-items:center;gap:10px;min-width:210px;padding:8px 12px 8px 8px;border-radius:18px;
   background:linear-gradient(135deg,rgba(30,16,60,.72),rgba(30,16,60,.5));border:2px solid rgba(255,255,255,.14);
   box-shadow:inset 4px 0 0 var(--pc),0 6px 16px rgba(0,0,0,.3);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
@@ -190,12 +280,20 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-card.rkr-rlion .rkr-mane path{fill:url(#rkr-rainbow-fur);}
 .rkr-card.rkr-chrome .rkr-mane path,.rkr-card.rkr-chrome .rkr-cat > path:first-child{fill:url(#rkr-chrome-fur);}
 /* a chrome / golden / bronze kitty's sunglasses: its metal instead of black lenses */
-.rkr-card.rkr-chrome .rkr-shades ellipse{fill:url(#rkr-chrome-fur);}
-.rkr-card.rkr-mgold .rkr-shades ellipse{fill:url(#rkr-gold-fur);}
-.rkr-card.rkr-mbronze .rkr-shades ellipse{fill:url(#rkr-bronze-fur);}
-.rkr-card.rkr-lm-chrome .rkr-shades ellipse{fill:url(#rkr-chrome-fur);}
-.rkr-card.rkr-lm-gold .rkr-shades ellipse{fill:url(#rkr-gold-fur);}
-.rkr-card.rkr-lm-bronze .rkr-shades ellipse{fill:url(#rkr-bronze-fur);}
+/* (each lens its own slow brushed-mirror lines, left to right: rkr-*-lens-rl) */
+.rkr-card.rkr-chrome .rkr-shades ellipse{fill:url(#rkr-chrome-lens-rl);}
+.rkr-card.rkr-mgold .rkr-shades ellipse{fill:url(#rkr-gold-lens-rl);}
+.rkr-card.rkr-mbronze .rkr-shades ellipse{fill:url(#rkr-bronze-lens-rl);}
+.rkr-card.rkr-lm-chrome .rkr-shades ellipse{fill:url(#rkr-chrome-lens-rl);}
+.rkr-card.rkr-lm-gold .rkr-shades ellipse{fill:url(#rkr-gold-lens-rl);}
+.rkr-card.rkr-lm-bronze .rkr-shades ellipse{fill:url(#rkr-bronze-lens-rl);}
+/* the glasses' shine switched off: the lenses a still tint of their metal */
+.rkr-card.rkr-lensstill.rkr-chrome .rkr-shades ellipse{fill:#aeb8c6;}
+.rkr-card.rkr-lensstill.rkr-mgold .rkr-shades ellipse{fill:#e0a020;}
+.rkr-card.rkr-lensstill.rkr-mbronze .rkr-shades ellipse{fill:#b0662a;}
+.rkr-card.rkr-lensstill.rkr-lm-chrome .rkr-shades ellipse{fill:#aeb8c6;}
+.rkr-card.rkr-lensstill.rkr-lm-gold .rkr-shades ellipse{fill:#e0a020;}
+.rkr-card.rkr-lensstill.rkr-lm-bronze .rkr-shades ellipse{fill:#b0662a;}
 .rkr-card.rkr-mbronze .rkr-mane path,.rkr-card.rkr-mbronze .rkr-cat > path:first-child{fill:url(#rkr-bronze-fur);}
 .rkr-card.rkr-mgold .rkr-mane path,.rkr-card.rkr-mgold .rkr-cat > path:first-child{fill:url(#rkr-gold-fur);}
 .rkr-card.rkr-celestial .rkr-mane path,.rkr-card.rkr-celestial .rkr-cat > path:first-child{fill:url(#rkr-cosmic-fur);}
@@ -636,26 +734,49 @@ function createUI(root) {
       <animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="-1 -0.6" dur="2.2s" repeatCount="indefinite"/>
     </linearGradient>
     <!-- an easy game's bronze / golden kitty: the same sliding band of light as the chrome lion's (below), in its metal -->
-    <linearGradient id="rkr-bronze-fur" x1="0" y1="0" x2=".75" y2="1" spreadMethod="repeat">
+    <linearGradient id="rkr-bronze-fur" x1="0" y1="0" x2="1" y2=".12" spreadMethod="repeat">
       <stop offset="0" stop-color="#b0662a"/><stop offset=".2" stop-color="#e3a068"/><stop offset=".4" stop-color="#7d4416"/>
       <stop offset=".56" stop-color="#cd7f32"/><stop offset=".66" stop-color="#ffe2c2"/><stop offset=".76" stop-color="#cd7f32"/>
       <stop offset="1" stop-color="#b0662a"/>
-      <animateTransform attributeName="gradientTransform" type="translate" from="-0.75 -1" to="0 0" dur="3.4s" repeatCount="indefinite"/>
+      <animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="-1 0" dur="3.4s" repeatCount="indefinite"/>
     </linearGradient>
-    <linearGradient id="rkr-gold-fur" x1="0" y1="0" x2=".75" y2="1" spreadMethod="repeat">
+    <linearGradient id="rkr-bronze-lens-rl" x1="0" y1="0" x2=".8" y2="0" spreadMethod="repeat"><stop offset="0" stop-color="#b0662a"/><stop offset=".2" stop-color="#e3a068"/><stop offset=".4" stop-color="#7d4416"/> <stop offset=".56" stop-color="#cd7f32"/><stop offset=".66" stop-color="#ffe2c2"/><stop offset=".76" stop-color="#cd7f32"/> <stop offset="1" stop-color="#b0662a"/><animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="-.8 0" dur="3.2s" repeatCount="indefinite"/></linearGradient>
+    <!-- the koi's fins on a face with an account total: orange fading to white, like the fish's (fishHTML) -->
+    <linearGradient id="rkr-koi-fin" x1="1" y1="0" x2="0" y2="0"><stop offset="0" stop-color="#ff7a2e"/><stop offset="1" stop-color="#ffffff"/></linearGradient>
+    <!-- a little koi swimming round a face's rim, back out (facing right, centred on its body; the face's box is x 8..30,
+         y 8..30 there), and the mask hiding it where it would cover the face itself: it swims over the rim, its belly cut off at the face -->
+    <mask id="rkr-koi-behind" maskUnits="userSpaceOnUse" x="0" y="0" width="38" height="38"><rect width="38" height="38" fill="#fff"/><rect x="10" y="10" width="18" height="18" rx="3" fill="#000"/></mask>
+    <g id="rkr-koi" stroke="#2b1840" stroke-linejoin="round">
+      <path d="M-6.4 0L-10.6 -3.4Q-9.2 0 -10.6 3.4Z" fill="url(#rkr-koi-fin)" stroke-width=".9"/>
+      <path d="M-2.5 -3Q0 -5.6 3 -3.1Z" fill="#ff7a2e" stroke-width=".8"/>
+      <path d="M7 0C7 -2.6 3 -3.4 -1 -3.2C-4 -3 -6 -1.6 -7 0C-6 1.6 -4 3 -1 3.2C3 3.4 7 2.6 7 0Z" fill="#fff4e0" stroke-width="1"/>
+      <path d="M-4.6 -1.6Q-2 -3.4 .6 -2.7Q-.4 -.4 -3.4 .2Z" fill="#ff7a2e" stroke="none"/><path d="M1.6 1.2Q3.2 .4 4.6 1.6Q3 2.8 1.4 2.3Z" fill="#ff7a2e" stroke="none"/>
+      <path d="M7 0C7 -2.6 3 -3.4 -1 -3.2C-4 -3 -6 -1.6 -7 0C-6 1.6 -4 3 -1 3.2C3 3.4 7 2.6 7 0Z" fill="url(#rkr-koi-shine)" stroke="none"/>
+      <path d="M-6.4 0L-10.6 -3.4Q-9.2 0 -10.6 3.4Z" fill="url(#rkr-koi-shine)" stroke="none"/>
+      <circle cx="4.4" cy="-.7" r="1.15" fill="#fff" stroke-width=".5"/><circle cx="4.6" cy="-.6" r=".6" fill="#2b1840" stroke="none"/>
+    </g>
+    <!-- the big koi's band of light on the little ones too, sliding head to tail (each part's own box) -->
+    <linearGradient id="rkr-koi-shine" x1="1" y1="0" x2="0" y2="-.12" spreadMethod="repeat">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".2" stop-color="#fff" stop-opacity=".55"/><stop offset=".4" stop-color="#3a2a40" stop-opacity=".2"/>
+      <stop offset=".56" stop-color="#fff" stop-opacity="0"/><stop offset=".66" stop-color="#fff" stop-opacity=".85"/><stop offset=".76" stop-color="#fff" stop-opacity="0"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+      <animateTransform attributeName="gradientTransform" type="translate" from="1 0" to="0 0" dur="3.4s" repeatCount="indefinite"/>
+    </linearGradient>
+    <linearGradient id="rkr-gold-fur" x1="0" y1="0" x2="1" y2=".12" spreadMethod="repeat">
       <stop offset="0" stop-color="#e0a020"/><stop offset=".2" stop-color="#ffe07a"/><stop offset=".4" stop-color="#b8791f"/>
       <stop offset=".56" stop-color="#ffd34a"/><stop offset=".66" stop-color="#fffbe6"/><stop offset=".76" stop-color="#ffd34a"/>
       <stop offset="1" stop-color="#e0a020"/>
-      <animateTransform attributeName="gradientTransform" type="translate" from="-0.75 -1" to="0 0" dur="3.4s" repeatCount="indefinite"/>
+      <animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="-1 0" dur="3.4s" repeatCount="indefinite"/>
     </linearGradient>
-    <!-- the chrome lion: a band of light slides across the mirror fur, like on its 3D model. The gradient repeats and
+    <linearGradient id="rkr-gold-lens-rl" x1="0" y1="0" x2=".8" y2="0" spreadMethod="repeat"><stop offset="0" stop-color="#e0a020"/><stop offset=".2" stop-color="#ffe07a"/><stop offset=".4" stop-color="#b8791f"/> <stop offset=".56" stop-color="#ffd34a"/><stop offset=".66" stop-color="#fffbe6"/><stop offset=".76" stop-color="#ffd34a"/> <stop offset="1" stop-color="#e0a020"/><animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="-.8 0" dur="3.2s" repeatCount="indefinite"/></linearGradient>
+    <!-- the chrome lion: a band of light slides across the mirror fur from right to left (like the koi's). The gradient repeats and
          moves by exactly its own length, so the loop has no seam -->
-    <linearGradient id="rkr-chrome-fur" x1="0" y1="0" x2=".75" y2="1" spreadMethod="repeat">
+    <linearGradient id="rkr-chrome-fur" x1="0" y1="0" x2="1" y2=".12" spreadMethod="repeat">
       <stop offset="0" stop-color="#b9c2d0"/><stop offset=".2" stop-color="#eef2f7"/><stop offset=".4" stop-color="#8c96a8"/>
       <stop offset=".56" stop-color="#cfd6e0"/><stop offset=".66" stop-color="#ffffff"/><stop offset=".76" stop-color="#cfd6e0"/>
       <stop offset="1" stop-color="#b9c2d0"/>
-      <animateTransform attributeName="gradientTransform" type="translate" from="-0.75 -1" to="0 0" dur="3.4s" repeatCount="indefinite"/>
+      <animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="-1 0" dur="3.4s" repeatCount="indefinite"/>
     </linearGradient>
+    <linearGradient id="rkr-chrome-lens-rl" x1="0" y1="0" x2=".8" y2="0" spreadMethod="repeat"><stop offset="0" stop-color="#b9c2d0"/><stop offset=".2" stop-color="#eef2f7"/><stop offset=".4" stop-color="#8c96a8"/> <stop offset=".56" stop-color="#cfd6e0"/><stop offset=".66" stop-color="#ffffff"/><stop offset=".76" stop-color="#cfd6e0"/> <stop offset="1" stop-color="#b9c2d0"/><animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="-.8 0" dur="3.2s" repeatCount="indefinite"/></linearGradient>
     <radialGradient id="rkr-cosmic-sky" gradientUnits="userSpaceOnUse" cx="20" cy="21" r="21" fx="20" fy="19">
       <stop offset="0" stop-color="#a99bff"/><stop offset=".35" stop-color="#6a54e0"/><stop offset=".7" stop-color="#33208f"/><stop offset="1" stop-color="#141045"/>
     </radialGradient>
@@ -678,9 +799,11 @@ function createUI(root) {
       `<div class="rkr-head">${MANE_SVG}${ICONS.cat}${SHADES_SVG}${SPECS_SVG}${SHADES_BROKEN_SVG}</div>
        <div class="rkr-cbody">
          <div class="rkr-crow"><span class="rkr-name"></span><span class="rkr-status">ALIVE</span><span class="rkr-medic rkr-hidden" title="Medic: 3000 revives">${MEDIC_SVG}</span><span class="rkr-hearts"></span></div>
-         <div class="rkr-crow"><span class="rkr-paid rkr-hidden"></span><span class="rkr-boots">${ICONS.boots}<span>+0%</span></span></div>
+         <div class="rkr-crow"><span class="rkr-paid rkr-fish rkr-hidden"></span><span class="rkr-boots">${ICONS.boots}<span>+0%</span></span></div>
          <div class="rkr-shield rkr-hidden">${ICONS.shield}<div class="rkr-sbar"><div class="rkr-sfill"></div></div></div>
-       </div>`);
+       </div>
+       <div class="rkr-tip"><span></span><span class="rkr-fish rkr-hidden"></span></div>
+       <svg class="rkr-koibits" viewBox="0 0 38 38" aria-hidden="true"><g mask="url(#rkr-koi-behind)"><use href="#rkr-koi" transform="translate(20 9) scale(.75)"/><use href="#rkr-koi" transform="translate(29 20) rotate(90) scale(.75)"/><use href="#rkr-koi" transform="translate(18 29) rotate(180) scale(.75)"/><use href="#rkr-koi" transform="translate(9 18) rotate(-90) scale(.75)"/></g><rect x="10" y="10" width="18" height="18" rx="3.5" fill="none" stroke="#2b1840" stroke-width=".6"/></svg>`);
     const refs = {
       root: c,
       name: c.querySelector('.rkr-name'),
@@ -691,6 +814,8 @@ function createUI(root) {
       shieldRow: c.querySelector('.rkr-shield'),
       shieldFill: c.querySelector('.rkr-sfill'),
       paid: c.querySelector('.rkr-paid'),
+      tipName: c.querySelector('.rkr-tip > span'),
+      tipFish: c.querySelector('.rkr-tip > .rkr-fish'),
       medic: c.querySelector('.rkr-medic'),
       v: { paid: 0, name: null, color: null, alive: null, lives: null, speed: null, shield: null },
     };
@@ -700,7 +825,7 @@ function createUI(root) {
 
   function updateCard(card, p) {
     const v = card.v;
-    if (p.name !== v.name) { v.name = p.name; card.name.textContent = p.name; card.root.dataset.name = p.name; }   // (hover label on a face)
+    if (p.name !== v.name) { v.name = p.name; card.name.textContent = p.name; card.tipName.textContent = p.name; }   // (and a face's hover label)
     if (p.color !== v.color) {
       v.color = p.color; card.root.style.setProperty('--pc', hexColor(p.color));
       card.root.classList.toggle('rkr-pale', isPale(p.color));   // (the medic badge's staff and snake go dark)
@@ -709,7 +834,17 @@ function createUI(root) {
     if (!!p.specs !== v.specs) { v.specs = !!p.specs; card.root.classList.toggle('rkr-specson', v.specs); }   // (an easy game: reading glasses)
     if (!!p.shimmer !== v.shimmer) { v.shimmer = !!p.shimmer; card.root.classList.toggle('rkr-shimmer', v.shimmer); }   // 12+ wins: rainbow name
     if (!!p.gold !== v.gold) { v.gold = !!p.gold; card.root.classList.toggle('rkr-goldname', v.gold); }   // (an easy game: a golden name)
-    if ((p.paid || 0) !== v.paid) { v.paid = p.paid || 0; card.paid.textContent = fmtNum(v.paid); card.paid.classList.toggle('rkr-hidden', !v.paid); }
+    if ((p.paid || 0) !== v.paid || (p.ps || '') !== v.ps) {
+      v.paid = p.paid || 0; v.ps = p.ps || '';
+      const koi = v.ps === 'koi';   // (the koi fish, or the classic tag)
+      card.paid.classList.toggle('rkr-hidden', !v.paid);
+      card.paid.classList.toggle('rkr-fish', koi);
+      if (koi) card.paid.innerHTML = swagHTML(fmtNum(v.paid), 'koi'); else card.paid.textContent = fmtNum(v.paid);
+      card.tipFish.innerHTML = swagHTML(fmtNum(v.paid), v.ps);   // (its own drawing: the gradients have their own ids)
+      card.root.classList.toggle('rkr-koi', koi);
+      card.tipFish.classList.toggle('rkr-hidden', !v.paid);
+      card.root.classList.toggle('rkr-haspaid', !!v.paid);
+    }
     if (!!p.you !== v.you) { v.you = !!p.you; card.root.classList.toggle('rkr-you', v.you); }
     if ((p.medic || '') !== v.medic) {   // the medic badge (revive unlocks): its look, or none
       v.medic = p.medic || '';
@@ -724,6 +859,7 @@ function createUI(root) {
       card.root.classList.toggle('rkr-rlion', v.lionLook === 'rainbow');
       card.root.classList.toggle('rkr-celestial', v.lionLook === 'celestial');
     }
+    if (!!p.lensStill !== !!v.lensStill) { v.lensStill = !!p.lensStill; card.root.classList.toggle('rkr-lensstill', v.lensStill); }   // (the glasses' shine off)
     if ((p.lensMetal || '') !== v.lensMetal) {   // (a draft: another metal's sunglass lenses)
       v.lensMetal = p.lensMetal || '';
       for (const m of ['chrome', 'gold', 'bronze']) card.root.classList.toggle('rkr-lm-' + m, v.lensMetal === m);
@@ -1475,6 +1611,7 @@ function createUI(root) {
   let scoresKey = '';
   let best = 0;
   try { best = parseInt(localStorage.getItem('rkr-best') || '0', 10) || 0; } catch { /* ignore */ }
+
   function setScores(list) {
     if (!list) { scoresEl.style.display = 'none'; scoresKey = ''; return; }
     scoresEl.style.display = '';
@@ -1485,7 +1622,7 @@ function createUI(root) {
     const rows = all.slice(0, 8);
     const meRow = all.find((p) => p.you);
     if (meRow && !rows.includes(meRow)) rows.push(meRow);
-    const key = rows.map((p) => `${p.name}|${p.score}|${p.me}|${p.crown}|${p.crowns}|${p.shimmer}`).join(',') + '#' + best;
+    const key = rows.map((p) => `${p.name}|${p.score}|${p.me}|${p.crown}|${p.crowns}|${p.shimmer}|${p.paid || 0}|${p.ps || ''}`).join(',') + '#' + best;
     if (key === scoresKey) return;
     scoresKey = key;
     scoresEl.textContent = '';
@@ -1497,6 +1634,11 @@ function createUI(root) {
       if (p.gold) n.classList.add('rkr-goldname');
       const v = el('span'); v.textContent = (p.score > 0 ? '+' : '') + p.score;
       r.append(n);
+      if (p.paid > 0) {   // (the account total: shown beside the row on hover, or for a moment after a tap / click)
+        r.dataset.paid = fmtNum(p.paid);
+        const fish = el('span', 'rkr-fish'); fish.innerHTML = swagHTML(fmtNum(p.paid), p.ps); r.appendChild(fish);
+        r.addEventListener('click', () => { r.classList.add('rkr-showpaid'); clearTimeout(r._t); r._t = setTimeout(() => r.classList.remove('rkr-showpaid'), 2500); });
+      }
       // the crowns this kitty has won this run: a little crown and the count
       if (p.crowns > 0) { const c = el('span', 'rkr-scr', ICONS.crown); c.appendChild(document.createTextNode(String(p.crowns))); c.title = p.crowns + (p.crowns === 1 ? ' crown' : ' crowns'); r.appendChild(c); }
       r.appendChild(v);

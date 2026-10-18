@@ -549,6 +549,19 @@ function createAccount(root) {
         swag.append(el('div', 'rka-big', fmtPaid(paid)),
           el('div', 'rka-note', shown ? (disp !== paid ? `Your kitty shows ${fmtNum(disp)} for everyone online.` : 'Shows next to your kitty for everyone online.') : 'Hidden: other players don\'t see it right now.'), r,
           numRow, el('div', 'rka-fine', `The number next to your kitty can be anything from 0.01 up to your total (${fmtNum(paid)}).`));
+        // how it looks: the classic tag or the koi fish (server: accounts.js 'style'), one at a time
+        const koi = a.style === 'koi', looks = el('div', 'rka-row');
+        const lookBtn = (label, isKoi) => {
+          const on = koi === isKoi, b = el('button', 'rka-amt' + (on ? ' rka-on' : ''), label + (on ? ': ON' : ': OFF'));
+          b.addEventListener('click', async () => {
+            b.disabled = true;
+            // (switching one on switches the other off; switching one off switches the other on)
+            try { A.account = (await api('style', { style: on !== isKoi ? 'koi' : 'classic' })).account; changed(); open(); } catch (e) { say(e.message, 'err'); b.disabled = false; }
+          });
+          return b;
+        };
+        looks.append(lookBtn('CLASSIC TAG', false), lookBtn('KOI FISH', true));
+        swag.append(el('div', 'rka-note', 'How your number looks:'), looks);
       } else {
         const pick = el('button', 'rka-amt rka-on', 'PICK AN AMOUNT');
         pick.addEventListener('click', () => open({ view: 'pay' }));
@@ -728,7 +741,8 @@ function createAccount(root) {
     signedIn: () => !!(A.token && A.account),
     paid: () => (A.account ? Number(A.account.paid) || 0 : 0),
     display: () => (A.account ? Number(A.account.display) || Number(A.account.paid) || 0 : 0),   // the number shown next to the kitty (the total, or a lower one picked)
-    shown: () => !A.account || A.account.show !== false,   // the player's "shown online" switch
+    shown: () => !A.account || A.account.show !== false,
+    paidStyle: () => (A.account && A.account.style === 'koi' ? 'koi' : ''),   // how the number is drawn ('koi': the koi fish)   // the player's "shown online" switch
     onChange(fn) { changeFn = fn; },
     // an unlock this player has (an active account's, or this browser's), switched on or not (songs: settings.js)
     // fresh unlocks (a game was just won online): the account's, or this browser's

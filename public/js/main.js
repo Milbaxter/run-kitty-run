@@ -1104,6 +1104,7 @@ function iconLook(p) {
   if (mm && look.lion && (look.lionLook === 'chrome' || look.metal)) look.maneMetal = mm;
   const lm = slotMetal(cosOf(p), 'lens');   // (the lenses' own metal, likewise)
   if (lm && look.cool && (look.lionLook === 'chrome' || look.metal)) look.lensMetal = lm;
+  if (cosOf(p).has('nolensshine')) look.lensStill = true;   // (the glasses' shine switched off)
   // local testing (?look=lion / chrome, as on the 3D kitty)
   if (DEBUG_LOOK.has('lion') || DEBUG_LOOK.has('chrome')) look.lion = true;
   if (DEBUG_LOOK.has('chrome')) look.lionLook = 'chrome';
@@ -1619,6 +1620,7 @@ function fishFinished() {
 }
 
 const _seenCircles = new Set();
+const _sunDir = { x: 0, y: 0, z: 0 };
 const _kitArgs = {}; // reused kitty model.update() args (the model only reads them)
 // 8+ wins backpack passengers: the other players' colours (more than PACK_MAX others: the PACK_MAX with the lowest
 // scoreboard score, ties by player order, shown in player order; solo: a few default cats). Returns the kitty's
@@ -1785,7 +1787,10 @@ function syncVisuals(dt, alpha) {
     const saves = p.rescues || 0;
     ka.cape = saves >= 10; ka.wings = saves >= 60;
     ka.rainbowCat = !easy && wins >= 8 && saves >= 60;   // every win reward and every revive reward: rainbow fur
+    ka.lensShine = !cos.has('nolensshine');   // (a metal kitty's sunglasses: their moving shine, unless switched off)
     if (DEBUG_LOOK.has('crown')) ka.crown = true;
+    // the metal shine starts on the side the sun / floodlights shine on (and the glasses' lines come from there)
+    { const sn = lighting.sun; _sunDir.x = sn.position.x - sn.target.position.x; _sunDir.y = sn.position.y - sn.target.position.y; _sunDir.z = sn.position.z - sn.target.position.z; ka.lightDir = _sunDir; }
     if (DEBUG_LOOK.has('shades') || DEBUG_LOOK.has('shades-dark') || DEBUG_LOOK.has('shades-bright')) ka.sunglasses = true;
     ka.shadesTone = DEBUG_LOOK.has('shades-dark') ? 0.42 : DEBUG_LOOK.has('shades-bright') ? 1.9 : DEBUG_LOOK.has('lens-soft') ? 2.15 : 0;
     ka.lensMetal = DEBUG_LOOK.has('lens-chrome') ? 'chrome' : DEBUG_LOOK.has('lens-gold') ? 'gold' : DEBUG_LOOK.has('lens-bronze') ? 'bronze' : null;   // (a draft: another metal's lenses)
@@ -1898,15 +1903,17 @@ function updateHUD() {
     let r = hudScores[i];
     if (!r) r = hudScores[i] = {};
     const shimmer = (p.finishes || 0) >= 12, gold = shimmer && !!sim.easy;   // 12+ wins: a rainbow name on the scoreboard (an easy game: a golden one)
-    if (r.name !== p.name || r.color !== p.color || r.score !== score || r.crown !== crown || r.me !== me || r.you !== you || r.shimmer !== shimmer || r.gold !== gold || r.crowns !== crowns) {
-      r.name = p.name; r.color = p.color; r.score = score; r.crown = crown; r.crowns = crowns; r.me = me; r.you = you; r.shimmer = shimmer; r.gold = gold;
+    const paid = online.playing ? ((online.roster.get(p.id) || {}).paid || 0) : i === 0 && account.shown() ? account.display() : 0;   // the account's number (unless switched off)
+    const pst = online.playing ? (online.roster.get(p.id) || {}).ps || '' : i === 0 ? account.paidStyle() : '';   // ...drawn as the koi fish or the classic tag
+    if (r.name !== p.name || r.color !== p.color || r.score !== score || r.crown !== crown || r.me !== me || r.you !== you || r.shimmer !== shimmer || r.gold !== gold || r.crowns !== crowns || r.paid !== paid || r.ps !== pst) {
+      r.name = p.name; r.color = p.color; r.score = score; r.crown = crown; r.crowns = crowns; r.me = me; r.you = you; r.shimmer = shimmer; r.gold = gold; r.paid = paid; r.ps = pst;
       dirty = true;
     }
     let h = hudPlayers[i];
     if (!h) h = hudPlayers[i] = {};
-    h.name = p.name; h.color = p.color; h.shimmer = shimmer; h.gold = gold; h.rainbow = !sim.easy && (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; const il = iconLook(p); h.cool = il.cool; h.specs = !!il.specs; h.metal = il.metal || ''; h.lion = il.lion; h.lionLook = il.lionLook; h.maneMetal = il.maneMetal || ''; h.lensMetal = il.lensMetal || ''; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
+    h.name = p.name; h.color = p.color; h.shimmer = shimmer; h.gold = gold; h.rainbow = !sim.easy && (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; const il = iconLook(p); h.cool = il.cool; h.specs = !!il.specs; h.metal = il.metal || ''; h.lion = il.lion; h.lionLook = il.lionLook; h.maneMetal = il.maneMetal || ''; h.lensMetal = il.lensMetal || ''; h.lensStill = !!il.lensStill; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
     h.medic = medicLook(cosOf(p));   // the medic badge (3000 revives), when switched on
-    h.paid = online.playing ? ((online.roster.get(p.id) || {}).paid || 0) : i === 0 && account.shown() ? account.display() : 0;   // the account's number (unless switched off)
+    h.paid = paid; h.ps = pst;
   }
   if (dirty) ui.setScores(hudScores);
   hudData.level = sim.levelData.level || sim.level; hudData.time = sim.time; hudData.rescues = sim.stats.rescues;

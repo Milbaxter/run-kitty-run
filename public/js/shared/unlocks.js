@@ -34,8 +34,8 @@ const UNLOCKS = [
   { id: 'medal', name: 'Gold medal', feat: 'e9', times: 2 },
   { id: 'shades', name: 'Sunglasses', feat: 'l8', times: 1 },
   // a metal kitty's sunglasses without their moving shine: the switch 'Glasses shine' (invert: ON = not worn), with the
-  // sunglasses
-  { id: 'nolensshine', name: 'Glasses shine', feat: 'l8', times: 1, hidden: true, defaultOff: true, invert: true, part: 'shades' },
+  // sunglasses and a metal kitty (chrome, golden or bronze: only their lenses shine)
+  { id: 'nolensshine', name: 'Glasses shine', feat: 'l8', times: 1, hidden: true, defaultOff: true, invert: true, part: 'shades', metalKitty: true },
   { id: 'rboots', name: 'Rainbow boots', feat: 'l8', times: 2 },
   { id: 'gskates', name: 'Rainbow skates', feat: 'l8', times: 3, modes: ['ice', 'mixed'] },   // golden boots, rainbow blades (skates: not in Run only, which has no ice)
   { id: 'lion', name: 'Lion mane', feat: 'l9', times: 1 },

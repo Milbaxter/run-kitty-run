@@ -364,6 +364,8 @@ function createAccount(root) {
         // a mane / tail tip metal: only once the player has the Lion mane / Fluffy tail to wear it on
         const part = u.part || (u.slot === 'mane' ? 'lion' : u.slot === 'tip' ? 'tail' : u.slot === 'lens' ? 'shades' : null);
         if (part && !isUnlocked(prog, part) && !isUnlocked(solo, part)) continue;
+        // (u.metalKitty: only with a chrome, golden or bronze kitty unlocked, the looks it changes)
+        if (u.metalKitty && !['chrome', 'gold', 'bronze'].some((m) => isUnlocked(prog, m) || isUnlocked(solo, m))) continue;
         if (u.feat !== lastFeat) { lastFeat = u.feat; ulist.appendChild(el('div', 'rka-ugoal', GOALS[u.feat])); }
         const onl = isUnlocked(prog, u), off_ = isUnlocked(solo, u), open_ = onl || off_;   // (in some mode, online or offline: its switch shows)
         const row = el('div', 'rka-urow' + (open_ ? '' : ' rka-locked'));

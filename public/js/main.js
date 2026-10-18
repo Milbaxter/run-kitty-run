@@ -2079,7 +2079,7 @@ const online = {
   playing: false, me: 0, room: null, roster: new Map(),
   tick: 0, acc: 0, rate: 1, levelStartTick: 0, lastK: -1, shownLevel: 0,
   inputs: new Map(), remote: new Map(), errX: 0, errZ: 0, menu: false,
-  wolfTicks: new Int32Array(WOLF_HIST).fill(-1), wolfPos: null, resyncAt: 0,
+  wolfTicks: new Int32Array(WOLF_HIST).fill(-1), wolfPos: null, resyncAt: 0, wolfChase: false,
 };
 
 function leaveOnline() {
@@ -2285,6 +2285,7 @@ net.on('wolves', (m) => {
   applyEnemyState(sim.enemies, m.wolves);
   sim.enemyTicks = m.lt;
   online.wolfTicks.fill(-1);
+  online.wolfChase = true;   // (the server's own wolves: replayed to now even when they arrive late, see catchUpWolves)
   catchUpWolves();
 });
 
@@ -2405,11 +2406,18 @@ function toggleOnlineMenu() {
 // server for its wolves instead; they wait where they are until the reply ('wolves') catches them up.
 // In between, at most WOLF_CATCHUP_PER_CALL ticks per call: a stall of a second or two is replayed over a few frames
 // (the wolves lag the server for a moment) instead of one long frame on a big level.
+// The server's wolves ('wolves', online.wolfChase) are always replayed up to now, also when the reply came more than
+// WOLF_CATCHUP_MAX late (a slow connection): asking again could come back just as late, every time, and the wolves
+// would run in place for minutes. That replay is held to about WOLF_CHASE_WORK wolf steps (a small level: up to a
+// minute or so; a big one: WOLF_CATCHUP_MAX), spread over the frames like any catch-up.
 const WOLF_CATCHUP_MAX = 300;   // ticks (5 s)
 const WOLF_CATCHUP_PER_CALL = 24;
+const WOLF_CHASE_WORK = 600000;
 function catchUpWolves() {
-  const target = online.tick - online.levelStartTick;
-  if (target - sim.enemyTicks > WOLF_CATCHUP_MAX) {
+  const target = online.tick - online.levelStartTick, behind = target - sim.enemyTicks;
+  const chaseMax = Math.max(WOLF_CATCHUP_MAX, Math.floor(WOLF_CHASE_WORK / Math.max(1, sim.enemies.length)));
+  if (behind > WOLF_CATCHUP_MAX && !(online.wolfChase && behind <= chaseMax)) {
+    online.wolfChase = false;
     const now = performance.now();
     if (net.connected && now > online.resyncAt) { online.resyncAt = now + 2000; net.send({ t: 'resync' }); }
     return;
@@ -2420,6 +2428,7 @@ function catchUpWolves() {
     sim.enemyTicks++;
     if (target - sim.enemyTicks < WOLF_HIST) recordWolves();
   }
+  if (sim.enemyTicks >= target) online.wolfChase = false;
 }
 
 function recordWolves() {

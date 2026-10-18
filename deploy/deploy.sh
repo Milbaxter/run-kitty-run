@@ -29,6 +29,11 @@ install_and_restart
 
 if healthy; then
   echo "deployed $(git rev-parse --short HEAD)"
+  # tell search engines about changed text pages (best effort, never fails the deploy)
+  CHANGED=$(git diff --name-only "$PREV" HEAD -- 'public/*.html' public/sitemap.xml public/js/patchnotes.js server/pages.js || true)
+  PATHS=$(printf '%s\n' "$CHANGED" | sed -nE 's#^public/index\.html$#/#p; s#^public/([a-z0-9-]+)\.html$#/\1#p; s#^(public/js/patchnotes\.js|server/pages\.js)$#/patch-notes#p' | sort -u)
+  if printf '%s\n' "$CHANGED" | grep -q sitemap.xml; then scripts/indexnow.sh || true
+  elif [ -n "$PATHS" ]; then scripts/indexnow.sh $PATHS || true; fi
   exit 0
 fi
 

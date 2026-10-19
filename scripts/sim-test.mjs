@@ -1007,4 +1007,75 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     && g.items.every((it) => Math.hypot(it.x - g.cp.x, it.z - g.cp.z) < 2 * half) && !g0.ev && !g0.items.length && !g16.ev && !g16.items.length,
     'Run + Skate level 9 (finale version 17): repaired by a kitty with 60+ revives, the broken checkpoint gives a life and 4 boots (59 revives or version 16: nothing)');
 }
+// finale version 18: Run only's level 9 wolves set off at once (their first rest one of their usual ones, not up to 6 s)
+{
+  const moving = (v) => {
+    const sim = createSim({ seed: 31, players: [{ id: 1, name: 'a', color: 1 }], mode: 'run', finales: v, startLevel: SKATE_FINAL_LEVEL });
+    const prev = sim.enemies.map((e) => [e.x, e.z]);
+    for (let i = 0; i < 60; i++) { sim.players[0].invuln = 9; stepSim(sim, {}, 1 / 60); }
+    return sim.enemies.filter((e, i) => Math.hypot(e.x - prev[i][0], e.z - prev[i][1]) > 0.05).length / sim.enemies.length;
+  };
+  const m17 = moving(17), m18 = moving(18);
+  ok(m17 < 0.35 && m18 > 0.6, `Run only level 9 (finale version 18): the wolves are off at once (${Math.round(m18 * 100)}% moving in the first second; version 17: ${Math.round(m17 * 100)}%)`);
+}
+// ======== hell: Run only's / Skate only's final run over and over, the same map, up to HELL_LEVELS
+{
+  const { HELL_LEVELS } = await import('../public/js/shared/config.js');
+  const { hellOpen } = await import('../public/js/shared/unlocks.js');
+  const toGoal = (sim) => { const evs = []; for (let i = 0; i < 400 && evs.every((e) => e.type !== 'levelStart' && e.type !== 'victory'); i++) { const p = sim.players[0]; p.x = 0; p.z = 0; p.invuln = 9; evs.push(...stepSim(sim, {}, 1 / 60)); } return evs; };
+  for (const mode of ['run', 'ice']) {
+    const sim = createSim({ seed: 5, players: [{ id: 1, name: 'a', color: 1 }], mode, finales: 17, hell: true });
+    stepSim(sim, {}, 1 / 60);
+    const ld = sim.levelData, mid = ld.path[Math.floor(ld.path.length / 2)], p = sim.players[0];
+    p.x = mid.x; p.z = mid.z; p.invuln = 9;
+    stepSim(sim, {}, 1 / 60);
+    const half = sim.far;
+    const evs = toGoal(sim);
+    const clear = evs.find((e) => e.type === 'levelClear');
+    const again = createSim({ seed: 5, players: [{ id: 1, name: 'a', color: 1 }], mode, finales: 17, hell: true, startLevel: 2 }).levelData;
+    ok(ld.finale && half > 0.4 && half < 0.6 && clear && clear.level === 1 && sim.level === 2 && sim.levelData !== ld && sim.levelData.finale
+      && JSON.stringify(sim.levelData.items) !== JSON.stringify(ld.items) && JSON.stringify(sim.levelData.items) === JSON.stringify(again.items) && sim.far === 0 && sim.state === 'playing',
+      `hell (${mode}): level 1 is the final run; the team's progress is tracked; the goal starts hell level 2, a new final run of its own (the same for everyone with the game's seed)`);
+    sim.level = HELL_LEVELS;
+    const end = toGoal(sim);
+    ok(end.some((e) => e.type === 'victory' && e.level === HELL_LEVELS) && sim.state === 'victory', `hell (${mode}): clearing hell level ${HELL_LEVELS} wins`);
+    // everyone down: the game is over, with how far it got
+    const s2 = createSim({ seed: 5, players: [{ id: 1, name: 'a', color: 1 }], mode, finales: 17, hell: true, easy: true });
+    stepSim(s2, {}, 1 / 60);
+    s2.far = 0.3; s2.players[0].alive = false;
+    const go = stepSim(s2, {}, 1 / 60).find((e) => e.type === 'gameOver');
+    ok(!s2.easy && go && go.level === 1 && Math.abs(go.far - 0.3) < 1e-9, `hell (${mode}): never easy; game over says the level and how far along it`);
+  }
+  ok(!createSim({ seed: 5, players: [], mode: 'mixed', hell: true }).hell, 'hell: not in Run + Skate');
+  // open: level 9 reached in the mode (Run + Skate: both), or a hell level of it cleared
+  ok(hellOpen({ r9: { mixed: 1 } }, 'run') && hellOpen({ r9: { mixed: 1 } }, 'ice') && hellOpen({ r9: { run: 1 } }, 'run') && !hellOpen({ r9: { run: 1 } }, 'ice')
+    && hellOpen({ h1: { ice: 1 } }, 'ice') && !hellOpen({ h1: { ice: 1 } }, 'run') && !hellOpen({ l8: { run: 3 } }, 'run') && !hellOpen({}, 'run'),
+    'hell opens per mode: level 9 reached there (Run + Skate: both) or a hell level of it cleared');
+  // its board: the furthest first (level, then how far along it), each player's best
+  const { createLevelBoards } = await import('../server/levelboards.js');
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rkr-hell-test-'));
+  try {
+    const lb = createLevelBoards(path.join(dir, 'levels.json'));
+    const who = (c) => ({ pid: c.repeat(24), name: 'K' + c, color: 1 });
+    lb.recordHell(who('a'), { mode: 'run', level: 3, far: 0.2, team: 1 }); lb.recordHell(who('a'), { mode: 'run', level: 2, far: 0.9, team: 1 });
+    lb.recordHell(who('b'), { mode: 'run', level: 3, far: 0.45, team: 1 }); lb.recordHell(who('c'), { mode: 'run', level: 8, far: 0.05, team: 1 });
+    lb.recordHell(who('d'), { mode: 'run', level: 4, far: 0.5, team: 1, local: true }); lb.recordHell(who('e'), { mode: 'mixed', level: 9, far: 0.5, team: 1 });
+    lb.recordHell(who('f'), { mode: 'run', level: HELL_LEVELS + 1, far: 0, team: 1 });
+    const q = lb.query(who('a'), { board: { mode: 'run', level: 'h' } });
+    ok(q.rows && q.rows.map((r) => r.name).join() === 'Kc,Kb,Ka' && q.rows[2].time === 3 * 1001 + 200 && q.me.rank === 3,
+      'hell board: furthest first (level, then how far along), each player keeps their best; local games, Run + Skate and impossible levels stay off it');
+    ok(!lb.record(who('g'), { mode: 'run', level: 'h', time: 40, team: 1 }), 'hell board: no level times on it');
+    // all of it: the total time shows, the quickest first; a slower win doesn't replace a quicker one
+    const all = (c, time) => lb.recordHell(who(c), { mode: 'ice', level: HELL_LEVELS, far: 1, team: 1, time });
+    all('h', 900); all('i', 700); all('h', 950); lb.recordHell(who('j'), { mode: 'ice', level: HELL_LEVELS - 1, far: 0.99, team: 1 });
+    const qa = lb.query(who('h'), { board: { mode: 'ice', level: 'h' } });
+    ok(qa.rows.map((r) => r.name + ':' + (r.total || 0)).join() === 'Ki:700,Kh:900,Kj:0', 'hell board: games through all of it keep their total time, the quickest first');
+    // every game's total time: the same level and the same way along it, the quicker game first (and it's kept)
+    const at = (c, time) => lb.recordHell(who(c), { mode: 'run', level: 7, far: 0.5, team: 2, time });
+    at('k', 900); at('l', 700); at('k', 950); at('k', 650);
+    const qt = lb.query(who('k'), { board: { mode: 'run', level: 'h', team: true } });
+    ok(qt.rows.map((r) => r.name + ':' + r.total).join() === 'Kk:650,Kl:700', 'hell board: every game keeps its total time; the same level and progress, the quicker first');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
 console.log(process.exitCode ? 'FAIL sim-test' : 'PASS sim-test');

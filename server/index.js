@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { CFG, NET, PLAYER_COLORS, PLAYER_NAMES, SKATE_FINAL_LEVEL, stageStep } from '../public/js/shared/config.js';
+import { CFG, NET, PLAYER_COLORS, PLAYER_NAMES, SKATE_FINAL_LEVEL, HELL_MODES, stageStep } from '../public/js/shared/config.js';
 import { hashSeed } from '../public/js/shared/rng.js';
 import { GAME_MODES, createSim, stepSim, addPlayer, removePlayer } from '../public/js/shared/sim.js';
 import { serializeEnemies } from '../public/js/shared/enemies.js';
@@ -36,18 +36,23 @@ const MODE_MIN_PROTOCOL = { ice: 4, mixed: 4, run: 4 };
 // Finale versions (sim.finales, see maze.js generateLevel): the protocol each needs. A room plays the newest version
 // every member has (older clients would build the older level 9 and desync); once it plays one, older clients can't
 // join it mid-game.
-const FINALE_PROTOCOL = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20, 22, 23, 24];   // (15: the running final run's speed-up, Run only and Run + Skate; 16: anyone repairs Run + Skate's broken checkpoint; 17: its gift for a medic)   // 1 = Run only's level 9 final run, 2 = the wide skate final run, 3 = Run + Skate's both in a row, 4 = skate goal rooms without their back wolves, 5 = no lane-before-last wolf turning in the open, 6 = junction chargers, 7 = wolves per lane, 8 = running levels' long lanes, 9 = their other lanes, 10 = running levels' rests, 11 = items, 12 = Skate only's night seasons, 13 = Run + Skate by day then by night, 14 = its night half in the day's season
+const FINALE_PROTOCOL = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20, 22, 23, 24, 25];   // (18: Run only level 9's wolves off at once)   // (15: the running final run's speed-up, Run only and Run + Skate; 16: anyone repairs Run + Skate's broken checkpoint; 17: its gift for a medic)   // 1 = Run only's level 9 final run, 2 = the wide skate final run, 3 = Run + Skate's both in a row, 4 = skate goal rooms without their back wolves, 5 = no lane-before-last wolf turning in the open, 6 = junction chargers, 7 = wolves per lane, 8 = running levels' long lanes, 9 = their other lanes, 10 = running levels' rests, 11 = items, 12 = Skate only's night seasons, 13 = Run + Skate by day then by night, 14 = its night half in the day's season
 const CHEST_PROTOCOL = 21;   // clients from this protocol on draw the lottery chest (shared/sim.js)
 const finalesOf = (members) => Math.min(...members.map((m) => FINALE_PROTOCOL.filter((p) => m.v >= p).length - 1));
 // the newest finale version that changes this mode's levels (older ones build them the same): Run only 1 and 8 to 11,
-// and 15, Skate only 2, 4 to 7, 11 and 12, Run + Skate 2 to 11 and 13 to 17
-const finaleFor = (mode, f) => (mode === 'run' ? (f >= 15 ? 15 : f >= 8 ? Math.min(f, 11) : Math.min(f, 1)) : mode === 'ice' ? (f >= 11 ? Math.min(f, 12) : f >= 4 ? Math.min(f, 7) : f >= 2 ? 2 : 0) : (f >= 13 ? Math.min(f, 17) : f === 1 ? 0 : Math.min(f, 11)));   // (12: Skate only only)
+// 15 and 18, Skate only 2, 4 to 7, 11 and 12, Run + Skate 2 to 11 and 13 to 17
+const finaleFor = (mode, f) => (mode === 'run' ? (f >= 18 ? 18 : f >= 15 ? 15 : f >= 8 ? Math.min(f, 11) : Math.min(f, 1)) : mode === 'ice' ? (f >= 11 ? Math.min(f, 12) : f >= 4 ? Math.min(f, 7) : f >= 2 ? 2 : 0) : (f >= 13 ? Math.min(f, 17) : f === 1 ? 0 : Math.min(f, 11)));   // (12: Skate only only)
 const runFinaleOk = (client, room) => !(room.phase === 'playing' && room.sim) || client.v >= FINALE_PROTOCOL[finaleFor(room.mode, room.sim.finales | 0)];
 const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
 const MODE_NAMES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
 // easy games (a level starts over when everyone is down): older clients would sit on a dead level
 const EASY_PROTOCOL = 19;
 const easyOk = (client, room) => !room.easy || client.v >= EASY_PROTOCOL;
+// hell games (config.js HELL_LEVELS): older clients would build level 9 once and win it. Anyone with this version may
+// join one; creating one needs hell open in that mode (accounts.js hellOpenFor; offline progress: the client's word, hl)
+const HELL_PROTOCOL = 25;
+const hellOk = (client, room) => !room.hell || client.v >= HELL_PROTOCOL;
+const hellOpenFor = (client, mode) => accounts.hellOpenFor({ sub: client.acct, pid: client.pid }, mode) || levels.can9({ acct: client.acct, pid: client.pid });
 const updateHow = (client) => (client.app === 'web' ? 'reload the page' : 'update the app');
 const APPS = ['web', 'ios', 'android'];
 // Test hooks (scripts/server-test.mjs): 'start' may pick a level and 'dbg' can drop a kitty in the goal.
@@ -459,7 +464,8 @@ function legendsOnWin(room, e) {
 //   op 'group'  { act: 'create' (name, fresh) | 'join' (code) | 'leave' (id) | 'list', or its owner's 'remove' (id,
 //               member) | 'restart' (id) } -> this player's groups
 //   op 'local'  { mode, level, time, easy, players: [{ name, color }] } (one or two kitties on this device), or
-//               { reached: 9, players }: a solo / local co-op game's cleared level, self-reported: on the local boards only
+//               { reached: 9, players }: a solo / local co-op game's cleared level, self-reported: on the local boards only;
+//               { hell: true, mode, level, far, time?, players }: a local hell game's end (its local hell board; time: all of it won)
 const bucket = (map, ip, burst, rate) => {
   const now = Date.now(), h = map.get(ip) || { tok: burst, at: now };
   h.tok = Math.min(burst, h.tok + (now - h.at) / 1000 * rate); h.at = now; map.set(ip, h);
@@ -494,6 +500,7 @@ function handleLevelsHttp(req, res) {
         ps.forEach((p, seat) => {
           const w = { acct: seat ? null : who.acct, pid, seat, fid: seat ? '' : who.fid, name: p && p.name, color: p && p.color };
           if (m.reached === levels.SECRET_LEVEL) levels.reach(w);
+          else if (m.hell === true) levels.recordHell(w, { local: true, mode: m.mode, level: m.level, far: m.far, time: m.time, team: ps.length });
           else levels.record(w, { local: true, easy: !!m.easy, mode: m.mode, level: m.level, time: m.time, team: ps.length });
         });
         return reply(200, { ok: true });
@@ -611,14 +618,14 @@ function handleInvite(client, msg) {
   invitedAt.set(key, Date.now());
   if (invitedAt.size > 5000) invitedAt.delete(invitedAt.keys().next().value);
   const json = JSON.stringify({ t: 'invite', name: client.name || 'A kitty', color: client.color, code: room.code, mode: room.mode, easy: room.easy || undefined,
-    pass: room.pass || undefined, fid: client.fid || undefined });   // (fid: who it's from: the friend can block their invites)
+    pass: room.pass || undefined, fid: client.fid || undefined, hell: room.hell || undefined });   // (fid: who it's from: the friend can block their invites)
   for (const c of to) send(c.ws, json);
   reply(true, 'Invite sent!');
 }
 
 function roomInfo(room) {
   return {
-    t: 'room', code: room.code, host: room.hostId, phase: room.phase, mode: room.mode, easy: room.easy || undefined, max: room.max || NET.MAX_PLAYERS,
+    t: 'room', code: room.code, host: room.hostId, phase: room.phase, mode: room.mode, easy: room.easy || undefined, hell: room.hell || undefined, max: room.max || NET.MAX_PLAYERS,
     locked: !!room.pass, pass: room.pass || undefined,   // private lobby: its members see the password (to pass it on)
     members: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color, app: m.app, paid: m.paid || undefined,   // paid: cents (accounts.js)
       fid: m.fid || undefined,   // public friend id (invites)
@@ -636,11 +643,11 @@ function lobbyList(client) {
   const list = [];
   for (const r of rooms.values()) {
     if (r.members.length === 0) continue;
-    if (!modeOk(client, r.mode) || !runFinaleOk(client, r) || !easyOk(client, r)) continue; // this client's build can't play that mode / game
+    if (!modeOk(client, r.mode) || !runFinaleOk(client, r) || !easyOk(client, r) || !hellOk(client, r)) continue; // this client's build can't play that mode / game
     list.push({
       code: r.code, players: r.members.length, max: r.max || NET.MAX_PLAYERS, phase: r.phase, locked: !!r.pass,
       host: (r.members.find((m) => m.id === r.hostId) || r.members[0]).name,
-      level: r.sim ? r.sim.levelData.level || r.sim.level : 0, mode: r.mode, easy: r.easy || undefined,
+      level: r.sim ? (r.sim.hell ? r.sim.level : r.sim.levelData.level || r.sim.level) : 0, mode: r.mode, easy: r.easy || undefined, hell: r.hell || undefined,
     });
   }
   return list.sort((a, b) => (a.phase === 'lobby' ? 0 : 1) - (b.phase === 'lobby' ? 0 : 1) || b.players - a.players).slice(0, 30);
@@ -662,6 +669,7 @@ function joinRoom(client, room, name, pref, pass) {
   // 'code' in the text makes clients drop ?room= from the URL so they don't retry the link.
   if (!modeOk(client, room.mode)) return send(client.ws, { t: 'error', msg: `That lobby code is for ${MODE_NAMES[room.mode]}, which needs the latest version - ${updateHow(client)} to play it.` });
   if (!easyOk(client, room)) return send(client.ws, { t: 'error', msg: `That lobby plays an easy game, which needs the latest version - ${updateHow(client)} to play it.` });
+  if (!hellOk(client, room)) return send(client.ws, { t: 'error', msg: `That lobby plays hell, which needs the latest version - ${updateHow(client)} to play it.` });
   if (!runFinaleOk(client, room)) return send(client.ws, { t: 'error', msg: `That game is playing the new level 9 - ${updateHow(client)} to join it.` });
   const max = room.max || NET.MAX_PLAYERS;
   if (room.members.length >= max) return send(client.ws, { t: 'error', msg: `That lobby is full (${max}/${max}).` });
@@ -765,7 +773,7 @@ function partyOver(room) {
 function startMsg(room, withWolves) {
   const sim = room.sim;
   return {
-    t: 'start', seed: sim.seed, mode: sim.mode, level: sim.level, tick: room.tick, lt: sim.enemyTicks, rf: sim.finales | 0,
+    t: 'start', seed: sim.seed, mode: sim.mode, level: sim.level, tick: room.tick, lt: sim.enemyTicks, rf: sim.finales | 0, hell: sim.hell ? 1 : undefined,
     easy: sim.easy ? 1 : undefined, rt: sim.retries || undefined,
     st: sim.state, vic: room.victory || null, // mid-game joiners: the run may already be won (the 'victory' event went out before)
     players: sim.players.map((p) => ({ id: p.id, name: p.name, color: p.color })),
@@ -789,8 +797,8 @@ function startGame(room, startLevel = 1) {
   room.left = new Map();
   const seed = hashSeed(Date.now(), Math.random(), room.code) >>> 0;
   room.sim = createSim({
-    seed, startLevel: stageStep(room.mode, finalesOf(room.members), startLevel), mode: room.mode, finales: finalesOf(room.members), easy: !!room.easy,
-    players: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
+    seed, startLevel: room.hell ? startLevel : stageStep(room.mode, finalesOf(room.members), startLevel), mode: room.mode, finales: finalesOf(room.members), easy: !!room.easy,
+    hell: !!room.hell, players: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
   });
   for (const m of room.members) { m.inputs.clear(); m.lastInput = null; }
   sendRoom(room);
@@ -823,8 +831,7 @@ function stepRoom(room) {
       room.victory = e;
       room.overAt = Date.now() + VICTORY_TO_LOBBY_MS;
       room.backs = new Set();   // who has gone back to the lobby from the party
-      stats.onlineGameWon(room.mode);
-      legendsOnWin(room, e);
+      if (!sim.hell) { stats.onlineGameWon(room.mode); legendsOnWin(room, e); }   // (hell's own board: levelboards.js)
     }
   }
   if (events.length) countForAccounts(room, events);
@@ -851,6 +858,7 @@ function countForAccounts(room, events) {
   // easy games: their own stats (accounts.js 'easy'); of the unlocks the revives (the medic badge), the song and
   // their own level 8 and 9 ones ('e8', 'e9')
   const easy = !!room.easy;
+  if (sim.hell) { countHell(room, events, { memberOf, subOf, once, featDone }); feats.size && showFeats(room, feats); return; }
   for (const e of events) {
     if (e.type === 'enterCenter') { goalsOf(e.playerId).add(e.level ?? sim.level); continue; }
     if (e.type === 'stageClear') { room.dayTime = { level: e.level, time: sim.levelTime }; continue; }
@@ -873,6 +881,7 @@ function countForAccounts(room, events) {
         if (e.type === 'levelClear') levels.record(who, { local: false, easy, mode: room.mode, level, time: ev.time, team: team.length });
         else if (level === levels.SECRET_LEVEL) levels.reach(who);
       }
+      if (e.type === 'levelStart' && level === SKATE_FINAL_LEVEL && !e.retry) for (const id of team) featDone(id, 'r9');   // (hell opens)
       // unlocks: level 8 cleared by a kitty that reached the goal itself on every level of the run so far (8, or 16
       // in Run + Skate: both halves), crowns or not. Checked as the game moves on to level 9, so a kitty that runs in
       // during the level-cleared pause still counts
@@ -893,7 +902,10 @@ function countForAccounts(room, events) {
       if (easy) accounts.recordOnline(subOf(e.by), { type: 'revive' }, true);
     }
   }
-  // a feat may have unlocked something: the room shows it right away
+  showFeats(room, feats);
+}
+// a feat may have unlocked something: the room shows it right away
+function showFeats(room, feats) {
   let changed = false;
   for (const id of feats) {
     const m = room.members.find((x) => x.id === id);
@@ -902,6 +914,27 @@ function countForAccounts(room, events) {
     if (cos.join() !== (m.cos || []).join()) { m.cos = cos; changed = true; }
   }
   if (changed) sendRoom(room);
+}
+// A hell game counts on its own: none of level 9's (no level reached or cleared, no level times, no level 8 / 9
+// unlocks, no wins); a cleared hell level opens hell for everyone in the game ('h1', in this mode), the game's end
+// (game over, or its last level won) goes on the hell board for everyone in it, and revives and crowns count as anywhere.
+function countHell(room, events, { memberOf, subOf, once, featDone }) {
+  const sim = room.sim;
+  const team = () => once(sim.players.map((p) => p.id));
+  for (const e of events) {
+    if (e.type === 'levelClear') { for (const id of team()) featDone(id, 'h1'); }
+    else if (e.type === 'gameOver' || e.type === 'victory') {
+      const far = e.type === 'victory' ? 1 : e.far, ids = team();
+      for (const id of ids) {
+        const m = memberOf(id), p = sim.players.find((q) => q.id === id);
+        if (m) levels.recordHell({ acct: m.acct, pid: m.pid, fid: m.fid, name: (p && p.name) || m.name, color: p ? p.color : m.color }, { local: false, mode: room.mode, level: e.level, far, team: ids.length, time: sim.time });
+      }
+    } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown' });
+    else if (e.type === 'revive' && !samePlayer(memberOf(e.by), memberOf(e.playerId))) {
+      featDone(e.by, 'rev');
+      accounts.recordOnline(subOf(e.by), { type: 'revive' });
+    }
+  }
 }
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
@@ -922,6 +955,7 @@ function sendSnapshot(room) {
     s: sim.stats,
     ec: wolfCheck(sim),
     ev: room.pending,
+    hf: sim.hell ? r3(sim.far) : undefined,   // hell: how far along the map the team has got on this level (0..1)
   });
   room.pending = [];
 }
@@ -1091,7 +1125,11 @@ wss.on('connection', (ws, req) => {
         if (!modeOk(client, mode)) return send(ws, { t: 'error', msg: `${MODE_NAMES[mode]} needs the latest version - ${updateHow(client)} to play it. The other modes work as usual.` });
         // max: how many kitties may join (2..NET.MAX_PLAYERS); pass: private lobby's password ('' = public)
         const maxReq = Number.isInteger(msg.max) ? msg.max : NET.MAX_PLAYERS;
-        const r = { code: makeCode(), mode, easy: msg.easy === true && client.v >= EASY_PROTOCOL, max: Math.max(2, Math.min(NET.MAX_PLAYERS, maxReq)), pass: cleanPass(msg.password), by: client.ipk,
+        // hell: Run only / Skate only, by a player who has it open in that mode (or says its offline progress has)
+        const hell = msg.hell === true;
+        if (hell && (client.v < HELL_PROTOCOL || !HELL_MODES.includes(mode))) return send(ws, { t: 'error', msg: `Hell needs the latest version - ${updateHow(client)} to play it.` });
+        if (hell && !hellOpenFor(client, mode) && msg.hl !== true) return send(ws, { t: 'error', msg: `Reach level 9 in ${MODE_NAMES[mode]} (or Run + Skate) to open hell, or clear a hell level in someone's lobby.` });
+        const r = { code: makeCode(), mode, hell: hell || undefined, easy: !hell && msg.easy === true && client.v >= EASY_PROTOCOL, max: Math.max(2, Math.min(NET.MAX_PLAYERS, maxReq)), pass: cleanPass(msg.password), by: client.ipk,
           members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0, victory: null,
           left: new Map() }; // tab token -> state of a kitty that left this game (reconnect grace)
         stats.lobbyCreated();

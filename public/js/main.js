@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET, LATEST_FV, SKATE_FINAL_LEVEL, stageOf, stageStep } from './shared/config.js';
+import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET, LATEST_FV, SKATE_FINAL_LEVEL, HELL_LEVELS, stageOf, stageStep } from './shared/config.js';
 import { hashSeed } from './shared/rng.js';
 import { collideCircle, onIce, inTree, levelHash } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
@@ -568,7 +568,7 @@ let mode = 'title';      // 'title' | 'play'
 let paused = false;
 let sim = null;
 let playerCount = 1;
-let localSetup = { mode: undefined, names: [], easy: false };   // single player / co-op: the mode and names from the setup screen (lobby.js)
+let localSetup = { mode: undefined, names: [], easy: false, hell: false };   // single player / co-op: the mode and names from the setup screen (lobby.js)
 let simTime = 0;         // presentation clock (seconds)
 let accumulator = 0;
 let gameOverShown = false;
@@ -584,8 +584,8 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
-function startSim(players, startLevel, simMode = DEBUG_MODE, easy = false) {
-  sim = createSim({ seed: newSeed(), players, startLevel: stageStep(simMode || 'mixed', LATEST_FV, startLevel, DEBUG_NIGHT), mode: simMode, finales: LATEST_FV, easy });
+function startSim(players, startLevel, simMode = DEBUG_MODE, easy = false, hell = false) {
+  sim = createSim({ seed: newSeed(), players, startLevel: hell ? startLevel : stageStep(simMode || 'mixed', LATEST_FV, startLevel, DEBUG_NIGHT), mode: simMode, finales: LATEST_FV, easy, hell });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   if (DEBUG_CHEST) sim.chestAlways = true;
@@ -750,7 +750,7 @@ function onTitlePick({ players }) {
     mode: DEBUG_MODE,   // ?mode= (offline testing) preselects
     coop: !TOUCH,
     onPlayers: (k) => { try { localStorage.setItem(LOCAL_N_KEY, String(k)); } catch { /* ignore */ } },
-    onStart: ({ mode: m, names, players: k, easy }) => { localSetup = { mode: m, names, easy: !!easy }; startGame(k); },
+    onStart: ({ mode: m, names, players: k, easy, hell }) => { localSetup = { mode: m, names, easy: !!easy, hell: !!hell }; startGame(k); },
     onBack: () => ui.showTitle(onTitlePick),
   });
 }
@@ -771,7 +771,7 @@ function startGame(n, level = DEBUG_LEVEL) {
   // the names from the setup screen (empty: the colour's own name)
   for (let i = 0; i < n; i++) players.push({ id: i + 1, name: localSetup.names[i] || PLAYER_NAMES[slots[i]], color: PLAYER_COLORS[slots[i]] });
   removeKitties();
-  startSim(players, level, localSetup.mode || DEBUG_MODE, !!localSetup.easy);
+  startSim(players, localSetup.hell ? 1 : level, localSetup.mode || DEBUG_MODE, !!localSetup.easy, !!localSetup.hell);
   analytics.runStart(n === 1 ? 'solo' : 'coop', sim.mode || 'mixed');
   cameraSnap = true;
   // First step emits levelStart which triggers buildView.
@@ -814,9 +814,13 @@ function handleEvents(events) {
         for (const p of sim.players) effects.teleport(p.x, p.z, p.color);
         const finale = !!sim.levelData.finale;
         const L = sim.levelData.level || ev.level, night = stageOf(sim.mode, sim.finales, sim.level).night;
+        // hell: its first level opens like level 9, every next one on the same map
+        const hellNext = sim.hell && sim.level > 1;
         if (ev.retry && !finale) ui.banner(`LEVEL ${L}${night ? ' · NIGHT' : ''}`, 'Once more!', 2200);
+        else if (hellNext) ui.banner(`HELL ${sim.level}`, sim.level >= HELL_LEVELS ? 'The last one!' : 'A new hell…', 2600, 'finale');
         else if (finale) ui.banner('WELCOME TO HELL', ev.retry ? 'Once more!' : 'Think you can escape?', ev.retry ? 2600 : 4200, 'finale');
-        if (finale) { try { localStorage.setItem('rkr-seen9', '1'); } catch { /* ignore */ } }   // (the swag menu shows level 9's unlocks from now on)
+        // (the swag menu shows level 9's unlocks from now on; not from someone's hell lobby: that doesn't open hell here)
+        if (finale) { if (!sim.hell) try { localStorage.setItem('rkr-seen9', '1'); } catch { /* ignore */ } }
         else if (ev.retry) { /* (shown above) */ }
         else if (night) ui.banner(`LEVEL ${L} · NIGHT`, 'Lace up your skates!', 2200);
         else ui.banner(`LEVEL ${L}`, levelSubtitle(L), 2200);
@@ -824,12 +828,12 @@ function handleEvents(events) {
           soundHintShown = true;
           ui.toast('Sound is off. Press M or click the speaker to turn it on', '#b9a4ff');
         }
-        audio.play(finale && !ev.retry ? 'finale' : 'levelStart');
+        audio.play(finale && !ev.retry && !hellNext ? 'finale' : 'levelStart');
         if (finale && !ev.retry) effects.shake(0.35);
         musicPlay(L);
         cameraSnap = true;   // everyone is back at the start: no glide from the old goal while you can already move
         // the final run: the camera stays on the start square, pushing in, until you touch anything
-        intro = finale && !ev.retry ? { sim, t: 0 } : null;
+        intro = finale && !ev.retry && !hellNext ? { sim, t: 0 } : null;
         break;
       }
       case 'wipe': {   // an easy game: everyone is down, the level starts over in a moment
@@ -963,7 +967,13 @@ function handleEvents(events) {
         haptic('success');
         effects.confetti(0, 0);
         effects.shake(0.2);
-        analytics.level(ev.level);
+        if (!sim.hell) analytics.level(ev.level);
+        if (sim.hell && sim.level < HELL_LEVELS) {   // hell: on to the next one, the same map
+          const by = playerById(ev.by);
+          ui.banner(by && sim.players.length > 1 ? `${by.name.toUpperCase()} MADE IT!` : 'MADE IT!', `Hell ${sim.level + 1} next…`, 2000, 'finale');
+          audio.play('levelClear');
+          break;
+        }
         if (sim.levelData.finale) break; // the final run: the 'victory' event that follows throws the party
         const by = playerById(ev.by);
         ui.banner(by && sim.players.length > 1 ? `${by.name.toUpperCase()} MADE IT!` : 'MADE IT!', 'Everyone back to the start…', 2000);
@@ -1029,7 +1039,7 @@ function startVictory(ev) {
   mouse.target = null; mouse.iceDir = null;
   if (online.menu) { online.menu = false; ui.hidePause(); } // the victory screen replaces the online menu
   analytics.runEnd({ ...runSummary(), won: true });
-  if (!online.playing && !sim.easy) {
+  if (!online.playing && !sim.easy && !sim.hell) {
     // offline win: the board, and a line for each local kitty (player 1 signs with the saved online name if there is one)
     const p1 = savedName();
     legends.fetchOffline({
@@ -1049,7 +1059,7 @@ function startVictory(ev) {
     if (p) { effects.teleport(p.x, p.z, p.color); prevPos.delete('p' + p.id); }
   }
   const by = ev ? playerById(ev.by) : null;
-  ui.banner('VICTORY!', by && sim.players.length > 1 ? `${by.name} reached the end first!` : 'You beat the final run!', 3800, 'gold');
+  ui.banner('VICTORY!', sim.hell ? `You got through all ${HELL_LEVELS} levels of hell!` : by && sim.players.length > 1 ? `${by.name} reached the end first!` : 'You beat the final run!', 3800, 'gold');
   for (let i = 0; i < 3; i++) launchFirework(0.6 + i * 0.3); // opening salvo
 }
 
@@ -1151,7 +1161,8 @@ function cosOf(p) {
 function shareRun(win, time) {
   const me = (online.playing ? playerById(online.me) : null) || sim.players[0] || {};
   const r = {
-    win, mode: sim.mode || 'mixed', level: sim.levelData.level || sim.level, time,
+    win, mode: sim.mode || 'mixed', level: sim.hell ? sim.level : sim.levelData.level || sim.level, time,
+    ...(sim.hell ? { hell: true, far: win ? 1 : sim.far } : {}),
     crowns: me.finishes || 0, revives: me.rescues || 0, name: me.name, color: me.color, team: sim.players.length,
     ...iconLook(me),   // the face as your player card shows it
   };
@@ -1169,7 +1180,7 @@ function showVictoryScreen() {
   const stats = {
     runTime: ev && Number.isFinite(ev.time) ? ev.time : (wasOnline ? undefined : sim.levelTime),
     totalTime: Math.max(0, sim.time - victory.t), // time at the win (online, sim.time only arrives with the snapshots)
-    deaths: sim.stats.deaths, rescues: sim.stats.rescues, mode: sim.mode || 'mixed',
+    deaths: sim.stats.deaths, rescues: sim.stats.rescues, mode: sim.mode || 'mixed', hell: !!sim.hell,
     fish: view && view.fish ? Math.floor(view.fish.eaten() * 100) : undefined,
     first: by ? { name: by.name, color: by.color } : null,
     players: sim.players.map((p) => ({ name: p.name, color: p.color, first: !!by && p.id === by.id })),
@@ -1179,7 +1190,7 @@ function showVictoryScreen() {
     : [{ label: 'PLAY AGAIN', sub: 'from level 1', onClick: () => startGame(playerCount, 1) },
       { label: 'MAIN MENU', alt: true, onClick: () => enterTitle() }];
   // finishers only: online the server sends the board to the winners; offline it was fetched at the win (read-only)
-  victory.legendsBtn = !wasOnline || legends.available();
+  victory.legendsBtn = !sim.hell && (!wasOnline || legends.available());   // (hell: its own board, in LEVEL TIMES)
   if (victory.legendsBtn) {
     buttons.push({ label: 'LEGENDS BOARD', sub: legends.canSign() ? 'sign your name' : 'see who did it', alt: true, mini: true, keep: true, onClick: () => legends.open() });
   }
@@ -1916,7 +1927,8 @@ function updateHUD() {
     h.paid = paid; h.ps = pst;
   }
   if (dirty) ui.setScores(hudScores);
-  hudData.level = sim.levelData.level || sim.level; hudData.time = sim.time; hudData.rescues = sim.stats.rescues;
+  hudData.level = sim.hell ? sim.level : sim.levelData.level || sim.level; hudData.time = sim.time; hudData.rescues = sim.stats.rescues;
+  hudData.far = sim.hell ? Math.floor((sim.far || 0) * 100) : null;   // hell: how far along the map the team has got (%)
   ui.setHUD(hudData);
 }
 
@@ -1947,7 +1959,9 @@ account.init();
 
 const lobbyUI = createLobbyUI(document.getElementById('ui'), {
   // opts: { max: how many kitties may join, password: '' = public } (lobby.js)
-  onCreate: (name, mode, opts = {}) => net.send({ t: 'create', name, mode, easy: !!opts.easy, color: prefColor(), max: opts.max, password: opts.password || '' }),
+  onCreate: (name, mode, opts = {}) => net.send({ t: 'create', name, mode, easy: !!opts.easy, color: prefColor(), max: opts.max, password: opts.password || '',
+    ...(opts.hell ? { hell: true, hl: account.hellOpen(mode) } : {}) }),   // (hl: hell open here, offline progress included)
+  hellOpen: (mode) => account.hellOpen(mode),
   onJoin: (code, name, password = '') => net.send({ t: 'join', code, name, color: prefColor(), password }),
   onLeave: () => net.send({ t: 'leave' }),
   onStart: () => net.send({ t: 'start' }),
@@ -2017,6 +2031,7 @@ const legends = createLegends(document.getElementById('ui'), {
   reconnect: () => net.wake(),
   onOpenChange: (on) => { ui.setVictoryHidden(on); keys.clear(); },
   friends: () => recentPlayers().filter((p) => p.fav).map((p) => p.fid),   // (LEVEL TIMES: your starred friends)
+  hellOpen: (mode) => account.hellOpen(mode),   // (LEVEL TIMES: the hell board, once hell is open in that mode)
   who: () => ({ pid: progressId() || undefined, acct: account.token() || undefined, seen9: (() => { try { return localStorage.getItem('rkr-seen9') === '1' || undefined; } catch { return undefined; } })() }),
 });
 // LEVEL TIMES, local boards: a solo / local co-op game's cleared levels (and level 9 reached, which opens its board),
@@ -2030,6 +2045,16 @@ async function sendLevelNotes() {
   lvSending = false;
 }
 function noteLevels(events) {
+  if (sim.hell) {   // hell: only how far the game got, at its end (its local hell board)
+    for (const e of events) {
+      if (e.type !== 'gameOver' && e.type !== 'victory') continue;
+      lvPending.push({ hell: true, mode: sim.mode, level: e.level, far: e.type === 'victory' ? 1 : e.far, time: sim.time,   // (the game's total time)
+        players: sim.players.slice(0, 2).map((p) => ({ name: p.name, color: p.color })) });
+      if (lvPending.length > 30) lvPending.shift();
+    }
+    sendLevelNotes();
+    return;
+  }
   for (const e of events) {
     if (e.type === 'stageClear') { lvDay = { level: e.level, time: sim.levelTime }; continue; }   // (Run + Skate's day half)
     if (e.type === 'gameOver') { lvDay = null; continue; }
@@ -2339,7 +2364,7 @@ function beginOnlineGame(m) {
   if (online.room) rememberPlayers(online.room.members);   // (for the invite panel)
   playerCount = m.players.length;
   removeKitties();
-  sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode, finales: +m.rf || 0, easy: !!m.easy });
+  sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode, finales: +m.rf || 0, easy: !!m.easy, hell: !!m.hell });
   sim.retries = m.rt | 0;
   analytics.runStart('online', m.mode || 'mixed');
   sim.started = true;
@@ -2543,6 +2568,7 @@ function applySnapshot(m) {
   sim.crownTaken = !!m.ct;
   sim.state = m.st;
   sim.time = m.tm + (online.tick - m.k) * CFG.TICK;
+  if (m.hf != null) sim.far = m.hf;   // hell: the team's progress on this level (the server's)
   sim.stats = m.s;
   const taken = new Set(m.it);
   for (const it of sim.items) it.taken = taken.has(it.id);
@@ -2668,7 +2694,8 @@ function tick(dt) {
       if (sim !== runSim) return; // a new run already started
       if (online.menu) { online.menu = false; ui.hidePause(); }   // the game-over card replaces the online menu
       ui.showGameOver({
-        level: sim.levelData.level || sim.level, deaths: sim.stats.deaths, rescues: sim.stats.rescues,
+        level: sim.hell ? sim.level : sim.levelData.level || sim.level, deaths: sim.stats.deaths, rescues: sim.stats.rescues,
+        ...(sim.hell ? { hell: true, far: sim.far } : {}),
         time: sim.time,
         // alone: nobody could revive you; nudge toward friends
         alone: sim.players.length === 1 ? (wasOnline ? 'online' : 'solo') : null,

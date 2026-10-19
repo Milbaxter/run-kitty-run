@@ -2,7 +2,7 @@
 // Checkout, and your total shows next to your kitty's name online. Server side: server/accounts.js.
 // The session token lives in localStorage; main.js passes it to the game server ('hi' / 'acct').
 import { accountApiUrl, NATIVE } from './platform.js';
-import { UNLOCKS, UNLOCK_MODES, isUnlocked, featTotal, featCount, isWorn } from './shared/unlocks.js';
+import { UNLOCKS, UNLOCK_MODES, isUnlocked, featTotal, featCount, isWorn, hellOpen } from './shared/unlocks.js';
 import { SKATE_FINAL_LEVEL, stageStep } from './shared/config.js';
 
 // The offline track (Solo and Local, one track): unlocks earned there are worn in Solo and Local games only, so a faked
@@ -217,9 +217,12 @@ function createAccount(root) {
     if (!soloRun || soloRun.sim !== sim) soloRun = { sim, goals: new Map() };
     const goals = (id) => { let g = soloRun.goals.get(id); if (!g) soloRun.goals.set(id, g = new Set()); return g; };
     for (const e of events) {
+      // hell: a cleared hell level (it stays open in this mode), and revives; none of level 9's own
+      if (sim.hell) { if (e.type === 'levelClear') soloFeat('h1', sim.mode); else if (e.type === 'revive') soloFeat('rev', sim.mode); continue; }
       if (e.type === 'enterCenter') goals(e.playerId).add(e.level ?? sim.level);
       // (an easy game: its own level 8 and 9 feats; not again when level 9 starts over)
       else if (e.type === 'levelStart' && !e.retry && ((sim.levelData && sim.levelData.level) || sim.level) === SKATE_FINAL_LEVEL) {
+        soloFeat('r9', sim.mode);   // (hell opens in this mode: Run + Skate's in both)
         if (sim.players.some((p) => goals(p.id).size >= stageStep(sim.mode, sim.finales, 8, true))) soloFeat(sim.easy ? 'e8' : 'l8', sim.mode);
       } else if (e.type === 'victory') {
         const party = Array.isArray(e.party) ? e.party : [];
@@ -711,6 +714,7 @@ function createAccount(root) {
   }
   function noteLocal(sim, events) {
     noteSolo(sim, events);   // (the offline unlock track: everyone, with an account or not)
+    if (sim.hell) return;   // (hell: no level stats; its own board, main.js noteLevels)
     if (!A.enabled || !A.token || !A.account || !(Number(A.account.paid) > 0)) return;
     const me = sim.players[0];
     for (const e of events) {
@@ -751,6 +755,16 @@ function createAccount(root) {
     async refresh() {
       if (A.token && A.account) { try { const j = await api('me'); if (j.account) { A.account = j.account; changed(); } } catch { /* keep what we have */ } }
       else loadGuest();
+    },
+    // hell open in this mode (Run only / Skate only): level 9 reached there or in Run + Skate, or a hell level cleared,
+    // online or offline (unlocks.js hellOpen); before hell existed: the account's stats, or this browser saw level 9
+    hellOpen(mode) {
+      if (mode !== 'run' && mode !== 'ice') return false;   // (Run only and Skate only have one)
+      const u = (A.account && Number(A.account.paid) > 0 && A.account.unlocks) || A.guest;
+      if ((u && hellOpen(u, mode)) || hellOpen(soloProg(), mode)) return true;
+      const st = A.account && A.account.stats;
+      if (st && ['online', 'local', 'easy'].some((k) => { const r = st[k] && st[k].reached; return !!r && ((r[mode] | 0) >= 9 || (r.mixed | 0) >= 9); })) return true;
+      try { return localStorage.getItem('rkr-seen9') === '1'; } catch { return false; }
     },
     has(id) {
       const u = (A.account && Number(A.account.paid) > 0 && A.account.unlocks) || A.guest;

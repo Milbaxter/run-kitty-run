@@ -59,7 +59,8 @@ const UNLOCKS = [
   // the medic badge on the player card (`medic`: its look; more revive rewards may add looks: the card shows the best)
   { id: 'medic', name: 'Medic badge', feat: 'rev', times: 3000, total: true, medic: 'base' },   // (in the kitty's colour)
 ];
-const FEAT_IDS = ['l8', 'l9', 'e8', 'e9', 'win', 'rev'];
+// r9: reached level 9 (any game, easy too); h1: cleared a hell level. Neither unlocks an item: they open hell (hellOpen)
+const FEAT_IDS = ['l8', 'l9', 'e8', 'e9', 'win', 'rev', 'r9', 'h1'];
 // the medic badge looks, best first: the card shows the first one switched on (none: no badge)
 const MEDIC_TIERS = UNLOCKS.filter((u) => u.medic).sort((a, b) => b.times - a.times);
 const medicLook = (cos) => { for (const u of MEDIC_TIERS) if (cos.has(u.id)) return u.medic; return ''; };
@@ -69,7 +70,7 @@ const featTotal = (progress, feat) => { const p = (progress && progress[feat]) |
 const isWorn = (u, off) => (u.defaultOff ? !!off && off[u.id] === false : !(off && off[u.id]));
 // a slot's worn metal ('mane' / 'tip'): its first switched-on item's, or null (cos: a Set of worn ids)
 const slotMetal = (cos, slot) => { for (const u of UNLOCKS) if (u.slot === slot && cos.has(u.id)) return u.metal; return null; };
-const FEATS = { l8: 'Clear level 8 in a normal game reaching every goal', l9: 'Beat level 9 in a normal game reaching every goal', e8: 'Clear level 8 in an easy game reaching every goal', e9: 'Beat level 9 in an easy game reaching every goal', win: 'Clear the final level', rev: 'Revive kitties' };
+const FEATS = { l8: 'Clear level 8 in a normal game reaching every goal', l9: 'Beat level 9 in a normal game reaching every goal', e8: 'Clear level 8 in an easy game reaching every goal', e9: 'Beat level 9 in an easy game reaching every goal', win: 'Clear the final level', rev: 'Revive kitties', r9: 'Reach level 9', h1: 'Clear a hell level' };
 // the wins a kitty can have by level 8 (one per level, two per level in Run + Skate)
 const winsNeeded = (mode) => (mode === 'mixed' ? 16 : 8);
 // how often a feat counts as done in a mode: its own times, and in Run only and Skate only the Run + Skate ones too;
@@ -90,4 +91,8 @@ function isUnlocked(progress, item, mode = null) {
   return u.any || !mode ? modes.some(done) : done(mode);
 }
 
-export { UNLOCKS, UNLOCK_MODES, FEATS, FEAT_IDS, winsNeeded, isUnlocked, featTotal, featCount, medicLook, slotMetal, isWorn };
+// hell (config.js HELL_MODES) in a mode: open once level 9 was reached there (Run + Skate's counts for both) or a hell
+// level of it was cleared (in anyone's lobby)
+const hellOpen = (progress, mode) => featCount(progress, 'r9', mode) > 0 || featCount(progress, 'h1', mode) > 0;
+
+export { UNLOCKS, UNLOCK_MODES, FEATS, FEAT_IDS, winsNeeded, isUnlocked, featTotal, featCount, medicLook, slotMetal, isWorn, hellOpen };

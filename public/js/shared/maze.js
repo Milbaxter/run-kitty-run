@@ -1,4 +1,4 @@
-import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, MEDIC_GIFT_FV, stageOf } from './config.js';
+import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, MEDIC_GIFT_FV, QUICK_START_FV, stageOf } from './config.js';
 import { createRng, hashSeed, ipow, legPoint } from './rng.js';
 import { buildPlan, patternPose, patternSpeed } from './enemies.js';
 
@@ -1573,6 +1573,8 @@ function generateLevelCore(level, seed, mode = 'mixed', fv = 0, season = null) {
       return { ...e, speed: e.speed * (COMBO_RUN_SPEED0 + (RUN_RAMP_TOP - COMBO_RUN_SPEED0) * k) };
     });
   }
+  // finale version 18+: Run only's level 9 wolves start with one of their usual rests (enemies.js quickStart), not up to 6 s
+  if (runFinale && v >= QUICK_START_FV) lvl.enemies = lvl.enemies.map((e) => (e.pauseRange ? { ...e, quickStart: true } : e));
   if (v >= 11) {
     // version 11+: ITEMS_PER_LEVEL items (autumn: ITEMS_AUTUMN, hearts and shields only: every tree has boots), capped
     const autumn = lvl.trees.length > 0 && !finale;
@@ -1878,4 +1880,34 @@ function levelHash(ld) {
   return h;
 }
 
-export { generateLevel, collideCircle, locate, inCenter, onIce, inTree, mazeSelfTest, levelHash };
+// How far along a level's path (levelData.path: start to goal) a point is, 0..1: the nearest point of the path. A
+// straight path (the final runs: along x) is just the point's x.
+const pathInfos = new WeakMap();
+function pathProgress(ld, x, z) {
+  const pts = ld && ld.path;
+  if (!Array.isArray(pts) || pts.length < 2) return 0;
+  let pi = pathInfos.get(ld);
+  if (!pi) {
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
+    const dir = Math.sign(pts[1].x - pts[0].x);
+    const straight = !!dir && pts.every((q, i) => q.z === pts[0].z && (!i || Math.sign(q.x - pts[i - 1].x) === dir));
+    pi = { cum, total: cum[cum.length - 1] || 1, straight };
+    pathInfos.set(ld, pi);
+  }
+  if (pi.straight) {
+    const a = pts[0].x, b = pts[pts.length - 1].x;
+    return Math.max(0, Math.min(1, (x - a) / (b - a)));
+  }
+  let best = Infinity, at = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const A = pts[i - 1], ex = pts[i].x - A.x, ez = pts[i].z - A.z, L2 = ex * ex + ez * ez;
+    if (!L2) continue;
+    const t = Math.max(0, Math.min(1, ((x - A.x) * ex + (z - A.z) * ez) / L2));
+    const dx = x - A.x - ex * t, dz = z - A.z - ez * t, d = dx * dx + dz * dz;
+    if (d < best) { best = d; at = pi.cum[i - 1] + t * (pi.cum[i] - pi.cum[i - 1]); }
+  }
+  return Math.max(0, Math.min(1, at / pi.total));
+}
+
+export { generateLevel, collideCircle, locate, inCenter, onIce, inTree, mazeSelfTest, levelHash, pathProgress };

@@ -8,9 +8,9 @@ import { pregenParams } from '../public/js/shared/sim.js';
 if (!isMainThread && parentPort) {
   // ---- worker side ----
   const { generateLevel } = await import('../public/js/shared/maze.js');
-  parentPort.on('message', ({ id, level, seed, mode, rf }) => {
+  parentPort.on('message', ({ id, level, gen, seed, mode, rf }) => {
     let ld = null, error = null;
-    try { ld = generateLevel(level, seed, mode, rf); } catch (err) { error = String(err && err.message || err); }
+    try { ld = generateLevel(gen ?? level, seed, mode, rf); } catch (err) { error = String(err && err.message || err); }
     parentPort.postMessage({ id, ld, error });
   });
 }
@@ -52,13 +52,13 @@ function pump() {
     const job = queue.shift();
     if (job.sim.level >= job.level) { pump(); return; } // stale (already generated synchronously)
     slot.busy = job;
-    slot.worker.postMessage({ id: job.id, level: job.level, seed: job.seed, mode: job.mode, rf: job.rf });
+    slot.worker.postMessage({ id: job.id, level: job.level, gen: job.gen, seed: job.seed, mode: job.mode, rf: job.rf });
   }
 }
 
-// Call at level start: queues level + 1 of this sim (none after the final run).
+// Call at level start: queues level + 1 of this sim (none after the final run; hell: the next hell level's own one)
 export function pregenNext(sim) {
-  if (!SIZE || !sim || !sim.levelData || sim.levelData.finale) return;
+  if (!SIZE || !sim || !sim.levelData || (sim.levelData.finale && !sim.hell)) return;
   if (!slots.length) for (let i = 0; i < SIZE; i++) { const s = {}; slots.push(s); spawn(s); }
   const job = { id: ++nextId, sim, ...pregenParams(sim) };
   for (let i = queue.length - 1; i >= 0; i--) if (queue[i].sim === sim) queue.splice(i, 1); // newest wins

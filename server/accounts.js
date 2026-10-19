@@ -16,7 +16,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { UNLOCKS, UNLOCK_MODES, FEAT_IDS, isUnlocked, isWorn } from '../public/js/shared/unlocks.js';
+import { UNLOCKS, UNLOCK_MODES, FEAT_IDS, isUnlocked, isWorn, hellOpen } from '../public/js/shared/unlocks.js';
 
 const MIN_CENTS = 50;              // Stripe's minimum charge (EUR / USD; the account settles in EUR, so a USD charge must clear €0.50)
 // No cap of our own: this is only the largest amount Stripe's API takes (8 digits); card / payment-method limits still apply
@@ -311,6 +311,14 @@ function createAccounts(file, env = process.env) {
     const st = sub && accounts[sub] && accounts[sub].stats;
     return !!st && ['online', 'local', 'easy'].some((k) => st[k] && Object.values(st[k].reached || {}).some((v) => v >= 9));
   };
+  // hell open in this mode for this player (who: { sub, pid }): its unlock progress (online or offline: r9 / h1), or an
+  // account's stats saying it reached level 9 there (or in Run + Skate) before hell existed
+  function hellOpenFor(who, mode) {
+    const h = holderOf(who, false);
+    if (h) { const u = unlocksOf(h); if (hellOpen(u, mode) || hellOpen(u.solo, mode)) return true; }
+    const st = who && who.sub && accounts[who.sub] && accounts[who.sub].stats;
+    return !!st && ['online', 'local', 'easy'].some((k) => { const r = st[k] && st[k].reached; return !!r && ((r[mode] | 0) >= 9 || (r.mixed | 0) >= 9); });
+  }
   // every account whose number shows (not hidden, not being deleted): [[sub, cents]] (the boards show it on a name's hover)
   const shownAll = () => Object.values(accounts).filter((a) => a && a.sub && !a.hide && !a.deleting && shownCents(a) > 0).map((a) => [a.sub, shownCents(a)]);
 
@@ -654,7 +662,7 @@ function createAccounts(file, env = process.env) {
       if (m.solo && typeof m.solo === 'object' && active(a)) {
         const u = unlocksOf(a);
         for (const f of FEAT_IDS) {
-          if (easy ? !['rev', 'win', 'e8', 'e9'].includes(f) : f === 'e8' || f === 'e9') continue;   // (an easy game: its own level 8 and 9 feats)
+          if (easy ? !['rev', 'win', 'e8', 'e9', 'r9'].includes(f) : f === 'e8' || f === 'e9') continue;   // (an easy game: its own level 8 and 9 feats; reaching level 9 counts anywhere)
           const n = count(m.solo[f], f === 'rev' ? 5000 : 50); if (n) u.solo[f][mode] += n;
         }
         statsChanged();
@@ -719,7 +727,7 @@ function createAccounts(file, env = process.env) {
     return true;
   }
 
-  return { enabled, handle, webhook, setLegendRanks, setGoldenCheck, setBronzeCheck, paidFor, paidStyleFor, shownAll, reachedFinal, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
+  return { enabled, handle, webhook, setLegendRanks, setGoldenCheck, setBronzeCheck, paidFor, paidStyleFor, shownAll, reachedFinal, hellOpenFor, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
 }
 
 // One credit per player, however many of its tabs are in the game: of these kitties (members: { acct, pid }), the

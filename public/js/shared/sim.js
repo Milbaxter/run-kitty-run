@@ -1,6 +1,6 @@
-import { CFG, LATEST_FV, stageOf } from './config.js';
+import { CFG, LATEST_FV, SKATE_FINAL_LEVEL, HELL_LEVELS, HELL_MODES, stageOf } from './config.js';
 import { hashSeed } from './rng.js';
-import { generateLevel, collideCircle, inCenter, onIce, inTree } from './maze.js';
+import { generateLevel, collideCircle, inCenter, onIce, inTree, pathProgress } from './maze.js';
 import { createEnemies, updateEnemies } from './enemies.js';
 
 // Deterministic game simulation core. Pure: no THREE, no DOM, no Math.random, no Date.
@@ -29,17 +29,21 @@ const MAX_SUBSTEPS = 64;
 // Level generation can take 100ms+ (Skate pattern wolves), so clients and the server pre-generate the next level
 // off-thread and hand it over in sim.pregen = { level, seed, mode, ld }: makeLevel takes it when it matches
 // (same inputs => the very same deterministic layout), otherwise generates synchronously.
+// (hell: every level is a final run of its own: level 9 generated (gen) with the hell level's own seed)
 function pregenParams(sim, level = sim.level + 1) {
+  if (sim.hell) return { level, gen: SKATE_FINAL_LEVEL, seed: hashSeed(sim.seed, 'hell', level), mode: sim.mode, rf: sim.finales };
   return { level, seed: hashSeed(sim.seed, level), mode: sim.mode, rf: sim.finales };
 }
+// the level a game shows (hell: its own number; Run + Skate: day and night halves are the same level)
+const shownLevel = (sim) => (sim.hell ? sim.level : (sim.levelData && sim.levelData.level) || sim.level);
 
 function makeLevel(sim, level) {
   const again = level === sim.level && sim.levelData;   // the same level over (an easy game's retry): its data as it is
-  const { seed, mode, rf } = pregenParams(sim, level);
+  const { seed, mode, rf, gen = level } = pregenParams(sim, level);
   const pg = sim.pregen;
   sim.pregen = null;
   sim.level = level;
-  sim.levelData = again || (pg && pg.ld && pg.level === level && pg.seed === seed && pg.mode === mode && (pg.rf | 0) === rf ? pg.ld : generateLevel(level, seed, mode, rf));
+  sim.levelData = again || (pg && pg.ld && pg.level === level && pg.seed === seed && pg.mode === mode && (pg.rf | 0) === rf ? pg.ld : generateLevel(gen, seed, mode, rf));
   sim.enemies = createEnemies(sim.levelData);
   sim.enemyTicks = 0;          // updateEnemies calls since this level's wolves were created (netcode)
   const src = sim.levelData.items || [];
@@ -55,9 +59,10 @@ function makeLevel(sim, level) {
   sim.chest = null;            // the lottery chest: { x, z, cx, cz, h, t, open } once a lucky checkpoint is reached
   sim.crownTaken = false;     // the crown floating over the goal, up for grabs each level
   sim.levelTime = 0;
+  sim.far = 0;                 // hell: how far along the map the furthest kitty has got this level (0..1)
   sim.state = 'playing';
   sim.stateTimer = 0;
-  const shown = sim.levelData.level || level;   // (Run + Skate day / night: both halves are the same level)
+  const shown = shownLevel(sim);
   if (shown > sim.stats.bestLevel) sim.stats.bestLevel = shown;
 }
 
@@ -131,13 +136,18 @@ function makePlayer(def) {
 // skate final run. Online rooms with an older client play an older version.
 // easy: when everyone is down the level starts over (state 'retry' for CFG.RETRY_TIME, then levelStart with retry: true)
 // instead of the game being over.
-function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales = 0, easy = false } = {}) {
-  const lvl = Math.max(1, startLevel | 0);
+// hell: Run only / Skate only's final run over and over (config.js HELL_LEVELS; sim.level is the hell level), never easy.
+function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales = 0, easy = false, hell = false } = {}) {
+  mode = GAME_MODES.includes(mode) ? mode : 'mixed';
+  hell = !!hell && HELL_MODES.includes(mode);
+  const lvl = hell ? Math.max(1, Math.min(HELL_LEVELS, startLevel | 0)) : Math.max(1, startLevel | 0);
   const sim = {
     seed: seed == null ? 0 : seed,
-    mode: GAME_MODES.includes(mode) ? mode : 'mixed',
+    mode,
     finales: Math.max(0, Math.min(LATEST_FV, finales | 0)),
-    easy: !!easy,
+    easy: !!easy && !hell,
+    hell,
+    far: 0,
     retries: 0,     // easy: how often a level started over this run (snapshot rt: clients reload the level when it moves)
     level: lvl,
     time: 0,
@@ -352,6 +362,7 @@ function stepSim(sim, inputs, dt) {
     }
     movePlayer(sim, p, readInput(inputs, p.id), dt);
     p.inCenter = inCenterNow(sim, p);
+    if (sim.hell && sim.state === 'playing') { const f = pathProgress(ld, p.x, p.z); if (f > sim.far) sim.far = f; }   // (hell: the team's furthest)
     if (p.inCenter && sim.enteredCenter.indexOf(p.id) < 0) {
       sim.enteredCenter.push(p.id);
       events.push({ type: 'enterCenter', playerId: p.id, level: sim.level });   // (level: the stage it was, for the unlocks)
@@ -613,11 +624,11 @@ function stepSim(sim, inputs, dt) {
       if (players.length > 0 && sim.easy) {
         sim.state = 'retry';
         sim.stateTimer = CFG.RETRY_TIME;
-        events.push({ type: 'wipe', level: ld.level || sim.level });
+        events.push({ type: 'wipe', level: shownLevel(sim) });
       } else if (players.length > 0) {
         sim.state = 'gameover';
         sim.stateTimer = 0;
-        events.push({ type: 'gameOver', level: ld.level || sim.level });
+        events.push({ type: 'gameOver', level: shownLevel(sim), ...(sim.hell ? { far: sim.far } : {}) });
       }
     } else if (crownBy) {
       // the crown's been grabbed (from inside the goal disc): its kitty clears the level
@@ -632,8 +643,9 @@ function stepSim(sim, inputs, dt) {
       } else {
       by.finishes = (by.finishes || 0) + 1;
       sim.stats.levelsCleared++;
-      events.push({ type: 'levelClear', level: ld.level || sim.level, by: by.id });
-      if (ld.finale) win(sim, by, events);
+      if (sim.hell) sim.far = 1;
+      events.push({ type: 'levelClear', level: shownLevel(sim), by: by.id });
+      if (ld.finale && (!sim.hell || sim.level >= HELL_LEVELS)) win(sim, by, events);   // (hell: the next one, the same map)
       else {
         sim.state = 'levelclear';
         sim.stateTimer = CFG.LEVEL_CLEAR_TIME;
@@ -677,7 +689,7 @@ function win(sim, by, events) {
     party.push(p.id);
   }
   sim.circles = [];
-  events.push({ type: 'victory', level: sim.levelData.level || sim.level, by: by.id, time: sim.levelTime, party });
+  events.push({ type: 'victory', level: shownLevel(sim), by: by.id, time: sim.levelTime, party });
 }
 
 function justDied(events, playerId) {

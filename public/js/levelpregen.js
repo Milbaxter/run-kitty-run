@@ -26,9 +26,9 @@ try {
   worker.onerror = (e) => { if (e && e.preventDefault) e.preventDefault(); stop(); }; // e.g. no module workers
 } catch { stop(); }
 
-// Call at level start: queues level + 1 of this sim (none after the final run).
+// Call at level start: queues level + 1 of this sim (none after the final run; hell: the next hell level's own one)
 export function pregenNext(sim) {
-  if (!worker || !sim || !sim.levelData || sim.levelData.finale) return;
+  if (!worker || !sim || !sim.levelData || (sim.levelData.finale && !sim.hell)) return;
   const job = pregenParams(sim);
   const id = ++nextId;
   pending.set(id, { sim, job });

@@ -37,6 +37,11 @@ function fmtTime(t) {
   const m = Math.floor(t / 60), s = t % 60;
   return m + ':' + String(s).padStart(2, '0');
 }
+// the same with hours (h:mm:ss) once it's an hour or more (all of hell can take a while)
+function fmtLong(t) {
+  t = Math.max(0, Math.floor(t || 0));
+  return t < 3600 ? fmtTime(t) : Math.floor(t / 3600) + ':' + String(Math.floor(t / 60) % 60).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0');
+}
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
@@ -175,6 +180,8 @@ const CSS = `
   background:linear-gradient(180deg,#ffcf5a,#ff8a3d);color:#4a1d06;border:3px solid #4a1d06;
   box-shadow:0 4px 0 #4a1d06,0 8px 18px rgba(0,0,0,.35);text-shadow:0 1px 0 rgba(255,255,255,.55);}
 .rkr-level small{font-size:13px;margin-right:4px;opacity:.8;}
+.rkr-level em{font-style:normal;font-size:14px;margin-left:6px;opacity:.85;font-variant-numeric:tabular-nums;}
+.rkr-level em:empty{display:none;}
 .rkr-level.rkr-pop{animation:rkr-pop .5s cubic-bezier(.2,1.6,.4,1);}
 .rkr-timer{display:flex;align-items:center;gap:6px;padding:4px 12px;border-radius:14px;font-weight:800;font-size:18px;
   background:rgba(20,10,40,.55);border:2px solid rgba(255,255,255,.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
@@ -643,8 +650,8 @@ function createUI(root) {
   const hud = el('div', 'rkr-hud rkr-off');
   const tl = el('div', 'rkr-tl');
   const lvlRow = el('div', 'rkr-lvlrow');
-  const levelEl = el('div', 'rkr-level', '<small>LEVEL</small><span>1</span>');
-  const levelNum = levelEl.querySelector('span');
+  const levelEl = el('div', 'rkr-level', '<small>LEVEL</small><span>1</span><em></em>');
+  const levelNum = levelEl.querySelector('span'), levelTag = levelEl.querySelector('small'), levelFar = levelEl.querySelector('em');
   const timerEl = el('div', 'rkr-timer', ICONS.clock + '<span>0:00</span>');
   const timerTxt = timerEl.querySelector('span');
   lvlRow.append(levelEl, timerEl);
@@ -923,6 +930,9 @@ function createUI(root) {
       levelNum.textContent = d.level;
       if (changed) restartAnim(levelEl, 'rkr-pop');
     }
+    // hell: HELL n and how far along the map the team has got
+    const far = d.far == null ? '' : d.far + '%';
+    if (far !== H.far) { H.far = far; levelFar.textContent = far; levelTag.textContent = d.far == null ? 'LEVEL' : 'HELL'; }
     const ts = Math.floor(d.time || 0);
     if (ts !== H.timeSec) { H.timeSec = ts; timerTxt.textContent = fmtTime(ts); }
 
@@ -1428,8 +1438,11 @@ function createUI(root) {
     onRestartCb = onRestart || null;
     hideGameOver();
     goEl = el('div', 'rkr-overlay rkr-dim');
+    // (hell: the level and how far along its map, e.g. "12 · 34%")
+    const hellFmt = (v) => (v >= (stats.level | 0) ? `${v} · ${Math.floor((stats.far || 0) * 100)}%` : String(v));
     const rows = [
-      { icon: ICONS.cat, label: 'Level reached', v: stats.level | 0, fmt: String, color: '#ffb347' },
+      stats.hell ? { icon: ICONS.cat, label: 'Hell level reached', v: stats.level | 0, fmt: hellFmt, color: '#ff7a4a' }
+        : { icon: ICONS.cat, label: 'Level reached', v: stats.level | 0, fmt: String, color: '#ffb347' },
       { icon: ICONS.clock, label: 'Time survived', v: Math.floor(stats.time || 0), fmt: fmtTime, color: '#cdbfff' },
       { icon: ICONS.revive, label: 'Kitties rescued', v: stats.rescues | 0, fmt: String },
       { icon: ICONS.wolf, label: 'Times caught', v: stats.deaths | 0, fmt: String },
@@ -1509,9 +1522,10 @@ function createUI(root) {
     hideVictory();
     hidePause();
     vEl = el('div', 'rkr-overlay rkr-victory');
+    // (hell: its last level's time, and the whole way through all of its levels)
     const rows = [
-      { icon: ICONS.flag, label: 'Final run time', v: stats.runTime, fmt: fmtTime, color: '#3ee08f' },
-      { icon: ICONS.clock, label: 'Total time', v: stats.totalTime, fmt: fmtTime, color: '#cdbfff' },
+      { icon: ICONS.flag, label: stats.hell ? 'Last level time' : 'Final run time', v: stats.runTime, fmt: fmtTime, color: '#3ee08f' },
+      { icon: ICONS.clock, label: stats.hell ? 'Total time in hell' : 'Total time', v: stats.totalTime, fmt: stats.hell ? fmtLong : fmtTime, color: '#cdbfff' },
       { icon: ICONS.revive, label: 'Kitties rescued', v: stats.rescues | 0, fmt: String },
       { icon: ICONS.wolf, label: 'Times caught', v: stats.deaths | 0, fmt: String },
       { icon: ICONS.fish, label: 'Giant fish eaten', v: stats.fish, fmt: (v) => v + '%', fish: true },
@@ -1523,7 +1537,7 @@ function createUI(root) {
     const line = (stats.deaths | 0) === 0 ? 'Not a single kitty caught. Flawless!' : V_LINES[((stats.deaths | 0) + ps.length) % V_LINES.length];
     vEl.innerHTML = `<div class="rkr-glass">
         <div class="rkr-vcrown">${ICONS.crown}</div>
-        <h2>${stats.mode === 'run' ? 'YOU CLEARED<br>RUN MODE!' : stats.mode === 'ice' ? 'YOU CLEARED<br>SKATE MODE!' : 'YOU BEAT<br>RUN KITTY RUN!'}</h2>
+        <h2>${stats.hell ? 'YOU ESCAPED<br>HELL!' : stats.mode === 'run' ? 'YOU CLEARED<br>RUN MODE!' : stats.mode === 'ice' ? 'YOU CLEARED<br>SKATE MODE!' : 'YOU BEAT<br>RUN KITTY RUN!'}</h2>
         <div class="rkr-gsub">${esc(line)}</div>
         ${first && ps.length > 1 ? `<div class="rkr-vfirst">${ICONS.crown}<span>First to the goal: <span class="rkr-vname" style="color:${hexColor(first.color)}">${esc(first.name)}</span></span></div>` : ''}
         <div class="rkr-stats">${rows.map((r) => `<div class="rkr-stat"><div class="rkr-ico" style="color:${r.color || '#fff'}">${r.icon}</div><span class="rkr-sl">${r.label}</span><span class="rkr-sv">${r.fmt(0)}</span></div>`).join('')}</div>

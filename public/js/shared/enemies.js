@@ -254,7 +254,10 @@ function createEnemy(spec) {
       st.th = k ? a.th + dth * k : st.th;
     }
   }
-  st.pauseDur = st.pauseRange ? phase * st.pauseRange[1] : 0.2 + phase * 0.7;   // first pause: spread out by phase
+  // first pause: spread out by phase (spec.quickStart: shaped like its usual pauses, mostly short, so the pack sets off
+  // at once; otherwise anything up to the longest)
+  const pr = st.pauseRange;
+  st.pauseDur = pr ? (spec.quickStart ? pr[0] + (pr[1] - pr[0]) * Math.pow(phase, pr[2] || 1) : phase * pr[1]) : 0.2 + phase * 0.7;
 
   planNext(e, true);
   e.heading = wrapPi(frameDir(st, 0, 1)); // face along the leg; never hint at the first move

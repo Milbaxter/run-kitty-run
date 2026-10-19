@@ -19,13 +19,16 @@ const clock = (s) => {
 };
 const hex = (c) => '#' + (c >>> 0).toString(16).padStart(6, '0').slice(-6);
 
-// r: { win, mode, level, time, crowns, revives, name, color, cool, rainbow, lion, lionLook, team (kitties in the game) }
+// r: { win, mode, level, time, crowns, revives, name, color, cool, rainbow, lion, lionLook, team (kitties in the game),
+//      hell + far (a hell game: how far along its last level's map, 0..1) }
 function shareText_(r) {
   const mode = MODE_NAMES[r.mode] || MODE_NAMES.mixed;
   const we = r.team > 1 ? 'We' : 'I';
   const bits = [clock(r.time)];
   if (r.crowns) bits.push(`${r.crowns} crown${r.crowns === 1 ? '' : 's'}`);
   if (r.revives) bits.push(`${r.revives} revive${r.revives === 1 ? '' : 's'}`);
+  if (r.hell) return r.win ? `${we} got through all of hell in Project: Run Kitty Run (${mode})! 🔥🐱 ${bits.join(' · ')}. Can you? ${LINK}`
+    : `${we} reached hell level ${r.level} (${Math.floor((r.far || 0) * 100)}%) in Project: Run Kitty Run (${mode}) 🔥🐱 ${bits.join(' · ')}. Can you get further? ${LINK}`;
   if (r.win && (r.mode || 'mixed') === 'mixed') return `${we} beat Project: Run Kitty Run: cleared the Run + Skate mode. Legend! 🐱👑 ${bits.join(' · ')}. Can you escape too? ${LINK}`;
   return r.win
     ? `${we} cleared the ${CLEARED[r.mode] || CLEARED.mixed} mode in Project: Run Kitty Run! 🐱👑 ${bits.join(' · ')}. Can you escape too? ${LINK}`
@@ -113,10 +116,11 @@ function drawCard(r) {
   if (name) outlined(g, name, S / 2, 600, fit(g, name, 58, 760), hex(r.color), '#1c0c34', 0.18);
   // the headline: escaped, or how far
   const legend = r.win && (r.mode || 'mixed') === 'mixed';
-  const head = legend ? 'LEGEND' : r.win ? 'ESCAPED!' : `LEVEL ${r.level}`;
+  const head = r.hell ? (r.win ? 'ESCAPED HELL!' : `HELL ${r.level}`) : legend ? 'LEGEND' : r.win ? 'ESCAPED!' : `LEVEL ${r.level}`;
   outlined(g, head, S / 2, 735, 150, '#fff6d8', '#3a1650', 0.18);
   g.font = `800 44px ${FONT}`; g.fillStyle = 'rgba(239,231,255,.85)';
-  g.fillText(r.win ? `cleared the ${CLEARED[r.mode] || CLEARED.mixed} mode`
+  g.fillText(r.hell ? `${r.win ? 'all of it' : Math.floor((r.far || 0) * 100) + '% of the way'} · ${MODE_NAMES[r.mode] || MODE_NAMES.mixed}`
+    : r.win ? `cleared the ${CLEARED[r.mode] || CLEARED.mixed} mode`
     : 'reached · ' + (MODE_NAMES[r.mode] || MODE_NAMES.mixed) + (r.team > 1 ? ` · ${r.team} kitties` : ''), S / 2, 800);
   // stat pills: time, crowns, revives
   const pills = [['⏱', clock(r.time), 'time'], ['👑', String(r.crowns | 0), 'crowns'], ['🩹', String(r.revives | 0), 'revives']];

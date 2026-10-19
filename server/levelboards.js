@@ -9,13 +9,28 @@
 // group you're in (a name and a join code; anyone with the code can join, except players its owner removed). A group can
 // be a fresh start: its board then only counts times set since it was made (or its owner restarted it), so friends can
 // race from zero. No rewards come from these boards.
+// Hell (config.js HELL_LEVELS) has a board too, per source, mode (Run only / Skate only) and size: how far a game got
+// (the level, then how far along its map: the higher the better), every player keeping their best, with the game's
+// total time: the same level and the same way along it, the quicker game first.
 // Players are hashes of their account / browser ids (an account's own browser's times move to the account when it
 // signs in), never sent anywhere; their friend ids (also hashes) are kept to find friends' times.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { HELL_LEVELS, HELL_MODES } from '../public/js/shared/config.js';
 
 const MODES = ['mixed', 'run', 'ice'];
 const LEVELS = 9, SECRET_LEVEL = 9;
+const HELL = 'h';   // a hell board's level
+// a hell result as one number (the higher the better): level * 1001 + how far along its map (thousandths, 0..1000)
+const hellScore = (level, far) => level * 1001 + Math.max(0, Math.min(1000, Math.round(far * 1000)));
+const isHellKey = (bk) => bk.split(':')[2] === HELL;
+// a board's order: fastest first, or (hell) furthest first, then the quickest game; ties: whoever got there first.
+// Rows: [player key, time / score, at, team, (hell) the game's total time]
+const doneT = (r) => (r[4] > 0 ? r[4] : Infinity);
+const cmpOf = (bk) => (isHellKey(bk) ? (x, y) => y[1] - x[1] || doneT(x) - doneT(y) || x[2] - y[2] : (x, y) => x[1] - y[1] || x[2] - y[2]);
+const betterOn = (bk, a, b) => (isHellKey(bk) ? a > b : a < b);
+// a hell entry [score, at, team, total time?] better than another (the same score: the quicker total time; none: last)
+const hellBetter = (a, b) => !b || a[0] > b[0] || (a[0] === b[0] && (a[3] > 0 ? a[3] : Infinity) < (b[3] > 0 ? b[3] : Infinity));
 const SHOW = 100;                       // a board's top list
 const MIN_S = 5, MAX_S = 4 * 3600;      // a level's clear time (seconds)
 const FRIENDS_MAX = 50;                 // fids a friends board looks at (the client keeps up to 50 starred friends)
@@ -33,6 +48,7 @@ const PID = /^[a-z0-9]{24,40}$/;
 const boardKey = (b) => (b.local ? 'l' : 'o') + (b.easy ? 'e' : 'n') + ':' + b.mode + ':' + b.level + ':' + (b.team ? 't' : 's');
 function parseBoard(b) {
   if (!b || typeof b !== 'object' || !MODES.includes(b.mode)) return null;
+  if (b.level === HELL) return HELL_MODES.includes(b.mode) ? { local: !!b.local, easy: false, mode: b.mode, level: HELL, team: !!b.team } : null;
   const level = Number(b.level);
   if (!Number.isInteger(level) || level < 1 || level > LEVELS) return null;
   return { local: !!b.local, easy: !!b.easy, mode: b.mode, level, team: !!b.team };
@@ -88,7 +104,7 @@ function createLevelBoards(file) {
     const pk = pid && 'p' + hash('p:' + pid), g = pk && players[pk];
     if (!g) return;
     const a = (players[key] ||= { n: g.n, c: g.c, f: [], b: {}, at: g.at });
-    for (const [bk, v] of Object.entries(g.b || {})) if (!a.b[bk] || v[0] < a.b[bk][0]) { a.b[bk] = v; tops.delete(bk); }
+    for (const [bk, v] of Object.entries(g.b || {})) if (!a.b[bk] || (isHellKey(bk) ? hellBetter(v, a.b[bk]) : betterOn(bk, v[0], a.b[bk][0]))) { a.b[bk] = v; tops.delete(bk); }
     if (g.r9) a.r9 = 1;
     for (const f of g.f || []) addFid(a, f);
     for (const gr of Object.values(groups)) {
@@ -96,7 +112,7 @@ function createLevelBoards(file) {
       if (i >= 0) { if (gr.m.includes(key)) gr.m.splice(i, 1); else gr.m[i] = key; }
       if (gr.owner === pk) gr.owner = key;
       if (gr.out) gr.out = gr.out.map((k) => (k === pk ? key : k));
-      if (gr.b) for (const t of Object.values(gr.b)) if (t[pk]) { if (!t[key] || t[pk][0] < t[key][0]) t[key] = t[pk]; delete t[pk]; }
+      if (gr.b) for (const [bk, t] of Object.entries(gr.b)) if (t[pk]) { if (!t[key] || (isHellKey(bk) ? hellBetter(t[pk], t[key]) : betterOn(bk, t[pk][0], t[key][0]))) t[key] = t[pk]; delete t[pk]; }
     }
     delete players[pk];
     changed();
@@ -127,8 +143,34 @@ function createLevelBoards(file) {
     return { key, p };
   }
 
+  // a hell game's end (game over, or its last level won): ev = { local, mode, level, far (0..1), team (players in the
+  // game) }; true when it's a new best
+  function recordHell(who, ev) {
+    const b = parseBoard({ local: !!(ev && ev.local), mode: ev && ev.mode, level: HELL, team: !!(ev && ev.team > 1) });
+    const level = Number(ev && ev.level), far = Number(ev && ev.far);
+    if (!b || !Number.isInteger(level) || level < 1 || level > HELL_LEVELS || !(far >= 0 && far <= 1)) return false;
+    const me = playerOf(who, true);
+    if (!me) return false;
+    const { key, p } = me, score = hellScore(level, far), team = Math.max(1, Math.min(99, ev.team | 0 || 1));
+    // the game's total time (seconds; at least a few per level cleared)
+    const t = Number(ev.time);
+    const time = t >= Math.max(1, (level - 1 + (far >= 1 ? 1 : 0)) * MIN_S) && t <= 1000 * 3600 ? round1(t) : 0;
+    const entry = [score, Date.now(), team, ...(time ? [time] : [])];
+    const bk = boardKey(b), had = p.b[bk];
+    changed();
+    for (const g of Object.values(groups)) {
+      if (!g.fresh || !g.m.includes(key)) continue;
+      const gb = (g.b ||= {})[bk] ||= {};
+      if (hellBetter(entry, gb[key])) gb[key] = entry;
+    }
+    if (!hellBetter(entry, had)) return false;
+    p.b[bk] = entry;
+    tops.delete(bk);
+    return true;
+  }
   // a cleared level: ev = { local, easy, mode, level, time (s), team (players in the game) }; true when it's a new best
   function record(who, ev) {
+    if (ev && ev.level === HELL) return false;
     const b = parseBoard({ ...ev, team: ev && ev.team > 1 });
     const time = +(ev && ev.time);
     if (!b || !(time >= MIN_S && time <= MAX_S)) return false;
@@ -164,8 +206,8 @@ function createLevelBoards(file) {
     let L = tops.get(bk);
     if (L) return L;
     L = [];
-    for (const [k, p] of Object.entries(players)) { const v = p.b && p.b[bk]; if (v) L.push([k, v[0], v[1], v[2]]); }
-    L.sort((x, y) => x[1] - y[1] || x[2] - y[2]);
+    for (const [k, p] of Object.entries(players)) { const v = p.b && p.b[bk]; if (v) L.push([k, v[0], v[1], v[2], v[3]]); }
+    L.sort(cmpOf(bk));
     tops.set(bk, L);
     return L;
   }
@@ -175,7 +217,7 @@ function createLevelBoards(file) {
   const acctKey = (sub) => 'a' + hash('a:' + sub);
   const row = (r, me) => {
     const p = players[r[0]], paid = r[0][0] === 'a' ? paidOf(r[0]) : 0;
-    return { name: p.n, color: p.c, time: r[1], at: new Date(r[2]).toISOString(), team: r[3], ...(paid ? { paid } : {}), ...(r[0] === me ? { me: true } : {}) };
+    return { name: p.n, color: p.c, time: r[1], at: new Date(r[2]).toISOString(), team: r[3], ...(r[4] > 0 ? { total: r[4] } : {}), ...(paid ? { paid } : {}), ...(r[0] === me ? { me: true } : {}) };
   };
 
   // a board: q = { board: { local, easy, mode, level, team }, scope: 'all' | 'friends' | 'group', fids: [...], group: id }
@@ -199,15 +241,15 @@ function createLevelBoards(file) {
       if (!g || !key || !g.m.includes(key)) return { ...out, err: 'You are not in that group.' };
       const m = new Set(g.m);
       if (g.fresh) {   // (its own times, since its start)
-        L = Object.entries((g.b && g.b[bk]) || {}).filter(([k]) => m.has(k) && players[k]).map(([k, v]) => [k, v[0], v[1], v[2]]);
-        L.sort((x, y) => x[1] - y[1] || x[2] - y[2]);
+        L = Object.entries((g.b && g.b[bk]) || {}).filter(([k]) => m.has(k) && players[k]).map(([k, v]) => [k, v[0], v[1], v[2], v[3]]);
+        L.sort(cmpOf(bk));
       } else L = L.filter((r) => m.has(r[0]));
     }
     const at = key ? L.findIndex((r) => r[0] === key) : -1;
     return {
       ...out, board: b, scope, ...(scope === 'group' ? { group: q.group } : {}),
       rows: L.slice(0, SHOW).map((r) => row(r, key)), n: L.length,
-      me: at >= 0 ? { rank: at + 1, time: L[at][1] } : null,
+      me: at >= 0 ? { rank: at + 1, time: L[at][1], ...(L[at][4] > 0 ? { total: L[at][4] } : {}) } : null,
     };
   }
 
@@ -290,7 +332,7 @@ function createLevelBoards(file) {
     return {};
   }
 
-  return { setPaid, setReachedBefore, acctKey, record, reach, can9, query, groupsOf, createGroup, joinGroup, leaveGroup, removeMember, restartGroup, flush, keyOf, boardKey, MIN_S, MAX_S, SECRET_LEVEL, LEVELS };
+  return { setPaid, setReachedBefore, acctKey, record, recordHell, reach, can9, query, groupsOf, createGroup, joinGroup, leaveGroup, removeMember, restartGroup, flush, keyOf, boardKey, MIN_S, MAX_S, SECRET_LEVEL, LEVELS, HELL };
 }
 
-export { createLevelBoards, parseBoard };
+export { createLevelBoards, parseBoard, hellScore };

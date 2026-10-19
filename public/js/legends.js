@@ -73,6 +73,8 @@ const CSS = `
 .rkg-lv b{font-size:11px;letter-spacing:.08em;opacity:.7;margin-right:2px;}
 .rkg-lv button{font:inherit;font-weight:900;font-size:13px;cursor:pointer;color:#fff6d8;width:30px;height:28px;border-radius:9px;border:2px solid rgba(255,255,255,.22);background:rgba(20,8,48,.55);}
 .rkg-lv button.rkg-on{border-color:#ffcf5a;background:rgba(255,207,90,.25);}
+.rkg-lv button.rkg-hell{width:auto;padding:0 8px;color:#ffb3a0;}
+.rkg-lv button.rkg-hell.rkg-on{border-color:#ff6a3d;background:rgba(255,80,40,.28);color:#ffe2d8;}
 .rkg-lrow{display:flex;gap:10px;align-items:center;padding:7px 12px;border-radius:12px;background:rgba(0,0,0,.24);border:2px solid rgba(255,255,255,.1);}
 .rkg-lrow.rkg-mine{border-color:rgba(255,215,100,.8);background:rgba(255,210,80,.1);}
 .rkg-lrow .rkg-no{min-width:34px;}
@@ -132,10 +134,18 @@ function fmtDate(iso) {
 // onOpenChange(open): the board opened / closed
 // friends(): the friend ids of the players starred in the recent players list (main.js); who(): { pid, acct } (this
 // browser's progress id, the swag account's session token): whose times and groups
+// a hell board's score (server/levelboards.js hellScore): level * 1001 + thousandths of the map -> "Level 12 · 34%"
+// with the game's total time (seconds): "Level 12 · 34% · 41:20", or through all of it (100%): "ESCAPED · 3:05:12"
+const fmtLong = (t) => { t = Math.floor(t); return (t >= 3600 ? Math.floor(t / 3600) + ':' + String(Math.floor(t / 60) % 60).padStart(2, '0') : Math.floor(t / 60)) + ':' + String(t % 60).padStart(2, '0'); };
+const fmtHell = (s, total) => {
+  s = Math.max(0, Math.round(s || 0));
+  const time = total > 0 ? ' · ' + fmtLong(total) : '';
+  return s % 1001 === 1000 ? 'ESCAPED' + time : 'Level ' + Math.floor(s / 1001) + ' · ' + Math.floor((s % 1001) / 10) + '%' + time;
+};
 const fmtLevel = (t) => { t = Math.max(0, Math.round((t || 0) * 10)) / 10; const m = Math.floor(t / 60); return m + ':' + (t - m * 60).toFixed(1).padStart(4, '0'); };
 const LEVELS = 8, SECRET = 9;
 
-function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends, who }) {
+function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends, who, hellOpen }) {
   const st = document.createElement('style');
   st.textContent = CSS;
   document.head.appendChild(st);
@@ -199,11 +209,15 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
     return j;
   }
   const lvKey = () => JSON.stringify([tab, lv.level, lv.easy, lv.team, lv.local, lv.scope, lv.group]);
+  // the hell board shows in Run only and Skate only, for a player with hell open there (another mode: back to level 1)
+  const hellBoard = () => (tab === 'run' || tab === 'ice') && !!(hellOpen && hellOpen(tab));
+  const fixHell = () => { if (lv.level === 'h' && !hellBoard()) lv.level = 1; };
   function askLevels() {
+    fixHell();
     lvErr = '';
     lvAsked = lvKey();
     const fids = lv.scope === 'friends' ? (friends ? friends() : []) : undefined;
-    levelsApi({ op: 'board', id: ++lvSeq, board: { mode: tab, level: lv.level, easy: lv.easy, team: lv.team, local: lv.local }, scope: lv.scope, fids, group: lv.group })
+    levelsApi({ op: 'board', id: ++lvSeq, board: { mode: tab, level: lv.level, easy: lv.easy && lv.level !== 'h', team: lv.team, local: lv.local }, scope: lv.scope, fids, group: lv.group })
       .then(onLevels)
       .catch((err) => { lvErr = err.message || 'The level times are out of reach right now (no connection?).'; render(); });
   }
@@ -521,9 +535,15 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
       b.addEventListener('click', pick(() => { lv.level = n; }));
       lvRow.appendChild(b);
     }
+    // hell's board (Run only / Skate only, once hell is open there): how far each player got
+    if (hellBoard()) {
+      const b = el('button', 'rkg-hell' + (lv.level === 'h' ? ' rkg-on' : ''), 'HELL');
+      b.addEventListener('click', pick(() => { lv.level = 'h'; }));
+      lvRow.appendChild(b);
+    }
     const segs = el('div', 'rkg-segs');
-    segs.append(seg('NORMAL', 'EASY', lv.easy, pick(() => { lv.easy = !lv.easy; })),
-      seg('SOLO', 'TEAM', lv.team, pick(() => { lv.team = !lv.team; })),
+    if (lv.level !== 'h') segs.append(seg('NORMAL', 'EASY', lv.easy, pick(() => { lv.easy = !lv.easy; })));
+    segs.append(seg('SOLO', 'TEAM', lv.team, pick(() => { lv.team = !lv.team; })),
       seg('ONLINE', 'LOCAL', lv.local, pick(() => { lv.local = !lv.local; })));
     const scopes = el('div', 'rkg-segs');
     const sc = el('div', 'rkg-seg');
@@ -607,20 +627,22 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
     if (lv.groupsOpen) { renderGroups(list); return; }
     if (!lvData || lvAsked !== lvKey()) { list.appendChild(el('div', 'rkg-empty', lvErr || 'Timing the kitties…')); return; }
     const rows = lvData.rows || [];
+    const hell = lv.level === 'h', fmt = hell ? fmtHell : fmtLevel, icon = hell ? '🔥 ' : '⏱ ';
     if (!rows.length) {
       const fr = lv.scope === 'friends' && !(friends && friends().length);
       list.appendChild(el('div', 'rkg-empty', fr ? 'Star players in your recent players list (in a Multiplayer lobby) to race their times here.'
-        : lv.scope === 'friends' ? 'None of your friends has a time on this board yet.' : 'No times on this board yet. Clear the level to set the first one!'));
+        : lv.scope === 'friends' ? `None of your friends has ${hell ? 'been to hell' : 'a time'} on this board yet.`
+        : hell ? 'Nobody has been to hell on this board yet. How far can you get?' : 'No times on this board yet. Clear the level to set the first one!'));
       return;
     }
     rows.forEach((r, i) => {
       const row = el('div', 'rkg-lrow' + (r.me ? ' rkg-mine' : ''));
       row.append(el('span', 'rkg-no', '#' + (i + 1)), nameEl(r));
       if (lv.team && r.team > 1) row.appendChild(el('span', 'rkg-d', r.team + ' kitties'));
-      row.append(el('span', 'rkg-t', '⏱ ' + fmtLevel(r.time)), el('span', 'rkg-d', fmtDate(r.at)));
+      row.append(el('span', 'rkg-t', icon + fmt(r.time, r.total)), el('span', 'rkg-d', fmtDate(r.at)));
       list.appendChild(row);
     });
-    if (lvData.me && !rows.some((r) => r.me)) list.appendChild(el('div', 'rkg-you2', 'You: #' + lvData.me.rank + ' · ⏱ ' + fmtLevel(lvData.me.time)));
+    if (lvData.me && !rows.some((r) => r.me)) list.appendChild(el('div', 'rkg-you2', 'You: #' + lvData.me.rank + ' · ' + icon + fmt(lvData.me.time, lvData.me.total)));
   }
   function render() {
     if (!refs) return;

@@ -13,8 +13,9 @@ const MODES = [
   { id: 'run', label: 'Run only', tip: 'Run only (no ice); Get through 8 levels of the labyrinth.' },
   { id: 'ice', label: 'Skate only', tip: 'Ice only (no run); Get through 8 levels of the labyrinth.' },
 ];
-const modeLabel = (id, easy) => (MODES.find((m) => m.id === id) || MODES[0]).label + (easy ? ' (easy)' : '');
+const modeLabel = (id, easy, hell) => (MODES.find((m) => m.id === id) || MODES[0]).label + (hell ? ' (hell)' : easy ? ' (easy)' : '');
 const EASY_TIP = 'Easy: when everyone is down, the level starts over instead of the game being over. Easy games have their own rewards.';
+const HELL_TIP = 'Hell: a new final run every level, up to 100 levels. How far can you get?';
 const MAX_KITTIES = 32;   // a lobby's player cap (NET.MAX_PLAYERS)
 const PLAT = { ios: ['🍎', 'iPhone / iPad app'], android: ['🤖', 'Android app'], web: ['🌐', 'Browser'] };
 
@@ -148,11 +149,15 @@ const CSS = `
 .rkl-mode.rkl-on{background:rgba(255,207,90,.2);border-color:#ffcf5a;color:#fff6d8;}
 .rkl-mode.rkl-on::before{background:#ffcf5a;border-color:#fff6d8;}
 .rkl-mode:focus:not(:focus-visible){outline:none;}
+.rkl-mode[hidden]{display:none;}
 .rkl-modetip{font-size:12px;font-weight:700;opacity:.7;line-height:1.3;min-height:31px;}
 .rkl-diff{display:flex;gap:6px;margin-top:6px;}
 .rkl-diff .rkl-mode{flex:1 1 0;justify-content:center;min-height:34px;}
 .rkl-diff .rkl-mode.rkl-on{background:rgba(120,220,150,.22);border-color:#7fe0a0;color:#e6ffee;}
 .rkl-diff .rkl-mode.rkl-on::before{background:#7fe0a0;border-color:#e6ffee;}
+.rkl-diff .rkl-mode.rkl-hell{color:#ffb3a0;}
+.rkl-diff .rkl-mode.rkl-hell.rkl-on{background:rgba(255,80,40,.25);border-color:#ff6a3d;color:#ffe2d8;}
+.rkl-diff .rkl-mode.rkl-hell.rkl-on::before{background:#ff6a3d;border-color:#ffe2d8;}
 .rkl-opt{display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px;min-height:36px;}
 .rkl-optlab{white-space:nowrap;}
 .rkl-step{width:32px;height:32px;padding:0;border-radius:10px;cursor:pointer;font:inherit;font-weight:900;font-size:18px;color:#fff;background:rgba(255,255,255,.1);border:2px solid rgba(255,255,255,.22);}
@@ -230,6 +235,10 @@ function createLobbyUI(root, cb) {
   // normal or easy (remembered like the mode)
   function savedEasy() { try { return localStorage.getItem('rkr-easy') === '1'; } catch { return false; } }
   function saveEasy(v) { try { localStorage.setItem('rkr-easy', v ? '1' : '0'); } catch { /* ignore */ } }
+  // hell picked (Run only / Skate only, once it is open there: cb.hellOpen(mode)); remembered like easy
+  function savedHell() { try { return localStorage.getItem('rkr-hell') === '1'; } catch { return false; } }
+  function saveHell(v) { try { localStorage.setItem('rkr-hell', v ? '1' : '0'); } catch { /* ignore */ } }
+  const hellAvail = (mode) => (mode === 'run' || mode === 'ice') && !!(cb.hellOpen && cb.hellOpen(mode));   // (no Run + Skate hell)
 
   function mount(inner, boxCls = '', ovCls = '') {
     clearInterval(refreshT);
@@ -256,10 +265,11 @@ function createLobbyUI(root, cb) {
     else cb.onBack();
   });
 
-  // The game mode as a list of radio buttons + a one-line tip, and under it NORMAL / EASY; the choices are remembered
-  // (savedMode, savedEasy). modes: the element to show (both rows).
+  // The game mode as a list of radio buttons + a one-line tip, and under it NORMAL / EASY (/ HELL, in a mode where it's
+  // open); the choices are remembered (savedMode, savedEasy, savedHell). modes: the element to show (both rows).
   function modePicker(initial) {
-    let mode = initial, easy = savedEasy();
+    let mode = initial, easy = savedEasy(), hell = savedHell();
+    const isHell = () => hell && hellAvail(mode);
     const box = el('div', 'rkl-modebox');
     const diff = el('div', 'rkl-diff');
     diff.setAttribute('role', 'radiogroup');
@@ -272,12 +282,14 @@ function createLobbyUI(root, cb) {
         b.classList.toggle('rkl-on', on);
         b.setAttribute('aria-checked', String(on));
       }
+      const h = isHell();
       for (const b of diff.children) {
-        const on = (b.dataset.easy === '1') === easy;
+        if (b.dataset.easy === 'h') b.hidden = !hellAvail(mode);
+        const on = b.dataset.easy === 'h' ? h : !h && (b.dataset.easy === '1') === easy;
         b.classList.toggle('rkl-on', on);
         b.setAttribute('aria-checked', String(on));
       }
-      tip.textContent = tip.title = easy ? EASY_TIP : MODES.find((m) => m.id === mode).tip;
+      tip.textContent = tip.title = h ? HELL_TIP : easy ? EASY_TIP : MODES.find((m) => m.id === mode).tip;
     };
     const set = (id) => { mode = id; saveMode(mode); paint(); };
     for (const m of MODES) {
@@ -289,18 +301,22 @@ function createLobbyUI(root, cb) {
       b.addEventListener('click', () => set(m.id));
       modes.appendChild(b);
     }
-    for (const [v, label] of [['0', 'Normal'], ['1', 'Easy']]) {
-      const b = el('button', 'rkl-mode');
+    for (const [v, label] of [['0', 'Normal'], ['1', 'Easy'], ['h', 'Hell']]) {
+      const b = el('button', 'rkl-mode' + (v === 'h' ? ' rkl-hell' : ''));
       b.type = 'button';
       b.setAttribute('role', 'radio');
       b.textContent = label;
       b.dataset.easy = v;
-      b.addEventListener('click', () => { easy = v === '1'; saveEasy(easy); paint(); });
+      b.addEventListener('click', () => {
+        hell = v === 'h'; saveHell(hell);
+        if (!hell) { easy = v === '1'; saveEasy(easy); }
+        paint();
+      });
       diff.appendChild(b);
     }
     box.append(modes, diff);
     paint();
-    return { modes: box, tip, get: () => mode, easy: () => easy };
+    return { modes: box, tip, get: () => mode, easy: () => easy && !isHell(), hell: isHell, repaint: paint };
   }
 
   // A kitty's row: its colour as a cat, name box (saved under nameKey as you type) + random name, colour swatches
@@ -389,7 +405,7 @@ function createLobbyUI(root, cb) {
       taken: () => prefColor(), onColor: refreshAll }));
     const mp = modePicker(forced || savedMode());   // the same memory as online: the last mode picked anywhere
     const start = el('button', 'rkr-btn rkl-create', '<span>START</span>');
-    const go = () => { const names = rows.map((r) => r.getName()); hide(); onStart({ mode: mp.get(), names, players: n, easy: mp.easy() }); };
+    const go = () => { const names = rows.map((r) => r.getName()); hide(); onStart({ mode: mp.get(), names, players: n, easy: mp.easy(), hell: mp.hell() }); };
     start.addEventListener('click', go);
     const col = el('div', 'rkl-col rkl-localcol');
     col.append(el('div', 'rkl-ctitle', 'Mode'), mp.modes, mp.tip, start);
@@ -490,7 +506,7 @@ function createLobbyUI(root, cb) {
       lastAct = 'create';
       const password = priv.checked ? privPass.value.trim() : '';
       if (priv.checked && !password) { createErr.textContent = 'Pick a password for your private lobby.'; privPass.focus(); return; }
-      cb.onCreate(getName(), mp.get(), { max, password, easy: mp.easy() });
+      cb.onCreate(getName(), mp.get(), { max, password, easy: mp.easy(), hell: mp.hell() });
     });
     const newCol = el('div', 'rkl-col rkl-newcol');
     newCol.append(el('div', 'rkl-ctitle', 'Start your own'), mp.modes, mp.tip, sizeRow, privRow, create, createErr);
@@ -549,8 +565,8 @@ function createLobbyUI(root, cb) {
       const set = (e, v) => { if (e.textContent !== v) e.textContent = v; };
       r.locked = !!l.locked;
       set(r.hh, `${l.locked ? '🔒 ' : ''}${l.host}'s lobby`);
-      set(r.sub, playing ? `${modeLabel(l.mode, l.easy)} · playing level ${l.level} · ${l.players}/${l.max}`
-        : `${modeLabel(l.mode, l.easy)} · waiting · ${l.players}/${l.max}`);
+      set(r.sub, playing ? `${modeLabel(l.mode, l.easy, l.hell)} · playing level ${l.level} · ${l.players}/${l.max}`
+        : `${modeLabel(l.mode, l.easy, l.hell)} · waiting · ${l.players}/${l.max}`);
       set(r.btn, full ? 'FULL' : playing ? 'HOP IN' : 'JOIN');
       r.row.title = `Code ${l.code}`;
       r.btn.disabled = full;
@@ -630,7 +646,7 @@ function createLobbyUI(root, cb) {
     }
     const r = roomRefs;
     r.code.textContent = info.code;
-    r.roomMode.textContent = `Mode: ${modeLabel(info.mode, info.easy)} · up to ${info.max || MAX_KITTIES} kitties` + (info.locked ? ` · 🔒 private, password: ${info.pass || '?'}` : '');
+    r.roomMode.textContent = `Mode: ${modeLabel(info.mode, info.easy, info.hell)} · up to ${info.max || MAX_KITTIES} kitties` + (info.locked ? ` · 🔒 private, password: ${info.pass || '?'}` : '');
     r.pass = info.locked ? info.pass || '' : '';
     r.link.textContent = inviteUrl(info.code, r.pass);
     r.slots.textContent = '';

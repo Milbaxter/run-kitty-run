@@ -180,8 +180,6 @@ const CSS = `
   background:linear-gradient(180deg,#ffcf5a,#ff8a3d);color:#4a1d06;border:3px solid #4a1d06;
   box-shadow:0 4px 0 #4a1d06,0 8px 18px rgba(0,0,0,.35);text-shadow:0 1px 0 rgba(255,255,255,.55);}
 .rkr-level small{font-size:13px;margin-right:4px;opacity:.8;}
-.rkr-level em{font-style:normal;font-size:14px;margin-left:6px;opacity:.85;font-variant-numeric:tabular-nums;}
-.rkr-level em:empty{display:none;}
 .rkr-level.rkr-pop{animation:rkr-pop .5s cubic-bezier(.2,1.6,.4,1);}
 .rkr-timer{display:flex;align-items:center;gap:6px;padding:4px 12px;border-radius:14px;font-weight:800;font-size:18px;
   background:rgba(20,10,40,.55);border:2px solid rgba(255,255,255,.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
@@ -650,8 +648,8 @@ function createUI(root) {
   const hud = el('div', 'rkr-hud rkr-off');
   const tl = el('div', 'rkr-tl');
   const lvlRow = el('div', 'rkr-lvlrow');
-  const levelEl = el('div', 'rkr-level', '<small>LEVEL</small><span>1</span><em></em>');
-  const levelNum = levelEl.querySelector('span'), levelTag = levelEl.querySelector('small'), levelFar = levelEl.querySelector('em');
+  const levelEl = el('div', 'rkr-level', '<small>LEVEL</small><span>1</span>');
+  const levelNum = levelEl.querySelector('span'), levelTag = levelEl.querySelector('small');
   const timerEl = el('div', 'rkr-timer', ICONS.clock + '<span>0:00</span>');
   const timerTxt = timerEl.querySelector('span');
   lvlRow.append(levelEl, timerEl);
@@ -930,9 +928,9 @@ function createUI(root) {
       levelNum.textContent = d.level;
       if (changed) restartAnim(levelEl, 'rkr-pop');
     }
-    // hell: HELL n and how far along the map the team has got
-    const far = d.far == null ? '' : d.far + '%';
-    if (far !== H.far) { H.far = far; levelFar.textContent = far; levelTag.textContent = d.far == null ? 'LEVEL' : 'HELL'; }
+    // hell: HELL n
+    const tag = d.tag || 'LEVEL';
+    if (tag !== H.tag) { H.tag = tag; levelTag.textContent = tag; }
     const ts = Math.floor(d.time || 0);
     if (ts !== H.timeSec) { H.timeSec = ts; timerTxt.textContent = fmtTime(ts); }
 

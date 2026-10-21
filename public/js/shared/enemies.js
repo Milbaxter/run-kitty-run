@@ -319,7 +319,7 @@ function stepEnemy(e, dt) {
 //   speed: cruise speed (units/s);  phase: 0..1 offset into the cycle (same phase = same timing)
 //   rIn/rOut/a0/a1: bounding box of the route (kept for bounds checks / selftest)
 // Public extras on the enemy: e.route (the spec route), e.cycleT (cycle length, s), e.cycleU (0..1 now).
-// No tell: a pattern wolf turns round at the end of a run without warning.
+// The sim gives no tell; turnIn tells the client how soon a wolf turns round (main.js shows it).
 
 function isPattern(spec) { return !!(spec && Array.isArray(spec.route) && spec.route.length >= 2); }
 
@@ -364,6 +364,43 @@ function patternPose(plan, tc) {
   const d = profileS(u, s.T, s.L, plan.speed);
   const q = s.L > 0 ? clamp(d / s.L, 0, 1) : 1;
   return { r: s.r0 + (s.r1 - s.r0) * q, th: s.th0 + (s.th1 - s.th0) * q, heading: s.dir, speed: profileV(u, s.T, s.L, plan.speed) };
+}
+
+// A pattern wolf's next turn round (its next run heading back the other way): seconds until it starts it, or
+// Infinity (not a pattern wolf). Runs that go on in about the same direction don't count (a bend, not a turn).
+function turnIn(e) {
+  const plan = e && e._plan;
+  if (!plan) return Infinity;
+  const segs = plan.segs, tc = e._st.time;
+  let i = segs.length - 1;
+  for (let k = 0; k < segs.length; k++) { if (tc < segs[k].tStart + segs[k].T) { i = k; break; } }
+  let left = segs[i].tStart + segs[i].T - tc;
+  for (let k = 1; k <= segs.length; k++) {
+    const s = segs[(i + k) % segs.length];
+    if (s.L <= 1e-5) { left += s.T; continue; }
+    let d = Math.abs(s.dir - segs[i].dir) % (2 * Math.PI);
+    if (d > Math.PI) d = 2 * Math.PI - d;
+    return d > 2.3 ? left : Infinity;
+  }
+  return Infinity;
+}
+
+// ...and its last one: seconds since it set off back the other way (Infinity: its run isn't one back from a turn)
+function turnedAgo(e) {
+  const plan = e && e._plan;
+  if (!plan) return Infinity;
+  const segs = plan.segs, tc = e._st.time;
+  let i = segs.length - 1;
+  for (let k = 0; k < segs.length; k++) { if (tc < segs[k].tStart + segs[k].T) { i = k; break; } }
+  let ago = tc - segs[i].tStart;
+  for (let k = 1; k <= segs.length; k++) {
+    const s = segs[(i - k + segs.length) % segs.length];
+    if (s.L <= 1e-5) { ago += s.T; continue; }
+    let d = Math.abs(s.dir - segs[i].dir) % (2 * Math.PI);
+    if (d > Math.PI) d = 2 * Math.PI - d;
+    return d > 2.3 ? ago : Infinity;
+  }
+  return Infinity;
 }
 
 function poseEnemy(e) {
@@ -452,4 +489,4 @@ function applyEnemyState(enemies, data) {
   }
 }
 
-export { createEnemies, updateEnemies, nearestEnemyDist, serializeEnemies, applyEnemyState, isPattern, patternPose, buildPlan, patternSpeed, EASE_T };
+export { createEnemies, updateEnemies, nearestEnemyDist, serializeEnemies, applyEnemyState, isPattern, patternPose, buildPlan, patternSpeed, turnIn, turnedAgo, EASE_T };

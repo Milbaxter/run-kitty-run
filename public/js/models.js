@@ -1666,7 +1666,7 @@ function createWolfRig(type, opts) {
     }
   }
 
-  return { group, pose };
+  return { group, pose, eyeMat };
 }
 
 // ---------------------------------------------------------------------------

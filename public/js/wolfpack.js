@@ -5,7 +5,7 @@ import * as THREE from 'three';
 // by all its wolves) stay invisible proxies that are never added to the scene: main.js poses a rig for one wolf, add()
 // copies each part's world matrix (and the eye glow color) into the instanced meshes. ~11 draws per wolf become ~8 per
 // wolf type. rigs: [[rig, number of wolves using it], ...]
-const _c = new THREE.Color();
+const _c = new THREE.Color(), _m = new THREE.Matrix4();
 
 // A wolf under a tree: its shape shows through the leaves, dark with a light rim. Drawn after everything solid, only
 // where a tree covers the wolf: the tree marked the pixel (stencil 2, world.js coversWolves; a kitty or wolf in front
@@ -31,7 +31,9 @@ function xrayMaterial() {
   });
 }
 
-function createWolfPack(scene, rigs) {
+// glow: a material to draw every part with instead (a see-through layer over wolves drawn by another pack: the black
+// wolves' heat as they turn round, main.js); add(m, color) gives each wolf its own colour (black: nothing shows)
+function createWolfPack(scene, rigs, glow = null) {
   const packs = new Map();          // geometry -> { mesh, xray, n, eye, cap }
   const xrayMat = xrayMaterial();
   const cap = new Map();
@@ -45,12 +47,13 @@ function createWolfPack(scene, rigs) {
       if (!p) {
         // the eyes have a per-wolf MeshBasicMaterial (eye colour): white material * instance color instead
         // (the final run's ember cracks are unlit too: vertex colours * a white instance color)
-        const eye = o.material.isMeshBasicMaterial;
-        const mesh = new THREE.InstancedMesh(o.geometry, eye ? new THREE.MeshBasicMaterial({ vertexColors: !!o.material.vertexColors }) : o.material, cap.get(o.geometry));
-        mesh.castShadow = o.castShadow;
+        const eye = !glow && o.material.isMeshBasicMaterial;
+        const mesh = new THREE.InstancedMesh(o.geometry, glow || (eye ? new THREE.MeshBasicMaterial({ vertexColors: !!o.material.vertexColors }) : o.material), cap.get(o.geometry));
+        mesh.castShadow = !glow && o.castShadow;
         mesh.frustumCulled = false;   // wolves are already distance-culled in syncVisuals
         mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-        if (eye) {
+        if (glow) mesh.renderOrder = 2;
+        if (eye || glow) {
           mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap.get(o.geometry) * 3), 3);
           mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
         }
@@ -59,7 +62,7 @@ function createWolfPack(scene, rigs) {
         scene.add(mesh);
         // the see-through copy: the same geometry and instance matrices (the eyes and ember cracks stay hidden)
         let xray = null;
-        if (!eye) {
+        if (!eye && !glow) {
           xray = new THREE.InstancedMesh(o.geometry, xrayMat, cap.get(o.geometry));
           xray.instanceMatrix = mesh.instanceMatrix;
           xray.frustumCulled = false;
@@ -67,7 +70,7 @@ function createWolfPack(scene, rigs) {
           xray.name = 'wolfXray';
           scene.add(xray);
         }
-        p = { mesh, xray, n: 0, eye, cap: cap.get(o.geometry) };
+        p = { mesh, xray, n: 0, eye, glow: !!glow, cap: cap.get(o.geometry) };
         packs.set(o.geometry, p);
       }
       list.push([o, p]);
@@ -76,12 +79,38 @@ function createWolfPack(scene, rigs) {
   }
 
   function begin() { for (const p of packs.values()) p.n = 0; }
-  function add(m) {
+  function add(m, color) {
     m.group.updateMatrixWorld(true);  // proxy has no parent: matrixWorld = its pose in the world
     for (const [o, p] of parts.get(m)) {
       if (p.n >= p.cap) continue;
       p.mesh.setMatrixAt(p.n, o.matrixWorld);
-      if (p.eye) p.mesh.setColorAt(p.n, _c.copy(o.material.color));
+      if (p.glow) p.mesh.setColorAt(p.n, color);
+      else if (p.eye) p.mesh.setColorAt(p.n, _c.copy(o.material.color));
+      p.n++;
+    }
+  }
+  // a posed rig's part matrices (and eye colours), to stamp at many places: the wolves of a hell wave all run the same
+  // way, so one pose (a few strides) serves them all, moved (addSnap: x, y, z added to the pose's place)
+  // (into buf, kept by the caller and reused frame after frame: nothing new made each frame)
+  function snap(m, buf = []) {
+    m.group.updateMatrixWorld(true);
+    const list = parts.get(m);
+    for (let j = 0; j < list.length; j++) {
+      const [o, p] = list[j];
+      const s = buf[j] || (buf[j] = [p, new THREE.Matrix4(), p.eye ? new THREE.Color() : null]);
+      s[0] = p; s[1].copy(o.matrixWorld);
+      if (s[2]) s[2].copy(o.material.color);
+    }
+    buf.length = list.length;
+    return buf;
+  }
+  function addSnap(s, x, y, z) {
+    for (const [p, mat, col] of s) {
+      if (p.n >= p.cap) continue;
+      _m.copy(mat);
+      _m.elements[12] += x; _m.elements[13] += y; _m.elements[14] += z;
+      p.mesh.setMatrixAt(p.n, _m);
+      if (col) p.mesh.setColorAt(p.n, col);
       p.n++;
     }
   }
@@ -100,14 +129,14 @@ function createWolfPack(scene, rigs) {
   // frees the instance buffers and the eye materials; the part geometries and the shared wolf material are cached
   function dispose() {
     for (const p of packs.values()) {
-      p.mesh.removeFromParent(); p.mesh.dispose(); if (p.eye) p.mesh.material.dispose();
+      p.mesh.removeFromParent(); p.mesh.dispose(); if (p.eye) p.mesh.material.dispose();   // (a glow material is its owner's)
       if (p.xray) { p.xray.removeFromParent(); p.xray.dispose(); }
     }
     xrayMat.dispose();
     packs.clear();
     parts.clear();
   }
-  return { begin, add, end, dispose };
+  return { begin, add, snap, addSnap, end, dispose };
 }
 
 export { createWolfPack };

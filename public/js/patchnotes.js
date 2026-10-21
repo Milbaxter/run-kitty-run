@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
+      'Every level now has at least one heart among its pickups',
       'Reach the final level to unlock a new mode',
       'Zoom in closer than before (mouse wheel, the + key, a pinch or the right stick of a controller): one and a half times as close to your kitty',
       'Watch a friend while your own kitty is still standing (Multiplayer): press Tab to look at the next kitty and Space to come back. On phones, the binoculars button in the corner; with a controller, LB / RB and B. Your kitty keeps going the way it was',

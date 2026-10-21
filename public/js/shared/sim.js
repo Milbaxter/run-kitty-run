@@ -2,6 +2,7 @@ import { CFG, LATEST_FV, SKATE_FINAL_LEVEL, HELL_LEVELS, HELL_MODES, stageOf } f
 import { hashSeed } from './rng.js';
 import { generateLevel, collideCircle, inCenter, onIce, inTree, pathProgress } from './maze.js';
 import { createEnemies, updateEnemies } from './enemies.js';
+import { hellWaves, waveHit } from './waves.js';
 
 // Deterministic game simulation core. Pure: no THREE, no DOM, no Math.random, no Date.
 // stepSim is the only mutator. All state lives in the Sim object (plain data).
@@ -136,8 +137,9 @@ function makePlayer(def) {
 // skate final run. Online rooms with an older client play an older version.
 // easy: when everyone is down the level starts over (state 'retry' for CFG.RETRY_TIME, then levelStart with retry: true)
 // instead of the game being over.
-// hell: Run only / Skate only's final run over and over (config.js HELL_LEVELS; sim.level is the hell level), never easy.
-function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales = 0, easy = false, hell = false } = {}) {
+// hell: Run only / Skate only's final run over and over (config.js HELL_LEVELS; sim.level is the hell level), never easy;
+// waves: with its wolf waves (waves.js; online only when every kitty's game knows them)
+function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales = 0, easy = false, hell = false, waves = false } = {}) {
   mode = GAME_MODES.includes(mode) ? mode : 'mixed';
   hell = !!hell && HELL_MODES.includes(mode);
   const lvl = hell ? Math.max(1, Math.min(HELL_LEVELS, startLevel | 0)) : Math.max(1, startLevel | 0);
@@ -147,6 +149,7 @@ function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales
     finales: Math.max(0, Math.min(LATEST_FV, finales | 0)),
     easy: !!easy && !hell,
     hell,
+    waves: hell && !!waves,
     far: 0,
     retries: 0,     // easy: how often a level started over this run (snapshot rt: clients reload the level when it moves)
     level: lvl,
@@ -314,6 +317,7 @@ function nextLevel(sim, events) {
 // the hit check's wolf grid (stepSim): used above HIT_GRID_MIN wolves; cells HIT_CELL wide (more than a hit's reach,
 // so a kitty's own cell and its 8 neighbours hold every wolf that can touch it)
 const HIT_GRID_MIN = 64, HIT_CELL = 2;
+const WAVE_WOLF = { id: -1 };   // the wolf that caught a kitty, when it was one of a hell wave's (no id of its own)
 const hitCell = (x, z) => (Math.floor(x / HIT_CELL) + 32768) * 65536 + (Math.floor(z / HIT_CELL) + 32768);
 function stepSim(sim, inputs, dt) {
   const events = [];
@@ -556,6 +560,7 @@ function stepSim(sim, inputs, dt) {
   // the wolves around it. The wolf that catches is the same as with the plain scan: the first in the list that touches.
   let grid = null;
   const big = enemies.length > HIT_GRID_MIN;
+  const waves = hellWaves(sim);   // hell's wolf waves (waves.js): their wolves catch like any other
   for (let i = 0; i < players.length; i++) {
     const p = players[i];
     if (sim.state !== 'playing') break; // no deaths during the level-clear celebration
@@ -587,8 +592,9 @@ function stepSim(sim, inputs, dt) {
         if (dx * dx + dz * dz < hitR2) { hit = e; break; }
       }
     }
+    if (hit < 0 && waves.length && waveHit(waves, p.x, p.z, hitR2)) hit = enemies.length;   // (a wave's wolf: WAVE_WOLF)
     if (hit >= 0) {
-      const en = enemies[hit];
+      const en = enemies[hit] || WAVE_WOLF;
       if (p.lives > 0) {
         p.lives--;
         p.invuln = CFG.SPAWN_INVULN;

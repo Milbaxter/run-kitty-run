@@ -1018,6 +1018,15 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   const m17 = moving(17), m18 = moving(18);
   ok(m17 < 0.35 && m18 > 0.6, `Run only level 9 (finale version 18): the wolves are off at once (${Math.round(m18 * 100)}% moving in the first second; version 17: ${Math.round(m17 * 100)}%)`);
 }
+// finale version 19: every level has at least one heart (still at most two per half); version 18: some had none
+{
+  const count = (fv) => { let none = 0, over = 0; for (const mode of ['run', 'ice', 'mixed']) for (let seed = 1; seed <= 12; seed++) for (let step = 1; step <= (mode === 'mixed' ? 17 : 9); step++) {
+    const ld = generateLevel(step, seed * 7919, mode, fv), h = ld.items.filter((it) => it.type === 'life').length;
+    if (!h) none++; if (h > (ld.level === SKATE_FINAL_LEVEL && mode === 'mixed' ? 4 : 2)) over++;
+  } return { none, over }; };
+  const v18 = count(18), v19 = count(19);
+  ok(v18.none > 0 && v19.none === 0 && v19.over === 0, `finale version 19: every level has a heart (version 18: ${v18.none} levels without one), still at most two`);
+}
 // ======== hell: Run only's / Skate only's final run over and over, the same map, up to HELL_LEVELS
 {
   const { HELL_LEVELS } = await import('../public/js/shared/config.js');
@@ -1047,6 +1056,40 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(!s2.easy && go && go.level === 1 && Math.abs(go.far - 0.3) < 1e-9, `hell (${mode}): never easy; game over says the level and how far along it`);
   }
   ok(!createSim({ seed: 5, players: [], mode: 'mixed', hell: true }).hell, 'hell: not in Run + Skate');
+  // wolf waves (waves.js): from hell level 2 on, in a game with them; every 45 s from the goal end, a gap in each
+  {
+    const { hellWaves, waveHit } = await import('../public/js/shared/waves.js');
+    const r = CFG.KITTY_RADIUS * CFG.KITTY_HIT_SCALE + CFG.WOLF_RADIUS * CFG.WOLF_HIT_SCALE;
+    for (const mode of ['run', 'ice']) {
+      const at = (opts, s) => { const sim = createSim({ seed: 9, players: [], mode, finales: 17, hell: true, ...opts }); while (sim.enemyTicks < 60 * s) stepSim(sim, {}, 1 / 60); return sim; };
+      const sim = at({ waves: true, startLevel: 2 }, 30), w = hellWaves(sim).find((x) => x.k === 0), ld = sim.levelData;
+      let open = 0, blockedAll = true;
+      for (let z = -w.half; z <= w.half; z += 0.25) {
+        let hit = false;
+        for (let x = w.front + w.dir * 2; (x - (w.front - w.dir * (w.depth + 2))) * w.dir > 0; x -= w.dir * 0.05) if (waveHit([w], x, z, r * r)) { hit = true; break; }
+        if (!hit) open += 0.25; else if (Math.abs(z - w.gap) < 3) blockedAll = false;
+      }
+      const outsideGoal = w.wolves.every((o) => Math.abs(w.front - w.dir * o.dx) > ld.roomHalf);
+      // the level starts with waves along the run: the first reaches the start 45 s in (then sinks), one every 45 s
+      const near = (s) => hellWaves(at({ waves: true, startLevel: 2 }, s));
+      const run = Math.abs(ld.corners[0].x), at0 = near(0.5), first44 = near(44).find((x) => x.k === 0), first46 = near(46).find((x) => x.k === 0);
+      let fromGoal = false;
+      { const s = createSim({ seed: 9, players: [], mode, finales: 17, hell: true, waves: true, startLevel: 2 });
+        while (!fromGoal && s.enemyTicks < 60 * 90) { stepSim(s, {}, 1 / 60); fromGoal = s.enemyTicks > 60 * 5 && hellWaves(s).some((x) => x.charge < 1 && Math.abs(x.front) < ld.roomHalf + 6); } }
+      // never three gaps in a row in about the same spot
+      const gs = []; { const s = createSim({ seed: 9, players: [], mode, finales: 17, hell: true, waves: true, startLevel: 2 }); s.enemyTicks = 60 * 45 * 60; for (const x of hellWaves(s)) gs.push(x.gap); }
+      for (let k = 0; k < 400; k++) { const s = createSim({ seed: 9 + k, players: [], mode, finales: 17, hell: true, waves: true, startLevel: 2 }); s.enemyTicks = 30; const g = hellWaves(s).map((x) => x.gap); for (let i = 2; i < g.length; i++) if (Math.abs(g[i] - g[i - 1]) < 5 && Math.abs(g[i] - g[i - 2]) < 5) gs.push(NaN); }
+      ok(gs.length > 3 && gs.every(Number.isFinite), `hell (${mode}) wolf waves: never three gaps in a row in about the same spot`);
+      // one reaching the start every 45 s on hell 2, 35 s on hell 3, 25 s from hell 4
+      const firstAt = (lvl) => { const s = createSim({ seed: 9, players: [], mode, finales: 17, hell: true, waves: true, startLevel: lvl }); while (s.enemyTicks < 60 * 60) { stepSim(s, {}, 1 / 60); if (hellWaves(s).some((x) => x.k === 0 && x.sink > 0)) return Math.round(s.enemyTicks / 60); } return 0; };
+      ok(firstAt(2) === 45 && firstAt(3) === 35 && firstAt(4) === 25 && firstAt(5) === 15 && firstAt(6) === 8 && firstAt(9) === 8, `hell (${mode}) wolf waves: one every 45 s on hell 2, 35 s on hell 3, 25 s on hell 4, 15 s on hell 5, 8 s from hell 6`);
+      ok(w.moving && open > 6.5 && open < 9 && blockedAll && w.wolves.every((o) => Math.abs(w.front - w.dir * o.dx) > ld.roomHalf)
+        && at0.length >= 5 && at0.every((x) => x.charge < 1 && !x.moving) && first44 && first44.moving && Math.abs(first44.front) > run - 20
+        && first46 && first46.sink > 0 && !first46.moving && !near(47).some((x) => x.k === 0) && fromGoal
+        && hellWaves(at({ waves: true, startLevel: 1 }, 30)).length === 0 && hellWaves(at({ startLevel: 2 }, 30)).length === 0,
+        `hell (${mode}) wolf waves: from hell level 2 on (with waves on), spread along the run from the start (${at0.length}), the first at the start 45 s in, then sinking; new ones rise outside the goal room; a wave blocks the whole run but its gap (${open.toFixed(2)} wide)`);
+    }
+  }
   // open: level 9 reached in the mode (Run + Skate: both), or a hell level of it cleared
   ok(hellOpen({ r9: { mixed: 1 } }, 'run') && hellOpen({ r9: { mixed: 1 } }, 'ice') && hellOpen({ r9: { run: 1 } }, 'run') && !hellOpen({ r9: { run: 1 } }, 'ice')
     && hellOpen({ h1: { ice: 1 } }, 'ice') && !hellOpen({ h1: { ice: 1 } }, 'run') && !hellOpen({ l8: { run: 3 } }, 'run') && !hellOpen({}, 'run'),
@@ -1059,7 +1102,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const lb = createLevelBoards(path.join(dir, 'levels.json'));
     const who = (c) => ({ pid: c.repeat(24), name: 'K' + c, color: 1 });
     lb.recordHell(who('a'), { mode: 'run', level: 3, far: 0.2, team: 1 }); lb.recordHell(who('a'), { mode: 'run', level: 2, far: 0.9, team: 1 });
-    lb.recordHell(who('b'), { mode: 'run', level: 3, far: 0.45, team: 1 }); lb.recordHell(who('c'), { mode: 'run', level: 8, far: 0.05, team: 1 });
+    lb.recordHell(who('b'), { mode: 'run', level: 3, far: 0.45, team: 1 }); lb.recordHell(who('c'), { mode: 'run', level: 5, far: 0.05, team: 1 });
     lb.recordHell(who('d'), { mode: 'run', level: 4, far: 0.5, team: 1, local: true }); lb.recordHell(who('e'), { mode: 'mixed', level: 9, far: 0.5, team: 1 });
     lb.recordHell(who('f'), { mode: 'run', level: HELL_LEVELS + 1, far: 0, team: 1 });
     const q = lb.query(who('a'), { board: { mode: 'run', level: 'h' } });
@@ -1072,7 +1115,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     const qa = lb.query(who('h'), { board: { mode: 'ice', level: 'h' } });
     ok(qa.rows.map((r) => r.name + ':' + (r.total || 0)).join() === 'Ki:700,Kh:900,Kj:0', 'hell board: games through all of it keep their total time, the quickest first');
     // every game's total time: the same level and the same way along it, the quicker game first (and it's kept)
-    const at = (c, time) => lb.recordHell(who(c), { mode: 'run', level: 7, far: 0.5, team: 2, time });
+    const at = (c, time) => lb.recordHell(who(c), { mode: 'run', level: 5, far: 0.5, team: 2, time });
     at('k', 900); at('l', 700); at('k', 950); at('k', 650);
     const qt = lb.query(who('k'), { board: { mode: 'run', level: 'h', team: true } });
     ok(qt.rows.map((r) => r.name + ':' + r.total).join() === 'Kk:650,Kl:700', 'hell board: every game keeps its total time; the same level and progress, the quicker first');

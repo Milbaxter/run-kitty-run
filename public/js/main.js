@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET, LATEST_FV, SKATE_FINAL_LEVEL, HELL_LEVELS, stageOf, stageStep } from './shared/config.js';
 import { hashSeed } from './shared/rng.js';
 import { collideCircle, onIce, inTree, levelHash } from './shared/maze.js';
-import { updateEnemies, nearestEnemyDist, applyEnemyState } from './shared/enemies.js';
+import { updateEnemies, nearestEnemyDist, applyEnemyState, turnIn, turnedAgo } from './shared/enemies.js';
 import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
+import { hellWaves, WAVE_SPEED } from './shared/waves.js';
 import { pregenNext } from './levelpregen.js';
 import { ghostMaterial, disposeModel, createKittyModel, createWolfRig, newWolfState, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel, createChestModel } from './models.js';
 import { createWolfPack } from './wolfpack.js';
@@ -585,7 +586,7 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
 function startSim(players, startLevel, simMode = DEBUG_MODE, easy = false, hell = false) {
-  sim = createSim({ seed: newSeed(), players, startLevel: hell ? startLevel : stageStep(simMode || 'mixed', LATEST_FV, startLevel, DEBUG_NIGHT), mode: simMode, finales: LATEST_FV, easy, hell });
+  sim = createSim({ seed: newSeed(), players, startLevel: hell ? startLevel : stageStep(simMode || 'mixed', LATEST_FV, startLevel, DEBUG_NIGHT), mode: simMode, finales: LATEST_FV, easy, hell, waves: hell });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   if (DEBUG_CHEST) sim.chestAlways = true;
@@ -605,6 +606,8 @@ function clearView() {
   if (view.fish) disposeModel(view.fish.group);
   if (view.chest) disposeModel(view.chest.group);
   view.wolfPack.dispose(); // wolf models are proxy rigs outside the scene (cached geometries, no GPU state)
+  if (view.heatPack) view.heatPack.dispose();
+  if (view.waves) view.waves.pack.dispose();
   for (const it of view.items.values()) disposeModel(it.group);
   for (const c of view.circles.values()) disposeModel(c.group);
   view = null;
@@ -642,12 +645,23 @@ function buildView() {
     wolves.set(e.id, { rig: r.rig, st: newWolfState(), lastHeading: undefined });
   }
   const wolfPack = createWolfPack(scene, [...rigs.values()].map((r) => [r.rig, r.n])); // draws all wolves instanced
+  // the black wolves' heat as they turn round (syncVisuals): their parts again, glowing, for as many as can be in view
+  const ch = rigs.get('charger');
+  const heatN = ch ? Math.min(ch.n, 64) : 0;
+  const heatPack = ch && ld.finale ? createWolfPack(scene, [[ch.rig, heatN]], HEAT_MAT) : null;
+  // hell's wolf waves (shared/waves.js): their own instanced pack on one shared rig
+  let waves = null;
+  if (sim.hell && sim.waves) {
+    const rig = createWolfRig('wanderer', { level: ld.level, theme: ld.theme, finale: true, wild: true });
+    rig.group.scale.setScalar(CFG.WOLF_RADIUS / 0.55);
+    waves = { rig, pack: createWolfPack(scene, [[rig, WAVE_PACK_CAP]]), strides: [0, 1, 2, 3].map(() => newWolfState()), snaps: [[], [], [], []], warned: -1 };
+  }
   const items = new Map();
   for (const it of sim.items) if (!it.taken) items.set(it.id, itemView(it, ld));
   // the final run: a giant fish waits in the goal room for the kitties (eaten client-side, see feast())
   let fish = null;
   if (ld.finale) { fish = createGiantFishModel(); scene.add(fish.group); }
-  view = { levelData: ld, world, portal, crown, fish, chest: null, wolves, wolfPack, items, circles: new Map() };
+  view = { levelData: ld, world, portal, crown, fish, chest: null, wolves, wolfPack, heatPack, heatN, waves, items, circles: new Map() };
   prevPos.clear();
   warmShaders();
 }
@@ -771,7 +785,9 @@ function startGame(n, level = DEBUG_LEVEL) {
   // the names from the setup screen (empty: the colour's own name)
   for (let i = 0; i < n; i++) players.push({ id: i + 1, name: localSetup.names[i] || PLAYER_NAMES[slots[i]], color: PLAYER_COLORS[slots[i]] });
   removeKitties();
-  startSim(players, localSetup.hell ? 1 : level, localSetup.mode || DEBUG_MODE, !!localSetup.easy, !!localSetup.hell);
+  // (hell from level 1; local testing (localhost): ?level=2 starts a Hell game on hell level 2)
+  const hellAt = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? Math.min(HELL_LEVELS, level) : 1;
+  startSim(players, localSetup.hell ? hellAt : level, localSetup.mode || DEBUG_MODE, !!localSetup.easy, !!localSetup.hell);
   analytics.runStart(n === 1 ? 'solo' : 'coop', sim.mode || 'mixed');
   cameraSnap = true;
   // First step emits levelStart which triggers buildView.
@@ -1665,6 +1681,76 @@ function packColors(k, p) {
   return k.packCols;
 }
 const WOLF_CULL_PAD = 3;   // how far outside the view a wolf still counts (its body and shadow reach in)
+const TURN_TELL = 1.3;     // s a black (charger) wolf heats up before it turns round
+const TURN_COOL = 0.6;     // ...and cools off after it (quickly)
+const _eyeKeep = new THREE.Color(), _eyeHot = new THREE.Color(2.2, 2.2, 1.6);   // (the eyes at their hottest: white hot)
+const _heatCol = new THREE.Color();
+let nHeat = 0;
+// the heat: drawn over the wolf, adding light, strongest at its outline (a glowing rim, like embers) and faint in the
+// middle; its colour per wolf (instance colour: deep red to orange as it heats; black adds nothing)
+const HEAT_MAT = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
+  vertexShader: `varying vec3 vN; varying vec3 vV; varying vec3 vC;
+    void main() {
+      vec4 mv = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+      vN = normalMatrix * mat3(instanceMatrix) * normal; vV = -mv.xyz;
+      #ifdef USE_INSTANCING_COLOR
+        vC = instanceColor;
+      #else
+        vC = vec3(0.0);
+      #endif
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `varying vec3 vN; varying vec3 vV; varying vec3 vC;
+    void main() {
+      float rim = 1.0 - abs(dot(normalize(vN + vec3(1e-5)), normalize(vV)));
+      gl_FragColor = vec4(vC * (0.3 + 1.6 * pow(rim, 1.6)), 1.0);
+    }`,
+});
+// hell's wolf waves (shared/waves.js): the wolves of the waves on the map (those in view). A wave warming up rises out
+// of the ground where it will set off (its gap already showing), shaking, then runs; at the start it sinks into the
+// ground again. Cheap however many: a wave out of view is skipped whole, and its wolves share a few poses (WAVE_STRIDES
+// running strides, posed once a frame per wave and stamped onto each wolf's spot)
+const WAVE_PACK_CAP = 480;
+const WAVE_SINK = 1.6;   // how deep a wave's wolves start under the ground
+const _waveBox = new THREE.Box3(), _waveLo = new THREE.Vector3(), _waveHi = new THREE.Vector3();
+function drawWaves(dt, alpha, t) {
+  const V = view.waves, waves = hellWaves(sim);
+  V.pack.begin();
+  V.phase = (V.phase || 0) + Math.min(dt, 0.1) * (7 + 7 * Math.min(1, WAVE_SPEED / 4));   // (the strides' running step, shared)
+  let n = 0;
+  for (const w of waves) {
+    if (w.charge < 1 && w.k > V.warned) { V.warned = w.k; if (w.k === 0) ui.toast('🔥 Wolf waves! Find the gap in each one', '#ff7a4a'); }
+    const rise = w.sink > 0 ? 1 - w.sink * w.sink : w.charge < 1 ? 1 - Math.pow(1 - w.charge, 2) : 1;   // (eases out of the ground, and back in)
+    const front = w.moving ? w.front + w.dir * WAVE_SPEED * CFG.TICK * alpha : w.front;   // (between ticks)
+    const back = front - w.dir * w.depth;
+    _waveLo.set(Math.min(front, back) - WOLF_CULL_PAD, -2, -w.half - WOLF_CULL_PAD);
+    _waveHi.set(Math.max(front, back) + WOLF_CULL_PAD, 2, w.half + WOLF_CULL_PAD);
+    if (!_cullFrustum.intersectsBox(_waveBox.set(_waveLo, _waveHi))) continue;   // (out of view: the whole wave)
+    const shaking = w.charge < 1 || w.sink > 0;
+    // this wave's strides: the rig posed once per stride (facing the start), then stamped per wolf
+    const gr = V.rig.group;
+    gr.position.set(0, 0, 0);
+    gr.rotation.y = w.dir > 0 ? 0 : Math.PI;   // facing the start
+    _wolfArgs.moving = w.moving; _wolfArgs.speed01 = w.moving ? Math.min(1, WAVE_SPEED / 4) : 0; _wolfArgs.time = t;
+    const snaps = V.snaps;   // (reused: this wave's strides are stamped before the next wave poses them again)
+    for (let i = 0; i < V.strides.length; i++) {
+      const st = V.strides[i];
+      st.phase = V.phase + i * Math.PI / 2; st.runAmt = w.moving ? Math.max(0.45, Math.min(1, WAVE_SPEED / 4)) : 0; st.clock = t;
+      V.rig.pose(st, 0, _wolfArgs);   // (dt 0: posed as set, a quarter step apart)
+      V.pack.snap(V.rig, snaps[i]);
+    }
+    for (const o of w.wolves) {
+      if (n >= WAVE_PACK_CAP) break;
+      const x = front - w.dir * o.dx;
+      if (!_cullFrustum.intersectsSphere(_cullS.set(_cullP.set(x, 0.5, o.z), WOLF_CULL_PAD))) continue;
+      const shake = shaking ? 0.06 * Math.sin(t * 40 + o.i * 1.7) : 0;
+      V.pack.addSnap(snaps[o.i % snaps.length], x + shake, -WAVE_SINK * (1 - rise), o.z);
+      n++;
+    }
+  }
+  V.pack.end();
+}
 const _cullFrustum = new THREE.Frustum(), _cullM = new THREE.Matrix4(), _cullS = new THREE.Sphere(), _cullP = new THREE.Vector3();
 const _wolfArgs = { moving: false, speed01: 0, time: 0 };
 function syncVisuals(dt, alpha) {
@@ -1676,6 +1762,9 @@ function syncVisuals(dt, alpha) {
   camera.updateMatrixWorld();
   _cullFrustum.setFromProjectionMatrix(_cullM.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
   view.wolfPack.begin();
+  if (view.heatPack) view.heatPack.begin();
+  nHeat = 0;
+  const heatOn = !!view.heatPack;
   for (const e of sim.enemies) {
     const m = view.wolves.get(e.id);
     if (!m) continue;
@@ -1686,7 +1775,31 @@ function syncVisuals(dt, alpha) {
     g.rotation.y = -e.heading;
     _wolfArgs.moving = e.moving; _wolfArgs.speed01 = Math.min(1, (e.speedNow || 0) / 4); _wolfArgs.time = t;
     m.rig.pose(m.st, dt, _wolfArgs);
-    view.wolfPack.add(m.rig);
+    // the final runs (level 9, hell; view.heatPack): a black wolf (a charger) heats up as it comes to turn round (out in
+    // the open there; elsewhere it turns at a wall, no need): over the last TURN_TELL s it glows hotter and hotter,
+    // fiery, flickering and shaking, at its hottest as it turns. Then it cools off quickly and differently (TURN_COOL s:
+    // no shaking, no flicker, a dull red dying away fast), so it never looks like it's heating up for another turn
+    let heat = 0, cool = 0;
+    if (heatOn && e.pattern && e.type === 'charger') {
+      heat = Math.max(0, 1 - turnIn(e) / TURN_TELL);
+      if (!heat) { const c = 1 - turnedAgo(e) / TURN_COOL; cool = c > 0 ? c * c : 0; }
+    }
+    if (heat > 0 || cool > 0) {
+      g.position.x += 0.08 * Math.sin(t * 45 + e.id) * heat;
+      g.position.z += 0.08 * Math.cos(t * 41 + e.id) * heat;
+      const em = m.rig.eyeMat;
+      _eyeKeep.copy(em.color);
+      em.color.lerp(_eyeHot, heat || cool * 0.5);
+      view.wolfPack.add(m.rig);
+      em.color.copy(_eyeKeep);
+      if (view.heatPack && nHeat < view.heatN) {   // (the fire: the same wolf again, drawn as glowing heat)
+        if (heat) {
+          const f = heat * (0.8 + 0.2 * Math.sin(t * 23 + e.id * 1.3));   // (a flicker)
+          view.heatPack.add(m.rig, _heatCol.setRGB(0.95 * f, (0.12 + 0.38 * heat * heat) * f, 0.02 * f));
+        } else view.heatPack.add(m.rig, _heatCol.setRGB(0.7 * cool, 0.08 * cool, 0.02 * cool));   // (cooling: dull red)
+        nHeat++;
+      }
+    } else view.wolfPack.add(m.rig);
     if (e.pattern) {
       // push-off: shavings the moment a wolf turns round at the end of a run (its heading changes once per run)
       if (m.lastHeading !== undefined && e.heading !== m.lastHeading) effects.iceKick(x, z, e.heading);
@@ -1694,6 +1807,8 @@ function syncVisuals(dt, alpha) {
     }
   }
   view.wolfPack.end();
+  if (view.heatPack) view.heatPack.end();
+  if (view.waves) drawWaves(dt, alpha, t);
   // items
   // drop pickups the server says are taken (a 'pickup' event from before we joined / reconnected never reached us)
   for (const it of sim.items) {
@@ -1928,7 +2043,7 @@ function updateHUD() {
   }
   if (dirty) ui.setScores(hudScores);
   hudData.level = sim.hell ? sim.level : sim.levelData.level || sim.level; hudData.time = sim.time; hudData.rescues = sim.stats.rescues;
-  hudData.far = sim.hell ? Math.floor((sim.far || 0) * 100) : null;   // hell: how far along the map the team has got (%)
+  hudData.tag = sim.hell ? 'HELL' : 'LEVEL';   // (hell: how far along the map shows only when the game is over)
   ui.setHUD(hudData);
 }
 
@@ -2364,7 +2479,7 @@ function beginOnlineGame(m) {
   if (online.room) rememberPlayers(online.room.members);   // (for the invite panel)
   playerCount = m.players.length;
   removeKitties();
-  sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode, finales: +m.rf || 0, easy: !!m.easy, hell: !!m.hell });
+  sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode, finales: +m.rf || 0, easy: !!m.easy, hell: !!m.hell, waves: !!m.hw });
   sim.retries = m.rt | 0;
   analytics.runStart('online', m.mode || 'mixed');
   sim.started = true;

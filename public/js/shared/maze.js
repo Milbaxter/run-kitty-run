@@ -1,4 +1,4 @@
-import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, MEDIC_GIFT_FV, QUICK_START_FV, stageOf } from './config.js';
+import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, MEDIC_GIFT_FV, QUICK_START_FV, HEART_FV, stageOf } from './config.js';
 import { createRng, hashSeed, ipow, legPoint } from './rng.js';
 import { buildPlan, patternPose, patternSpeed } from './enemies.js';
 
@@ -1487,11 +1487,24 @@ function generateCombo(L, seed, v = 3) {
 // every member has.
 // Run + Skate's day / night steps (config.js stageOf): by day exactly Run only's level, by night exactly Skate only's
 function generateLevel(level, seed, mode = 'mixed', fv = 0) {
+  const ld = generateLevelStage(level, seed, mode, fv);
+  if ((fv | 0) >= HEART_FV) guaranteeHeart(ld, seed);
+  return ld;
+}
+function generateLevelStage(level, seed, mode, fv) {
   const st = stageOf(mode, fv, level);
   if (st.day) return generateLevelCore(st.level, seed, 'run', Math.min(fv, 11));
   // (fv 14+: the night rink in the day half's season, Run only's order; otherwise the level is Skate only's exactly)
   if (st.night) return generateLevelCore(st.level, seed, 'ice', Math.min(fv, 12), (fv | 0) >= SAME_SEASON_FV ? THEME_ORDER[(st.level - 1) % 4] : null);
   return generateLevelCore(st.level, seed, mode, fv);
+}
+// version 19+: a level with no heart among its pickups gets one: one of its pickups (not a tree's boots), picked by the
+// level's seed, becomes a heart, in the same spot (up to two hearts as before; a level that had some keeps them)
+function guaranteeHeart(ld, seed) {
+  const items = ld && ld.items;
+  if (!Array.isArray(items) || items.some((it) => it.type === 'life')) return;
+  const pool = items.filter((it) => !it.tree && !it.mega);
+  if (pool.length) pool[(hashSeed(seed, ld.level || 0, 'heart') >>> 0) % pool.length].type = 'life';
 }
 
 // season: a theme to give an ice level in place of Skate only's own (Run + Skate's night halves; looks only)

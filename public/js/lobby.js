@@ -15,7 +15,7 @@ const MODES = [
 ];
 const modeLabel = (id, easy, hell) => (MODES.find((m) => m.id === id) || MODES[0]).label + (hell ? ' (hell)' : easy ? ' (easy)' : '');
 const EASY_TIP = 'Easy: when everyone is down, the level starts over instead of the game being over. Easy games have their own rewards.';
-const HELL_TIP = 'Hell: a new final run every level, up to 100 levels. How far can you get?';
+const HELL_TIP = 'Hell: 6 levels, each a new final run, with waves of wolves from level 2 on. Can you get through?';
 const MAX_KITTIES = 32;   // a lobby's player cap (NET.MAX_PLAYERS)
 const PLAT = { ios: ['🍎', 'iPhone / iPad app'], android: ['🤖', 'Android app'], web: ['🌐', 'Browser'] };
 

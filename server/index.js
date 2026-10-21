@@ -36,12 +36,12 @@ const MODE_MIN_PROTOCOL = { ice: 4, mixed: 4, run: 4 };
 // Finale versions (sim.finales, see maze.js generateLevel): the protocol each needs. A room plays the newest version
 // every member has (older clients would build the older level 9 and desync); once it plays one, older clients can't
 // join it mid-game.
-const FINALE_PROTOCOL = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20, 22, 23, 24, 25];   // (18: Run only level 9's wolves off at once)   // (15: the running final run's speed-up, Run only and Run + Skate; 16: anyone repairs Run + Skate's broken checkpoint; 17: its gift for a medic)   // 1 = Run only's level 9 final run, 2 = the wide skate final run, 3 = Run + Skate's both in a row, 4 = skate goal rooms without their back wolves, 5 = no lane-before-last wolf turning in the open, 6 = junction chargers, 7 = wolves per lane, 8 = running levels' long lanes, 9 = their other lanes, 10 = running levels' rests, 11 = items, 12 = Skate only's night seasons, 13 = Run + Skate by day then by night, 14 = its night half in the day's season
+const FINALE_PROTOCOL = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 20, 22, 23, 24, 25, 26];   // (18: Run only level 9's wolves off at once; 19: a heart on every level)   // (15: the running final run's speed-up, Run only and Run + Skate; 16: anyone repairs Run + Skate's broken checkpoint; 17: its gift for a medic)   // 1 = Run only's level 9 final run, 2 = the wide skate final run, 3 = Run + Skate's both in a row, 4 = skate goal rooms without their back wolves, 5 = no lane-before-last wolf turning in the open, 6 = junction chargers, 7 = wolves per lane, 8 = running levels' long lanes, 9 = their other lanes, 10 = running levels' rests, 11 = items, 12 = Skate only's night seasons, 13 = Run + Skate by day then by night, 14 = its night half in the day's season
 const CHEST_PROTOCOL = 21;   // clients from this protocol on draw the lottery chest (shared/sim.js)
 const finalesOf = (members) => Math.min(...members.map((m) => FINALE_PROTOCOL.filter((p) => m.v >= p).length - 1));
 // the newest finale version that changes this mode's levels (older ones build them the same): Run only 1 and 8 to 11,
-// 15 and 18, Skate only 2, 4 to 7, 11 and 12, Run + Skate 2 to 11 and 13 to 17
-const finaleFor = (mode, f) => (mode === 'run' ? (f >= 18 ? 18 : f >= 15 ? 15 : f >= 8 ? Math.min(f, 11) : Math.min(f, 1)) : mode === 'ice' ? (f >= 11 ? Math.min(f, 12) : f >= 4 ? Math.min(f, 7) : f >= 2 ? 2 : 0) : (f >= 13 ? Math.min(f, 17) : f === 1 ? 0 : Math.min(f, 11)));   // (12: Skate only only)
+// 15, 18 and 19, Skate only 2, 4 to 7, 11, 12 and 19, Run + Skate 2 to 11, 13 to 17 and 19
+const finaleFor = (mode, f) => (f >= 19 ? 19 : mode === 'run' ? (f >= 18 ? 18 : f >= 15 ? 15 : f >= 8 ? Math.min(f, 11) : Math.min(f, 1)) : mode === 'ice' ? (f >= 11 ? Math.min(f, 12) : f >= 4 ? Math.min(f, 7) : f >= 2 ? 2 : 0) : (f >= 13 ? Math.min(f, 17) : f === 1 ? 0 : Math.min(f, 11)));   // (19: every mode)   // (12: Skate only only)
 const runFinaleOk = (client, room) => !(room.phase === 'playing' && room.sim) || client.v >= FINALE_PROTOCOL[finaleFor(room.mode, room.sim.finales | 0)];
 const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
 const MODE_NAMES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
@@ -51,7 +51,9 @@ const easyOk = (client, room) => !room.easy || client.v >= EASY_PROTOCOL;
 // hell games (config.js HELL_LEVELS): older clients would build level 9 once and win it. Anyone with this version may
 // join one; creating one needs hell open in that mode (accounts.js hellOpenFor; offline progress: the client's word, hl)
 const HELL_PROTOCOL = 25;
-const hellOk = (client, room) => !room.hell || client.v >= HELL_PROTOCOL;
+// (a hell game with its wolf waves, shared/waves.js: every member had them at its start; an older client can't join it)
+const HELL_WAVES_PROTOCOL = 26;
+const hellOk = (client, room) => !room.hell || (client.v >= HELL_PROTOCOL && !(room.sim && room.sim.waves && client.v < HELL_WAVES_PROTOCOL));
 const hellOpenFor = (client, mode) => accounts.hellOpenFor({ sub: client.acct, pid: client.pid }, mode) || levels.can9({ acct: client.acct, pid: client.pid });
 const updateHow = (client) => (client.app === 'web' ? 'reload the page' : 'update the app');
 const APPS = ['web', 'ios', 'android'];
@@ -773,7 +775,7 @@ function partyOver(room) {
 function startMsg(room, withWolves) {
   const sim = room.sim;
   return {
-    t: 'start', seed: sim.seed, mode: sim.mode, level: sim.level, tick: room.tick, lt: sim.enemyTicks, rf: sim.finales | 0, hell: sim.hell ? 1 : undefined,
+    t: 'start', seed: sim.seed, mode: sim.mode, level: sim.level, tick: room.tick, lt: sim.enemyTicks, rf: sim.finales | 0, hell: sim.hell ? 1 : undefined, hw: sim.waves ? 1 : undefined,
     easy: sim.easy ? 1 : undefined, rt: sim.retries || undefined,
     st: sim.state, vic: room.victory || null, // mid-game joiners: the run may already be won (the 'victory' event went out before)
     players: sim.players.map((p) => ({ id: p.id, name: p.name, color: p.color })),
@@ -798,7 +800,8 @@ function startGame(room, startLevel = 1) {
   const seed = hashSeed(Date.now(), Math.random(), room.code) >>> 0;
   room.sim = createSim({
     seed, startLevel: room.hell ? startLevel : stageStep(room.mode, finalesOf(room.members), startLevel), mode: room.mode, finales: finalesOf(room.members), easy: !!room.easy,
-    hell: !!room.hell, players: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
+    hell: !!room.hell, waves: !!room.hell && room.members.every((m) => m.v >= HELL_WAVES_PROTOCOL),
+    players: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
   });
   for (const m of room.members) { m.inputs.clear(); m.lastInput = null; }
   sendRoom(room);

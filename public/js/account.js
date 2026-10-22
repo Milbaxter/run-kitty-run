@@ -171,6 +171,16 @@ function createAccount(root) {
   let soloVer = 0, soloPending = null, soloT = null;
   // this player's offline progress: the account's, or this browser's
   const soloProg = () => (activeAcct() ? (A.account.unlocks && A.account.unlocks.solo) || {} : readJson(SOLO_KEY));
+  // hell open in this mode (Run only / Skate only): level 9 reached in any mode, or a hell level of this mode cleared,
+  // online or offline (unlocks.js hellOpen); before hell existed: the account's stats, or this browser saw level 9
+  function hellOpenHere(mode) {
+    if (mode !== 'run' && mode !== 'ice') return false;   // (Run only and Skate only have one)
+    const u = (A.account && Number(A.account.paid) > 0 && A.account.unlocks) || A.guest;
+    if ((u && hellOpen(u, mode)) || hellOpen(soloProg(), mode)) return true;
+    const st = A.account && A.account.stats;
+    if (st && ['online', 'local', 'easy'].some((k) => { const r = st[k] && st[k].reached; return !!r && Object.values(r).some((v) => (v | 0) >= 9); })) return true;   // (level 9 in any mode)
+    try { return localStorage.getItem('rkr-seen9') === '1'; } catch { return false; }
+  }
   // an offline feat done ('l8' | 'l9' | 'e8' | 'e9' | 'win' | 'rev') in a mode
   function soloFeat(feat, mode, n = 1) {
     if (!UNLOCK_MODES.includes(mode)) return;
@@ -441,6 +451,13 @@ function createAccount(root) {
         }
         ulist.appendChild(row);
       }
+      // the new mode (no item: a row of its own; not a word about what it is), open in Run only / Skate only
+      const nmRun = hellOpenHere('run'), nmIce = hellOpenHere('ice'), nmAny = nmRun || nmIce;
+      ulist.appendChild(el('div', 'rka-ugoal', "Reach the final level in any mode (Run + Skate, Run only or Skate only), or clear a level of the new mode in someone else's lobby:"));
+      const nm = el('div', 'rka-urow' + (nmAny ? '' : ' rka-locked'));
+      nm.appendChild(el('span', 'rka-uname', (nmAny ? '' : '🔒 ') + 'New mode'));
+      nm.appendChild(el('span', 'rka-uprog', nmAny ? 'Unlocked: ' + [nmRun && 'Run only', nmIce && 'Skate only'].filter(Boolean).join(', ') : ''));
+      ulist.appendChild(nm);
       box_.append(ulist, el('div', 'rka-fine', note));
       return box_;
     };
@@ -756,16 +773,7 @@ function createAccount(root) {
       if (A.token && A.account) { try { const j = await api('me'); if (j.account) { A.account = j.account; changed(); } } catch { /* keep what we have */ } }
       else loadGuest();
     },
-    // hell open in this mode (Run only / Skate only): level 9 reached there or in Run + Skate, or a hell level cleared,
-    // online or offline (unlocks.js hellOpen); before hell existed: the account's stats, or this browser saw level 9
-    hellOpen(mode) {
-      if (mode !== 'run' && mode !== 'ice') return false;   // (Run only and Skate only have one)
-      const u = (A.account && Number(A.account.paid) > 0 && A.account.unlocks) || A.guest;
-      if ((u && hellOpen(u, mode)) || hellOpen(soloProg(), mode)) return true;
-      const st = A.account && A.account.stats;
-      if (st && ['online', 'local', 'easy'].some((k) => { const r = st[k] && st[k].reached; return !!r && ((r[mode] | 0) >= 9 || (r.mixed | 0) >= 9); })) return true;
-      try { return localStorage.getItem('rkr-seen9') === '1'; } catch { return false; }
-    },
+    hellOpen: hellOpenHere,   // (hellOpenHere)
     has(id) {
       const u = (A.account && Number(A.account.paid) > 0 && A.account.unlocks) || A.guest;
       return (!!u && isUnlocked(u, id)) || isUnlocked(soloProg(), id);   // (online or offline: the song is your own)

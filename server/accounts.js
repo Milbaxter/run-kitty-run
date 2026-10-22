@@ -312,12 +312,12 @@ function createAccounts(file, env = process.env) {
     return !!st && ['online', 'local', 'easy'].some((k) => st[k] && Object.values(st[k].reached || {}).some((v) => v >= 9));
   };
   // hell open in this mode for this player (who: { sub, pid }): its unlock progress (online or offline: r9 / h1), or an
-  // account's stats saying it reached level 9 there (or in Run + Skate) before hell existed
+  // account's stats saying it reached level 9 (in any mode) before hell existed
   function hellOpenFor(who, mode) {
     const h = holderOf(who, false);
     if (h) { const u = unlocksOf(h); if (hellOpen(u, mode) || hellOpen(u.solo, mode)) return true; }
     const st = who && who.sub && accounts[who.sub] && accounts[who.sub].stats;
-    return !!st && ['online', 'local', 'easy'].some((k) => { const r = st[k] && st[k].reached; return !!r && ((r[mode] | 0) >= 9 || (r.mixed | 0) >= 9); });
+    return !!st && ['online', 'local', 'easy'].some((k) => { const r = st[k] && st[k].reached; return !!r && Object.values(r).some((v) => (v | 0) >= 9); });   // (level 9 in any mode)
   }
   // every account whose number shows (not hidden, not being deleted): [[sub, cents]] (the boards show it on a name's hover)
   const shownAll = () => Object.values(accounts).filter((a) => a && a.sub && !a.hide && !a.deleting && shownCents(a) > 0).map((a) => [a.sub, shownCents(a)]);

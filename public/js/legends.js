@@ -217,7 +217,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
     lvErr = '';
     lvAsked = lvKey();
     const fids = lv.scope === 'friends' ? (friends ? friends() : []) : undefined;
-    levelsApi({ op: 'board', id: ++lvSeq, board: { mode: tab, level: lv.level, easy: lv.easy && lv.level !== 'h', team: lv.team, local: lv.local }, scope: lv.scope, fids, group: lv.group })
+    levelsApi({ op: 'board', id: ++lvSeq, board: { mode: tab, level: lv.level, easy: lv.easy, team: lv.team, local: lv.local }, scope: lv.scope, fids, group: lv.group })
       .then(onLevels)
       .catch((err) => { lvErr = err.message || 'The level times are out of reach right now (no connection?).'; render(); });
   }
@@ -542,7 +542,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
       lvRow.appendChild(b);
     }
     const segs = el('div', 'rkg-segs');
-    if (lv.level !== 'h') segs.append(seg('NORMAL', 'EASY', lv.easy, pick(() => { lv.easy = !lv.easy; })));
+    segs.append(seg('NORMAL', 'EASY', lv.easy, pick(() => { lv.easy = !lv.easy; })));
     segs.append(seg('SOLO', 'TEAM', lv.team, pick(() => { lv.team = !lv.team; })),
       seg('ONLINE', 'LOCAL', lv.local, pick(() => { lv.local = !lv.local; })));
     const scopes = el('div', 'rkg-segs');

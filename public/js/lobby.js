@@ -16,7 +16,7 @@ const MODES = [
 const modeLabel = (id, easy, hell) => (MODES.find((m) => m.id === id) || MODES[0]).label + (hell ? (easy ? ' (hell, easy)' : ' (hell)') : easy ? ' (easy)' : '');
 const EASY_TIP = 'Easy: when everyone is down, the level starts over instead of the game being over. Easy games have their own rewards.';
 const HELL_TIP = 'Hell: get through 6 levels of hell.';
-const HELL_EASY_TIP = 'Hell (easy): get through 6 levels of hell; when everyone is down, the hell level starts over. Not on the hell board.';
+const HELL_EASY_TIP = 'Hell (easy): get through 6 levels of hell; when everyone is down, the level starts over.';
 const MAX_KITTIES = 32;   // a lobby's player cap (NET.MAX_PLAYERS)
 const PLAT = { ios: ['🍎', 'iPhone / iPad app'], android: ['🤖', 'Android app'], web: ['🌐', 'Browser'] };
 
@@ -156,9 +156,13 @@ const CSS = `
 .rkl-diff .rkl-mode{flex:1 1 0;justify-content:center;min-height:34px;}
 .rkl-diff .rkl-mode.rkl-on{background:rgba(120,220,150,.22);border-color:#7fe0a0;color:#e6ffee;}
 .rkl-diff .rkl-mode.rkl-on::before{background:#7fe0a0;border-color:#e6ffee;}
-.rkl-diff .rkl-mode.rkl-hell{color:#ffb3a0;}
-.rkl-diff .rkl-mode.rkl-hell.rkl-on{background:rgba(255,80,40,.25);border-color:#ff6a3d;color:#ffe2d8;}
-.rkl-diff .rkl-mode.rkl-hell.rkl-on::before{background:#ff6a3d;border-color:#ffe2d8;}
+.rkl-mode.rkl-hell{color:#ffb3a0;}
+.rkl-mode.rkl-hell.rkl-on{background:rgba(255,80,40,.25);border-color:#ff6a3d;color:#ffe2d8;}
+.rkl-mode.rkl-hell.rkl-on::before{background:#ff6a3d;border-color:#ffe2d8;}
+.rkl-hellkind{display:flex;gap:6px;margin-top:6px;align-items:center;}
+.rkl-hellkind .rkl-mode{flex:1 1 0;justify-content:center;min-height:34px;}
+.rkl-hellkind b{font-size:12px;font-weight:900;letter-spacing:.08em;color:#ffb3a0;}
+.rkl-hellkind[hidden]{display:none;}
 .rkl-opt{display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px;min-height:36px;}
 .rkl-optlab{white-space:nowrap;}
 .rkl-step{width:32px;height:32px;padding:0;border-radius:10px;cursor:pointer;font:inherit;font-weight:900;font-size:18px;color:#fff;background:rgba(255,255,255,.1);border:2px solid rgba(255,255,255,.22);}
@@ -228,7 +232,7 @@ function createLobbyUI(root, cb) {
 
   // the last mode picked (single player, co-op or a new lobby: one memory for all three); Run + Skate until one is picked
   function savedMode() {
-    try { const m = localStorage.getItem('rkr-mode'); return MODES.some((x) => x.id === m) ? m : 'mixed'; } catch { return 'mixed'; }
+    try { const m = localStorage.getItem('rkr-mode'); return MODES.some((x) => x.id === m) || m === 'hell' ? m : 'mixed'; } catch { return 'mixed'; }
   }
   function saveMode(m) {
     try { localStorage.setItem('rkr-mode', m); } catch { /* ignore */ }
@@ -236,9 +240,9 @@ function createLobbyUI(root, cb) {
   // normal or easy (remembered like the mode)
   function savedEasy() { try { return localStorage.getItem('rkr-easy') === '1'; } catch { return false; } }
   function saveEasy(v) { try { localStorage.setItem('rkr-easy', v ? '1' : '0'); } catch { /* ignore */ } }
-  // hell picked (Run only / Skate only, once it is open there: cb.hellOpen(mode)); remembered like easy
-  function savedHell() { try { return localStorage.getItem('rkr-hell') === '1'; } catch { return false; } }
-  function saveHell(v) { try { localStorage.setItem('rkr-hell', v ? '1' : '0'); } catch { /* ignore */ } }
+  // Hell, the 4th mode (once it's open: cb.hellOpen(mode)): its own Run / Skate choice, remembered like the mode
+  function savedHellKind() { try { return localStorage.getItem('rkr-hellmode') === 'ice' ? 'ice' : 'run'; } catch { return 'run'; } }
+  function saveHellKind(v) { try { localStorage.setItem('rkr-hellmode', v); } catch { /* ignore */ } }
   const hellAvail = (mode) => (mode === 'run' || mode === 'ice') && !!(cb.hellOpen && cb.hellOpen(mode));   // (no Run + Skate hell)
 
   function mount(inner, boxCls = '', ovCls = '') {
@@ -266,35 +270,49 @@ function createLobbyUI(root, cb) {
     else cb.onBack();
   });
 
-  // The game mode as a list of radio buttons + a one-line tip, and under it NORMAL / EASY (/ a HELL switch on top of
-  // either, in a mode where it's open); the choices are remembered (savedMode, savedEasy, savedHell). modes: the element to show (both rows).
+  // The game mode as a list of radio buttons (Run + Skate, Run only, Skate only, and Hell once it's open, with its own
+  // Run / Skate row) + a one-line tip, and under it NORMAL / EASY; the choices are remembered (savedMode, savedEasy,
+  // savedHellKind). modes: the element to show (all the rows). get(): the game mode (Hell: its Run / Skate one).
   function modePicker(initial) {
-    let mode = initial, easy = savedEasy(), hell = savedHell();
-    const isHell = () => hell && hellAvail(mode);
+    let mode = initial, easy = savedEasy(), kind = savedHellKind();
+    const anyHell = () => hellAvail('run') || hellAvail('ice');
+    const kindOf = () => (hellAvail(kind) ? kind : hellAvail('run') ? 'run' : 'ice');
+    const isHell = () => mode === 'hell' && anyHell();
     const box = el('div', 'rkl-modebox');
     const diff = el('div', 'rkl-diff');
     diff.setAttribute('role', 'radiogroup');
     const modes = el('div', 'rkl-modes');
     modes.setAttribute('role', 'radiogroup');
+    const kinds = el('div', 'rkl-hellkind');
+    kinds.setAttribute('role', 'radiogroup');
+    kinds.appendChild(el('b', null, 'HELL'));
     const tip = el('div', 'rkl-modetip');
     const paint = () => {
+      if (mode === 'hell' && !anyHell()) mode = 'mixed';
       for (const b of modes.children) {
+        if (b.dataset.mode === 'hell') b.hidden = !anyHell();
         const on = b.dataset.mode === mode;
         b.classList.toggle('rkl-on', on);
         b.setAttribute('aria-checked', String(on));
       }
-      const h = isHell();
+      const h = isHell(), k = kindOf();
+      kinds.hidden = !h;
+      for (const b of kinds.querySelectorAll('.rkl-mode')) {
+        b.hidden = !hellAvail(b.dataset.kind);
+        const on = b.dataset.kind === k;
+        b.classList.toggle('rkl-on', on);
+        b.setAttribute('aria-checked', String(on));
+      }
       for (const b of diff.children) {
-        if (b.dataset.easy === 'h') b.hidden = !hellAvail(mode);
-        const on = b.dataset.easy === 'h' ? h : (b.dataset.easy === '1') === easy;
+        const on = (b.dataset.easy === '1') === easy;
         b.classList.toggle('rkl-on', on);
         b.setAttribute('aria-checked', String(on));
       }
       tip.textContent = tip.title = h ? (easy ? HELL_EASY_TIP : HELL_TIP) : easy ? EASY_TIP : MODES.find((m) => m.id === mode).tip;
     };
     const set = (id) => { mode = id; saveMode(mode); paint(); };
-    for (const m of MODES) {
-      const b = el('button', 'rkl-mode');
+    for (const m of [...MODES, { id: 'hell', label: 'Hell' }]) {
+      const b = el('button', 'rkl-mode' + (m.id === 'hell' ? ' rkl-hell' : ''));
       b.type = 'button';
       b.setAttribute('role', 'radio');
       b.textContent = m.label;
@@ -302,22 +320,27 @@ function createLobbyUI(root, cb) {
       b.addEventListener('click', () => set(m.id));
       modes.appendChild(b);
     }
-    for (const [v, label] of [['0', 'Normal'], ['1', 'Easy'], ['h', 'Hell']]) {
-      const b = el('button', 'rkl-mode' + (v === 'h' ? ' rkl-hell' : ''));
+    for (const [v, label] of [['run', 'Run'], ['ice', 'Skate']]) {
+      const b = el('button', 'rkl-mode rkl-hell');
       b.type = 'button';
-      b.setAttribute('role', v === 'h' ? 'switch' : 'radio');
+      b.setAttribute('role', 'radio');
+      b.textContent = label;
+      b.dataset.kind = v;
+      b.addEventListener('click', () => { kind = v; saveHellKind(kind); paint(); });
+      kinds.appendChild(b);
+    }
+    for (const [v, label] of [['0', 'Normal'], ['1', 'Easy']]) {
+      const b = el('button', 'rkl-mode');
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
       b.textContent = label;
       b.dataset.easy = v;
-      b.addEventListener('click', () => {
-        if (v === 'h') { hell = !hell; saveHell(hell); }
-        else { easy = v === '1'; saveEasy(easy); }
-        paint();
-      });
+      b.addEventListener('click', () => { easy = v === '1'; saveEasy(easy); paint(); });
       diff.appendChild(b);
     }
-    box.append(modes, diff);
+    box.append(modes, kinds, diff);
     paint();
-    return { modes: box, tip, get: () => mode, easy: () => easy, hell: isHell, repaint: paint };
+    return { modes: box, tip, get: () => (isHell() ? kindOf() : mode === 'hell' ? 'mixed' : mode), easy: () => easy, hell: isHell, repaint: paint };
   }
 
   // A kitty's row: its colour as a cat, name box (saved under nameKey as you type) + random name, colour swatches
@@ -393,7 +416,7 @@ function createLobbyUI(root, cb) {
         if (k === n) return;
         if (onPlayers) onPlayers(k);
         hide();
-        showLocal(k, { ...opts, mode: mp.get() });
+        showLocal(k, { ...opts, mode: mp.hell() ? 'hell' : mp.get() });   // (Hell stays picked)
       });
       who.appendChild(b);
     }

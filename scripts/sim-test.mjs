@@ -1048,18 +1048,23 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     sim.level = HELL_LEVELS;
     const end = toGoal(sim);
     ok(end.some((e) => e.type === 'victory' && e.level === HELL_LEVELS) && sim.state === 'victory', `hell (${mode}): clearing hell level ${HELL_LEVELS} wins`);
-    // everyone down: the game is over, with how far it got (easy: the hell level starts over)
+    // everyone down: the game is over, with how far it got
     const s2 = createSim({ seed: 5, players: [{ id: 1, name: 'a', color: 1 }], mode, finales: 17, hell: true });
     stepSim(s2, {}, 1 / 60);
     s2.far = 0.3; s2.players[0].alive = false;
     const go = stepSim(s2, {}, 1 / 60).find((e) => e.type === 'gameOver');
     ok(go && go.level === 1 && Math.abs(go.far - 0.3) < 1e-9, `hell (${mode}): game over says the level and how far along it`);
-    const s3 = createSim({ seed: 5, players: [{ id: 1, name: 'a', color: 1 }], startLevel: 3, mode, finales: 17, hell: true, easy: true });
-    stepSim(s3, {}, 1 / 60);
-    s3.players[0].alive = false;
+    // easy hell: everyone down, the same hell level starts over (its wolves and waves from the start), the wipe says how far
+    const s3 = createSim({ seed: 5, players: [{ id: 1, name: 'a', color: 1 }], mode, finales: 17, hell: true, waves: true, easy: true, startLevel: 3 });
+    for (let i = 0; i < 60 * 20; i++) { s3.players[0].invuln = 9; stepSim(s3, {}, 1 / 60); }
+    const ld3 = s3.levelData, ticks3 = s3.enemyTicks;
+    s3.far = 0.4; s3.players[0].alive = false;
     const ev3 = [];
-    for (let i = 0; i < 60 * (CFG.RETRY_TIME + 1); i++) ev3.push(...stepSim(s3, {}, 1 / 60));
-    ok(!ev3.some((e) => e.type === 'gameOver') && ev3.some((e) => e.type === 'levelStart' && e.retry && e.level === 3) && s3.level === 3 && s3.players[0].alive, `hell (${mode}) easy: everyone down starts the hell level over`);
+    for (let i = 0; i < 60 * 6 && !ev3.some((e) => e.type === 'levelStart'); i++) ev3.push(...stepSim(s3, {}, 1 / 60));
+    const wipe = ev3.find((e) => e.type === 'wipe'), restart = ev3.find((e) => e.type === 'levelStart');
+    ok(s3.easy && s3.hell && wipe && wipe.level === 3 && Math.abs(wipe.far - 0.4) < 1e-9 && !ev3.some((e) => e.type === 'gameOver') && restart && restart.retry
+      && s3.level === 3 && s3.levelData === ld3 && s3.enemyTicks < ticks3 && s3.players[0].alive && s3.far === 0,
+      `hell (${mode}), easy: everyone down starts the same hell level over (waves from the start), the wipe says how far it got`);
   }
   ok(!createSim({ seed: 5, players: [], mode: 'mixed', hell: true }).hell, 'hell: not in Run + Skate');
   // wolf waves (waves.js): from hell level 2 on, in a game with them; every 45 s from the goal end, a gap in each
@@ -1097,9 +1102,9 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     }
   }
   // open: level 9 reached in the mode (Run + Skate: both), or a hell level of it cleared
-  ok(hellOpen({ r9: { mixed: 1 } }, 'run') && hellOpen({ r9: { mixed: 1 } }, 'ice') && hellOpen({ r9: { run: 1 } }, 'run') && !hellOpen({ r9: { run: 1 } }, 'ice')
-    && hellOpen({ h1: { ice: 1 } }, 'ice') && !hellOpen({ h1: { ice: 1 } }, 'run') && !hellOpen({ l8: { run: 3 } }, 'run') && !hellOpen({}, 'run'),
-    'hell opens per mode: level 9 reached there (Run + Skate: both) or a hell level of it cleared');
+  ok(hellOpen({ r9: { mixed: 1 } }, 'run') && hellOpen({ r9: { mixed: 1 } }, 'ice') && hellOpen({ r9: { run: 1 } }, 'run') && hellOpen({ r9: { run: 1 } }, 'ice')
+    && hellOpen({ r9: { ice: 1 } }, 'run') && hellOpen({ h1: { ice: 1 } }, 'ice') && !hellOpen({ h1: { ice: 1 } }, 'run') && !hellOpen({ l8: { run: 3 } }, 'run') && !hellOpen({}, 'run'),
+    'hell opens: level 9 reached in any mode opens both; a cleared hell level opens its own mode');
   // its board: the furthest first (level, then how far along it), each player's best
   const { createLevelBoards } = await import('../server/levelboards.js');
   const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path');
@@ -1115,6 +1120,10 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(q.rows && q.rows.map((r) => r.name).join() === 'Kc,Kb,Ka' && q.rows[2].time === 3 * 1001 + 200 && q.me.rank === 3,
       'hell board: furthest first (level, then how far along), each player keeps their best; local games, Run + Skate and impossible levels stay off it');
     ok(!lb.record(who('g'), { mode: 'run', level: 'h', time: 40, team: 1 }), 'hell board: no level times on it');
+    // easy hell has its own board
+    lb.recordHell(who('m'), { mode: 'run', level: 4, far: 0.5, team: 1, easy: true });
+    const qe = lb.query(who('m'), { board: { mode: 'run', level: 'h', easy: true } }), qn = lb.query(who('m'), { board: { mode: 'run', level: 'h' } });
+    ok(qe.rows.length === 1 && qe.rows[0].name === 'Km' && !qn.rows.some((r) => r.name === 'Km'), 'hell board: easy hell on a board of its own');
     // all of it: the total time shows, the quickest first; a slower win doesn't replace a quicker one
     const all = (c, time) => lb.recordHell(who(c), { mode: 'ice', level: HELL_LEVELS, far: 1, team: 1, time });
     all('h', 900); all('i', 700); all('h', 950); lb.recordHell(who('j'), { mode: 'ice', level: HELL_LEVELS - 1, far: 0.99, team: 1 });

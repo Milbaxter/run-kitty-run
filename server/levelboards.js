@@ -48,7 +48,7 @@ const PID = /^[a-z0-9]{24,40}$/;
 const boardKey = (b) => (b.local ? 'l' : 'o') + (b.easy ? 'e' : 'n') + ':' + b.mode + ':' + b.level + ':' + (b.team ? 't' : 's');
 function parseBoard(b) {
   if (!b || typeof b !== 'object' || !MODES.includes(b.mode)) return null;
-  if (b.level === HELL) return HELL_MODES.includes(b.mode) ? { local: !!b.local, easy: false, mode: b.mode, level: HELL, team: !!b.team } : null;
+  if (b.level === HELL) return HELL_MODES.includes(b.mode) ? { local: !!b.local, easy: !!b.easy, mode: b.mode, level: HELL, team: !!b.team } : null;
   const level = Number(b.level);
   if (!Number.isInteger(level) || level < 1 || level > LEVELS) return null;
   return { local: !!b.local, easy: !!b.easy, mode: b.mode, level, team: !!b.team };
@@ -143,10 +143,10 @@ function createLevelBoards(file) {
     return { key, p };
   }
 
-  // a hell game's end (game over, or its last level won): ev = { local, mode, level, far (0..1), team (players in the
-  // game) }; true when it's a new best
+  // a hell game's end (game over, or its last level won; easy hell: each wipe too): ev = { local, easy, mode, level,
+  // far (0..1), team (players in the game), time }; true when it's a new best
   function recordHell(who, ev) {
-    const b = parseBoard({ local: !!(ev && ev.local), mode: ev && ev.mode, level: HELL, team: !!(ev && ev.team > 1) });
+    const b = parseBoard({ local: !!(ev && ev.local), easy: !!(ev && ev.easy), mode: ev && ev.mode, level: HELL, team: !!(ev && ev.team > 1) });
     const level = Number(ev && ev.level), far = Number(ev && ev.far);
     if (!b || !Number.isInteger(level) || level < 1 || level > HELL_LEVELS || !(far >= 0 && far <= 1)) return false;
     const me = playerOf(who, true);

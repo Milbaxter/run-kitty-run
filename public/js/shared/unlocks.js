@@ -91,8 +91,8 @@ function isUnlocked(progress, item, mode = null) {
   return u.any || !mode ? modes.some(done) : done(mode);
 }
 
-// hell (config.js HELL_MODES) in a mode: open once level 9 was reached there (Run + Skate's counts for both) or a hell
-// level of it was cleared (in anyone's lobby)
-const hellOpen = (progress, mode) => featCount(progress, 'r9', mode) > 0 || featCount(progress, 'h1', mode) > 0;
+// hell (config.js HELL_MODES) in a mode: open once level 9 was reached in any mode (it opens both Hell Run and Hell
+// Skate), or a hell level of this mode was cleared (in anyone's lobby)
+const hellOpen = (progress, mode) => UNLOCK_MODES.some((m) => featCount(progress, 'r9', m) > 0) || featCount(progress, 'h1', mode) > 0;
 
 export { UNLOCKS, UNLOCK_MODES, FEATS, FEAT_IDS, winsNeeded, isUnlocked, featTotal, featCount, medicLook, slotMetal, isWorn, hellOpen };

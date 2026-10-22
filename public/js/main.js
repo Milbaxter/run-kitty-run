@@ -77,13 +77,27 @@ const effects = createEffects(scene);
 const audio = createAudio();
 const ui = createUI(document.getElementById('ui'));
 
-// Soundtrack: a playlist of mp3s next to index.html, played one after the other on repeat.
+// Soundtrack: a playlist of mp3s next to index.html, played one after the other on repeat, in a shuffled order (a new
+// one every visit and every time round, so the songs don't always come in the same order; the settings' Shuffle switch,
+// remembered: off, they play in their own order from the first).
 // Plain <audio> element. A track that fails to load is skipped; if all fail, procedural music plays.
 // The last one, We Skate, is an unlock (shared/unlocks.js 'song5': clear the final level online): it plays at every
 // victory party, and joins the songs (or plays on its own) once this player has it.
 const PLAYLIST = ['music/catjam2.mp3', 'music/catjam3.mp3', 'music/catjam4.mp3', 'music/catjam5.mp3'];   // (catjam1.mp3 is resting for now)
 const SONG5 = 3;
-let trackIdx = 0;
+let shuffleOn = true;
+try { shuffleOn = localStorage.getItem('rkr-shuffle') !== '0'; } catch { /* ignore */ }
+// the play order: the songs shuffled (avoid: not the song that just played first, when there's another); Shuffle off:
+// their own order
+function shuffledOrder(avoid = -1) {
+  const a = PLAYLIST.map((_, i) => i);
+  if (!shuffleOn) return a;
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  if (a.length > 1 && a[0] === avoid) [a[0], a[1]] = [a[1], a[0]];
+  return a;
+}
+let playOrder = shuffledOrder();
+let trackIdx = playOrder[0];
 const badTracks = new Set();
 let songUnlocked = false;   // We Skate (account.has('song5'), set when the account / this browser's unlocks load)
 let victorySong = false;    // We Skate is playing for the victory party (once; then the picked music goes on)
@@ -144,7 +158,7 @@ function applyMusicChoice() {
   const set = picked();
   track.loop = set.length === 1;
   if (!set.includes(trackIdx)) {
-    trackIdx = set[0];   // switch now (the new song starts from the top)
+    trackIdx = playOrder.find((i) => set.includes(i)) ?? set[0];   // switch now (the new song starts from the top)
     if (trackWanted && !audio.isMuted() && !inBackground && !trackFailed) { track.src = PLAYLIST[trackIdx]; playTrack(); }
     else track.removeAttribute('src');
   }
@@ -154,9 +168,11 @@ function applyMusicChoice() {
 }
 function nextTrack() {
   const set = picked();
-  for (let k = 1; k <= PLAYLIST.length; k++) {
-    const i = (trackIdx + k) % PLAYLIST.length;
-    if (!set.includes(i)) continue;
+  let p = playOrder.indexOf(trackIdx);
+  for (let k = 1; k <= 2 * PLAYLIST.length; k++) {
+    if (++p >= playOrder.length) { playOrder = shuffledOrder(trackIdx); p = 0; }   // (round again: a new order)
+    const i = playOrder[p];
+    if (!set.includes(i) || (i === trackIdx && set.length > 1)) continue;
     trackIdx = i;
     if (trackWanted && !audio.isMuted() && !inBackground) { track.src = PLAYLIST[i]; playTrack(); }
     else track.removeAttribute('src'); // loaded lazily by the next playTrack()
@@ -260,6 +276,11 @@ ui.onSettingsClick(() => {
       songs: songsHere().map((i) => [i, SONG_NAMES[i]]),
       on: (i) => !musicOff() && songOn(i),
       toggle: toggleSong,
+      // the order: shuffled or the songs' own (from now on; the song playing goes on)
+      shuffle: {
+        get: () => shuffleOn,
+        set: (on) => { shuffleOn = on; try { localStorage.setItem('rkr-shuffle', on ? '1' : '0'); } catch { /* ignore */ } playOrder = shuffledOrder(trackIdx); },
+      },
       // We Skate's speed (once it's unlocked)
       speed: songUnlocked ? {
         choices: SKATE_SPEEDS.map((x) => [x, x + '×']),
@@ -830,7 +851,7 @@ function handleEvents(events) {
         for (const p of sim.players) effects.teleport(p.x, p.z, p.color);
         const finale = !!sim.levelData.finale;
         const L = sim.levelData.level || ev.level, night = stageOf(sim.mode, sim.finales, sim.level).night;
-        // hell: its first level opens like level 9, every next one on the same map
+        // hell: its first level opens like level 9, every next one is a new hell (easy hell: a level starting over)
         const hellNext = sim.hell && sim.level > 1;
         // (an easy game's retry: just the level and 'Once more!', no WELCOME TO HELL again)
         if (ev.retry) ui.banner(sim.hell ? `HELL ${sim.level}` : `LEVEL ${L}${night ? ' · NIGHT' : ''}`, 'Once more!', 2200, finale ? 'finale' : undefined);
@@ -2163,8 +2184,8 @@ async function sendLevelNotes() {
 function noteLevels(events) {
   if (sim.hell) {   // hell: only how far the game got, at its end (its local hell board; not an easy game's)
     for (const e of events) {
-      if (sim.easy || (e.type !== 'gameOver' && e.type !== 'victory')) continue;
-      lvPending.push({ hell: true, mode: sim.mode, level: e.level, far: e.type === 'victory' ? 1 : e.far, time: sim.time,   // (the game's total time)
+      if (e.type !== 'gameOver' && e.type !== 'victory' && e.type !== 'wipe') continue;   // (wipe: easy hell's level starting over)
+      lvPending.push({ hell: true, easy: !!sim.easy, mode: sim.mode, level: e.level, far: e.type === 'victory' ? 1 : e.far, time: sim.time,   // (the game's total time)
         players: sim.players.slice(0, 2).map((p) => ({ name: p.name, color: p.color })) });
       if (lvPending.length > 30) lvPending.shift();
     }

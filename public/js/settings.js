@@ -87,7 +87,7 @@ function el(tag, cls, text) {
   return e;
 }
 
-// opts (main.js): globalChat: { get(), set(on), mp(), setMp(on) } (the global chat; hidden in Multiplayer games), music: { songs: [[i, label]], on(i), toggle(i), speed: null | { choices: [[x, label]], get(), set(x) } },
+// opts (main.js): globalChat: { get(), set(on), mp(), setMp(on) } (the global chat; hidden in Multiplayer games), music: { songs: [[i, label]], on(i), toggle(i), shuffle: { get(), set(on) }, speed: null | { choices: [[x, label]], get(), set(x) } },
 //   invites: { choices: [[id, label]], get(), set(id), blocked() -> count, clearBlocked() }, onVolume(), onGraphics(id) -> true if smooth edges wait for a reload, onKeys(), onClose()
 function openSettings(root, opts = {}) {
   if (!styled) { const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st); styled = true; }
@@ -119,7 +119,7 @@ function openSettings(root, opts = {}) {
     const paint = () => {
       let n = 0;
       for (const b of seg.children) { const on = opts.music.on(+b.dataset.id); b.classList.toggle('rkst-on', on); n += on; }
-      hint.textContent = n ? (n === 1 ? 'Plays on a loop' : 'Played one after the other') : 'No music';
+      hint.textContent = n ? (n === 1 ? 'Plays on a loop' : opts.music.shuffle && opts.music.shuffle.get() ? 'Played in a shuffled order' : 'Played one after the other') : 'No music';
     };
     for (const [i, label] of opts.music.songs) {
       const b = el('button', null, label); b.dataset.id = String(i); b.type = 'button';
@@ -130,6 +130,21 @@ function openSettings(root, opts = {}) {
     const stack = el('div', 'rkst-stack');
     stack.append(el('span', null, 'Songs (click to switch on / off)'), seg, hint);
     sound.appendChild(stack);
+    // shuffle: the songs in a new random order every time round (off: in their own order)
+    const sh = opts.music.shuffle;
+    if (sh) {
+      const hseg = el('div', 'rkst-seg');
+      const hpaint = () => { for (const b of hseg.children) b.classList.toggle('rkst-on', (b.dataset.v === '1') === sh.get()); };
+      for (const [v, label] of [['1', 'ON'], ['0', 'OFF']]) {
+        const b = el('button', null, label); b.dataset.v = v; b.type = 'button';
+        b.addEventListener('click', () => { sh.set(v === '1'); hpaint(); paint(); });
+        hseg.appendChild(b);
+      }
+      hpaint();
+      const hstack = el('div', 'rkst-stack');
+      hstack.append(el('span', null, 'Shuffle'), hseg);
+      sound.appendChild(hstack);
+    }
     const sp = opts.music.speed;
     if (sp) {
       const sseg = el('div', 'rkst-seg');

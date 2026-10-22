@@ -4,9 +4,9 @@ const PATCH_NOTES = [
   {
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
-      'Hell can be easy too: turn HELL on with EASY picked (Local and new lobbies) and when everyone is down, the hell level starts over. Easy hell games stay off the hell board',
+      'Music: the songs play in a shuffled order, a new one every visit (Settings: Shuffle ON / OFF)',
       'Every level now has at least one heart among its pickups',
-      'Reach the final level to unlock a new mode',
+      'A new mode can be unlocked by getting to the final level in Run + Skate, Run only or Skate only',
       'Zoom in closer than before (mouse wheel, the + key, a pinch or the right stick of a controller): one and a half times as close to your kitty',
       'Watch a friend while your own kitty is still standing (Multiplayer): press Tab to look at the next kitty and Space to come back. On phones, the binoculars button in the corner; with a controller, LB / RB and B. Your kitty keeps going the way it was',
       'Settings: choose whether moving brings the camera back to your kitty while you watch a friend. Off: you steer while you watch, and only Space (or the binoculars button, or B) brings it back. The two keys can be changed under Controls',

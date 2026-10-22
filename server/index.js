@@ -55,7 +55,7 @@ const easyOk = (client, room) => !room.easy || client.v >= (room.hell ? EASY_HEL
 const HELL_PROTOCOL = 25;
 // (a hell game with its wolf waves, shared/waves.js: every member had them at its start; an older client can't join it)
 const HELL_WAVES_PROTOCOL = 26;
-const hellOk = (client, room) => !room.hell || (client.v >= HELL_PROTOCOL && !(room.sim && room.sim.waves && client.v < HELL_WAVES_PROTOCOL));
+const hellOk = (client, room) => !room.hell || (client.v >= HELL_PROTOCOL && !(room.sim && room.sim.waves && client.v < HELL_WAVES_PROTOCOL));   // (easy hell: easyOk)
 const hellOpenFor = (client, mode) => accounts.hellOpenFor({ sub: client.acct, pid: client.pid }, mode) || levels.can9({ acct: client.acct, pid: client.pid });
 const updateHow = (client) => (client.app === 'web' ? 'reload the page' : 'update the app');
 const APPS = ['web', 'ios', 'android'];
@@ -469,7 +469,7 @@ function legendsOnWin(room, e) {
 //               member) | 'restart' (id) } -> this player's groups
 //   op 'local'  { mode, level, time, easy, players: [{ name, color }] } (one or two kitties on this device), or
 //               { reached: 9, players }: a solo / local co-op game's cleared level, self-reported: on the local boards only;
-//               { hell: true, mode, level, far, time?, players }: a local hell game's end (its local hell board; time: all of it won)
+//               { hell: true, easy, mode, level, far, time, players }: a local hell game's end, or an easy one's wipe (its local hell board)
 const bucket = (map, ip, burst, rate) => {
   const now = Date.now(), h = map.get(ip) || { tok: burst, at: now };
   h.tok = Math.min(burst, h.tok + (now - h.at) / 1000 * rate); h.at = now; map.set(ip, h);
@@ -504,7 +504,7 @@ function handleLevelsHttp(req, res) {
         ps.forEach((p, seat) => {
           const w = { acct: seat ? null : who.acct, pid, seat, fid: seat ? '' : who.fid, name: p && p.name, color: p && p.color };
           if (m.reached === levels.SECRET_LEVEL) levels.reach(w);
-          else if (m.hell === true) levels.recordHell(w, { local: true, mode: m.mode, level: m.level, far: m.far, time: m.time, team: ps.length });
+          else if (m.hell === true) levels.recordHell(w, { local: true, easy: !!m.easy, mode: m.mode, level: m.level, far: m.far, time: m.time, team: ps.length });
           else levels.record(w, { local: true, easy: !!m.easy, mode: m.mode, level: m.level, time: m.time, team: ps.length });
         });
         return reply(200, { ok: true });
@@ -921,24 +921,25 @@ function showFeats(room, feats) {
   if (changed) sendRoom(room);
 }
 // A hell game counts on its own: none of level 9's (no level reached or cleared, no level times, no level 8 / 9
-// unlocks, no wins); a cleared hell level opens hell for everyone in the game ('h1', in this mode), the game's end
-// (game over, or its last level won) goes on the hell board for everyone in it (not an easy one's), and revives and
-// crowns count as anywhere.
+// unlocks, no wins); a cleared hell level opens hell for everyone in the game ('h1', in this mode), how far it got goes
+// on the hell board for everyone in it (its end: game over or its last level won; easy hell: every wipe, the level
+// starting over, and the win, on the easy board), and revives and crowns count as anywhere.
 function countHell(room, events, { memberOf, subOf, once, featDone }) {
   const sim = room.sim;
   const team = () => once(sim.players.map((p) => p.id));
   for (const e of events) {
     if (e.type === 'levelClear') { for (const id of team()) featDone(id, 'h1'); }
-    else if ((e.type === 'gameOver' || e.type === 'victory') && !room.easy) {
+    else if (e.type === 'gameOver' || e.type === 'victory' || e.type === 'wipe') {
       const far = e.type === 'victory' ? 1 : e.far, ids = team();
       for (const id of ids) {
         const m = memberOf(id), p = sim.players.find((q) => q.id === id);
-        if (m) levels.recordHell({ acct: m.acct, pid: m.pid, fid: m.fid, name: (p && p.name) || m.name, color: p ? p.color : m.color }, { local: false, mode: room.mode, level: e.level, far, team: ids.length, time: sim.time });
+        if (m) levels.recordHell({ acct: m.acct, pid: m.pid, fid: m.fid, name: (p && p.name) || m.name, color: p ? p.color : m.color }, { local: false, easy: !!sim.easy, mode: room.mode, level: e.level, far, team: ids.length, time: sim.time });
       }
-    } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown' });
+    } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown' }, !!sim.easy);
     else if (e.type === 'revive' && !samePlayer(memberOf(e.by), memberOf(e.playerId))) {
       featDone(e.by, 'rev');
       accounts.recordOnline(subOf(e.by), { type: 'revive' });
+      if (sim.easy) accounts.recordOnline(subOf(e.by), { type: 'revive' }, true);
     }
   }
 }
@@ -1134,7 +1135,7 @@ wss.on('connection', (ws, req) => {
         // hell: Run only / Skate only, by a player who has it open in that mode (or says its offline progress has)
         const hell = msg.hell === true;
         if (hell && (client.v < HELL_PROTOCOL || !HELL_MODES.includes(mode))) return send(ws, { t: 'error', msg: `Hell needs the latest version - ${updateHow(client)} to play it.` });
-        if (hell && !hellOpenFor(client, mode) && msg.hl !== true) return send(ws, { t: 'error', msg: `Reach level 9 in ${MODE_NAMES[mode]} (or Run + Skate) to open hell, or clear a hell level in someone's lobby.` });
+        if (hell && !hellOpenFor(client, mode) && msg.hl !== true) return send(ws, { t: 'error', msg: `Reach the final level in any mode to open this, or clear a level of it in someone's lobby.` });
         const r = { code: makeCode(), mode, hell: hell || undefined, easy: msg.easy === true && client.v >= (hell ? EASY_HELL_PROTOCOL : EASY_PROTOCOL), max: Math.max(2, Math.min(NET.MAX_PLAYERS, maxReq)), pass: cleanPass(msg.password), by: client.ipk,
           members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0, victory: null,
           left: new Map() }; // tab token -> state of a kitty that left this game (reconnect grace)

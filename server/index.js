@@ -47,7 +47,9 @@ const modeOk = (client, mode) => client.v >= (MODE_MIN_PROTOCOL[mode] || 0);
 const MODE_NAMES = { mixed: 'Run + Skate', run: 'Run only', ice: 'Skate only' };
 // easy games (a level starts over when everyone is down): older clients would sit on a dead level
 const EASY_PROTOCOL = 19;
-const easyOk = (client, room) => !room.easy || client.v >= EASY_PROTOCOL;
+// (easy hell: older clients play hell without the retry)
+const EASY_HELL_PROTOCOL = 27;
+const easyOk = (client, room) => !room.easy || client.v >= (room.hell ? EASY_HELL_PROTOCOL : EASY_PROTOCOL);
 // hell games (config.js HELL_LEVELS): older clients would build level 9 once and win it. Anyone with this version may
 // join one; creating one needs hell open in that mode (accounts.js hellOpenFor; offline progress: the client's word, hl)
 const HELL_PROTOCOL = 25;
@@ -920,13 +922,14 @@ function showFeats(room, feats) {
 }
 // A hell game counts on its own: none of level 9's (no level reached or cleared, no level times, no level 8 / 9
 // unlocks, no wins); a cleared hell level opens hell for everyone in the game ('h1', in this mode), the game's end
-// (game over, or its last level won) goes on the hell board for everyone in it, and revives and crowns count as anywhere.
+// (game over, or its last level won) goes on the hell board for everyone in it (not an easy one's), and revives and
+// crowns count as anywhere.
 function countHell(room, events, { memberOf, subOf, once, featDone }) {
   const sim = room.sim;
   const team = () => once(sim.players.map((p) => p.id));
   for (const e of events) {
     if (e.type === 'levelClear') { for (const id of team()) featDone(id, 'h1'); }
-    else if (e.type === 'gameOver' || e.type === 'victory') {
+    else if ((e.type === 'gameOver' || e.type === 'victory') && !room.easy) {
       const far = e.type === 'victory' ? 1 : e.far, ids = team();
       for (const id of ids) {
         const m = memberOf(id), p = sim.players.find((q) => q.id === id);
@@ -1132,7 +1135,7 @@ wss.on('connection', (ws, req) => {
         const hell = msg.hell === true;
         if (hell && (client.v < HELL_PROTOCOL || !HELL_MODES.includes(mode))) return send(ws, { t: 'error', msg: `Hell needs the latest version - ${updateHow(client)} to play it.` });
         if (hell && !hellOpenFor(client, mode) && msg.hl !== true) return send(ws, { t: 'error', msg: `Reach level 9 in ${MODE_NAMES[mode]} (or Run + Skate) to open hell, or clear a hell level in someone's lobby.` });
-        const r = { code: makeCode(), mode, hell: hell || undefined, easy: !hell && msg.easy === true && client.v >= EASY_PROTOCOL, max: Math.max(2, Math.min(NET.MAX_PLAYERS, maxReq)), pass: cleanPass(msg.password), by: client.ipk,
+        const r = { code: makeCode(), mode, hell: hell || undefined, easy: msg.easy === true && client.v >= (hell ? EASY_HELL_PROTOCOL : EASY_PROTOCOL), max: Math.max(2, Math.min(NET.MAX_PLAYERS, maxReq)), pass: cleanPass(msg.password), by: client.ipk,
           members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0, victory: null,
           left: new Map() }; // tab token -> state of a kitty that left this game (reconnect grace)
         stats.lobbyCreated();

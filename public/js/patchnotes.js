@@ -4,6 +4,7 @@ const PATCH_NOTES = [
   {
     version: '1.1', date: '2026-10-07', title: 'Your number',
     items: [
+      'Hell can be easy too: turn HELL on with EASY picked (Local and new lobbies) and when everyone is down, the hell level starts over. Easy hell games stay off the hell board',
       'Every level now has at least one heart among its pickups',
       'Reach the final level to unlock a new mode',
       'Zoom in closer than before (mouse wheel, the + key, a pinch or the right stick of a controller): one and a half times as close to your kitty',

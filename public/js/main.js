@@ -2160,9 +2160,9 @@ async function sendLevelNotes() {
   lvSending = false;
 }
 function noteLevels(events) {
-  if (sim.hell) {   // hell: only how far the game got, at its end (its local hell board)
+  if (sim.hell) {   // hell: only how far the game got, at its end (its local hell board; not an easy game's)
     for (const e of events) {
-      if (e.type !== 'gameOver' && e.type !== 'victory') continue;
+      if (sim.easy || (e.type !== 'gameOver' && e.type !== 'victory')) continue;
       lvPending.push({ hell: true, mode: sim.mode, level: e.level, far: e.type === 'victory' ? 1 : e.far, time: sim.time,   // (the game's total time)
         players: sim.players.slice(0, 2).map((p) => ({ name: p.name, color: p.color })) });
       if (lvPending.length > 30) lvPending.shift();

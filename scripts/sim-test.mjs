@@ -1048,12 +1048,18 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     sim.level = HELL_LEVELS;
     const end = toGoal(sim);
     ok(end.some((e) => e.type === 'victory' && e.level === HELL_LEVELS) && sim.state === 'victory', `hell (${mode}): clearing hell level ${HELL_LEVELS} wins`);
-    // everyone down: the game is over, with how far it got
-    const s2 = createSim({ seed: 5, players: [{ id: 1, name: 'a', color: 1 }], mode, finales: 17, hell: true, easy: true });
+    // everyone down: the game is over, with how far it got (easy: the hell level starts over)
+    const s2 = createSim({ seed: 5, players: [{ id: 1, name: 'a', color: 1 }], mode, finales: 17, hell: true });
     stepSim(s2, {}, 1 / 60);
     s2.far = 0.3; s2.players[0].alive = false;
     const go = stepSim(s2, {}, 1 / 60).find((e) => e.type === 'gameOver');
-    ok(!s2.easy && go && go.level === 1 && Math.abs(go.far - 0.3) < 1e-9, `hell (${mode}): never easy; game over says the level and how far along it`);
+    ok(go && go.level === 1 && Math.abs(go.far - 0.3) < 1e-9, `hell (${mode}): game over says the level and how far along it`);
+    const s3 = createSim({ seed: 5, players: [{ id: 1, name: 'a', color: 1 }], startLevel: 3, mode, finales: 17, hell: true, easy: true });
+    stepSim(s3, {}, 1 / 60);
+    s3.players[0].alive = false;
+    const ev3 = [];
+    for (let i = 0; i < 60 * (CFG.RETRY_TIME + 1); i++) ev3.push(...stepSim(s3, {}, 1 / 60));
+    ok(!ev3.some((e) => e.type === 'gameOver') && ev3.some((e) => e.type === 'levelStart' && e.retry && e.level === 3) && s3.level === 3 && s3.players[0].alive, `hell (${mode}) easy: everyone down starts the hell level over`);
   }
   ok(!createSim({ seed: 5, players: [], mode: 'mixed', hell: true }).hell, 'hell: not in Run + Skate');
   // wolf waves (waves.js): from hell level 2 on, in a game with them; every 45 s from the goal end, a gap in each

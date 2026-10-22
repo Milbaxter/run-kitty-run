@@ -137,7 +137,8 @@ function makePlayer(def) {
 // skate final run. Online rooms with an older client play an older version.
 // easy: when everyone is down the level starts over (state 'retry' for CFG.RETRY_TIME, then levelStart with retry: true)
 // instead of the game being over.
-// hell: Run only / Skate only's final run over and over (config.js HELL_LEVELS; sim.level is the hell level), never easy;
+// hell: Run only / Skate only's final run over and over (config.js HELL_LEVELS; sim.level is the hell level); easy too
+// (protocol 27: the hell level starts over);
 // waves: with its wolf waves (waves.js; online only when every kitty's game knows them)
 function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales = 0, easy = false, hell = false, waves = false } = {}) {
   mode = GAME_MODES.includes(mode) ? mode : 'mixed';
@@ -147,7 +148,7 @@ function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales
     seed: seed == null ? 0 : seed,
     mode,
     finales: Math.max(0, Math.min(LATEST_FV, finales | 0)),
-    easy: !!easy && !hell,
+    easy: !!easy,
     hell,
     waves: hell && !!waves,
     far: 0,

@@ -13,9 +13,10 @@ const MODES = [
   { id: 'run', label: 'Run only', tip: 'Run only (no ice): get through 8 levels of the labyrinth.' },
   { id: 'ice', label: 'Skate only', tip: 'Skate only (no run): get through 8 levels of the labyrinth.' },
 ];
-const modeLabel = (id, easy, hell) => (MODES.find((m) => m.id === id) || MODES[0]).label + (hell ? ' (hell)' : easy ? ' (easy)' : '');
+const modeLabel = (id, easy, hell) => (MODES.find((m) => m.id === id) || MODES[0]).label + (hell ? (easy ? ' (hell, easy)' : ' (hell)') : easy ? ' (easy)' : '');
 const EASY_TIP = 'Easy: when everyone is down, the level starts over instead of the game being over. Easy games have their own rewards.';
 const HELL_TIP = 'Hell: get through 6 levels of hell.';
+const HELL_EASY_TIP = 'Hell (easy): get through 6 levels of hell; when everyone is down, the hell level starts over. Not on the hell board.';
 const MAX_KITTIES = 32;   // a lobby's player cap (NET.MAX_PLAYERS)
 const PLAT = { ios: ['🍎', 'iPhone / iPad app'], android: ['🤖', 'Android app'], web: ['🌐', 'Browser'] };
 
@@ -265,8 +266,8 @@ function createLobbyUI(root, cb) {
     else cb.onBack();
   });
 
-  // The game mode as a list of radio buttons + a one-line tip, and under it NORMAL / EASY (/ HELL, in a mode where it's
-  // open); the choices are remembered (savedMode, savedEasy, savedHell). modes: the element to show (both rows).
+  // The game mode as a list of radio buttons + a one-line tip, and under it NORMAL / EASY (/ a HELL switch on top of
+  // either, in a mode where it's open); the choices are remembered (savedMode, savedEasy, savedHell). modes: the element to show (both rows).
   function modePicker(initial) {
     let mode = initial, easy = savedEasy(), hell = savedHell();
     const isHell = () => hell && hellAvail(mode);
@@ -285,11 +286,11 @@ function createLobbyUI(root, cb) {
       const h = isHell();
       for (const b of diff.children) {
         if (b.dataset.easy === 'h') b.hidden = !hellAvail(mode);
-        const on = b.dataset.easy === 'h' ? h : !h && (b.dataset.easy === '1') === easy;
+        const on = b.dataset.easy === 'h' ? h : (b.dataset.easy === '1') === easy;
         b.classList.toggle('rkl-on', on);
         b.setAttribute('aria-checked', String(on));
       }
-      tip.textContent = tip.title = h ? HELL_TIP : easy ? EASY_TIP : MODES.find((m) => m.id === mode).tip;
+      tip.textContent = tip.title = h ? (easy ? HELL_EASY_TIP : HELL_TIP) : easy ? EASY_TIP : MODES.find((m) => m.id === mode).tip;
     };
     const set = (id) => { mode = id; saveMode(mode); paint(); };
     for (const m of MODES) {
@@ -304,19 +305,19 @@ function createLobbyUI(root, cb) {
     for (const [v, label] of [['0', 'Normal'], ['1', 'Easy'], ['h', 'Hell']]) {
       const b = el('button', 'rkl-mode' + (v === 'h' ? ' rkl-hell' : ''));
       b.type = 'button';
-      b.setAttribute('role', 'radio');
+      b.setAttribute('role', v === 'h' ? 'switch' : 'radio');
       b.textContent = label;
       b.dataset.easy = v;
       b.addEventListener('click', () => {
-        hell = v === 'h'; saveHell(hell);
-        if (!hell) { easy = v === '1'; saveEasy(easy); }
+        if (v === 'h') { hell = !hell; saveHell(hell); }
+        else { easy = v === '1'; saveEasy(easy); }
         paint();
       });
       diff.appendChild(b);
     }
     box.append(modes, diff);
     paint();
-    return { modes: box, tip, get: () => mode, easy: () => easy && !isHell(), hell: isHell, repaint: paint };
+    return { modes: box, tip, get: () => mode, easy: () => easy, hell: isHell, repaint: paint };
   }
 
   // A kitty's row: its colour as a cat, name box (saved under nameKey as you type) + random name, colour swatches

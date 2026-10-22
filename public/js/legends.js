@@ -82,6 +82,12 @@ const CSS = `
 .rkg-lrow .rkg-t{flex:none;font-weight:900;font-size:15px;color:#fff6d8;font-variant-numeric:tabular-nums;}
 .rkg-lrow .rkg-d{flex:none;font-size:11px;font-weight:800;opacity:.65;text-align:right;min-width:62px;}
 @media (max-width:420px){ .rkg-lrow .rkg-d{display:none;} }   /* (a narrow screen: the names keep their room) */
+/* hell rows: the name has its own line (the result is long), the result and the date under it */
+.rkg-lrow.rkg-hrow{flex-wrap:wrap;row-gap:2px;}
+.rkg-lrow.rkg-hrow > :nth-child(2){flex:1 1 calc(100% - 46px);}
+.rkg-lrow.rkg-hrow .rkg-t{margin-left:44px;font-size:14px;}
+.rkg-lrow.rkg-hrow .rkg-d{margin-left:auto;}
+@media (max-width:420px){ .rkg-lrow.rkg-hrow .rkg-d{display:block;} }   /* (it has room there now) */
 /* a player's swag number: next to the name while hovered (tapped, on a touch screen) */
 .rkg-paid{display:none;margin-left:6px;font-size:12px;font-weight:900;color:#ffd56b;background:rgba(20,8,40,.8);padding:1px 7px;border-radius:7px;
   vertical-align:1px;-webkit-text-stroke:0;font-variant-numeric:tabular-nums;white-space:nowrap;}
@@ -636,7 +642,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
       return;
     }
     rows.forEach((r, i) => {
-      const row = el('div', 'rkg-lrow' + (r.me ? ' rkg-mine' : ''));
+      const row = el('div', 'rkg-lrow' + (hell ? ' rkg-hrow' : '') + (r.me ? ' rkg-mine' : ''));
       row.append(el('span', 'rkg-no', '#' + (i + 1)), nameEl(r));
       if (lv.team && r.team > 1) row.appendChild(el('span', 'rkg-d', r.team + ' kitties'));
       row.append(el('span', 'rkg-t', icon + fmt(r.time, r.total)), el('span', 'rkg-d', fmtDate(r.at)));

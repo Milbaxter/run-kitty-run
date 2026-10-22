@@ -832,9 +832,10 @@ function handleEvents(events) {
         const L = sim.levelData.level || ev.level, night = stageOf(sim.mode, sim.finales, sim.level).night;
         // hell: its first level opens like level 9, every next one on the same map
         const hellNext = sim.hell && sim.level > 1;
-        if (ev.retry && !finale) ui.banner(`LEVEL ${L}${night ? ' · NIGHT' : ''}`, 'Once more!', 2200);
+        // (an easy game's retry: just the level and 'Once more!', no WELCOME TO HELL again)
+        if (ev.retry) ui.banner(sim.hell ? `HELL ${sim.level}` : `LEVEL ${L}${night ? ' · NIGHT' : ''}`, 'Once more!', 2200, finale ? 'finale' : undefined);
         else if (hellNext) ui.banner(`HELL ${sim.level}`, sim.level >= HELL_LEVELS ? 'The last one!' : 'A new hell…', 2600, 'finale');
-        else if (finale) ui.banner('WELCOME TO HELL', ev.retry ? 'Once more!' : 'Think you can escape?', ev.retry ? 2600 : 4200, 'finale');
+        else if (finale) ui.banner('WELCOME TO HELL', 'Think you can escape?', 4200, 'finale');
         // (the swag menu shows level 9's unlocks from now on; not from someone's hell lobby: that doesn't open hell here)
         if (finale) { if (!sim.hell) try { localStorage.setItem('rkr-seen9', '1'); } catch { /* ignore */ } }
         else if (ev.retry) { /* (shown above) */ }

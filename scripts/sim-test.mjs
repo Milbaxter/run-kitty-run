@@ -1019,6 +1019,28 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   const m17 = moving(17), m18 = moving(18);
   ok(m17 < 0.35 && m18 > 0.6, `Run only level 9 (finale version 18): the wolves are off at once (${Math.round(m18 * 100)}% moving in the first second; version 17: ${Math.round(m17 * 100)}%)`);
 }
+// finale version 20: on ice a kitty with 4 boots turns as tight a U-turn as without (version 19: 20% wider)
+{
+  const uturn = (fv, mult) => {
+    const s = createSim({ seed: 3, players: [{ id: 1, name: 'a', color: 1 }], mode: 'ice', finales: fv, startLevel: 2 });
+    stepSim(s, {}, CFG.TICK);
+    const p = s.players[0], ld = s.levelData;
+    let at = null;
+    for (let x = -60; x < 60 && !at; x++) for (let z = -60; z < 60 && !at; z++) {
+      let all = true;
+      for (let dx = -4; dx <= 4 && all; dx++) for (let dz = -4; dz <= 4 && all; dz++) if (!onIce(ld, x + dx, z + dz)) all = false;
+      if (all) at = { x, z };
+    }
+    Object.assign(p, at, { speedMult: mult, waitRelease: false, heading: 0, vx: CFG.KITTY_SPEED * mult, vz: 0 });
+    let wide = 0;
+    for (let i = 0; i < 60; i++) { p.invuln = 99; stepSim(s, { 1: { x: -1, z: 0.0001 } }, CFG.TICK); wide = Math.max(wide, Math.abs(p.z - at.z)); }
+    return wide;
+  };
+  const plain = uturn(20, 1), boots = uturn(20, 1.2), old = uturn(19, 1.2), oldPlain = uturn(19, 1);
+  ok(Math.abs(boots - plain) < 0.02 && old > plain * 1.15 && oldPlain === plain,
+    `ice U-turn with 4 boots as small as without (finale version 20: ${boots.toFixed(2)} vs ${plain.toFixed(2)}; 19: ${old.toFixed(2)}; no boots the same in both)`);
+}
+
 // the score's distance (p.ran): how far along the map each kitty ran itself; being moved (a checkpoint) counts nothing
 for (const [mode, lvl] of [['run', 1], ['ice', 3]]) {
   const sim = createSim({ seed: 3, players: [{ id: 1, name: 'a', color: 1 }, { id: 2, name: 'b', color: 2 }, { id: 3, name: 'c', color: 3 }], mode, finales: 19, startLevel: lvl });

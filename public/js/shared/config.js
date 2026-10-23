@@ -130,7 +130,10 @@ const MEDIC_GIFT_FV = 17;
 const QUICK_START_FV = 18;
 // 19: every level has at least one heart (one of its pickups becomes one when none came up; maze.js generateLevel)
 const HEART_FV = 19;
-const LATEST_FV = 19;   // the level version a game on this device plays (offline; online: the newest every member has)
+// 20: on ice a kitty with boots also turns faster, by as much as it goes faster, so its U-turn is as small as without
+// (sim.js movePlayer; without boots nothing changes)
+const ICE_TURN_FV = 20;
+const LATEST_FV = 20;   // the level version a game on this device plays (offline; online: the newest every member has)
 // Hell (protocol 25): Run only's or Skate only's level 9 (the final run) over and over. Clearing hell level n starts
 // hell level n + 1, a new final run of its own (its own seed: another layout, wolves and pickups), up to HELL_LEVELS;
 // clearing the last one wins. A game's result is how far it got: the level, and how far along the map the team got on it (sim.far).
@@ -171,6 +174,6 @@ const stageStep = (mode, fv, level, night = false) => (mode === 'mixed' && (fv |
 //  20 = Run + Skate's night half in the day's season (finale version 14, rf 14)
 //  21 = the lottery chest on a lucky checkpoint (events chest / chestOpen; only in rooms where everyone has 21+)
 //  22 = the running final run's wolves speed up toward the goal room, to 92% (finale version 15, rf 15)
-const PROTOCOL_VERSION = 27;   // 27: easy hell (a hell level starts over when everyone is down; the wipe event carries far); 26: hell's wolf waves (shared/waves.js; start messages carry hw, a hell game's sim.waves) and a heart on every level (finale version 19, rf 19); 25: hell (Run only's / Skate only's final run over and over, HELL_LEVELS; start messages carry hell, snapshots hf) and Run only level 9's wolves off at once (finale version 18, rf 18); 24: the broken checkpoint's gift for a medic (finale version 17, rf 17); 23: any kitty repairs Run + Skate level 9's broken checkpoint (finale version 16, rf 16)
+const PROTOCOL_VERSION = 28;   // 28: on ice, boots turn faster too (finale version 20, rf 20); 27: easy hell (a hell level starts over when everyone is down; the wipe event carries far); 26: hell's wolf waves (shared/waves.js; start messages carry hw, a hell game's sim.waves) and a heart on every level (finale version 19, rf 19); 25: hell (Run only's / Skate only's final run over and over, HELL_LEVELS; start messages carry hell, snapshots hf) and Run only level 9's wolves off at once (finale version 18, rf 18); 24: the broken checkpoint's gift for a medic (finale version 17, rf 17); 23: any kitty repairs Run + Skate level 9's broken checkpoint (finale version 16, rf 16)
 
-export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION, DAY_NIGHT_FV, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, MEDIC_GIFT_FV, QUICK_START_FV, HEART_FV, LATEST_FV, HELL_LEVELS, HELL_MODES, stageOf, stageStep };
+export { CFG, MAP_RINGS, levelParams, PLAYER_COLORS, PLAYER_NAMES, NET, SKATE_FINAL_LEVEL, FINAL_MODES, PROTOCOL_VERSION, DAY_NIGHT_FV, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, MEDIC_GIFT_FV, QUICK_START_FV, HEART_FV, ICE_TURN_FV, LATEST_FV, HELL_LEVELS, HELL_MODES, stageOf, stageStep };

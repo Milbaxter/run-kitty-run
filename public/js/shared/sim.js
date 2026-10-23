@@ -1,4 +1,4 @@
-import { CFG, LATEST_FV, SKATE_FINAL_LEVEL, HELL_LEVELS, HELL_MODES, stageOf } from './config.js';
+import { CFG, LATEST_FV, ICE_TURN_FV, SKATE_FINAL_LEVEL, HELL_LEVELS, HELL_MODES, stageOf } from './config.js';
 import { hashSeed } from './rng.js';
 import { generateLevel, collideCircle, inCenter, onIce, inTree, pathProgress, pathTrack } from './maze.js';
 import { createEnemies, updateEnemies } from './enemies.js';
@@ -229,7 +229,8 @@ function movePlayer(sim, p, inp, dt) {
   const h = dt / n;
   const k = 1 - Math.exp(-h / CFG.KITTY_ACCEL_TAU);
   const kIce = 1 - Math.exp(-h / CFG.ICE_ACCEL_TAU);
-  const maxTurn = CFG.ICE_TURN_RATE * h;
+  // (finale version 20: with boots the turn rate goes up with the speed, so the U-turn on ice stays as small as without)
+  const maxTurn = CFG.ICE_TURN_RATE * ((sim.finales | 0) >= ICE_TURN_FV ? p.speedMult || 1 : 1) * h;
   const steering = inp.x * inp.x + inp.z * inp.z > 0.01;
   let iced = false;
   const wasInCenter = p.inCenter;

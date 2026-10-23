@@ -522,6 +522,15 @@ function stepSim(sim, inputs, dt) {
     }
     sim.circles = sim.circles.filter((circ) => { const q = findPlayer(sim, circ.playerId); return q && !q.alive; });
     events.push({ type: 'checkpoint', index: c, by: by.id, x: cp.x, z: cp.z, revived, moved, ...(cp.medic ? { medic: true } : {}) });
+    // each kitty it brought back is a revive by the kitty that reached it, as one in a rescue circle (score, the revive
+    // rewards, the account's revives); cp: the checkpoint's own effects show it, not a revive's
+    for (const id of revived) {
+      const q = findPlayer(sim, id);
+      by.rescues++;
+      if ((ld.level || sim.level) === CFG.REVIVE_DOUBLE_LEVEL) by.bonus = (by.bonus || 0) + 1;
+      sim.stats.rescues++;
+      events.push({ type: 'revive', playerId: id, by: by.id, x: q.x, z: q.z, cp: true });
+    }
     // the broken checkpoint repaired by a kitty with cp.giftRescues revives this run (level version 17+): a life and 4
     // boots in the square, a little ahead of the middle (new pickups, ids from 2000; the event lists them for the clients)
     if (cp.giftRescues && (by.rescues || 0) >= cp.giftRescues) {

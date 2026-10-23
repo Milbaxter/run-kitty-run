@@ -1643,14 +1643,17 @@ function createUI(root) {
   // the row whose revives / times caught are open (its score hovered, or tapped for 3 s): kept here, as the board is rebuilt whenever a score changes
   const sOpen = { who: '', hover: false, tap: 0 };
   const openScores = () => { for (const r of scoresEl.querySelectorAll('.rkr-sr')) r.classList.toggle('rkr-sopen', r.dataset.who === sOpen.who && (sOpen.hover || !!sOpen.tap)); };
-  let best = 0;
-  try { best = parseInt(localStorage.getItem('rkr-best') || '0', 10) || 0; } catch { /* ignore */ }
+  // your best score: one for each mode and difficulty (kind, main.js), from the scoring with distance on
+  // ('rkr-best2-<kind>'; the old one for everything, 'rkr-best', is dropped)
+  let best = 0, bestKind = null;
+  try { localStorage.removeItem('rkr-best'); } catch { /* ignore */ }
 
-  function setScores(list) {
+  function setScores(list, kind) {
     if (!list) { scoresEl.style.display = 'none'; scoresKey = ''; return; }
     scoresEl.style.display = '';
+    if (kind !== bestKind) { bestKind = kind; best = 0; try { best = parseInt(localStorage.getItem('rkr-best2-' + kind) || '0', 10) || 0; } catch { /* ignore */ } }
     const mine = list.filter((p) => p.me).reduce((m, p) => Math.max(m, p.score), -Infinity);
-    if (mine > best) { best = mine; try { localStorage.setItem('rkr-best', String(best)); } catch { /* ignore */ } }
+    if (mine > best) { best = mine; try { localStorage.setItem('rkr-best2-' + bestKind, String(best)); } catch { /* ignore */ } }
     const all = [...list].sort((a, b) => b.score - a.score);
     // big lobbies: top 8, plus you if you're further down
     const rows = all.slice(0, 8);

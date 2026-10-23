@@ -299,12 +299,13 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     };
     p2.alive = false;
     p1.rescues = 59; const before = onCp();
-    p1.rescues = 60; const after = onCp();
+    p1.rescues = 60; const stats0 = s.stats.rescues, after = onCp();
     const near = (p, c) => Math.abs(p.x - c.x) < 9 && Math.abs(p.z - c.z) < 9;
     ok(cp && cp.medic && before.length === 0 && after.length === 1 && after[0].medic && after[0].revived.includes(2) && p2.alive,
       'Run + Skate level 9: the broken checkpoint needs 60 revives, then revives the team (medic)');
     ok(Math.abs(p3.x - ahead.x) < 0.5 && !after[0].moved.includes(3) && near(p4, cp) && near(p2, cp) && after[0].moved.includes(4),
       'the broken checkpoint leaves living kitties already past it where they are, gathers the downed and the skaters');
+    ok(p1.rescues === 61 && s.stats.rescues === stats0 + 1, 'a kitty brought back by a checkpoint is a revive by the kitty that reached it (only the downed one counts)');
   }
 
   // speed boots: 4 pairs max, lost when caught (an extra life keeps them)

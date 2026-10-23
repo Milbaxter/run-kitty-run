@@ -900,6 +900,7 @@ function handleEvents(events) {
         break;
       }
       case 'revive': {
+        if (ev.cp) break;   // (brought back by a checkpoint: its own effects, case 'checkpoint')
         const p = playerById(ev.playerId);
         const by = playerById(ev.by);
         if (mine(ev.playerId) || mine(ev.by)) haptic('medium');
@@ -2027,7 +2028,7 @@ ui.onFeedbackClick(() => feedback.open());
 
 const hudScores = [], hudPlayers = [];
 const hudData = { level: 0, players: hudPlayers, time: 0, rescues: 0 };
-let hudScoresOff = false;
+let hudScoresOff = false, hudBestKind = null;
 function updateHUD() {
   // feedback button: while your kitty is down, or on the game-over screen
   let down = false;
@@ -2043,8 +2044,10 @@ function updateHUD() {
   // trackRun), +5 per win (the crown); from an older server (no p.ran) the old +20 per win
   // The row objects persist; ui.setScores (sort + DOM key) only runs when a score row actually changes.
   const ps = sim.players;
-  let dirty = hudScoresOff || hudScores.length !== ps.length;
-  hudScoresOff = false;
+  // the best score is kept for each mode and difficulty (hell apart): e.g. 'run', 'mixed-easy', 'hell-ice'
+  const bestKind = (sim.hell ? 'hell-' : '') + (sim.mode || 'mixed') + (sim.easy ? '-easy' : '');
+  let dirty = hudScoresOff || hudScores.length !== ps.length || bestKind !== hudBestKind;
+  hudScoresOff = false; hudBestKind = bestKind;
   if (dirty) { hudScores.length = ps.length; hudPlayers.length = ps.length; }
   for (let i = 0; i < ps.length; i++) {
     const p = ps[i];
@@ -2069,7 +2072,7 @@ function updateHUD() {
     h.medic = medicLook(cosOf(p));   // the medic badge (3000 revives), when switched on
     h.paid = paid; h.ps = pst;
   }
-  if (dirty) ui.setScores(hudScores);
+  if (dirty) ui.setScores(hudScores, bestKind);
   hudData.level = sim.hell ? sim.level : sim.levelData.level || sim.level; hudData.time = sim.time; hudData.rescues = sim.stats.rescues;
   hudData.tag = sim.hell ? 'HELL' : 'LEVEL';   // (hell: how far along the map shows only when the game is over)
   ui.setHUD(hudData);

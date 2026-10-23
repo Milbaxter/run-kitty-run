@@ -207,13 +207,25 @@ html.rkr-touch .rkr-hint,html.rkr-touch .rkr-desk,html.rkr-touch .rkr-keyhint{di
 html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-touchhint{font-weight:800;font-size:15px;color:#efe7ff;text-align:center;opacity:.9;}
 .rkr-overlay{touch-action:pan-y;}
-.rkr-scores{position:absolute;right:16px;top:58px;min-width:150px;max-width:220px;padding:6px 10px;border-radius:12px;
+.rkr-scores{position:absolute;right:16px;top:58px;min-width:150px;max-width:280px;padding:6px 10px;border-radius:12px;
   background:rgba(10,4,30,.32);font-size:13px;font-weight:800;opacity:.85;pointer-events:none;}
 .rkr-scores .rkr-sh{font-size:10px;letter-spacing:.14em;color:#ffcf5a;opacity:.9;margin-bottom:2px;}
 .rkr-scores .rkr-sr{display:flex;gap:8px;align-items:center;line-height:1.5;}
 .rkr-scores .rkr-sr span:first-child{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .rkr-scores .rkr-scr{display:flex;align-items:center;gap:2px;flex:none;font-size:12px;font-weight:900;color:#ffd56b;font-variant-numeric:tabular-nums;}
 .rkr-scores .rkr-scr svg{width:13px;height:13px;}
+.rkr-scores .rkr-scr.rkr-srev{color:#fff;}
+.rkr-scores .rkr-scr.rkr-scau{color:#fff;}
+.rkr-scores .rkr-scr.rkr-scol{min-width:28px;}   /* (columns: crowns, revives, times caught line up row to row) */
+.rkr-scores .rkr-scr.rkr-szero{opacity:.3;}
+.rkr-scores .rkr-sv{pointer-events:auto;cursor:default;}
+.rkr-scores .rkr-scr.rkr-shid{display:none;}   /* (revives and times caught: shown while the score is hovered, or for a moment after a tap) */
+.rkr-scores .rkr-sr.rkr-sopen .rkr-scr.rkr-shid{display:flex;}
+.rkr-scores .rkr-sdmed{display:inline-block;width:13px;height:13px;color:#ff5c93;}
+.rkr-scores .rkr-sdmed svg{width:100%;height:100%;display:block;}
+.rkr-scores .rkr-sdmed .mi{stroke:#fff;}
+.rkr-scores .rkr-sdmed .mo{stroke:#2b1840;}
+.rkr-scores .rkr-sdmed .mk{fill:#fff;stroke:#2b1840;}
 .rkr-scores .rkr-sr.rkr-me{text-decoration:underline;text-underline-offset:3px;}
 /* the account total on the scoreboard: hidden, shown beside the row while its name is hovered or after a tap on it */
 .rkr-scores .rkr-sr[data-paid]{position:relative;pointer-events:auto;cursor:default;}
@@ -1621,6 +1633,9 @@ function createUI(root) {
 
   // ================= scoreboard (top right) =================
   let scoresKey = '';
+  // the row whose revives / times caught are open (its score hovered, or tapped for 3 s): kept here, as the board is rebuilt whenever a score changes
+  const sOpen = { who: '', hover: false, tap: 0 };
+  const openScores = () => { for (const r of scoresEl.querySelectorAll('.rkr-sr')) r.classList.toggle('rkr-sopen', r.dataset.who === sOpen.who && (sOpen.hover || !!sOpen.tap)); };
   let best = 0;
   try { best = parseInt(localStorage.getItem('rkr-best') || '0', 10) || 0; } catch { /* ignore */ }
 
@@ -1634,7 +1649,7 @@ function createUI(root) {
     const rows = all.slice(0, 8);
     const meRow = all.find((p) => p.you);
     if (meRow && !rows.includes(meRow)) rows.push(meRow);
-    const key = rows.map((p) => `${p.name}|${p.score}|${p.me}|${p.crown}|${p.crowns}|${p.shimmer}|${p.paid || 0}|${p.ps || ''}`).join(',') + '#' + best;
+    const key = rows.map((p) => `${p.name}|${p.score}|${p.me}|${p.crown}|${p.crowns}|${p.revives || 0}|${p.caught || 0}|${p.shimmer}|${p.paid || 0}|${p.ps || ''}`).join(',') + '#' + best;
     if (key === scoresKey) return;
     scoresKey = key;
     scoresEl.textContent = '';
@@ -1651,11 +1666,20 @@ function createUI(root) {
         const fish = el('span', 'rkr-fish'); fish.innerHTML = swagHTML(fmtNum(p.paid), p.ps); r.appendChild(fish);
         r.addEventListener('click', () => { r.classList.add('rkr-showpaid'); clearTimeout(r._t); r._t = setTimeout(() => r.classList.remove('rkr-showpaid'), 2500); });
       }
-      // the crowns this kitty has won this run: a little crown and the count
+      // the crowns this kitty has won this run; hover the score (or tap it) for the kitties it revived and the times it was caught (a 0 faint)
       if (p.crowns > 0) { const c = el('span', 'rkr-scr', ICONS.crown); c.appendChild(document.createTextNode(String(p.crowns))); c.title = p.crowns + (p.crowns === 1 ? ' crown' : ' crowns'); r.appendChild(c); }
+      const stat = (cls, icon, n, title) => { const c = el('span', 'rkr-scr rkr-scol rkr-shid ' + cls + (n > 0 ? '' : ' rkr-szero'), icon); c.appendChild(document.createTextNode(String(n))); c.title = title; r.appendChild(c); };
+      stat('rkr-srev', `<span class="rkr-sdmed" style="color:${hexColor(p.color)}">${MEDIC_SVG}</span>`, p.revives || 0, (p.revives || 0) + (p.revives === 1 ? ' revive' : ' revives'));
+      stat('rkr-scau', ICONS.revive, p.caught || 0, 'caught ' + (p.caught || 0) + (p.caught === 1 ? ' time' : ' times'));   // (the ghost: a kitty down)
+      v.classList.add('rkr-sv');
+      const who = r.dataset.who = p.name + '|' + p.color;
+      v.addEventListener('mouseenter', () => { sOpen.who = who; sOpen.hover = true; openScores(); });
+      v.addEventListener('mouseleave', () => { sOpen.hover = false; openScores(); });
+      v.addEventListener('click', () => { sOpen.who = who; clearTimeout(sOpen.tap); sOpen.tap = setTimeout(() => { sOpen.tap = 0; openScores(); }, 3000); openScores(); });
       r.appendChild(v);
       scoresEl.appendChild(r);
     }
+    openScores();
     if (all.length > rows.length) { const more = el('div', 'rkr-best'); more.textContent = `+${all.length - rows.length} more`; scoresEl.appendChild(more); }
     const b = el('div', 'rkr-best'); b.textContent = `best ${best > 0 ? '+' : ''}${best}`;
     scoresEl.appendChild(b);

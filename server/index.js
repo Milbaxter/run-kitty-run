@@ -729,7 +729,7 @@ function rememberLeft(room, client) {
   room.left.set(client.tok || `ip:${client.ip}#${client.id}`, {
     at: Date.now(), sim, level: sim.level, ip: client.ip,
     alive: p.alive, x: p.x, z: p.z, circleT: circ ? circ.t : 0,
-    lives: p.lives, deaths: p.deaths, rescues: p.rescues, finishes: p.finishes, crowned: p.crowned, speedMult: p.speedMult, bonus: p.bonus || 0,
+    lives: p.lives, deaths: p.deaths, rescues: p.rescues, finishes: p.finishes, crowned: p.crowned, speedMult: p.speedMult, bonus: p.bonus || 0, ran: p.ran || 0,
     goals: room.goalsFor === sim && room.goals.get(p.id) ? [...room.goals.get(p.id)] : [],   // (the unlocks' goal tally)
   });
 }
@@ -743,7 +743,7 @@ function restoreLeft(room, client, p) {
   const r = room.left.get(key);
   room.left.delete(key);
   const sim = room.sim;
-  Object.assign(p, { lives: r.lives, deaths: r.deaths, rescues: r.rescues, finishes: r.finishes, crowned: r.crowned, speedMult: r.speedMult, bonus: r.bonus || 0 });
+  Object.assign(p, { lives: r.lives, deaths: r.deaths, rescues: r.rescues, finishes: r.finishes, crowned: r.crowned, speedMult: r.speedMult, bonus: r.bonus || 0, ran: r.ran || 0 });   // (ran: the score's distance)
   if (r.goals && r.goals.length && r.sim === sim) {   // the goals it had reached this run come back with it
     if (room.goalsFor !== sim) { room.goalsFor = sim; room.goals = new Map(); }
     room.goals.set(p.id, new Set(r.goals));
@@ -953,10 +953,10 @@ function sendSnapshot(room) {
   broadcast(room, {
     t: 'snap', k: room.tick, lvl: sim.level, st: sim.state, lt: sim.enemyTicks, tm: r3(sim.time), rt: sim.retries || undefined,
     // [id, x, z, vx, vz, heading, alive, inCenter, lives, speedMult, invuln, shield, deaths, rescues, inputMargin, finishes, waitRelease, crowned, bonus,
-    //  freeTurn] (new fields go at the end: older clients ignore them)
+    //  freeTurn, ran (the score's distance: maps run)] (new fields go at the end: older clients ignore them)
     p: sim.players.map((p) => [p.id, r3(p.x), r3(p.z), r3(p.vx), r3(p.vz), r3(p.heading), p.alive ? 1 : 0, p.inCenter ? 1 : 0,
       p.lives, r3(p.speedMult), r3(p.invuln), r3(p.shield), p.deaths, p.rescues, Math.round((margins.get(p.id) ?? 0) * 10) / 10, p.finishes || 0, p.waitRelease ? 1 : 0,
-      p.crowned ? 1 : 0, p.bonus || 0, p.freeTurn ? 1 : 0]),
+      p.crowned ? 1 : 0, p.bonus || 0, p.freeTurn ? 1 : 0, r3(p.ran || 0)]),
     lw: sim.lastWinner || 0, ct: sim.crownTaken ? 1 : 0,
     it: sim.items.filter((i) => i.taken).map((i) => i.id),
     c: sim.circles.map((c) => [c.playerId, r3(c.x), r3(c.z), r3(c.t)]),

@@ -1,6 +1,6 @@
 import { CFG, LATEST_FV, SKATE_FINAL_LEVEL, HELL_LEVELS, HELL_MODES, stageOf } from './config.js';
 import { hashSeed } from './rng.js';
-import { generateLevel, collideCircle, inCenter, onIce, inTree, pathProgress } from './maze.js';
+import { generateLevel, collideCircle, inCenter, onIce, inTree, pathProgress, pathTrack } from './maze.js';
 import { createEnemies, updateEnemies } from './enemies.js';
 import { hellWaves, waveHit } from './waves.js';
 
@@ -128,6 +128,7 @@ function makePlayer(def) {
     deaths: 0,
     rescues: 0,
     bonus: 0,   // extra score points (REVIVE_DOUBLE_LEVEL)
+    ran: 0,     // maps run this run (the score's distance points, main.js: 20 a map): see trackRun
     finishes: 0,    // levels this kitty finished first this run (run rewards, see main.js)
     crowned: false, // grabbed the crown at least once this run (wears one from then on)
   };
@@ -192,6 +193,22 @@ function readInput(inputs, id) {
     z /= m;
   }
   return inp.m ? { x, z, m: 1 } : { x, z };   // m: sound on (CFG.MUSIC_BOOST)
+}
+
+// The score's distance (p.ran: maps run, 1 = a whole map): how far along this level's path a kitty has got by running
+// itself. Only running on past the furthest it has been counts (p.runBest); being moved there (a checkpoint gathering
+// the team, a new level's start, the victory party: any jump of more than RUN_JUMP in a tick) counts nothing, and the
+// way it skipped stays uncounted.
+const RUN_JUMP = 3;
+function trackRun(sim, p) {
+  const ld = sim.levelData;
+  if (p.runLd !== ld) { p.runLd = ld; p.runBest = 0; p.runSeg = -1; p.runX = NaN; }   // (a new level: from its start)
+  const moved = Math.hypot(p.x - p.runX, p.z - p.runZ);
+  const jumped = !(moved <= RUN_JUMP);
+  const t = pathTrack(ld, p.x, p.z, jumped ? -1 : p.runSeg);
+  if (!jumped && t.f > p.runBest) p.ran = (p.ran || 0) + (t.f - p.runBest);
+  if (t.f > p.runBest) p.runBest = t.f;
+  p.runSeg = t.i; p.runX = p.x; p.runZ = p.z;
 }
 
 function movePlayer(sim, p, inp, dt) {
@@ -366,6 +383,7 @@ function stepSim(sim, inputs, dt) {
     }
     movePlayer(sim, p, readInput(inputs, p.id), dt);
     p.inCenter = inCenterNow(sim, p);
+    if (sim.state === 'playing') trackRun(sim, p);   // (the score's distance)
     if (sim.hell && sim.state === 'playing') { const f = pathProgress(ld, p.x, p.z); if (f > sim.far) sim.far = f; }   // (hell: the team's furthest)
     if (p.inCenter && sim.enteredCenter.indexOf(p.id) < 0) {
       sim.enteredCenter.push(p.id);

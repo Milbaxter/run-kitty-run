@@ -1923,4 +1923,25 @@ function pathProgress(ld, x, z) {
   return Math.max(0, Math.min(1, at / pi.total));
 }
 
-export { generateLevel, collideCircle, locate, inCenter, onIce, inTree, mazeSelfTest, levelHash, pathProgress };
+// ...the same followed from where it was (hint: the path segment it was nearest, -1: anywhere): only the segments
+// around that one (PATH_TRACK of them each way, about 30 units of path), so it never jumps to the corridor next door
+// through a wall the way a nearest-anywhere search can. -> { f: 0..1, i: the segment now }
+const PATH_TRACK = 15;
+function pathTrack(ld, x, z, hint = -1) {
+  const pts = ld && ld.path;
+  if (!Array.isArray(pts) || pts.length < 2) return { f: 0, i: -1 };
+  if (!pathInfos.get(ld)) pathProgress(ld, x, z);   // (its lengths)
+  const pi = pathInfos.get(ld), n = pts.length - 1;
+  const lo = hint < 0 ? 1 : Math.max(1, hint - PATH_TRACK), hi = hint < 0 ? n : Math.min(n, hint + PATH_TRACK);
+  let best = Infinity, at = 0, seg = lo;
+  for (let i = lo; i <= hi; i++) {
+    const A = pts[i - 1], ex = pts[i].x - A.x, ez = pts[i].z - A.z, L2 = ex * ex + ez * ez;
+    if (!L2) continue;
+    const t = Math.max(0, Math.min(1, ((x - A.x) * ex + (z - A.z) * ez) / L2));
+    const dx = x - A.x - ex * t, dz = z - A.z - ez * t, d = dx * dx + dz * dz;
+    if (d < best) { best = d; at = pi.cum[i - 1] + t * (pi.cum[i] - pi.cum[i - 1]); seg = i; }
+  }
+  return { f: Math.max(0, Math.min(1, at / pi.total)), i: seg };
+}
+
+export { generateLevel, collideCircle, locate, inCenter, onIce, inTree, mazeSelfTest, levelHash, pathProgress, pathTrack };

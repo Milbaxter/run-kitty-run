@@ -2039,7 +2039,8 @@ function updateHUD() {
   feedback.setVisible(down);
   feedback.dock(ui.gameOverSlot()); // on the game-over card it sits under 'press Enter', not over it
   if (mode !== 'play') { if (!hudScoresOff) { hudScoresOff = true; ui.setScores(null); } return; }
-  // score: +1 per friend saved, -1 per time caught, +20 per win (finishing a level first)
+  // score: +1 per friend saved, -1 per time caught, up to 20 per map for how far you ran yourself (p.ran, sim.js
+  // trackRun), +5 per win (the crown); from an older server (no p.ran) the old +20 per win
   // The row objects persist; ui.setScores (sort + DOM key) only runs when a score row actually changes.
   const ps = sim.players;
   let dirty = hudScoresOff || hudScores.length !== ps.length;
@@ -2047,15 +2048,19 @@ function updateHUD() {
   if (dirty) { hudScores.length = ps.length; hudPlayers.length = ps.length; }
   for (let i = 0; i < ps.length; i++) {
     const p = ps[i];
-    const score = p.rescues + (p.bonus || 0) - p.deaths + 20 * (p.finishes || 0), crown = !!p.crowned, crowns = p.finishes || 0;
+    const dist = p.ran === undefined ? 0 : Math.round(20 * p.ran), crownPts = (p.ran === undefined ? 20 : 5) * (p.finishes || 0);
+    const score = p.rescues + (p.bonus || 0) - p.deaths + dist + crownPts, crown = !!p.crowned, crowns = p.finishes || 0;
     const me = online.playing ? p.id === online.me : true, you = online.playing && p.id === online.me;
     let r = hudScores[i];
     if (!r) r = hudScores[i] = {};
     const shimmer = (p.finishes || 0) >= 12, gold = shimmer && !!sim.easy;   // 12+ wins: a rainbow name on the scoreboard (an easy game: a golden one)
     const paid = online.playing ? ((online.roster.get(p.id) || {}).paid || 0) : i === 0 && account.shown() ? account.display() : 0;   // the account's number (unless switched off)
     const pst = online.playing ? (online.roster.get(p.id) || {}).ps || '' : i === 0 ? account.paidStyle() : '';   // ...drawn as the koi fish or the classic tag
-    if (r.name !== p.name || r.color !== p.color || r.score !== score || r.crown !== crown || r.me !== me || r.you !== you || r.shimmer !== shimmer || r.gold !== gold || r.crowns !== crowns || r.paid !== paid || r.ps !== pst) {
+    const revives = p.rescues || 0, caught = p.deaths || 0;   // (shown on the scoreboard beside the crowns)
+    if (r.name !== p.name || r.color !== p.color || r.score !== score || r.crown !== crown || r.me !== me || r.you !== you || r.shimmer !== shimmer || r.gold !== gold || r.crowns !== crowns || r.paid !== paid || r.ps !== pst
+      || r.revives !== revives || r.caught !== caught) {
       r.name = p.name; r.color = p.color; r.score = score; r.crown = crown; r.crowns = crowns; r.me = me; r.you = you; r.shimmer = shimmer; r.gold = gold; r.paid = paid; r.ps = pst;
+      r.revives = revives; r.caught = caught;
       dirty = true;
     }
     let h = hudPlayers[i];
@@ -2715,7 +2720,7 @@ function applySnapshot(m) {
   const seen = new Set();
   let rosterChanged = false;
   for (const a of m.p) {
-    const [id, x, z, vx, vz, heading, alive, inC, lives, speedMult, invuln, shield, deaths, rescues, margin, finishes = 0, waitRelease, crowned = 0, bonus = 0, freeTurn = 0] = a;
+    const [id, x, z, vx, vz, heading, alive, inC, lives, speedMult, invuln, shield, deaths, rescues, margin, finishes = 0, waitRelease, crowned = 0, bonus = 0, freeTurn = 0, ran] = a;
     seen.add(id);
     let p = sim.players.find((q) => q.id === id);
     const fresh = !p;
@@ -2728,7 +2733,7 @@ function applySnapshot(m) {
     }
     const wasAlive = p.alive;
     const oldX = p.x + (id === online.me ? online.errX : 0), oldZ = p.z + (id === online.me ? online.errZ : 0);
-    Object.assign(p, { vx, vz, heading, alive: !!alive, inCenter: !!inC, lives, speedMult, invuln, shield, deaths, rescues, finishes, crowned: !!crowned, bonus });
+    Object.assign(p, { vx, vz, heading, alive: !!alive, inCenter: !!inC, lives, speedMult, invuln, shield, deaths, rescues, finishes, crowned: !!crowned, bonus, ran });   // (ran: undefined from an older server)
     p.moving = Math.hypot(vx, vz) > 0.5;
     if (id === online.me) {
       p.x = x; p.z = z;

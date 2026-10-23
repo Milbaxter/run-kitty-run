@@ -1018,6 +1018,22 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   const m17 = moving(17), m18 = moving(18);
   ok(m17 < 0.35 && m18 > 0.6, `Run only level 9 (finale version 18): the wolves are off at once (${Math.round(m18 * 100)}% moving in the first second; version 17: ${Math.round(m17 * 100)}%)`);
 }
+// the score's distance (p.ran): how far along the map each kitty ran itself; being moved (a checkpoint) counts nothing
+for (const [mode, lvl] of [['run', 1], ['ice', 3]]) {
+  const sim = createSim({ seed: 3, players: [{ id: 1, name: 'a', color: 1 }, { id: 2, name: 'b', color: 2 }, { id: 3, name: 'c', color: 3 }], mode, finales: 19, startLevel: lvl });
+  const path = sim.levelData.path, [a, b, c] = sim.players;
+  stepSim(sim, {}, 1 / 60);
+  const at = (p, i) => { const q = path[Math.max(0, Math.min(path.length - 1, i))]; p.x = q.x; p.z = q.z; };
+  const half = Math.floor(path.length / 2);
+  for (let i = 0; i < path.length + 5 && sim.state === 'playing'; i++) {
+    for (const p of sim.players) { p.invuln = 9; p.vx = 0; p.vz = 0; }
+    at(a, i); at(b, Math.min(i, Math.floor((path.length - 1) * 0.9)));
+    if (i < 5) at(c, i); else at(c, Math.min(half + Math.floor((i - 5) / 2), Math.floor((path.length - 1) * 0.95)));   // (moved to half way at once)
+    stepSim(sim, {}, 1 / 60);
+  }
+  ok(Math.round(20 * a.ran) === 20 && Math.round(20 * b.ran) === 18 && Math.round(20 * c.ran) === 9,
+    `score distance (${mode}): the whole map run 20, 90% of it 18, moved half way and then run to 95% 9 (got ${Math.round(20 * a.ran)}, ${Math.round(20 * b.ran)}, ${Math.round(20 * c.ran)})`);
+}
 // finale version 19: every level has at least one heart (still at most two per half); version 18: some had none
 {
   const count = (fv) => { let none = 0, over = 0; for (const mode of ['run', 'ice', 'mixed']) for (let seed = 1; seed <= 12; seed++) for (let step = 1; step <= (mode === 'mixed' ? 17 : 9); step++) {

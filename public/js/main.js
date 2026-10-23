@@ -2247,6 +2247,7 @@ const online = {
   playing: false, me: 0, room: null, roster: new Map(),
   tick: 0, acc: 0, rate: 1, levelStartTick: 0, lastK: -1, shownLevel: 0,
   inputs: new Map(), remote: new Map(), errX: 0, errZ: 0, menu: false,
+  again: false,   // the host's RESTART GAME on the game-over card: start a new game as soon as the room is back in the lobby
   wolfTicks: new Int32Array(WOLF_HIST).fill(-1), wolfPos: null, resyncAt: 0, wolfChase: false,
 };
 
@@ -2339,7 +2340,14 @@ net.on('room', (m) => {
   setRoomInUrl(m.code, m.locked ? m.pass : '');
   if (!online.playing || mode !== 'play') lobbyUI.showRoom(m);
   else if (m.phase === 'lobby' && victory) victory.lobbyAt = victory.t; // the party is over on the server: head back soon
+  restartWhenLobby();
 });
+function restartWhenLobby() {
+  const r = online.room;
+  if (!online.again || !r || r.phase !== 'lobby') return;
+  online.again = false;
+  if (r.host === r.you) net.send({ t: 'start' });
+}
 // ---------- invites (protocol 18): the players you played Multiplayer with, kept on this browser only ----------
 // Each has the public friend id the server gave them (a hash, not their progress id); newest first. Starred ones
 // (fav: friends) always stay; of the others, the newest RECENT_MAX.
@@ -2437,6 +2445,7 @@ net.on('open', () => {
 net.on('close', () => {
   if (online.room) online.rejoin = online.room.code;
   online.room = null;
+  online.again = false;
   chat.setEnabled(false);
   if (online.playing) enterTitle(false);
   ui.hideGameOver();
@@ -2493,6 +2502,7 @@ net.on('items', (m) => {
 function leadTicks() { return Math.ceil(net.rtt / 2 / (CFG.TICK * 1000)) + NET.INPUT_LEAD; }
 
 function beginOnlineGame(m) {
+  online.again = false;
   lobbyUI.hide();
   if (m.st !== 'victory') legends.reset();
   ui.hideTitle();
@@ -2551,6 +2561,7 @@ function beginOnlineGame(m) {
 }
 
 function backToLobby() {
+  online.again = false;
   if (online.menu) { online.menu = false; ui.hidePause(); }
   if (online.playing && sim && sim.state === 'victory') net.send({ t: 'tolobby' });   // (the server ends the party once everyone has)
   online.playing = false;
@@ -2845,7 +2856,9 @@ function tick(dt) {
         onShare: () => shareRun(false, runSim.time),
       }, () => { ui.hideGameOver(); if (wasOnline) backToLobby(); else startGame(playerCount); }, wasOnline ? 'BACK TO LOBBY' : null,
       // LEAVE GAME: offline back to the title, online out of the lobby (to the lobby list)
-      () => { if (wasOnline) net.send({ t: 'leave' }); else enterTitle(); });
+      () => { if (wasOnline) net.send({ t: 'leave' }); else enterTitle(); },
+      // RESTART GAME (the lobby's host): the room goes back to the lobby a few seconds after a game over; start it then
+      wasOnline && online.room && online.room.host === online.me ? () => { online.again = true; restartWhenLobby(); } : null);
     }, 1400);
   }
 

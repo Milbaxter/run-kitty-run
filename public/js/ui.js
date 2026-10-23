@@ -445,6 +445,7 @@ a.rkr-statsbtn{text-decoration:none;display:inline-block;line-height:normal;}
 .rkr-btn.rkr-alt{background:linear-gradient(180deg,#e3f7ff,#7fd8ff 55%,#5b9dff);}
 .rkr-goshare{position:absolute;top:16px;right:16px;}   /* the game-over card's SHARE (share.js) */
 .rkr-btn.rkr-set{background:linear-gradient(180deg,#eafff0,#94f0b0 55%,#3ccf8e);}   /* the Esc menu's SETTINGS (settings.js) */
+.rkr-btn.rkr-goagain{background:linear-gradient(180deg,#eafff0,#94f0b0 55%,#3ccf8e);}   /* the game-over card's RESTART GAME (a lobby's host) */
 .rkr-btn.rkr-swag{background:linear-gradient(180deg,#ffe1f4,#ff9ad5 55%,#c77dff);}   /* 4: optional account (account.js) */
 .rkr-btn:hover,.rkr-btn.rkr-sel{transform:translateY(-3px) scale(1.04);filter:brightness(1.08);box-shadow:0 10px 0 #3a1650,0 18px 30px rgba(0,0,0,.45),0 0 0 5px rgba(255,255,255,.35);}
 .rkr-btn:active{transform:translateY(4px) scale(.98);box-shadow:0 3px 0 #3a1650,0 6px 14px rgba(0,0,0,.4);}
@@ -1443,8 +1444,9 @@ function createUI(root) {
     'Every kitty deserves another try.',
     'So close to the glowing heart!',
   ];
-  // onLeave: a LEAVE GAME button next to TRY AGAIN / BACK TO LOBBY
-  function showGameOver(stats, onRestart, buttonLabel, onLeave) {
+  // onLeave: a LEAVE GAME button next to TRY AGAIN / BACK TO LOBBY; onAgain (a lobby's host): a RESTART GAME button
+  // above them (straight into a new game, the lobby skipped; it reads STARTING… until the game starts)
+  function showGameOver(stats, onRestart, buttonLabel, onLeave, onAgain) {
     stats = stats || {};
     onRestartCb = onRestart || null;
     hideGameOver();
@@ -1466,7 +1468,7 @@ function createUI(root) {
         <div class="rkr-gsub">${esc(line)}</div>
         ${stats.alone ? `<div class="rkr-alone">${ICONS.revive}<span><b>Hint:</b> Alone, nobody can revive you when you're caught. Project: Run Kitty Run is made to be beaten together. ${stats.alone === 'online' ? 'Invite some into your lobby!' : 'Play Multiplayer or Local co-op!'}</span></div>` : ''}
         <div class="rkr-stats">${rows.map((r) => `<div class="rkr-stat"><div class="rkr-ico" style="color:${r.color || '#fff'}">${r.icon}</div><span class="rkr-sl">${r.label}</span><span class="rkr-sv">${r.fmt(0)}</span></div>`).join('')}</div>
-        <div class="rkr-btns"><button class="rkr-btn rkr-gomain">${esc(buttonLabel || 'TRY AGAIN')}</button>${onLeave ? '<button class="rkr-btn rkr-alt rkr-goleave">LEAVE GAME</button>' : ''}</div>
+        <div class="rkr-btns">${onAgain ? '<button class="rkr-btn rkr-goagain">RESTART GAME</button>' : ''}<button class="rkr-btn rkr-gomain">${esc(buttonLabel || 'TRY AGAIN')}</button>${onLeave ? '<button class="rkr-btn rkr-alt rkr-goleave">LEAVE GAME</button>' : ''}</div>
         <div class="rkr-keyhint">press <span class="rkr-k rkr-wide">Enter</span></div>
         <div class="rkr-goslot"></div>
       </div>`;
@@ -1477,6 +1479,10 @@ function createUI(root) {
     gcat.style.animation = 'rkr-wiggle 2.4s ease-in-out infinite';
     goEl.querySelector('.rkr-gomain').addEventListener('click', restart);
     if (onLeave) goEl.querySelector('.rkr-goleave').addEventListener('click', () => { if (!state.gameOver) return; hideGameOver(); onLeave(); });
+    if (onAgain) {
+      const ab = goEl.querySelector('.rkr-goagain');
+      ab.addEventListener('click', () => { if (!state.gameOver || ab.disabled) return; ab.disabled = true; ab.textContent = 'STARTING…'; onAgain(); });
+    }
     // share the result (share.js: an image card + text); the card stays up
     if (stats.onShare) {
       const sb = goEl.querySelector('.rkr-goshare');

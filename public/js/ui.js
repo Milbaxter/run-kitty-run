@@ -290,12 +290,12 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-card.rkr-shimmer.rkr-goldname .rkr-name,.rkr-scores .rkr-shim.rkr-goldname{background-image:linear-gradient(90deg,#b8791f,#ffd56b,#fff6d0,#ffd56b,#b8791f,#ffd56b,#b8791f);}
 .rkr-card.rkr-cool.rkr-down .rkr-shades-broken{display:block !important;}
 .rkr-card.rkr-cool.rkr-down .rkr-xeyes{display:none;}
-.rkr-card.rkr-rainbow .rkr-cat > path:first-child{fill:url(#rkr-rainbow-fur);}
+.rkr-card.rkr-rainbow .rkr-cat > path:first-child,.rkr-card.rkr-rainbow .rkr-medic svg > path:first-child{fill:url(#rkr-rainbow-fur);}
 .rkr-card .rkr-head .rkr-mane{position:absolute;inset:0;width:100%;height:100%;overflow:visible;z-index:-1;display:none;}   /* (beats .rkr-head svg{display:block}) */
 .rkr-card .rkr-mane path{fill:#a0522d;fill:color-mix(in srgb,currentColor 62%,#2b1840);stroke:#2b1840;stroke-width:3.2;paint-order:stroke fill;stroke-linejoin:round;}
 .rkr-card.rkr-lion .rkr-head .rkr-mane{display:block;}
 .rkr-card.rkr-rlion .rkr-mane path{fill:url(#rkr-rainbow-fur);}
-.rkr-card.rkr-chrome .rkr-mane path,.rkr-card.rkr-chrome .rkr-cat > path:first-child{fill:url(#rkr-chrome-fur);}
+.rkr-card.rkr-chrome .rkr-mane path,.rkr-card.rkr-chrome .rkr-cat > path:first-child,.rkr-card.rkr-chrome .rkr-medic svg > path:first-child{fill:url(#rkr-chrome-fur);}
 /* a chrome / golden / bronze kitty's sunglasses: its metal instead of black lenses */
 /* (each lens its own slow brushed-mirror lines, left to right: rkr-*-lens-rl) */
 .rkr-card.rkr-chrome .rkr-shades ellipse{fill:url(#rkr-chrome-lens-rl);}
@@ -311,9 +311,9 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-card.rkr-lensstill.rkr-lm-chrome .rkr-shades ellipse{fill:#aeb8c6;}
 .rkr-card.rkr-lensstill.rkr-lm-gold .rkr-shades ellipse{fill:#e0a020;}
 .rkr-card.rkr-lensstill.rkr-lm-bronze .rkr-shades ellipse{fill:#b0662a;}
-.rkr-card.rkr-mbronze .rkr-mane path,.rkr-card.rkr-mbronze .rkr-cat > path:first-child{fill:url(#rkr-bronze-fur);}
-.rkr-card.rkr-mgold .rkr-mane path,.rkr-card.rkr-mgold .rkr-cat > path:first-child{fill:url(#rkr-gold-fur);}
-.rkr-card.rkr-celestial .rkr-mane path,.rkr-card.rkr-celestial .rkr-cat > path:first-child{fill:url(#rkr-cosmic-fur);}
+.rkr-card.rkr-mbronze .rkr-mane path,.rkr-card.rkr-mbronze .rkr-cat > path:first-child,.rkr-card.rkr-mbronze .rkr-medic svg > path:first-child{fill:url(#rkr-bronze-fur);}
+.rkr-card.rkr-mgold .rkr-mane path,.rkr-card.rkr-mgold .rkr-cat > path:first-child,.rkr-card.rkr-mgold .rkr-medic svg > path:first-child{fill:url(#rkr-gold-fur);}
+.rkr-card.rkr-celestial .rkr-mane path,.rkr-card.rkr-celestial .rkr-cat > path:first-child,.rkr-card.rkr-celestial .rkr-medic svg > path:first-child{fill:url(#rkr-cosmic-fur);}
 .rkr-card.rkr-celestial .rkr-mane path{stroke:#8fb8ff;}
 /* the mane in a metal of its own (main.js iconLook maneMetal), over the body's */
 .rkr-card.rkr-lion.rkr-mm-chrome .rkr-mane path{fill:url(#rkr-chrome-fur);}
@@ -331,6 +331,7 @@ html.rkr-touch .rkr-touchonly{display:block;}
 .rkr-status{font-size:11px;font-weight:900;letter-spacing:.08em;padding:1px 7px;border-radius:999px;background:#38d97a;color:#073a1c;}
 .rkr-down .rkr-status{background:#ff3b5c;color:#fff;animation:rkr-blink .6s steps(2) infinite;}
 .rkr-hearts{display:flex;gap:2px;margin-left:auto;}
+/* the medic badge: its cross in the kitty's colour, or its chrome / rainbow / gold / bronze / celestial look (with the fur, above) */
 .rkr-medic{width:24px;height:24px;margin:-4px 0;flex:none;color:var(--pc,#ff5c93);filter:drop-shadow(0 1px 1px rgba(0,0,0,.45));}
 .rkr-medic svg{width:100%;height:100%;display:block;}
 .rkr-medic .mi{stroke:var(--mi,#fff);}

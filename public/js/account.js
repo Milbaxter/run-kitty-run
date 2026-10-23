@@ -228,7 +228,8 @@ function createAccount(root) {
     const goals = (id) => { let g = soloRun.goals.get(id); if (!g) soloRun.goals.set(id, g = new Set()); return g; };
     for (const e of events) {
       // hell: a cleared hell level (it stays open in this mode), and revives; none of level 9's own
-      if (sim.hell) { if (e.type === 'levelClear') soloFeat('h1', sim.mode); else if (e.type === 'revive') soloFeat('rev', sim.mode); continue; }
+      // (a cleared hell level: the new song too, as the final run won)
+      if (sim.hell) { if (e.type === 'levelClear') { soloFeat('h1', sim.mode); soloFeat('win', sim.mode); } else if (e.type === 'revive') soloFeat('rev', sim.mode); continue; }
       if (e.type === 'enterCenter') goals(e.playerId).add(e.level ?? sim.level);
       // (an easy game: its own level 8 and 9 feats; not again when level 9 starts over)
       else if (e.type === 'levelStart' && !e.retry && ((sim.levelData && sim.levelData.level) || sim.level) === SKATE_FINAL_LEVEL) {
@@ -359,7 +360,7 @@ function createAccount(root) {
         l9: 'Clear level 9 in a normal game having reached the goal yourself on every level, the final one too. Each mode unlocks it for that mode, Run + Skate for all three:',
         e8: 'Clear level 8 in an easy game having reached the goal yourself on every level (both halves in Run + Skate); a normal game counts too. Each mode unlocks it for that mode, Run + Skate for all three:',
         e9: 'Clear level 9 in an easy game having reached the goal yourself on every level, the final one too; a normal game counts too. Each mode unlocks it for that mode, Run + Skate for all three:',
-        win: 'Clear the final level to unlock a new song (any mode):',
+        win: 'Clear the final level, or a level of the new mode, to unlock a new song (any mode):',
         rev: 'Revive kitties (all modes together):',
         top1: 'Number 1 on the legends board: the first team to beat a mode. Worn in every mode:',
         fast1: 'Number 1 on a fastest list of the legends board (solo or team, online or local). Worn in every mode:',

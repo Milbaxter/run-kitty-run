@@ -1006,6 +1006,7 @@ function handleEvents(events) {
         effects.confetti(0, 0);
         effects.shake(0.2);
         if (!sim.hell) analytics.level(ev.level);
+        if (sim.hell && online.playing) setTimeout(() => account.refresh(), 2000);   // (the server counted it: the new song may be unlocked)
         if (sim.hell && sim.level < HELL_LEVELS) {   // hell: on to the next one, the same map
           const by = playerById(ev.by);
           ui.banner(by && sim.players.length > 1 ? `${by.name.toUpperCase()} MADE IT!` : 'MADE IT!', `Hell ${sim.level + 1} next…`, 2000, 'finale');

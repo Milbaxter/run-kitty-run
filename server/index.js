@@ -921,14 +921,15 @@ function showFeats(room, feats) {
   if (changed) sendRoom(room);
 }
 // A hell game counts on its own: none of level 9's (no level reached or cleared, no level times, no level 8 / 9
-// unlocks, no wins); a cleared hell level opens hell for everyone in the game ('h1', in this mode), how far it got goes
+// unlocks, no wins); a cleared hell level opens hell for everyone in the game ('h1', in this mode) and unlocks the new song
+// ('win', as the final run won does), how far it got goes
 // on the hell board for everyone in it (its end: game over or its last level won; easy hell: every wipe, the level
 // starting over, and the win, on the easy board), and revives and crowns count as anywhere.
 function countHell(room, events, { memberOf, subOf, once, featDone }) {
   const sim = room.sim;
   const team = () => once(sim.players.map((p) => p.id));
   for (const e of events) {
-    if (e.type === 'levelClear') { for (const id of team()) featDone(id, 'h1'); }
+    if (e.type === 'levelClear') { for (const id of team()) { featDone(id, 'h1'); featDone(id, 'win'); } }   // (and the new song: a hell level beaten)
     else if (e.type === 'gameOver' || e.type === 'victory' || e.type === 'wipe') {
       const far = e.type === 'victory' ? 1 : e.far, ids = team();
       for (const id of ids) {

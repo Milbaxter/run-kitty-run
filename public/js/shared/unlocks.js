@@ -55,7 +55,8 @@ const UNLOCKS = [
   { id: 'mbronze', name: 'Bronze mane', feat: 'fast1', times: 1, any: true, hidden: true, defaultOff: true, slot: 'mane', metal: 'bronze' },
   { id: 'tbronze', name: 'Bronze tail tip', feat: 'fast1', times: 1, any: true, hidden: true, defaultOff: true, slot: 'tip', metal: 'bronze' },
   { id: 'lbronze', name: 'Bronze lenses', feat: 'fast1', times: 1, any: true, hidden: true, defaultOff: true, slot: 'lens', metal: 'bronze' },
-  { id: 'song5', name: 'New song: We Skate', feat: 'win', times: 1, any: true, song: true },
+  // (also: a hell level cleared ('h1') unlocks it too, the ones cleared before it did included)
+  { id: 'song5', name: 'New song: We Skate', feat: 'win', times: 1, any: true, song: true, also: 'h1' },
   // the medic badge on the player card (`medic`: its look; more revive rewards may add looks: the card shows the best)
   { id: 'medic', name: 'Medic badge', feat: 'rev', times: 3000, total: true, medic: 'base' },   // (in the kitty's colour)
 ];
@@ -83,6 +84,7 @@ const featCount = (progress, feat, mode) => featOwn(progress, feat, mode) + (EAS
 function isUnlocked(progress, item, mode = null) {
   const u = typeof item === 'string' ? UNLOCKS.find((x) => x.id === item) : item;
   if (!u) return false;
+  if (u.also && featTotal(progress, u.also) > 0) return true;   // (another feat that unlocks it too, once done anywhere)
   const p = (progress && progress[u.feat]) || {};
   if (u.total) return featTotal(progress, u.feat) >= u.times;
   const modes = u.modes || UNLOCK_MODES;

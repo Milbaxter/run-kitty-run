@@ -1102,6 +1102,8 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     }
   }
   // open: level 9 reached in the mode (Run + Skate: both), or a hell level of it cleared
+  ok(isUnlocked({ h1: { ice: 1 } }, 'song5') && isUnlocked({ win: { run: 1 } }, 'song5') && !isUnlocked({ r9: { run: 1 } }, 'song5'),
+    'the new song: unlocked by a hell level cleared too (any mode, before this rule as well)');
   ok(hellOpen({ r9: { mixed: 1 } }, 'run') && hellOpen({ r9: { mixed: 1 } }, 'ice') && hellOpen({ r9: { run: 1 } }, 'run') && hellOpen({ r9: { run: 1 } }, 'ice')
     && hellOpen({ r9: { ice: 1 } }, 'run') && hellOpen({ h1: { ice: 1 } }, 'ice') && !hellOpen({ h1: { ice: 1 } }, 'run') && !hellOpen({ l8: { run: 3 } }, 'run') && !hellOpen({}, 'run'),
     'hell opens: level 9 reached in any mode opens both; a cleared hell level opens its own mode');

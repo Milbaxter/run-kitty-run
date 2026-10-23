@@ -4,6 +4,7 @@
 import { createSim, stepSim } from '../public/js/shared/sim.js';
 import { CFG, SKATE_FINAL_LEVEL, FINAL_MODES, PLAYER_NAMES, stageStep } from '../public/js/shared/config.js';
 import { generateLevel, mazeSelfTest, collideCircle, onIce } from '../public/js/shared/maze.js';
+import { hyp } from '../public/js/shared/rng.js';
 import { filterChat, filterName } from '../public/js/shared/filter.js';
 import { isUnlocked, featTotal, medicLook, slotMetal, UNLOCKS } from '../public/js/shared/unlocks.js';
 const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process.exitCode = 1; };
@@ -719,6 +720,39 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(fast.account.stats.online.best.run[3] === 95 && !fast.account.stats.online.best.run[4] && fast.account.stats.local.best.ice[2] === 61.3
       && !fast.account.stats.online.best.ice[2],
     'account stats: fastest clear per mode and level (online and local apart), slower and implausible times ignored');
+    // hell: each hell level's clears and fastest clear, and the wins (all of hell cleared), online and local apart
+    accounts.recordOnline(sub, { type: 'hellClear', mode: 'ice', level: 1, time: 80.04 });
+    accounts.recordOnline(sub, { type: 'hellClear', mode: 'ice', level: 1, time: 99 });
+    accounts.recordOnline(sub, { type: 'hellClear', mode: 'ice', level: 7 });
+    accounts.recordOnline(sub, { type: 'hellClear', mode: 'mixed', level: 1 });
+    accounts.recordOnline(sub, { type: 'hellWin', mode: 'run' });
+    accounts.recordOnline(sub, { type: 'hellClear', mode: 'run', level: 2 }, true);
+    const crowns0 = (await request(accounts, 'me')).account.stats.online.crowns;
+    accounts.recordOnline(sub, { type: 'crown', hell: true });
+    const hl = await request(accounts, 'progress', [Buffer.from(JSON.stringify({ hell: true, mode: 'run', clears: [1, 2, 9], times: [70, 60], won: true, crowns: 1, revives: 2 }))]);
+    // easy games: online ones in 'easy', solo / local ones in 'easyLocal' (since the split), their revives in the usual set too
+    await request(accounts, 'progress', [Buffer.from(JSON.stringify({ mode: 'ice', easy: true, reached: 2, clears: [1], times: [50], crowns: 1, revives: 3 }))]);
+    await request(accounts, 'progress', [Buffer.from(JSON.stringify({ hell: true, easy: true, mode: 'ice', clears: [1], times: [90], crowns: 0, revives: 0 }))]);
+    const hs = (await request(accounts, 'me')).account.stats;
+    ok(hs.online.hell.clears.ice[1] === 2 && hs.online.hell.best.ice[1] === 80 && !hs.online.hell.clears.ice[7] && !hs.online.hell.clears.mixed
+      && hs.online.hell.wins.run === 1 && hs.easy.hell.clears.run[2] === 1 && !hs.online.hell.clears.run[2]
+      && hl.ok && hs.local.hell.clears.run[1] === 1 && hs.local.hell.best.run[2] === 60 && !hs.local.hell.clears.run[9] && hs.local.hell.wins.run === 1
+      && hs.local.reached.run === 0 && !hs.local.clears.run[1]
+      && hs.online.hell.crowns === 1 && hs.online.crowns === crowns0 && hs.local.hell.crowns === 1 && hs.local.hell.revives === 2 && hs.local.revives === lo.revives + 3
+      && hs.easyLocal.clears.ice[1] === 1 && hs.easyLocal.crowns === 1 && hs.easyLocal.revives === 3 && hs.easyLocal.hell.clears.ice[1] === 1 && !hs.easy.clears.ice[1] && !hs.easy.hell.clears.ice[1],
+    'account stats: hell levels cleared (fastest too), hell won and its crowns (their own count), per hell mode, online / easy / local apart; not counted as normal levels');
+    // the hell games from before: filled once from the hell boards (levels below the furthest reached, an escape a win)
+    {
+      const { createLevelBoards } = await import('../server/levelboards.js');
+      const lb = createLevelBoards(path.join(dir, 'levels-backfill.json'));
+      lb.recordHell({ acct: sub, name: 'Me', color: 1 }, { local: false, easy: false, mode: 'run', level: 4, far: 0.46, team: 1, time: 600 });
+      lb.recordHell({ acct: sub, name: 'Me', color: 1 }, { local: true, easy: false, mode: 'ice', level: 6, far: 1, team: 1, time: 900 });
+      const n1 = accounts.backfillHell((s, pids) => lb.hellResults(s, pids)), n2 = accounts.backfillHell((s, pids) => lb.hellResults(s, pids));
+      const bs = (await request(accounts, 'me')).account.stats;
+      ok(n1 >= 1 && n2 === 0 && bs.online.hell.clears.run[3] >= 1 && !bs.online.hell.clears.run[4] && bs.online.hell.clears.run[2] >= 1
+        && bs.local.hell.clears.ice[6] === 1 && bs.local.hell.wins.ice === 1 && bs.online.hell.wins.run === 1 && bs.online.hell.clears.ice[1] === 2,
+        'account stats: hell games from before filled once from the hell boards (levels below the furthest reached; an escape: a win), never lowered');
+    }
     // permanent unlocks, per mode: a feat done in a mode unlocks the item in that mode only (on by default); it can be
     // switched off (everywhere); locked ones can't
     const EASY_IDS = ['specs', 'gboots', 'sskates'];   // (a normal level 8 counts for the easy unlocks too: checked on their own below)
@@ -862,6 +896,20 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(lb.firsts.ice.filter((x) => x.name === 'Amy').length === 1 && lb.fastest.ice.filter((x) => x.team[0].name === 'Amy').map((x) => x.total).join() === '1500'
       && lb.firsts.run.length === 1 && lb.firsts.mixed.length === 1 && !/acct-amy|aaaaaaaa|"keys"/.test(lg.boardJson()),
       'legends lists: first 100 different players per mode (105 wins of one name: 1), each team only with its best time, no ids sent');
+    // a repeat win under a new name: the first-clear entry takes the name, its line and time stay; another player changes nothing
+    {
+      const lr = createLegends(path.join(dir, 'legends-rename.json'));
+      const bo = { id: 4001, name: 'Bo', color: 1, acct: 'acct-bo' };
+      lr.recordWin('run', 200, [bo], 2000);
+      lr.sign({ id: 4001, tok: '', acct: 'acct-bo', name: 'Bo' }, 'first!');
+      const before = JSON.parse(lr.boardJson()).firsts.run[0];
+      lr.recordWin('run', 200, [{ ...bo, id: 4002, name: 'BoCat' }], 1400);
+      lr.sign({ id: 4002, tok: '', acct: 'acct-bo', name: 'BoCat' }, 'faster now');
+      lr.recordWin('run', 200, [{ id: 4003, name: 'Bo', color: 1, acct: 'acct-other' }], 1300);
+      const F = JSON.parse(lr.boardJson()).firsts.run;
+      ok(before.text === 'first!' && F[0].name === 'BoCat' && F[0].text === 'first!' && F[0].total === 2000 && F[0].at === before.at && F[1].name === 'Bo' && F.length === 2,
+        'legends first 100: a later win renames the first-clear entry; its line, date and time stay (another account with that name: its own)');
+    }
     const rk = lg.ranksFor({ acct: 'acct-amy' }), rk2 = lg.ranksFor({ pids: ['b'.repeat(24)] }), rk0 = lg.ranksFor({ acct: 'nobody' });
     ok(rk.length === 1 && rk[0].mode === 'ice' && rk[0].first >= 1 && rk[0].fastest >= 1 && rk[0].total === 1500 && rk2.length === 1 && !rk0.length,
       'legends lists: an account (or a browser it played on) finds its places for the swag account menu');
@@ -1019,6 +1067,18 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   const m17 = moving(17), m18 = moving(18);
   ok(m17 < 0.35 && m18 > 0.6, `Run only level 9 (finale version 18): the wolves are off at once (${Math.round(m18 * 100)}% moving in the first second; version 17: ${Math.round(m17 * 100)}%)`);
 }
+// rng.js hyp: Math.hypot as V8 computes it, from + - * / and sqrt only (the same in every browser), bit for bit
+{
+  let s = 12345, differ = 0;
+  const r = () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
+  for (let i = 0; i < 200000; i++) {
+    const a = i % 3 === 0 ? Math.round((r() - 0.5) * 80) / 4 : (r() - 0.5) * (i % 3 === 1 ? 400 : 1e-3), b = (r() - 0.5) * 400;
+    if (!Object.is(hyp(a, b), Math.hypot(a, b))) differ++;
+  }
+  for (const [a, b] of [[0, 0], [-0, 5], [3, 4], [Infinity, 1], [NaN, 1], [NaN, Infinity], [1e-320, 1e-320], [1e300, 1e300]]) if (!Object.is(hyp(a, b), Math.hypot(a, b))) differ++;
+  ok(differ === 0, `rng.js hyp gives exactly V8's Math.hypot (${differ} of 200008 differ), so levels are built the same in every browser`);
+}
+
 // finale version 20: on ice a kitty with 4 boots turns as tight a U-turn as without (version 19: 20% wider)
 {
   const uturn = (fv, mult) => {

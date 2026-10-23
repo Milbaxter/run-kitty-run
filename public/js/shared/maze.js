@@ -1,5 +1,5 @@
 import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, MEDIC_GIFT_FV, QUICK_START_FV, HEART_FV, stageOf } from './config.js';
-import { createRng, hashSeed, ipow, legPoint } from './rng.js';
+import { createRng, hashSeed, ipow, hyp, legPoint } from './rng.js';   // (hyp: Math.hypot the same in every browser)
 import { buildPlan, patternPose, patternSpeed } from './enemies.js';
 
 // Square-spiral level generation + collision. Pure (no THREE, no DOM).
@@ -86,7 +86,7 @@ function buildSpiral() {
   for (let i = ARMS - 1; i >= 4; i--) {
     const a = c(i), b = c(i + 1);
     const [ux, uz] = DIRS[i % 4], [nx, nz] = DIRS[(i + 1) % 4];
-    legs.push({ arm: i, ox: a.x, oz: a.z, ux, uz, nx, nz, len: Math.hypot(b.x - a.x, b.z - a.z), loop: Math.floor((i - 4) / 4) });
+    legs.push({ arm: i, ox: a.x, oz: a.z, ux, uz, nx, nz, len: hyp(b.x - a.x, b.z - a.z), loop: Math.floor((i - 4) / 4) });
   }
   const corners = [];
   for (let i = ARMS; i >= 4; i--) corners.push(c(i));
@@ -129,7 +129,7 @@ function buildPath(corners, legs) {
   const pushTo = (x, z) => {
     const l = pts[pts.length - 1];
     if (!l) { pts.push({ x, z }); return; }
-    const L = Math.hypot(x - l.x, z - l.z);
+    const L = hyp(x - l.x, z - l.z);
     if (L < 1e-6) return;
     const n = Math.max(1, Math.ceil(L / STEP));
     for (let k = 1; k <= n; k++) pts.push({ x: l.x + (x - l.x) * k / n, z: l.z + (z - l.z) * k / n });
@@ -195,7 +195,7 @@ function spiralLength() {
   if (!spiralPathLen) {
     const { legs, corners } = buildSpiral();
     const pts = buildPath(corners, legs);
-    for (let k = 1; k < pts.length; k++) spiralPathLen += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z);
+    for (let k = 1; k < pts.length; k++) spiralPathLen += hyp(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z);
   }
   return spiralPathLen;
 }
@@ -703,7 +703,7 @@ function placePatternEnemies(rng, lvl, p) {
       ? { r: c.r - Math.sign(c.r) * edge(q.th), th: q.th } : q));
     if (route.every((q, k) => q === w.route[k])) return;
     for (let k = 1; k < route.length; k++) {
-      const A = route[k - 1], B = route[k], n = Math.ceil(Math.hypot(B.r - A.r, B.th - A.th) / 0.25);
+      const A = route[k - 1], B = route[k], n = Math.ceil(hyp(B.r - A.r, B.th - A.th) / 0.25);
       for (let t = 0; t <= n; t++) {
         const { x, z } = legPoint(leg, A.r + (B.r - A.r) * t / n, A.th + (B.th - A.th) * t / n);
         if (collideCircle(lvl, x, z, CFG.WOLF_RADIUS).hit) return;
@@ -990,7 +990,7 @@ function placePatternEnemies(rng, lvl, p) {
       if (Math.abs(x) < ROOM + 1 && Math.abs(z) < ROOM + 1) continue;   // into the goal room (through its door)
       if (lvl.fv >= 5) {
         // version 5+: the wall has to be ahead of it (one it runs alongside, like the outer wall at the corner, doesn't count)
-        const dx = x - o.x, dz = z - o.z, n = Math.hypot(dx, dz) || 1, a = CFG.WOLF_RADIUS + 0.6;
+        const dx = x - o.x, dz = z - o.z, n = hyp(dx, dz) || 1, a = CFG.WOLF_RADIUS + 0.6;
         if (!collideCircle(lvl, x + dx / n * a, z + dz / n * a, 0.3).hit) return true;
       } else if (!collideCircle(lvl, x, z, CFG.WOLF_RADIUS + 0.6).hit) return true;
     }
@@ -1304,10 +1304,10 @@ function placeItemsCapped(rng, lvl, n, cap, boots = true) {
   const W = lvl.corridorWidth;
   const items = [], used = { life: 0, shield: 0 };
   const okSpot = (x, z) => {
-    for (const s of spawnPoints) if (Math.hypot(s.x - x, s.z - z) < 4) return false;
-    for (const t of items) if (Math.hypot(t.x - x, t.z - z) < 6) return false;
+    for (const s of spawnPoints) if (hyp(s.x - x, s.z - z) < 4) return false;
+    for (const t of items) if (hyp(t.x - x, t.z - z) < 6) return false;
     if (collideCircle(lvl, x, z, CFG.ITEM_RADIUS + 0.15).hit) return false;
-    for (const t of lvl.trees || []) if (Math.hypot(t.x - x, t.z - z) < CFG.TREE_RADIUS + 1) return false;
+    for (const t of lvl.trees || []) if (hyp(t.x - x, t.z - z) < CFG.TREE_RADIUS + 1) return false;
     return true;
   };
   for (let k = 0; k < n; k++) {
@@ -1333,10 +1333,10 @@ function placeItems(rng, lvl, p) {
   const W = lvl.corridorWidth;
   const items = [];
   const okSpot = (x, z) => {
-    for (const s of spawnPoints) if (Math.hypot(s.x - x, s.z - z) < 4) return false;
-    for (const t of items) if (Math.hypot(t.x - x, t.z - z) < 6) return false;
+    for (const s of spawnPoints) if (hyp(s.x - x, s.z - z) < 4) return false;
+    for (const t of items) if (hyp(t.x - x, t.z - z) < 6) return false;
     if (collideCircle(lvl, x, z, CFG.ITEM_RADIUS + 0.15).hit) return false;
-    for (const t of lvl.trees || []) if (Math.hypot(t.x - x, t.z - z) < CFG.TREE_RADIUS + 1) return false; // not hidden under a canopy
+    for (const t of lvl.trees || []) if (hyp(t.x - x, t.z - z) < CFG.TREE_RADIUS + 1) return false; // not hidden under a canopy
     return true;
   };
   const types = [['boots', 5], ['life', 2], ['shield', 3]];
@@ -1358,7 +1358,7 @@ function placeItems(rng, lvl, p) {
 // the path, and the fifth safe square before the end. Each faces down the leg that leaves it (legs[i] runs from corner i+1 at s=0 to corner i).
 function pickCheckpoints(corners, legs, nSafe) {
   const cum = [0];
-  for (let i = 1; i < corners.length; i++) cum.push(cum[i - 1] + Math.hypot(corners[i].x - corners[i - 1].x, corners[i].z - corners[i - 1].z));
+  for (let i = 1; i < corners.length; i++) cum.push(cum[i - 1] + hyp(corners[i].x - corners[i - 1].x, corners[i].z - corners[i - 1].z));
   const total = cum[cum.length - 1];
   const late = nSafe - 5;          // fifth safe square before the end
   let third = 1;
@@ -1697,7 +1697,7 @@ function onIce(levelData, x, z) {
   if (levelData.iceZMax != null && z > levelData.iceZMax) return false;   // Run + Skate's level 9: the run half is solid ground
   if (levelData.finale && inTree(levelData, x, z)) return false;   // the final run's tree: up there you can sit still
   const rh = levelData.roomHalf;
-  if (Math.abs(x) < rh && Math.abs(z) < rh) return !levelData.finale && Math.hypot(x, z) >= levelData.centerRadius;
+  if (Math.abs(x) < rh && Math.abs(z) < rh) return !levelData.finale && hyp(x, z) >= levelData.centerRadius;
   const h = (levelData.safeSize || levelData.corridorWidth) / 2;
   const sc = levelData.safeCorners;
   for (let i = 0; i < sc.length; i++) if (Math.abs(x - sc[i].x) < h && Math.abs(z - sc[i].z) < h) return false;
@@ -1705,7 +1705,7 @@ function onIce(levelData, x, z) {
 }
 
 function inCenter(levelData, x, z) {
-  return Math.hypot(x, z) < levelData.centerRadius - HALF_T;
+  return hyp(x, z) < levelData.centerRadius - HALF_T;
 }
 
 // ---------------------------------------------------------------- self test
@@ -1761,7 +1761,7 @@ function checkPatternWolves(ld, P, stats) {
     const f = e.frame, pts = e.route;
     let clip = 0;
     for (let k = 1; k < pts.length; k++) {
-      const A = pts[k - 1], B = pts[k], n = Math.max(1, Math.ceil(Math.hypot(B.r - A.r, B.th - A.th) / 0.25));
+      const A = pts[k - 1], B = pts[k], n = Math.max(1, Math.ceil(hyp(B.r - A.r, B.th - A.th) / 0.25));
       for (let t = 0; t <= n; t++) {
         const r = A.r + (B.r - A.r) * t / n, th = A.th + (B.th - A.th) * t / n;
         const { x, z } = legPoint(f, r, th);
@@ -1808,11 +1808,11 @@ function mazeSelfTest(levels = 12, modes = ['mixed', 'ice']) {
         if (e.type === 'charger' && e.route.length !== 2) P(s, l, `final-stretch charger ${e.id}: a route of ${e.route.length} points`);
         let clip = 0, disc = 0;
         for (let k = 1; k < e.route.length; k++) {
-          const A = e.route[k - 1], B = e.route[k], n = Math.max(1, Math.ceil(Math.hypot(B.r - A.r, B.th - A.th) / 0.25));
+          const A = e.route[k - 1], B = e.route[k], n = Math.max(1, Math.ceil(hyp(B.r - A.r, B.th - A.th) / 0.25));
           for (let t = 0; t <= n; t++) {
             const { x, z } = legPoint(e.frame, A.r + (B.r - A.r) * t / n, A.th + (B.th - A.th) * t / n);
             if (collideCircle(ld, x, z, CFG.WOLF_RADIUS).hit) clip++;
-            if (Math.hypot(x, z) < ld.centerRadius + CFG.WOLF_RADIUS) disc++;
+            if (hyp(x, z) < ld.centerRadius + CFG.WOLF_RADIUS) disc++;
             const w = locate(ld, x, z);
             if (w.leg === -1) inRoom = true;
           }
@@ -1829,7 +1829,7 @@ function mazeSelfTest(levels = 12, modes = ['mixed', 'ice']) {
       let len = 0, bad = 0;
       for (let k = 1; k < path.length; k++) {
         const A = path[k - 1], B = path[k];
-        const sl = Math.hypot(B.x - A.x, B.z - A.z);
+        const sl = hyp(B.x - A.x, B.z - A.z);
         len += sl;
         if (sl > 2.6) P(s, l, 'path step too long ' + sl.toFixed(2));
         const n = Math.ceil(sl / 0.2);
@@ -1860,7 +1860,7 @@ function mazeSelfTest(levels = 12, modes = ['mixed', 'ice']) {
             const a = e.a0 + (e.a1 - e.a0) * u / 8, r = e.rIn + (e.rOut - e.rIn) * v / 4;
             const { x, z } = legPoint(f, r, a);
             if (collideCircle(ld, x, z, CFG.WOLF_RADIUS).hit) clip++;
-            for (const sp of ld.spawnPoints) if (Math.hypot(sp.x - x, sp.z - z) < CFG.START_SAFE_ARC) unsafe++;
+            for (const sp of ld.spawnPoints) if (hyp(sp.x - x, sp.z - z) < CFG.START_SAFE_ARC) unsafe++;
           }
           if (clip) P(s, l, `enemy ${e.id} (${e.type}) bounds clip walls (${clip})`);
           // tuned running levels walk up to the start square's tile edge like any safe square (sim-test checks the tiles)
@@ -1902,7 +1902,7 @@ function pathProgress(ld, x, z) {
   let pi = pathInfos.get(ld);
   if (!pi) {
     const cum = [0];
-    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + hyp(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
     const dir = Math.sign(pts[1].x - pts[0].x);
     const straight = !!dir && pts.every((q, i) => q.z === pts[0].z && (!i || Math.sign(q.x - pts[i - 1].x) === dir));
     pi = { cum, total: cum[cum.length - 1] || 1, straight };

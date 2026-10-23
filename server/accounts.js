@@ -17,6 +17,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { UNLOCKS, UNLOCK_MODES, FEAT_IDS, isUnlocked, isWorn, hellOpen } from '../public/js/shared/unlocks.js';
+import { HELL_LEVELS, HELL_MODES } from '../public/js/shared/config.js';
 
 const MIN_CENTS = 50;              // Stripe's minimum charge (EUR / USD; the account settles in EUR, so a USD charge must clear €0.50)
 // No cap of our own: this is only the largest amount Stripe's API takes (8 digits); card / payment-method limits still apply
@@ -285,7 +286,7 @@ function createAccounts(file, env = process.env) {
   const pub = (a) => (a ? { name: a.name, email: a.email, via: a.via || 'google', paid: Number(a.paid) || 0, display: shownCents(a), active: active(a), show: !a.hide, style: a.style === 'koi' ? 'koi' : 'classic', unlocks: unlocksOf(a),
     legends: legendRanks(a),
     deleting: a.deleting ? new Date(a.deleting + DELETE_KEEP_MS).toISOString() : null,   // deleted: gone for good at this time
-    stats: { online: (a.stats && a.stats.online) || blankStats(), local: (a.stats && a.stats.local) || blankStats(), easy: (a.stats && a.stats.easy) || blankStats() } } : null);
+    stats: { online: (a.stats && a.stats.online) || blankStats(), local: (a.stats && a.stats.local) || blankStats(), easy: (a.stats && a.stats.easy) || blankStats(), easyLocal: (a.stats && a.stats.easyLocal) || blankStats() } } : null);
   function newSession(a) {
     const token = crypto.randomBytes(24).toString('base64url');
     const h = sha(token);
@@ -309,7 +310,7 @@ function createAccounts(file, env = process.env) {
   // has this account played level 9 (its stats, online or local or easy)? (the level boards open level 9's board)
   const reachedFinal = (sub) => {
     const st = sub && accounts[sub] && accounts[sub].stats;
-    return !!st && ['online', 'local', 'easy'].some((k) => st[k] && Object.values(st[k].reached || {}).some((v) => v >= 9));
+    return !!st && ['online', 'local', 'easy', 'easyLocal'].some((k) => st[k] && Object.values(st[k].reached || {}).some((v) => v >= 9));
   };
   // hell open in this mode for this player (who: { sub, pid }): its unlock progress (online or offline: r9 / h1), or an
   // account's stats saying it reached level 9 (in any mode) before hell existed
@@ -317,19 +318,23 @@ function createAccounts(file, env = process.env) {
     const h = holderOf(who, false);
     if (h) { const u = unlocksOf(h); if (hellOpen(u, mode) || hellOpen(u.solo, mode)) return true; }
     const st = who && who.sub && accounts[who.sub] && accounts[who.sub].stats;
-    return !!st && ['online', 'local', 'easy'].some((k) => { const r = st[k] && st[k].reached; return !!r && Object.values(r).some((v) => (v | 0) >= 9); });   // (level 9 in any mode)
+    return !!st && ['online', 'local', 'easy', 'easyLocal'].some((k) => { const r = st[k] && st[k].reached; return !!r && Object.values(r).some((v) => (v | 0) >= 9); });   // (level 9 in any mode)
   }
   // every account whose number shows (not hidden, not being deleted): [[sub, cents]] (the boards show it on a name's hover)
   const shownAll = () => Object.values(accounts).filter((a) => a && a.sub && !a.hide && !a.deleting && shownCents(a) > 0).map((a) => [a.sub, shownCents(a)]);
 
   // ---- stats (the account menu) ----
   // Two separate sets: 'online' is counted by this server from the online games it runs; 'local' (solo / local co-op)
-  // is reported by the player's own browser, so the menu shows it apart as numbers anyone could edit. A third, 'easy':
-  // easy games (a level starts over when everyone is down), online and offline ones together; their revives count
+  // is reported by the player's own browser, so the menu shows it apart as numbers anyone could edit. Easy games (a level
+  // starts over when everyone is down) have their own two: 'easy' the online ones ('easyLocal' the solo / local ones,
+  // reported by the browser: since 2026-10-24; before, 'easy' had both, online and offline ones together); their revives count
   // in the usual set too.
   // { clears: { mode: { level: times the team cleared it } }, reached: { mode: highest level played }, crowns, revives }
   // best: the fastest clear per mode and level, in seconds (Run + Skate: the day and night halves together)
-  function blankStats() { return { clears: { run: {}, ice: {}, mixed: {} }, reached: { run: 0, ice: 0, mixed: 0 }, best: { run: {}, ice: {}, mixed: {} }, crowns: 0, revives: 0 }; }
+  // hell: { clears: { run / ice: { hell level: times cleared } }, best: { ...: { hell level: fastest } }, wins: { run / ice: escapes },
+  // crowns, revives (in hell games: their own counts, not in the ones above; the revive unlocks count them all, recordFeat) }
+  const blankHell = () => ({ clears: { run: {}, ice: {} }, best: { run: {}, ice: {} }, wins: { run: 0, ice: 0 }, crowns: 0, revives: 0 });
+  function blankStats() { return { clears: { run: {}, ice: {}, mixed: {} }, reached: { run: 0, ice: 0, mixed: 0 }, best: { run: {}, ice: {}, mixed: {} }, crowns: 0, revives: 0, hell: blankHell() }; }
   const STAT_MODES = ['run', 'ice', 'mixed'], MAX_LEVEL = 9;
   const MIN_TIME = 5, MAX_TIME = 4 * 3600;   // a clear time outside this is ignored (seconds)
   function statsOf(a, kind) {
@@ -337,6 +342,8 @@ function createAccounts(file, env = process.env) {
     const s = a.stats[kind] ||= blankStats();
     s.best ||= {};
     for (const m of STAT_MODES) { s.clears[m] ||= {}; s.reached[m] ||= 0; s.best[m] ||= {}; }
+    s.hell ||= blankHell();
+    s.hell.crowns ||= 0; s.hell.revives ||= 0;
     return s;
   }
   function statsChanged() {
@@ -347,12 +354,13 @@ function createAccounts(file, env = process.env) {
     }, 2000);
     statsT.unref();
   }
-  // ev: { type: 'reached' | 'clear', mode, level, time? (a clear's seconds) } | { type: 'crown' } | { type: 'revive' }
+  // ev: { type: 'reached' | 'clear', mode, level, time? (a clear's seconds) } | { type: 'crown' | 'revive', hell? }
+  //   | { type: 'hellClear', mode (run / ice), level (hell level), time? } | { type: 'hellWin', mode } (all of hell cleared)
   function record(a, kind, ev, n = 1) {
     if (!a || !ev || !(n > 0) || !active(a)) return;
     const s = statsOf(a, kind);
-    if (ev.type === 'crown') s.crowns += n;
-    else if (ev.type === 'revive') s.revives += n;
+    if (ev.type === 'crown') { if (ev.hell) s.hell.crowns += n; else s.crowns += n; }   // (a hell game's: the hell table's own)
+    else if (ev.type === 'revive') { if (ev.hell) s.hell.revives += n; else s.revives += n; }
     else if (ev.type === 'reached' || ev.type === 'clear') {
       if (!STAT_MODES.includes(ev.mode) || !Number.isInteger(ev.level) || ev.level < 1 || ev.level > MAX_LEVEL) return;
       s.reached[ev.mode] = Math.max(s.reached[ev.mode], ev.level);
@@ -364,8 +372,42 @@ function createAccounts(file, env = process.env) {
           if (!(old <= r)) s.best[ev.mode][ev.level] = r;
         }
       }
+    } else if (ev.type === 'hellClear' || ev.type === 'hellWin') {
+      if (!HELL_MODES.includes(ev.mode)) return;
+      const h = s.hell;
+      if (ev.type === 'hellWin') h.wins[ev.mode] = (h.wins[ev.mode] || 0) + n;
+      else {
+        if (!Number.isInteger(ev.level) || ev.level < 1 || ev.level > HELL_LEVELS) return;
+        h.clears[ev.mode][ev.level] = (h.clears[ev.mode][ev.level] || 0) + n;
+        const t = Number(ev.time);
+        if (Number.isFinite(t) && t >= MIN_TIME && t <= MAX_TIME) {
+          const r = Math.round(t * 10) / 10, old = h.best[ev.mode][ev.level];
+          if (!(old <= r)) h.best[ev.mode][ev.level] = r;
+        }
+      }
     } else return;
     statsChanged();
+  }
+  // Once per account (hellBack): the hell table filled from the hell boards (levelboards.js hellResults), for the hell
+  // games played before the account stats counted hell (2026-10-24): every hell level below the furthest one reached
+  // cleared at least once, and an escape (all of hell cleared) a win at least once. No times: the boards keep only a
+  // game's total. (resultsFor(sub, pids) -> [{ local, easy, mode, level, escaped }])
+  function backfillHell(resultsFor) {
+    let n = 0;
+    for (const a of Object.values(accounts)) {
+      if (!a || !a.sub || a.hellBack || a.deleting || !active(a)) continue;   // (one not active yet: once it is)
+      a.hellBack = 1;
+      n++;
+      for (const r of resultsFor(a.sub, a.pids || [])) {
+        if (!HELL_MODES.includes(r.mode) || !(r.level >= 1)) continue;
+        const h = statsOf(a, r.easy ? (r.local ? 'easyLocal' : 'easy') : r.local ? 'local' : 'online').hell;
+        const cleared = Math.min(HELL_LEVELS, r.escaped ? r.level : r.level - 1);
+        for (let L = 1; L <= cleared; L++) h.clears[r.mode][L] = Math.max(h.clears[r.mode][L] || 0, 1);
+        if (r.escaped) h.wins[r.mode] = Math.max(h.wins[r.mode] || 0, 1);
+      }
+    }
+    if (n) statsChanged();
+    return n;
   }
   // online games: the game server calls this for each signed-in player (by account id)
   const recordOnline = (sub, ev, easy = false) => { if (sub && accounts[sub]) record(accounts[sub], easy ? 'easy' : 'online', ev); };
@@ -646,17 +688,31 @@ function createAccounts(file, env = process.env) {
       // clear, newer browsers], crowns, revives, easy? (an easy game: its own set, and only the song and the revives
       // of the offline unlocks) }.
       // Capped per report (the endpoint is rate limited per IP too); shown apart from the online numbers.
+      // A hell game (hell: true, mode run / ice): clears are hell levels (with times), won: all of hell cleared; its crowns
+      // and revives go to the hell table's own counts. (The offline unlock track goes on as in any game.)
+      if (m.hell === true) {
+        if (!HELL_MODES.includes(m.mode)) return { ok: false };
+        const easy = m.easy === true, kind = easy ? 'easyLocal' : 'local';
+        const times = Array.isArray(m.times) ? m.times : [];
+        (Array.isArray(m.clears) ? m.clears : []).slice(0, 3).forEach((v, i) => record(a, kind, { type: 'hellClear', mode: m.mode, level: v, time: times[i] }));
+        if (m.won === true) record(a, kind, { type: 'hellWin', mode: m.mode });
+        const count = (v, max) => (Number.isInteger(v) && v > 0 ? Math.min(v, max) : 0);
+        record(a, kind, { type: 'crown', hell: true }, count(m.crowns, 3));
+        record(a, 'local', { type: 'revive', hell: true }, count(m.revives, 100));
+        if (easy) record(a, 'easyLocal', { type: 'revive', hell: true }, count(m.revives, 100));
+        return { ok: true, account: pub(a) };
+      }
       const mode = STAT_MODES.includes(m.mode) ? m.mode : null;
       if (!mode) return { ok: false };
       const lvl = (v) => (Number.isInteger(v) && v >= 1 && v <= MAX_LEVEL ? v : 0);
-      const easy = m.easy === true, kind = easy ? 'easy' : 'local';
+      const easy = m.easy === true, kind = easy ? 'easyLocal' : 'local';
       if (lvl(m.reached)) record(a, kind, { type: 'reached', mode, level: lvl(m.reached) });
       const times = Array.isArray(m.times) ? m.times : [];
       (Array.isArray(m.clears) ? m.clears : []).slice(0, 3).forEach((v, i) => { if (lvl(v)) record(a, kind, { type: 'clear', mode, level: v, time: times[i] }); });
       const count = (v, max) => (Number.isInteger(v) && v > 0 ? Math.min(v, max) : 0);
       record(a, kind, { type: 'crown' }, count(m.crowns, 3));
       record(a, 'local', { type: 'revive' }, count(m.revives, 100));
-      if (easy) record(a, 'easy', { type: 'revive' }, count(m.revives, 100));
+      if (easy) record(a, 'easyLocal', { type: 'revive' }, count(m.revives, 100));
       // offline unlock progress ({ feat: count } in this mode): only ever worn offline, so a faked one shows only to its
       // own player. (Capped per report; bigger when a browser's own track moves onto the account.)
       if (m.solo && typeof m.solo === 'object' && active(a)) {
@@ -727,7 +783,7 @@ function createAccounts(file, env = process.env) {
     return true;
   }
 
-  return { enabled, handle, webhook, setLegendRanks, setGoldenCheck, setBronzeCheck, paidFor, paidStyleFor, shownAll, reachedFinal, hellOpenFor, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
+  return { enabled, handle, webhook, backfillHell, setLegendRanks, setGoldenCheck, setBronzeCheck, paidFor, paidStyleFor, shownAll, reachedFinal, hellOpenFor, subFor, cosFor, cosForPlayer, mergeGuest, seenGuest, validPid, recordOnline, recordFeat, flush };
 }
 
 // One credit per player, however many of its tabs are in the game: of these kitties (members: { acct, pid }), the

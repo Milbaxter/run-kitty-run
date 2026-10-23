@@ -1,5 +1,5 @@
 import { CFG } from './config.js';
-import { createRng, TAU, legPoint } from './rng.js';
+import { createRng, TAU, hyp, legPoint } from './rng.js';   // (hyp: Math.hypot the same in every browser)
 
 // Wolves: deterministic enemy behaviors. Pure (no THREE, no DOM).
 //
@@ -44,7 +44,7 @@ function frameDir(st, dr, dth) {
 }
 
 function pathLen(r0, th0, r1, th1) {
-  return Math.hypot(r1 - r0, th1 - th0);
+  return hyp(r1 - r0, th1 - th0);
 }
 
 // Trapezoidal (or triangular for short moves) speed profile with EASE_T ramps.
@@ -97,7 +97,7 @@ function clearOfAvoid(st, r0, th0, r1, th1) {
   if (!a) return true;
   const dr = r1 - r0, dth = th1 - th0, L2 = dr * dr + dth * dth;
   const k = L2 > 1e-9 ? clamp(((a.r - r0) * dr + (a.th - th0) * dth) / L2, 0, 1) : 0;
-  return Math.hypot(r0 + dr * k - a.r, th0 + dth * k - a.th) >= a.R;
+  return hyp(r0 + dr * k - a.r, th0 + dth * k - a.th) >= a.R;
 }
 function canWalk(st, r0, th0, r1, th1) {
   if (!clearOfAvoid(st, r0, th0, r1, th1)) return false;
@@ -247,7 +247,7 @@ function createEnemy(spec) {
   st.r = rng.range(rIn, rOut);
   st.th = a0 + phase * (a1 - a0);
   if (st.avoid) {   // never start inside the keep-out disc (the goal room's wolves): out to its edge, straight away from it
-    const a = st.avoid, dr = st.r - a.r, dth = st.th - a.th, d = Math.hypot(dr, dth), R = a.R + 0.1;
+    const a = st.avoid, dr = st.r - a.r, dth = st.th - a.th, d = hyp(dr, dth), R = a.R + 0.1;
     if (d < R) {
       const k = d > 1e-6 ? R / d : 0;
       st.r = k ? a.r + dr * k : a.r + R * (rOut - a.r > a.r - rIn ? 1 : -1);

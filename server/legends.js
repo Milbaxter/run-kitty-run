@@ -182,13 +182,22 @@ function createLegends(file) {
     return k.length ? k : [nameKey(m && m.name)];
   }
   function samePerson(f, keys, name) { return f.keys.some((k) => keys.includes(k)) || (f.keys.length === 1 && f.keys[0] === nameKey(f.name) && f.keys[0] === nameKey(name)); }
-  // a new win: its players onto the firsts (those not on it yet, while there is room) and the team onto the fastest
+  // a player already on a mode's firsts: its entry takes the name it plays under now; its first win stays as it was (place,
+  // date, time and the line it signed then). Only found by its account / browser keys, never by a name alone.
+  function renameFirst(mode, keys, name) {
+    const m = LIST_MODES.includes(mode) ? mode : 'mixed';
+    if (!name || !keys || !keys.length || (keys.length === 1 && keys[0] === nameKey(name))) return;
+    for (const f of firsts[m]) if (f.keys.some((k) => keys.includes(k)) && f.name !== name) { f.name = name; changed(); }
+  }
+  // a new win: its players onto the firsts (those not on it yet, while there is room; those on it: only their name now)
+  // and the team onto the fastest
   function credit(win, keyList) {
     const m = LIST_MODES.includes(win.mode) ? win.mode : 'mixed';
     const F = firsts[m];
     const firstEver = !F.length;   // (the first team to beat this mode: all of them number 1)
     win.entries.forEach((e, idx) => {
-      if (F.length >= LIST_MAX || F.some((f) => samePerson(f, keyList[idx], e.name))) return;
+      if (F.some((f) => samePerson(f, keyList[idx], e.name))) { renameFirst(m, keyList[idx], e.name); return; }
+      if (F.length >= LIST_MAX) return;
       F.push({ win: win.id, idx, at: win.at, ...(Number.isFinite(win.total) ? { total: win.total } : {}), name: e.name, color: e.color, text: e.text || '', keys: keyList[idx] });
     });
     if (firstEver) keyList.forEach((k) => golden.push({ win: win.id, keys: k.slice() }));
@@ -263,6 +272,7 @@ function createLegends(file) {
     entry.at = entry.text ? new Date().toISOString() : null;
     if (c.name) entry.name = c.name; // signed with the in-game name the server knows, never a client-picked one
     syncLists(e.win);
+    if (c.name) renameFirst(e.win.mode, keysOfMember(c), c.name);   // (a first win from before: the name, not its line)
     changed();
     return { win: e.win, entry };
   }

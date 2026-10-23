@@ -100,6 +100,7 @@ accounts.setGoldenCheck((who) => legends.goldenFor(who));
 accounts.setBronzeCheck((who) => legends.bronzeFor(who));   // (the bronze kitty: number 1 of a fastest list)
 // Level boards (levelboards.js): every level's fastest clears, online ones counted here, local ones reported by the game
 const levels = createLevelBoards(process.env.LEVELS_FILE || path.join(path.dirname(FEEDBACK_FILE), 'levels.json'));
+accounts.backfillHell((sub, pids) => levels.hellResults(sub, pids));   // (once per account: hell games from before the account stats counted hell)
 // the boards show a player's swag number on a name's hover: the accounts whose number shows, by each board's own key
 // for them (looked up again at most once a minute)
 let shownAt = 0, shownLegends = new Map(), shownLevels = new Map();
@@ -964,11 +965,16 @@ function showFeats(room, feats) {
 // unlocks, no wins); a cleared hell level opens hell for everyone in the game ('h1', in this mode) and unlocks the new song
 // ('win', as the final run won does), how far it got goes
 // on the hell board for everyone in it (its end: game over or its last level won; easy hell: every wipe, the level
-// starting over, and the win, on the easy board), and revives and crowns count as anywhere.
+// starting over, and the win, on the easy board); crowns and revives in the account's hell table (revives toward the revive
+// unlocks as anywhere).
 function countHell(room, events, { memberOf, subOf, once, featDone }) {
   const sim = room.sim;
   const team = () => once(sim.players.map((p) => p.id));
   for (const e of events) {
+    // the account stats' hell table: every hell level cleared, for everyone in the game, with the team's time; all of
+    // hell cleared (the victory, after its last levelClear) a win too
+    if (e.type === 'levelClear') for (const id of team()) accounts.recordOnline(subOf(id), { type: 'hellClear', mode: room.mode, level: e.level, time: sim.levelTime }, !!sim.easy);
+    if (e.type === 'victory') for (const id of team()) accounts.recordOnline(subOf(id), { type: 'hellWin', mode: room.mode }, !!sim.easy);
     if (e.type === 'levelClear') { for (const id of team()) { featDone(id, 'h1'); featDone(id, 'win'); } }   // (and the new song: a hell level beaten)
     else if (e.type === 'gameOver' || e.type === 'victory' || e.type === 'wipe') {
       const far = e.type === 'victory' ? 1 : e.far, ids = team();
@@ -976,11 +982,11 @@ function countHell(room, events, { memberOf, subOf, once, featDone }) {
         const m = memberOf(id), p = sim.players.find((q) => q.id === id);
         if (m) levels.recordHell({ acct: m.acct, pid: m.pid, fid: m.fid, name: (p && p.name) || m.name, color: p ? p.color : m.color }, { local: false, easy: !!sim.easy, mode: room.mode, level: e.level, far, team: ids.length, time: sim.time });
       }
-    } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown' }, !!sim.easy);
+    } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown', hell: true }, !!sim.easy);   // (the hell table's own crowns)
     else if (e.type === 'revive' && !samePlayer(memberOf(e.by), memberOf(e.playerId))) {
-      featDone(e.by, 'rev');
-      accounts.recordOnline(subOf(e.by), { type: 'revive' });
-      if (sim.easy) accounts.recordOnline(subOf(e.by), { type: 'revive' }, true);
+      featDone(e.by, 'rev');   // (the revive unlocks: every revive, hell's too)
+      accounts.recordOnline(subOf(e.by), { type: 'revive', hell: true });
+      if (sim.easy) accounts.recordOnline(subOf(e.by), { type: 'revive', hell: true }, true);
     }
   }
 }

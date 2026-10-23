@@ -97,6 +97,22 @@ function createLevelBoards(file) {
     if (who.acct) return 'a' + hash('a:' + who.acct);
     return pid ? 'p' + hash('p:' + pid) : '';
   }
+  // an account's hell results on the boards (its own, and its browsers' from before it signed in there): [{ local, easy,
+  // mode, level (the furthest hell level), escaped (all of hell cleared) }] (accounts.js backfillHell)
+  function hellResults(sub, pids = []) {
+    const keys = [sub && 'a' + hash('a:' + sub), ...pids.filter((x) => typeof x === 'string' && PID.test(x)).map((x) => 'p' + hash('p:' + x))].filter(Boolean);
+    const out = [];
+    for (const k of keys) {
+      const p = players[k];
+      if (!p || !p.b) continue;
+      for (const [bk, e] of Object.entries(p.b)) {
+        if (!isHellKey(bk) || !Array.isArray(e)) continue;
+        const [src, mode] = bk.split(':'), score = e[0] | 0, level = Math.floor(score / 1001), far = score % 1001;
+        out.push({ local: src[0] === 'l', easy: src[1] === 'e', mode, level, escaped: far >= 1000 });
+      }
+    }
+    return out;
+  }
   // an account playing in a browser that has times of its own: they move to the account (each board's better time)
   function adopt(who, key) {
     if (!who || !who.acct || who.seat || !key.startsWith('a')) return;
@@ -332,7 +348,7 @@ function createLevelBoards(file) {
     return {};
   }
 
-  return { setPaid, setReachedBefore, acctKey, record, recordHell, reach, can9, query, groupsOf, createGroup, joinGroup, leaveGroup, removeMember, restartGroup, flush, keyOf, boardKey, MIN_S, MAX_S, SECRET_LEVEL, LEVELS, HELL };
+  return { setPaid, setReachedBefore, acctKey, record, recordHell, hellResults, reach, can9, query, groupsOf, createGroup, joinGroup, leaveGroup, removeMember, restartGroup, flush, keyOf, boardKey, MIN_S, MAX_S, SECRET_LEVEL, LEVELS, HELL };
 }
 
 export { createLevelBoards, parseBoard, hellScore };

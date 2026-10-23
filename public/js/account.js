@@ -3,7 +3,7 @@
 // The session token lives in localStorage; main.js passes it to the game server ('hi' / 'acct').
 import { accountApiUrl, NATIVE } from './platform.js';
 import { UNLOCKS, UNLOCK_MODES, isUnlocked, featTotal, featCount, isWorn, hellOpen } from './shared/unlocks.js';
-import { SKATE_FINAL_LEVEL, stageStep } from './shared/config.js';
+import { SKATE_FINAL_LEVEL, HELL_LEVELS, stageStep } from './shared/config.js';
 
 // The offline track (Solo and Local, one track): unlocks earned there are worn in Solo and Local games only, so a faked
 // one is only ever seen by its own player. Kept on an active swag account (server 'progress'), else in this browser
@@ -67,6 +67,10 @@ const CSS = `
 .rka-table th{font-size:11px;font-weight:900;letter-spacing:.08em;opacity:.6;padding:2px 4px;text-align:center;}
 .rka-table td{padding:3px 4px;text-align:center;border-top:1px solid rgba(255,255,255,.08);}
 .rka-table th:first-child,.rka-table td:first-child{text-align:left;}
+.rka-table.rka-hell{margin-top:6px;}
+.rka-table.rka-hell th{color:#ff8a5c;opacity:.85;}
+.rka-table .rka-esc td{border-top:2px solid rgba(255,138,92,.35);color:#ffb08f;}
+.rka-tot.rka-hellcrowns{margin-top:6px;}
 .rka-table td.rka-zero{opacity:.35;}
 .rka-unl{align-self:stretch;display:flex;flex-direction:column;gap:6px;}
 .rka-ugoal{font-size:12px;font-weight:800;opacity:.7;text-align:left;margin-top:4px;}
@@ -97,11 +101,14 @@ const fmtNum = (c) => (c % 100 ? (c / 100).toFixed(2) : String(Math.round(c / 10
 // Stats & progress in the account menu: times the team cleared each level, per mode, plus crowns and revives.
 // Level 9 (the final run) only gets a row once you've got that far in some mode, and a number only in modes you
 // have: no spoilers.
-let statsTab = 'online';   // 'online' | 'local'
+// the stats shown: normal or easy games, online or solo / local ones (as the level boards pick them) -> the set
+let statsDiff = 'normal';  // 'normal' | 'easy'
+let statsSrc = 'online';   // 'online' | 'local'
+const statsSet = () => (statsDiff === 'easy' ? (statsSrc === 'online' ? 'easy' : 'easyLocal') : statsSrc);
 let statsWhat = 'clears';  // 'clears' (times cleared) | 'best' (fastest clear)
 const fmtTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
 const STAT_COLS = [['run', 'RUN'], ['ice', 'SKATE'], ['mixed', 'RUN + SKATE']];
-function statsView(s) {
+function statsView(s, hellModes = []) {
   const clears = (s && s.clears) || {}, reached = (s && s.reached) || {}, best = (s && s.best) || {};
   const t = el('table', 'rka-table');
   const head = el('tr');
@@ -121,6 +128,37 @@ function statsView(s) {
   const tot = el('div', 'rka-tot');
   tot.append(el('span', null, `CROWNS ${(s && s.crowns) || 0}`), el('span', null, `REVIVES ${(s && s.revives) || 0}`));
   const wrap = el('div', 'rka-stats');
+  wrap.append(t, tot);
+  if (hellModes.length) wrap.appendChild(hellView(s && s.hell, hellModes));
+  return wrap;
+}
+// the hell table (once hell is open: hellModes, the modes it's open in): each hell level's times cleared / fastest
+// clear, how many times all of hell was cleared (ESCAPED), and the crowns and revives in hell (not in the ones above)
+function hellView(h, hellModes) {
+  const clears = (h && h.clears) || {}, best = (h && h.best) || {}, wins = (h && h.wins) || {};
+  const cols = [['run', 'HELL RUN'], ['ice', 'HELL SKATE']].filter(([m]) => hellModes.includes(m));
+  const t = el('table', 'rka-table rka-hell');
+  const head = el('tr');
+  head.append(el('th', null, 'LEVEL'), ...cols.map(([, label]) => el('th', null, label)));
+  t.appendChild(head);
+  for (let L = 1; L <= HELL_LEVELS; L++) {
+    const tr = el('tr');
+    tr.appendChild(el('td', null, String(L)));
+    for (const [m] of cols) {
+      const n = (clears[m] || {})[L] || 0, b = (best[m] || {})[L];
+      tr.appendChild(el('td', (statsWhat === 'best' ? b > 0 : n) ? null : 'rka-zero', statsWhat === 'best' ? (b > 0 ? fmtTime(b) : '–') : String(n)));
+    }
+    t.appendChild(tr);
+  }
+  if (statsWhat !== 'best') {
+    const tr = el('tr', 'rka-esc');
+    tr.appendChild(el('td', null, 'ESCAPED'));
+    for (const [m] of cols) tr.appendChild(el('td', wins[m] ? null : 'rka-zero', String(wins[m] || 0)));
+    t.appendChild(tr);
+  }
+  const tot = el('div', 'rka-tot rka-hellcrowns');
+  tot.append(el('span', null, `CROWNS ${(h && h.crowns) || 0}`), el('span', null, `REVIVES ${(h && h.revives) || 0}`));
+  const wrap = el('div');
   wrap.append(t, tot);
   return wrap;
 }
@@ -178,7 +216,7 @@ function createAccount(root) {
     const u = (A.account && Number(A.account.paid) > 0 && A.account.unlocks) || A.guest;
     if ((u && hellOpen(u, mode)) || hellOpen(soloProg(), mode)) return true;
     const st = A.account && A.account.stats;
-    if (st && ['online', 'local', 'easy'].some((k) => { const r = st[k] && st[k].reached; return !!r && Object.values(r).some((v) => (v | 0) >= 9); })) return true;   // (level 9 in any mode)
+    if (st && ['online', 'local', 'easy', 'easyLocal'].some((k) => { const r = st[k] && st[k].reached; return !!r && Object.values(r).some((v) => (v | 0) >= 9); })) return true;   // (level 9 in any mode)
     try { return localStorage.getItem('rkr-seen9') === '1'; } catch { return false; }
   }
   // an offline feat done ('l8' | 'l9' | 'e8' | 'e9' | 'win' | 'rev') in a mode
@@ -370,7 +408,7 @@ function createAccount(root) {
       let seen9 = false;
       try { seen9 = localStorage.getItem('rkr-seen9') === '1'; } catch { /* ignore */ }
       const st = A.account && A.account.stats;
-      seen9 ||= ['online', 'local', 'easy'].some((k) => st && st[k] && Object.values(st[k].reached || {}).some((v) => v >= 9));
+      seen9 ||= ['online', 'local', 'easy', 'easyLocal'].some((k) => st && st[k] && Object.values(st[k].reached || {}).some((v) => v >= 9));
       seen9 ||= Object.values((prog && prog.l9) || {}).some((v) => v > 0) || Object.values(solo.l9 || {}).some((v) => v > 0);
       for (const u of UNLOCKS) {
         if ((u.feat === 'l9' || u.feat === 'e9') && !seen9) continue;
@@ -594,14 +632,20 @@ function createAccount(root) {
       const unl = unlocksBox('UNLOCKS', a.unlocks || {}, async (id, on) => { A.account = (await api('equip', { item: id, on })).account; },
         'Multiplayer unlocks show on your kitty in every game, for everyone; Solo / Local ones only in your own Solo and Local games.',
         (a.unlocks && a.unlocks.solo) || {});
-      // Stats & progress: online (counted by the game server) or solo / local (reported by this browser), a tab each
+      // Stats & progress: normal or easy games, then online (counted by the game server) or solo / local (reported by
+      // this browser), as the level boards pick them
       const stats = section('STATS & PROGRESS');
-      const tabs = el('div', 'rka-tabs');
-      for (const [k, label] of [['online', 'ONLINE'], ['local', 'SOLO & LOCAL'], ['easy', 'EASY']]) {
-        const t = el('button', 'rka-amt rka-tab' + (k === statsTab ? ' rka-on' : ''), label);
-        t.addEventListener('click', () => { statsTab = k; open({ fresh: true }); });
-        tabs.appendChild(t);
-      }
+      const tabRow = (opts, cur, set) => {
+        const row = el('div', 'rka-tabs');
+        for (const [k, label] of opts) {
+          const t = el('button', 'rka-amt rka-tab' + (k === cur ? ' rka-on' : ''), label);
+          t.addEventListener('click', () => { set(k); open({ fresh: true }); });
+          row.appendChild(t);
+        }
+        return row;
+      };
+      const diff = tabRow([['normal', 'NORMAL'], ['easy', 'EASY']], statsDiff, (k) => { statsDiff = k; });
+      const tabs = tabRow([['online', 'ONLINE'], ['local', 'SOLO & LOCAL']], statsSrc, (k) => { statsSrc = k; });
       // what the table shows: times cleared, or the fastest clear
       const what = el('div', 'rka-tabs');
       for (const [k, label] of [['clears', 'TIMES CLEARED'], ['best', 'FASTEST']]) {
@@ -609,9 +653,11 @@ function createAccount(root) {
         t.addEventListener('click', () => { statsWhat = k; open({ fresh: true }); });
         what.appendChild(t);
       }
-      stats.append(tabs, what, statsView(a.stats && a.stats[statsTab]),
-        el('div', 'rka-fine', statsTab === 'online' ? 'Counted by the game server in Multiplayer games.'
-          : statsTab === 'easy' ? 'Easy games: Multiplayer ones counted by the game server, solo and local ones by your own browser.'
+      const set = statsSet();
+      stats.append(diff, tabs, what, statsView(a.stats && a.stats[set], ['run', 'ice'].filter((m) => hellOpenHere(m))),
+        el('div', 'rka-fine', set === 'online' ? 'Counted by the game server in Multiplayer games.'
+          : set === 'easy' ? 'Easy Multiplayer games, counted by the game server. Until 24 October 2026 this also counted easy solo and local games.'
+          : set === 'easyLocal' ? 'Easy solo and local co-op games, counted by your own browser (since 24 October 2026).'
           : 'Counted by your own browser in solo and local co-op games.'));
       const links = el('div', 'rka-links');
       const out = el('a', null, 'Sign out'), del = el('a', null, 'Delete account');
@@ -732,8 +778,8 @@ function createAccount(root) {
   }
   function noteLocal(sim, events) {
     noteSolo(sim, events);   // (the offline unlock track: everyone, with an account or not)
-    if (sim.hell) return;   // (hell: no level stats; its own board, main.js noteLevels)
     if (!A.enabled || !A.token || !A.account || !(Number(A.account.paid) > 0)) return;
+    if (sim.hell) { noteHell(sim, events); return; }   // (hell: its own table, and its own board, main.js noteLevels)
     const me = sim.players[0];
     for (const e of events) {
       if (e.type === 'gameOver' || e.type === 'victory') { sendLocal(); dayTime = null; continue; }
@@ -756,6 +802,28 @@ function createAccount(root) {
       else if (!localT) localT = setTimeout(sendLocal, 5000);
     }
   }
+
+  // a solo / local hell game: its cleared hell levels (with times), a win when all of hell is cleared, crowns and revives
+  // (server 'progress' with hell: true)
+  function noteHell(sim, events) {
+    const me = sim.players[0];
+    for (const e of events) {
+      if (e.type === 'gameOver' || e.type === 'victory') {
+        if (e.type === 'victory') { local ||= hellBatch(sim); local.won = true; }
+        sendLocal(); continue;
+      }
+      const t = e.type === 'levelClear' ? 'clear' : e.type === 'crown' && me && e.playerId === me.id ? 'crown' : e.type === 'revive' && me && e.by === me.id ? 'revive' : null;
+      if (!t) continue;
+      if (local && (!local.hell || local.mode !== sim.mode || !!local.easy !== !!sim.easy)) sendLocal();
+      local ||= hellBatch(sim);
+      if (t === 'clear') { local.clears.push(e.level); local.times.push(sim.levelTime); }
+      else if (t === 'crown') local.crowns++;
+      else local.revives++;
+      if (t === 'clear' || local.crowns >= 3 || local.revives >= 100) sendLocal();
+      else if (!localT) localT = setTimeout(sendLocal, 5000);
+    }
+  }
+  const hellBatch = (sim) => ({ hell: true, mode: sim.mode, clears: [], times: [], crowns: 0, revives: 0, ...(sim.easy ? { easy: true } : {}) });
 
   return {
     init, open, close, noteLocal,

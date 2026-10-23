@@ -51,9 +51,25 @@ function ipow(x, n) {
   return r;
 }
 
+// Math.hypot(a, b) exactly as V8 (Chrome, the server) computes it, step by step: Math.hypot itself differs in its last
+// digit in Firefox and Safari, and skate wolves' speeds and start points come from their routes' lengths, so those
+// browsers built the level a hair different (a level hash mismatch, the server's wolves taking over). Only + - * / and
+// sqrt, which are exact in every browser: the very numbers V8's Math.hypot gives (scripts/sim-test.mjs checks), so
+// nothing changes in Chrome or on the server. V8: scaled by the larger, the squares summed with Kahan's compensation
+// (for two numbers the compensation is exactly 0, so it is just their sum).
+function hyp(a, b) {
+  const x = Math.abs(a), y = Math.abs(b);
+  if (x === Infinity || y === Infinity) return Infinity;
+  if (x !== x || y !== y) return NaN;
+  const max = x > y ? x : y;
+  if (max === 0) return 0;
+  const nx = x / max, ny = y / max;
+  return Math.sqrt(nx * nx + ny * ny) * max;
+}
+
 // Leg frame (ox/oz origin, u along, n lateral) -> world point; r = lateral offset, th = distance along the leg.
 function legPoint(f, r, th) {
   return { x: f.ox + f.ux * th + f.nx * r, z: f.oz + f.uz * th + f.nz * r };
 }
 
-export { createRng, hashSeed, TAU, ipow, legPoint };
+export { createRng, hashSeed, TAU, ipow, hyp, legPoint };

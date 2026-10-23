@@ -824,6 +824,7 @@ function stepRoom(room) {
   sim.noChest = room.members.some((m) => m.v < CHEST_PROTOCOL);   // (an older client would not see the chest or its pickups)
   const events = stepSim(sim, inputs, CFG.TICK);
   room.tick = k;
+  trackAfk(room);
   for (const e of events) room.pending.push(e);
   for (const e of events) {
     if (e.type === 'levelStart') {
@@ -840,7 +841,46 @@ function stepRoom(room) {
     }
   }
   if (events.length) countForAccounts(room, events);
-  if (k % NET.SNAP_EVERY === 0 || events.length) sendSnapshot(room);
+  if (k % NET.SNAP_EVERY === 0 || events.length || room.snapNow) { room.snapNow = false; sendSnapshot(room); }
+}
+
+// Vote to kill: a kitty that has stood still for AFK_TICKS (alive, out of the goal room, the level going on) can be voted
+// down by the others ('votekill'): a majority of the other kitties that aren't standing still themselves. It goes down
+// as if caught (a revive circle, so it can be revived), but it isn't counted as caught. Snapshots carry each kitty's
+// afk at the end of its array: 0, or 1 + its votes so far (main.js shows the vote button).
+const AFK_TICKS = 10 * 60;
+function trackAfk(room) {
+  const sim = room.sim;
+  if (room.afkFor !== sim) { room.afkFor = sim; room.afk = new Map(); }
+  for (const p of sim.players) {
+    let a = room.afk.get(p.id);
+    if (!a) room.afk.set(p.id, a = { x: p.x, z: p.z, still: 0, votes: new Set() });
+    const still = sim.state === 'playing' && p.alive && !p.inCenter && Math.abs(p.x - a.x) < 0.01 && Math.abs(p.z - a.z) < 0.01;
+    a.x = p.x; a.z = p.z;
+    if (still) a.still++; else if (a.still) { a.still = 0; a.votes.clear(); }
+  }
+}
+const isAfk = (room, id) => { const a = room.afkFor === room.sim && room.afk.get(id); return !!a && a.still >= AFK_TICKS; };
+// votes it takes: more than half of the other kitties in the game that aren't standing still themselves
+function afkNeed(room, id) {
+  const voters = room.sim.players.filter((p) => p.id !== id && !isAfk(room, p.id)).length;
+  return Math.floor(voters / 2) + 1;
+}
+function voteKill(room, client, id) {
+  const sim = room.sim;
+  if (!sim || room.phase !== 'playing' || id === client.id || !isAfk(room, id) || isAfk(room, client.id)) return;
+  const p = sim.players.find((q) => q.id === id);
+  if (!p || !sim.players.some((q) => q.id === client.id)) return;
+  const a = room.afk.get(id);
+  a.votes.add(client.id);
+  for (const v of a.votes) if (!sim.players.some((q) => q.id === v)) a.votes.delete(v);   // (voters gone since)
+  room.snapNow = true;   // (the votes, or the kitty down, in the next tick's snapshot)
+  if (a.votes.size < afkNeed(room, id)) return;
+  // voted down: as when caught (no life used, nothing counted)
+  Object.assign(p, { alive: false, vx: 0, vz: 0, moving: false, shield: 0, invuln: 0, speedMult: 1 });
+  sim.circles.push({ playerId: p.id, x: p.x, z: p.z, t: 0 });
+  a.still = 0; a.votes.clear();
+  room.pending.push({ type: 'voteKill', playerId: p.id });
 }
 
 // Account stats (accounts.js): a cleared level counts for every kitty in the game (down or not), a crown for the
@@ -953,10 +993,10 @@ function sendSnapshot(room) {
   broadcast(room, {
     t: 'snap', k: room.tick, lvl: sim.level, st: sim.state, lt: sim.enemyTicks, tm: r3(sim.time), rt: sim.retries || undefined,
     // [id, x, z, vx, vz, heading, alive, inCenter, lives, speedMult, invuln, shield, deaths, rescues, inputMargin, finishes, waitRelease, crowned, bonus,
-    //  freeTurn, ran (the score's distance: maps run)] (new fields go at the end: older clients ignore them)
+    //  freeTurn, ran (the score's distance: maps run), afk (0, or 1 + its votes to kill)] (new fields go at the end: older clients ignore them)
     p: sim.players.map((p) => [p.id, r3(p.x), r3(p.z), r3(p.vx), r3(p.vz), r3(p.heading), p.alive ? 1 : 0, p.inCenter ? 1 : 0,
       p.lives, r3(p.speedMult), r3(p.invuln), r3(p.shield), p.deaths, p.rescues, Math.round((margins.get(p.id) ?? 0) * 10) / 10, p.finishes || 0, p.waitRelease ? 1 : 0,
-      p.crowned ? 1 : 0, p.bonus || 0, p.freeTurn ? 1 : 0, r3(p.ran || 0)]),
+      p.crowned ? 1 : 0, p.bonus || 0, p.freeTurn ? 1 : 0, r3(p.ran || 0), isAfk(room, p.id) ? 1 + room.afk.get(p.id).votes.size : 0]),
     lw: sim.lastWinner || 0, ct: sim.crownTaken ? 1 : 0,
     it: sim.items.filter((i) => i.taken).map((i) => i.id),
     c: sim.circles.map((c) => [c.playerId, r3(c.x), r3(c.z), r3(c.t)]),
@@ -1165,6 +1205,9 @@ wss.on('connection', (ws, req) => {
           startGame(room, TEST_HOOKS && Number.isFinite(msg.level) ? Math.max(1, Math.min(SKATE_FINAL_LEVEL, msg.level | 0)) : 1);
         }
         break;
+      case 'votekill':   // vote to knock down a kitty that has stood still (AFK) for a while
+        if (room) voteKill(room, client, msg.id | 0);
+        break;
       case 'dbg': {
         // test hooks: put the sender's kitty in the goal (it clears the level on the next tick) ...
         if (!TEST_HOOKS || !room || !room.sim) return;
@@ -1232,7 +1275,9 @@ wss.on('connection', (ws, req) => {
         if (!room || !room.sim || now - (client.resyncAt || 0) < 1000) return;
         client.resyncAt = now;
         const sim = room.sim, c = room.wolfMsg;
-        if (!c || c.sim !== sim || c.lvl !== sim.level || sim.enemyTicks - c.lt > RESYNC_REUSE) {
+        // (an easy game's level starting over keeps its sim and level number but its wolves start again: never reuse one from
+        // before that, its time ahead of the new wolves' would hold them still on the client until it caught up)
+        if (!c || c.sim !== sim || c.lvl !== sim.level || sim.enemyTicks < c.lt || sim.enemyTicks - c.lt > RESYNC_REUSE) {
           room.wolfMsg = { sim, lvl: sim.level, lt: sim.enemyTicks, s: JSON.stringify({ t: 'wolves', lvl: sim.level, lt: sim.enemyTicks, wolves: serializeEnemies(sim.enemies) }) };
         }
         send(ws, room.wolfMsg.s);

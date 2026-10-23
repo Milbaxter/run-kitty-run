@@ -186,6 +186,15 @@ const CSS = `
   font-variant-numeric:tabular-nums;color:#e9e2ff;}
 .rkr-timer svg{width:18px;height:18px;color:#cdbfff;}
 .rkr-cards{display:flex;flex-direction:column;gap:8px;}
+/* vote to kill (online): beside the card of a kitty that has stood still 10 s; on your own card a warning to move */
+.rkr-vk{position:absolute;left:100%;top:50%;transform:translateY(-50%);margin-left:8px;white-space:nowrap;pointer-events:auto;cursor:pointer;
+  font:inherit;font-weight:900;font-size:12px;letter-spacing:.04em;color:#fff;padding:5px 10px;border-radius:999px;
+  background:linear-gradient(180deg,#ff7a8a,#e0344f);border:2px solid #3a1650;box-shadow:0 3px 0 #3a1650;}
+.rkr-vk:hover{filter:brightness(1.1);}
+.rkr-vk.rkr-voted{background:linear-gradient(180deg,#9a8fb0,#6d6488);cursor:default;}
+.rkr-vk.rkr-self{background:linear-gradient(180deg,#ffd56b,#ff9d2e);color:#3a1650;cursor:default;}
+.rkr-vk.rkr-hidden{display:none;}
+@media (max-width:600px){ .rkr-vk .rkr-vkl{display:none;} .rkr-vk{padding:4px 8px;} }   /* (phones: just the skull and the votes) */
 .rkr-cards.rkr-many{gap:4px;}
 /* HUD toggle (hides everything but the corner buttons) + touch-only menu button */
 /* corner controls are <button>s: drop the UA button look so they render like the old divs */
@@ -807,6 +816,7 @@ function createUI(root) {
     </pattern></defs></svg>`);
   root.append(hud, bannerEl, toastsEl, rainbowDefs);
 
+  let voteKillCb = null;   // (main.js: sends the vote)
   // ---- HUD state cache ----
   const H = {
     level: null, timeSec: null, rescues: null,
@@ -822,6 +832,7 @@ function createUI(root) {
          <div class="rkr-shield rkr-hidden">${ICONS.shield}<div class="rkr-sbar"><div class="rkr-sfill"></div></div></div>
        </div>
        <div class="rkr-tip"><span></span><span class="rkr-fish rkr-hidden"></span></div>
+       <button class="rkr-vk rkr-hidden"></button>
        <svg class="rkr-koibits" viewBox="0 0 38 38" aria-hidden="true"><g mask="url(#rkr-koi-behind)"><use href="#rkr-koi" transform="translate(20 9) scale(.75)"/><use href="#rkr-koi" transform="translate(29 20) rotate(90) scale(.75)"/><use href="#rkr-koi" transform="translate(18 29) rotate(180) scale(.75)"/><use href="#rkr-koi" transform="translate(9 18) rotate(-90) scale(.75)"/></g><rect x="10" y="10" width="18" height="18" rx="3.5" fill="none" stroke="#2b1840" stroke-width=".6"/></svg>`);
     const refs = {
       root: c,
@@ -836,14 +847,28 @@ function createUI(root) {
       tipName: c.querySelector('.rkr-tip > span'),
       tipFish: c.querySelector('.rkr-tip > .rkr-fish'),
       medic: c.querySelector('.rkr-medic'),
+      vk: c.querySelector('.rkr-vk'),
       v: { paid: 0, name: null, color: null, alive: null, lives: null, speed: null, shield: null },
     };
+    refs.vk.addEventListener('click', () => { const v = refs.v; if (v.vkId != null && v.vkCan && !v.vkVoted && voteKillCb) voteKillCb(v.vkId); });
     cardsEl.appendChild(c);
     return refs;
   }
 
   function updateCard(card, p) {
     const v = card.v;
+    // vote to kill: 'VOTE KILL 1/2' beside a kitty standing still, 'VOTED 1/2' once voted; your own: a warning to move
+    const n = p.afk ? ` ${p.afkVotes}/${p.afkNeed}` : '';
+    const vk = !p.afk ? '' : p.you ? `💤<span class="rkr-vkl"> AFK: move!</span>${n}` : p.canVote ? (p.voted ? `✓<span class="rkr-vkl"> VOTED</span>${n}` : `💀<span class="rkr-vkl"> VOTE KILL</span>${n}`) : `💤<span class="rkr-vkl"> AFK</span>${n}`;
+    v.vkId = p.id; v.vkCan = !!p.canVote; v.vkVoted = !!p.voted;
+    if (vk !== v.vk) {
+      v.vk = vk;
+      card.vk.innerHTML = vk;
+      card.vk.classList.toggle('rkr-hidden', !vk);
+      card.vk.classList.toggle('rkr-voted', !!p.voted || (!p.you && !p.canVote));
+      card.vk.classList.toggle('rkr-self', !!p.you);
+      card.vk.title = p.you ? 'You have been standing still: the others can vote to knock you down' : 'Standing still for a while: vote to knock this kitty down (it can be revived)';
+    }
     if (p.name !== v.name) { v.name = p.name; card.name.textContent = p.name; card.tipName.textContent = p.name; }   // (and a face's hover label)
     if (p.color !== v.color) {
       v.color = p.color; card.root.style.setProperty('--pc', hexColor(p.color));
@@ -1771,7 +1796,7 @@ function createUI(root) {
   setMutedIcon(false);
 
   return {
-    showTitle, hideTitle, setHUD, updateMinimap, banner, toast, setScores,
+    showTitle, hideTitle, setHUD, updateMinimap, banner, toast, setScores, onVoteKill: (fn) => { voteKillCb = fn; },
     showPause, hidePause, showGameOver, hideGameOver, onSettingsClick, onLegendsClick, refreshKeys, gameOverSlot: () => (goEl ? goEl.querySelector('.rkr-goslot') : null), setMutedIcon, isOverlayOpen, onMuteClick, onFeedbackClick, onAccountClick, setAccountButton, onMenuClick,
     showVictory, hideVictory, updateVictoryFish, isVictoryOpen: () => state.victory, navigate, hideHUD,
     showNotice, hideNotice, setBlocker, setVictoryHidden,

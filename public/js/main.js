@@ -76,6 +76,7 @@ const lighting = setupLighting(scene);
 const effects = createEffects(scene);
 const audio = createAudio();
 const ui = createUI(document.getElementById('ui'));
+ui.onVoteKill((id) => { if (online.playing && !online.voted.has(id)) { online.voted.add(id); net.send({ t: 'votekill', id }); audio.play('click'); } });
 
 // Soundtrack: a playlist of mp3s next to index.html, played one after the other on repeat, in a shuffled order (a new
 // one every visit and every time round, so the songs don't always come in the same order; the settings' Shuffle switch,
@@ -950,6 +951,11 @@ function handleEvents(events) {
         ui.banner('LUCKY CHECKPOINT!', 'Step on the chest', 2600);
         effects.confetti(ev.x, ev.z);
         audio.play('extraLife');
+        break;
+      }
+      case 'voteKill': {   // a kitty that stood still voted down by the others (online)
+        const p = playerById(ev.playerId);
+        if (p) ui.toast(mine(ev.playerId) ? 'You were voted out for standing still' : `${p.name} was voted out for standing still`, hexCss(p.color));
         break;
       }
       case 'medicGift': {   // the broken checkpoint repaired by a medic (60+ revives): a life and 4 boots in the square
@@ -2070,7 +2076,16 @@ function updateHUD() {
     if (!h) h = hudPlayers[i] = {};
     h.name = p.name; h.color = p.color; h.shimmer = shimmer; h.gold = gold; h.rainbow = !sim.easy && (p.finishes || 0) >= 8 && (p.rescues || 0) >= 60; const il = iconLook(p); h.cool = il.cool; h.specs = !!il.specs; h.metal = il.metal || ''; h.lion = il.lion; h.lionLook = il.lionLook; h.maneMetal = il.maneMetal || ''; h.lensMetal = il.lensMetal || ''; h.lensStill = !!il.lensStill; h.alive = p.alive; h.lives = p.lives; h.speedMult = p.speedMult; h.shield = p.shield; h.you = you;
     h.medic = medicLook(cosOf(p));   // the medic badge (3000 revives), when switched on
-    h.paid = paid; h.ps = pst;
+    h.paid = paid; h.ps = pst; h.id = p.id;
+    // vote to kill (online): standing still 10 s, the others can vote it down (server.js voteKill): its votes, how many
+    // it takes (more than half of the others not standing still themselves), and whether we can vote / have voted
+    h.afk = online.playing ? (p.afk || 0) : 0;
+    if (h.afk) {
+      const voters = ps.filter((q) => q.id !== p.id && !(q.afk > 0)).length;
+      const meP = ps.find((q) => q.id === online.me);
+      h.afkVotes = h.afk - 1; h.afkNeed = Math.floor(voters / 2) + 1;
+      h.voted = online.voted.has(p.id); h.canVote = !you && !!meP && !(meP.afk > 0);
+    }
   }
   if (dirty) ui.setScores(hudScores, bestKind);
   hudData.level = sim.hell ? sim.level : sim.levelData.level || sim.level; hudData.time = sim.time; hudData.rescues = sim.stats.rescues;
@@ -2250,6 +2265,7 @@ const online = {
   playing: false, me: 0, room: null, roster: new Map(),
   tick: 0, acc: 0, rate: 1, levelStartTick: 0, lastK: -1, shownLevel: 0,
   inputs: new Map(), remote: new Map(), errX: 0, errZ: 0, menu: false,
+  voted: new Set(),   // the kitties standing still we voted to kill (until they move)
   again: false,   // the host's RESTART GAME on the game-over card: start a new game as soon as the room is back in the lobby
   wolfTicks: new Int32Array(WOLF_HIST).fill(-1), wolfPos: null, resyncAt: 0, wolfChase: false,
 };
@@ -2462,6 +2478,8 @@ net.on('start', (m) => beginOnlineGame(m));
 net.on('snap', (m) => applySnapshot(m));
 net.on('wolves', (m) => {
   if (!online.playing || m.lvl !== sim.level) return;
+  // (from before an easy game's level started over: its wolves' time far ahead of now would hold them still until then)
+  if (m.lt > online.tick - online.levelStartTick + WOLF_CATCHUP_MAX) return;
   applyEnemyState(sim.enemies, m.wolves);
   sim.enemyTicks = m.lt;
   online.wolfTicks.fill(-1);
@@ -2734,7 +2752,7 @@ function applySnapshot(m) {
   const seen = new Set();
   let rosterChanged = false;
   for (const a of m.p) {
-    const [id, x, z, vx, vz, heading, alive, inC, lives, speedMult, invuln, shield, deaths, rescues, margin, finishes = 0, waitRelease, crowned = 0, bonus = 0, freeTurn = 0, ran] = a;
+    const [id, x, z, vx, vz, heading, alive, inC, lives, speedMult, invuln, shield, deaths, rescues, margin, finishes = 0, waitRelease, crowned = 0, bonus = 0, freeTurn = 0, ran, afk = 0] = a;
     seen.add(id);
     let p = sim.players.find((q) => q.id === id);
     const fresh = !p;
@@ -2747,7 +2765,8 @@ function applySnapshot(m) {
     }
     const wasAlive = p.alive;
     const oldX = p.x + (id === online.me ? online.errX : 0), oldZ = p.z + (id === online.me ? online.errZ : 0);
-    Object.assign(p, { vx, vz, heading, alive: !!alive, inCenter: !!inC, lives, speedMult, invuln, shield, deaths, rescues, finishes, crowned: !!crowned, bonus, ran });   // (ran: undefined from an older server)
+    Object.assign(p, { vx, vz, heading, alive: !!alive, inCenter: !!inC, lives, speedMult, invuln, shield, deaths, rescues, finishes, crowned: !!crowned, bonus, ran, afk });   // (ran: undefined from an older server)
+    if (!afk) online.voted.delete(id);   // (moving again: a later vote is a new one)
     p.moving = Math.hypot(vx, vz) > 0.5;
     if (id === online.me) {
       p.x = x; p.z = z;

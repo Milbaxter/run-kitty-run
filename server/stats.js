@@ -14,6 +14,10 @@ const MAX_PLAYER_IDS = 200000;      // ids remembered (first day seen); past thi
 const SAVE_EVERY_MS = 5000;
 
 const day = (t = Date.now()) => new Date(t).toISOString().slice(0, 10);
+const HELL_MODES = ['run', 'ice'];
+// hell games (run_start with hell: true, since 2026-10-24): games per hell mode and how many of them online. Not in
+// kinds / modes (the STATS page shows them only to players who have hell open)
+const blankHell = () => ({ games: { run: 0, ice: 0 }, online: { run: 0, ice: 0 } });
 const blankDay = () => ({ newPlayers: 0, players: 0, runs: 0, levels: 0, deaths: 0, rescues: 0, seconds: 0, lobbies: 0, wins: 0 });
 
 function createStats(file) {
@@ -29,10 +33,12 @@ function createStats(file) {
     days: {},                                                // 'YYYY-MM-DD' -> blankDay()
     today: { day: day(), seen: [] },                         // cids active today (for the daily unique count)
     peakOnline: { count: 0, at: null },
+    hell: blankHell(),
   };
   try {
     const old = JSON.parse(fs.readFileSync(file, 'utf8'));
     s = { ...s, ...old, totals: { ...s.totals, ...old.totals } };
+    s.hell = { ...blankHell(), ...(old.hell || {}) };
   } catch { /* first run, or unreadable: start fresh */ }
   let todaySeen = new Set(s.today.day === day() ? s.today.seen : []);
   let playerIds = Object.keys(s.players).length;
@@ -93,6 +99,7 @@ function createStats(file) {
     if (['kind', 'mode', 'device', 'ver'].some((k) => ev[k] !== undefined && typeof ev[k] !== 'string')) return false;
     if (['level', 'seconds', 'deaths', 'rescues'].some((k) => ev[k] !== undefined && !Number.isFinite(ev[k]))) return false;
     if (ev.won !== undefined && typeof ev.won !== 'boolean') return false;
+    if (ev.hell !== undefined && typeof ev.hell !== 'boolean') return false;
     if (ip && !s.players[ev.cid]) {
       const now = Date.now();
       const h = (newIds.get(ip) || []).filter((t) => now - t < 3600e3);
@@ -106,6 +113,10 @@ function createStats(file) {
       case 'visit': break;
       case 'run_start':
         D.runs++; T.runs++;
+        if (ev.hell === true) {   // a hell game: its own counts
+          if (HELL_MODES.includes(ev.mode)) { s.hell.games[ev.mode]++; if (ev.kind === 'online') s.hell.online[ev.mode]++; }
+          break;
+        }
         if (KINDS.includes(ev.kind)) s.kinds[ev.kind]++;
         if (ev.kind === 'online' && MODES.includes(ev.mode)) s.modes[ev.mode]++; // lobby mode (solo/co-op are always Run + Skate)
         break;
@@ -150,6 +161,7 @@ function createStats(file) {
       onlineNow, peakOnline: s.peakOnline, totals: { ...s.totals, bestLevel: undefined },   // (best level: a spoiler, there's a level 9)
       kinds: s.kinds, modes: s.modes, devices: s.devices,
       onlineWinsByMode: s.onlineWinsByMode,
+      hell: s.hell,
       days: days.slice(-120),
     };
   }

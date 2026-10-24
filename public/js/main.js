@@ -25,7 +25,7 @@ import { createChat } from './chat.js';
 import { createFeedback } from './feedback.js';
 import { createAccount } from './account.js';
 import { createLegends } from './legends.js';
-import { analytics, openStatsPage } from './analytics.js';
+import { analytics, openStatsPage, setHellModes } from './analytics.js';
 import { TOUCH, QUALITY, setQuality, goFullscreenLandscape, setKeepAwake, hideSplash } from './device.js';
 import { openSettings, closeSettings, settingsOpen, settingsRoot, key, keyName, musicVolume, sfxVolume, fpsLimit, lookBack } from './settings.js';
 import { NATIVE, haptic, plugin, call, storeUrl, openExternal, APP_VERSION } from './platform.js';
@@ -810,7 +810,7 @@ function startGame(n, level = DEBUG_LEVEL) {
   // (hell from level 1; local testing (localhost): ?level=2 starts a Hell game on hell level 2)
   const hellAt = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? Math.min(HELL_LEVELS, level) : 1;
   startSim(players, localSetup.hell ? hellAt : level, localSetup.mode || DEBUG_MODE, !!localSetup.easy, !!localSetup.hell);
-  analytics.runStart(n === 1 ? 'solo' : 'coop', sim.mode || 'mixed');
+  analytics.runStart(n === 1 ? 'solo' : 'coop', sim.mode || 'mixed', !!sim.hell);
   cameraSnap = true;
   // First step emits levelStart which triggers buildView.
 }
@@ -2105,6 +2105,7 @@ const net = createNet();
 // optional account: your total shows next to your name online (and on your card offline)
 const account = createAccount(document.getElementById('ui'));
 net.acct = account.token;
+setHellModes(() => ['run', 'ice'].filter((m) => account.hellOpen(m)));   // (the STATS page: hell's numbers only once it's open here)
 account.onChange(() => {
   const had = songUnlocked;
   songUnlocked = account.has('song5') || DEBUG_SONG;
@@ -2540,7 +2541,7 @@ function beginOnlineGame(m) {
   removeKitties();
   sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode, finales: +m.rf || 0, easy: !!m.easy, hell: !!m.hell, waves: !!m.hw });
   sim.retries = m.rt | 0;
-  analytics.runStart('online', m.mode || 'mixed');
+  analytics.runStart('online', m.mode || 'mixed', !!m.hell);
   sim.started = true;
   // joined mid-level: the lottery chest and what it dropped (ch, xi), then what is already taken
   if (m.ch) sim.chest = { x: m.ch[0], z: m.ch[1], open: !!m.ch[2] };

@@ -27,10 +27,10 @@ function send(ev, data) {
 let run = null;
 const analytics = {
   visit() { send('visit'); },
-  runStart(kind, mode) {
+  runStart(kind, mode, hell = false) {
     if (run) analytics.runEnd();
     run = { t0: performance.now() };
-    send('run_start', { kind, mode });
+    send('run_start', { kind, mode, ...(hell ? { hell: true } : {}) });
   },
   level(level) { if (run) send('level', { level }); },
   levelMismatch(mode, level, ver, what) { send('level_mismatch', { mode, level, ver, what }); },   // what: 'items' | 'wolves' | 'items+wolves'
@@ -57,6 +57,8 @@ const CSS = `
 .rks-pill{font-size:14px;font-weight:800;padding:5px 11px;border-radius:999px;background:rgba(255,255,255,.08);}
 .rks-pill b{color:#fff6d8;}
 .rks-bars{display:flex;flex-direction:column;gap:6px;width:100%;}
+.rks-h.rks-hellh{color:#ff8a5c;}
+.rks-hellbars .rks-fill{background:linear-gradient(90deg,#ff5c3a,#ffb08f) !important;}
 .rks-bar{display:grid;grid-template-columns:190px 1fr 92px;gap:10px;align-items:center;font-weight:800;font-size:14px;text-align:left;}
 .rks-track{height:16px;border-radius:8px;background:rgba(255,255,255,.08);overflow:hidden;}
 .rks-fill{height:100%;border-radius:8px;background:linear-gradient(90deg,#ffcf5a,#ff9ec4);}
@@ -130,6 +132,10 @@ function drawChart(canvas, days) {
 // the soundtrack's average song length (music/catjam2-3.mp3: 3:05 and 3:23): songs played = time played / this
 const SONG_SECONDS = 194;
 
+// which hell modes are open for this player (main.js: the account / this browser): only they see hell's numbers
+let hellModes = () => [];
+const setHellModes = (fn) => { hellModes = fn; };
+
 let styled = false;
 function openStatsPage(root) {
   if (!styled) { const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st); styled = true; }
@@ -176,7 +182,12 @@ function openStatsPage(root) {
       ['Single player', d.kinds.solo], ['Local co-op', d.kinds.coop],
       ['Online · Run + Skate', d.modes.mixed], ['Online · Run only', d.modes.run], ['Online · Skate only', d.modes.ice],
     ];
-    const totalRuns = played.reduce((a, [, v]) => a + (v || 0), 0) || 1, topRuns = Math.max(1, ...played.map(([, v]) => v || 0));
+    // hell (only for players who have it open; counted since 2026-10-24): games per hell mode, and how many online,
+    // on the same scale as the modes above
+    const hm = d.hell ? hellModes() : [];
+    const hellRows = [['run', 'Hell Run'], ['ice', 'Hell Skate']].filter(([m]) => hm.includes(m));
+    const totalRuns = played.reduce((a, [, v]) => a + (v || 0), 0) || 1;
+    const topRuns = Math.max(1, ...played.map(([, v]) => v || 0), ...hellRows.map(([m]) => d.hell.games[m] || 0));
     const bars = el('div', 'rks-bars');
     for (const [name, v] of played) {
       const row = el('div', 'rks-bar');
@@ -188,10 +199,27 @@ function openStatsPage(root) {
       row.append(el('div', null, name), track, num);
       bars.appendChild(row);
     }
+    const hellPart = [];
+    if (hellRows.length) {
+      const H = d.hell;
+      const hb = el('div', 'rks-bars rks-hellbars');
+      for (const [m, name] of hellRows) {
+        const g = H.games[m] || 0, row = el('div', 'rks-bar');
+        const track = el('div', 'rks-track'), fill = el('div', 'rks-fill');
+        fill.style.width = (g / topRuns) * 100 + '%';
+        track.appendChild(fill);
+        const num = el('div', 'rks-num');
+        num.append(fmt(g) + ' ', el('small', null, `${fmt(H.online[m] || 0)} online`));
+        row.append(el('div', null, name), track, num);
+        hb.appendChild(row);
+      }
+      hellPart.push(el('div', 'rks-h rks-hellh', 'Hell (games)'), hb);
+    }
     body.append(
       grid,
       el('div', 'rks-h', 'Players and time played'), cv,
       el('div', 'rks-h', 'Modes played (runs)'), bars,
+      ...hellPart,
       ...pills('Devices', d.devices, { desktop: 'Computer', touch: 'Phone / tablet', ios: 'iOS app', android: 'Android app' }),
       el('div', 'rks-note', `Counting since ${d.since}. Anonymous: each browser gets a random id, nothing else is stored.`),
     );
@@ -199,4 +227,4 @@ function openStatsPage(root) {
   }).catch(() => { body.textContent = ''; body.appendChild(el('div', 'rks-err', "Couldn't load the stats right now.")); });
 }
 
-export { analytics, openStatsPage };
+export { analytics, openStatsPage, setHellModes };

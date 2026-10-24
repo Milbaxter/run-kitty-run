@@ -896,6 +896,18 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(lb.firsts.ice.filter((x) => x.name === 'Amy').length === 1 && lb.fastest.ice.filter((x) => x.team[0].name === 'Amy').map((x) => x.total).join() === '1500'
       && lb.firsts.run.length === 1 && lb.firsts.mixed.length === 1 && !/acct-amy|aaaaaaaa|"keys"/.test(lg.boardJson()),
       'legends lists: first 100 different players per mode (105 wins of one name: 1), each team only with its best time, no ids sent');
+    // the STATS page: hell games counted on their own (per hell mode, online ones too), not in the modes played
+    {
+      const { createStats } = await import('../server/stats.js');
+      const st = createStats(path.join(dir, 'stats.json'));
+      st.record({ cid: 'hellstat01', ev: 'run_start', kind: 'online', mode: 'ice', hell: true });
+      st.record({ cid: 'hellstat01', ev: 'run_start', kind: 'solo', mode: 'ice', hell: true });
+      st.record({ cid: 'hellstat01', ev: 'run_start', kind: 'online', mode: 'ice' });
+      const bad = st.record({ cid: 'hellstat01', ev: 'run_start', kind: 'online', mode: 'ice', hell: 'yes' });
+      const sm = st.summary(0);
+      ok(sm.hell.games.ice === 2 && sm.hell.online.ice === 1 && sm.hell.games.run === 0 && sm.modes.ice === 1 && sm.kinds.solo === 0 && sm.totals.runs === 3 && !bad,
+        'stats page: hell games counted apart (per hell mode, online ones too), not in the modes played; a bad hell flag refused');
+    }
     // a repeat win under a new name: the first-clear entry takes the name, its line and time stay; another player changes nothing
     {
       const lr = createLegends(path.join(dir, 'legends-rename.json'));

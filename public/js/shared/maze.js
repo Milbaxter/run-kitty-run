@@ -1,4 +1,4 @@
-import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, MEDIC_GIFT_FV, QUICK_START_FV, HEART_FV, HALF_HEART_FV, STRETCH_REST_FV, stageOf } from './config.js';
+import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, MEDIC_GIFT_FV, QUICK_START_FV, HEART_FV, HALF_HEART_FV, STRETCH_REST_FV, RUN_REST_FV, stageOf } from './config.js';
 import { createRng, hashSeed, ipow, hyp, legPoint } from './rng.js';   // (hyp: Math.hypot the same in every browser)
 import { buildPlan, patternPose, patternSpeed } from './enemies.js';
 
@@ -276,7 +276,8 @@ const RUN_PAUSES = [[6, 6, 1], [3, 6, 0.67], [2, 6, 1.35], [1.2, 6, 2], [0.7, 6,
 const ROOM_WOLVES = 3;   // running levels: the goal room's own wolves (+1 from level 5)
 // finale version 21+: the final runs' new-behaviour run wolves (those with a pauseRange) rest at least this long: a stop
 // you can see, not a hitch (the longest rests and how they're spread stay)
-const STRETCH_REST_MIN = 0.5, RUN_FINALE_REST_MIN = 0.3;   // (the skate final runs' run stretch: 0.5; the running final runs: 0.3)
+// (the skate final runs' run stretch: 0.5; the running final runs: 0.3 in version 21, 0.42 from version 22)
+const STRETCH_REST_MIN = 0.5, runFinaleRestMin = (v) => (v >= RUN_REST_FV ? 0.42 : 0.3);
 const restAtLeast = (pr, min = STRETCH_REST_MIN) => [Math.max(min, pr[0]), pr[1], pr[2]];
 const RUN_NEW_EXTRA = 1.5; // Run only: extra tuned wolves = (this - 1) x a level's usual tuned count, levels mirrored (placeEnemies)
 const RUN_WALKS = [[5, 17.5, 1], [4.6, 18.2, 1.35], [4.3, 18.9, 1.7], [3.9, 19.6, 2], [3.6, 20.4, 2.4], [3.2, 21.1, 2.7], [2.9, 21.8, 3.1], [2.5, 22.5, 3.4]];
@@ -1447,7 +1448,7 @@ function generateCombo(L, seed, v = 3) {
     ...rn.enemies.map((e) => {
       const x = e.frame.ox + e.frame.ux * (e.a0 + e.a1) / 2, k = Math.max(0, Math.min(1, (rs.x - x) / (rs.x - ROOM)));
       return { ...e, leg: e.leg + nS, speed: e.speed * (COMBO_RUN_SPEED0 + ((v >= RUN_RAMP_FV ? RUN_RAMP_TOP : 1) - COMBO_RUN_SPEED0) * k),
-        ...(v >= STRETCH_REST_FV && e.pauseRange ? { pauseRange: restAtLeast(e.pauseRange, RUN_FINALE_REST_MIN) } : {}) };   // (version 21+: as Run only's level 9)
+        ...(v >= STRETCH_REST_FV && e.pauseRange ? { pauseRange: restAtLeast(e.pauseRange, runFinaleRestMin(v)) } : {}) };   // (version 21+: as Run only's level 9)
     }),
   ];
   enemies.forEach((e, i) => { e.id = i; e.seed = hashSeed(seed, L, 'wolf', i); });
@@ -1597,8 +1598,8 @@ function generateLevelCore(level, seed, mode = 'mixed', fv = 0, season = null) {
   }
   // finale version 18+: Run only's level 9 wolves start with one of their usual rests (enemies.js quickStart), not up to 6 s
   if (runFinale && v >= QUICK_START_FV) lvl.enemies = lvl.enemies.map((e) => (e.pauseRange ? { ...e, quickStart: true } : e));
-  // finale version 21+: its new-behaviour wolves rest at least RUN_FINALE_REST_MIN (the original-behaviour ones as they were)
-  if (runFinale && v >= STRETCH_REST_FV) lvl.enemies = lvl.enemies.map((e) => (e.pauseRange ? { ...e, pauseRange: restAtLeast(e.pauseRange, RUN_FINALE_REST_MIN) } : e));
+  // finale version 21+: its new-behaviour wolves rest at least runFinaleRestMin (the original-behaviour ones as they were)
+  if (runFinale && v >= STRETCH_REST_FV) lvl.enemies = lvl.enemies.map((e) => (e.pauseRange ? { ...e, pauseRange: restAtLeast(e.pauseRange, runFinaleRestMin(v)) } : e));
   if (v >= 11) {
     // version 11+: ITEMS_PER_LEVEL items (autumn: ITEMS_AUTUMN, hearts and shields only: every tree has boots), capped
     const autumn = lvl.trees.length > 0 && !finale;

@@ -1079,6 +1079,18 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
   const m17 = moving(17), m18 = moving(18);
   ok(m17 < 0.35 && m18 > 0.6, `Run only level 9 (finale version 18): the wolves are off at once (${Math.round(m18 * 100)}% moving in the first second; version 17: ${Math.round(m17 * 100)}%)`);
 }
+// finale version 21: each half of Run + Skate's final level has a heart (1-2 each); its wolves as before
+{
+  let bad = 0, wolvesSame = true;
+  for (let s = 0; s < 40; s++) {
+    const seed = 7000 + s, ld = generateLevel(17, seed, 'mixed', 21), old = generateLevel(17, seed, 'mixed', 20);
+    const hs = ld.items.filter((it) => it.type === 'life'), sk = hs.filter((h) => !(h.z > ld.iceZMax)).length, rn = hs.length - sk;
+    if (sk < 1 || rn < 1 || sk > 2 || rn > 2) bad++;
+    if (ld.enemies.length !== old.enemies.length) wolvesSame = false;
+  }
+  ok(bad === 0 && wolvesSame, `Run + Skate's final (finale version 21): a heart in each half, at most 2 each (${bad} of 40 not), the same wolves`);
+}
+
 // rng.js hyp: Math.hypot as V8 computes it, from + - * / and sqrt only (the same in every browser), bit for bit
 {
   let s = 12345, differ = 0;

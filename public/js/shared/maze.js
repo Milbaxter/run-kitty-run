@@ -1,4 +1,4 @@
-import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, MEDIC_GIFT_FV, QUICK_START_FV, HEART_FV, stageOf } from './config.js';
+import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, MEDIC_GIFT_FV, QUICK_START_FV, HEART_FV, HALF_HEART_FV, STRETCH_REST_FV, stageOf } from './config.js';
 import { createRng, hashSeed, ipow, hyp, legPoint } from './rng.js';   // (hyp: Math.hypot the same in every browser)
 import { buildPlan, patternPose, patternSpeed } from './enemies.js';
 
@@ -274,6 +274,10 @@ const RUN_TAIL_L8 = [23, 25, 22, 24, 19, 21, 16, 16, 14], RUN_TAIL_GROWTH = 1.05
 const RUN_PAUSES = [[6, 6, 1], [3, 6, 0.67], [2, 6, 1.35], [1.2, 6, 2], [0.7, 6, 3.1], [0.4, 6, 4.1], [0.2, 6, 5.4], [0.1, 6, 7.4]];
 // walk length per move, same form: level 1 ~2x the old walks; by level 8 back near the old average, with long walks still possible
 const ROOM_WOLVES = 3;   // running levels: the goal room's own wolves (+1 from level 5)
+// finale version 21+: the final runs' new-behaviour run wolves (those with a pauseRange) rest at least this long: a stop
+// you can see, not a hitch (the longest rests and how they're spread stay)
+const STRETCH_REST_MIN = 0.5, RUN_FINALE_REST_MIN = 0.3;   // (the skate final runs' run stretch: 0.5; the running final runs: 0.3)
+const restAtLeast = (pr, min = STRETCH_REST_MIN) => [Math.max(min, pr[0]), pr[1], pr[2]];
 const RUN_NEW_EXTRA = 1.5; // Run only: extra tuned wolves = (this - 1) x a level's usual tuned count, levels mirrored (placeEnemies)
 const RUN_WALKS = [[5, 17.5, 1], [4.6, 18.2, 1.35], [4.3, 18.9, 1.7], [3.9, 19.6, 2], [3.6, 20.4, 2.4], [3.2, 21.1, 2.7], [2.9, 21.8, 3.1], [2.5, 22.5, 3.4]];
 
@@ -1262,7 +1266,8 @@ function placePatternEnemies(rng, lvl, p) {
     let reach = -Infinity;
     for (const e of enemies) if (e.route) for (const q of e.route) reach = Math.max(reach, dir * wx(e, q.th));
     const xRun = dir * reach + dir * WIDE_RUN_CLEAR;
-    const lv = RUN_PAUSES.length, pauseRange = RUN_PAUSES[lv - 1], walk = RUN_WALKS[lv - 1];
+    const lv = RUN_PAUSES.length, walk = RUN_WALKS[lv - 1];
+    const pauseRange = lvl.fv >= STRETCH_REST_FV ? restAtLeast(RUN_PAUSES[lv - 1]) : RUN_PAUSES[lv - 1];   // (version 21+: STRETCH_REST_MIN)
     const len = WIDE_RUN_S * CFG.KITTY_SPEED, runDensity = RUN_FINALE_WOLVES / (Math.abs(lvl.corners[0].x - xDoor) * lvl.corridorWidth);
     const n = Math.round(len * lvl.corridorWidth * runDensity * WIDE_RUN_DENSITY);
     for (let k = 0; k < n; k++) {
@@ -1435,12 +1440,14 @@ function generateCombo(L, seed, v = 3) {
     ...rn.legs.map((l, i) => ({ ...l, startRoom: i === 0 ? sH : 0 })),
   ];
   const enemies = [
-    ...sk.enemies.map((e) => ({ ...e, frame: { ...e.frame, ox: e.frame.ox + dx, oz: e.frame.oz + dz } })),
+    ...sk.enemies.map((e) => ({ ...e, frame: { ...e.frame, ox: e.frame.ox + dx, oz: e.frame.oz + dz },
+      ...(v >= STRETCH_REST_FV && e.pauseRange ? { pauseRange: restAtLeast(e.pauseRange) } : {}) })),   // (version 21+: its run stretch's rests, STRETCH_REST_MIN)
     // the run half's wolves start as slow as the skate half's run wolves (COMBO_RUN_SPEED0 of their speed, right after
     // the hallway) and get evenly faster all the way to the goal room, where they're back at full speed
     ...rn.enemies.map((e) => {
       const x = e.frame.ox + e.frame.ux * (e.a0 + e.a1) / 2, k = Math.max(0, Math.min(1, (rs.x - x) / (rs.x - ROOM)));
-      return { ...e, leg: e.leg + nS, speed: e.speed * (COMBO_RUN_SPEED0 + ((v >= RUN_RAMP_FV ? RUN_RAMP_TOP : 1) - COMBO_RUN_SPEED0) * k) };
+      return { ...e, leg: e.leg + nS, speed: e.speed * (COMBO_RUN_SPEED0 + ((v >= RUN_RAMP_FV ? RUN_RAMP_TOP : 1) - COMBO_RUN_SPEED0) * k),
+        ...(v >= STRETCH_REST_FV && e.pauseRange ? { pauseRange: restAtLeast(e.pauseRange, RUN_FINALE_REST_MIN) } : {}) };   // (version 21+: as Run only's level 9)
     }),
   ];
   enemies.forEach((e, i) => { e.id = i; e.seed = hashSeed(seed, L, 'wolf', i); });
@@ -1451,6 +1458,8 @@ function generateCombo(L, seed, v = 3) {
     const a = placeItemsCapped(createRng(hashSeed(seed, L, 'items-skate')), sk, ITEMS_PER_LEVEL, ITEM_CAP);
     const left = ITEM_CAP.shield - a.filter((it) => it.type === 'shield').length;
     const b = placeItemsCapped(createRng(hashSeed(seed, L, 'items-run')), rn, ITEMS_PER_LEVEL, { life: ITEM_CAP.life, shield: left });
+    // finale version 21+: a heart in each half (one of its pickups when it rolled none; at most ITEM_CAP.life each still)
+    if (v >= HALF_HEART_FV) { guaranteeHeart({ items: a, level: L }, hashSeed(seed, 'skate-half')); guaranteeHeart({ items: b, level: L }, hashSeed(seed, 'run-half')); }
     items = [...a.map(mv), ...treeBoots(sk.trees, true).map(mv), ...b, ...treeBoots(rn.trees, true)];
   }
   items.forEach((it, i) => { it.id = i; });
@@ -1588,6 +1597,8 @@ function generateLevelCore(level, seed, mode = 'mixed', fv = 0, season = null) {
   }
   // finale version 18+: Run only's level 9 wolves start with one of their usual rests (enemies.js quickStart), not up to 6 s
   if (runFinale && v >= QUICK_START_FV) lvl.enemies = lvl.enemies.map((e) => (e.pauseRange ? { ...e, quickStart: true } : e));
+  // finale version 21+: its new-behaviour wolves rest at least RUN_FINALE_REST_MIN (the original-behaviour ones as they were)
+  if (runFinale && v >= STRETCH_REST_FV) lvl.enemies = lvl.enemies.map((e) => (e.pauseRange ? { ...e, pauseRange: restAtLeast(e.pauseRange, RUN_FINALE_REST_MIN) } : e));
   if (v >= 11) {
     // version 11+: ITEMS_PER_LEVEL items (autumn: ITEMS_AUTUMN, hearts and shields only: every tree has boots), capped
     const autumn = lvl.trees.length > 0 && !finale;

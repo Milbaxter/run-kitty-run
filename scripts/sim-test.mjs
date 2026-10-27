@@ -748,6 +748,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
       lb.recordHell({ acct: sub, name: 'Me', color: 1 }, { local: false, easy: false, mode: 'run', level: 4, far: 0.46, team: 1, time: 600 });
       lb.recordHell({ acct: sub, name: 'Me', color: 1 }, { local: true, easy: false, mode: 'ice', level: 6, far: 1, team: 1, time: 900 });
       const n1 = accounts.backfillHell((s, pids) => lb.hellResults(s, pids)), n2 = accounts.backfillHell((s, pids) => lb.hellResults(s, pids));
+      lb.flush();
       const bs = (await request(accounts, 'me')).account.stats;
       ok(n1 >= 1 && n2 === 0 && bs.online.hell.clears.run[3] >= 1 && !bs.online.hell.clears.run[4] && bs.online.hell.clears.run[2] >= 1
         && bs.local.hell.clears.ice[6] === 1 && bs.local.hell.wins.ice === 1 && bs.online.hell.wins.run === 1 && bs.online.hell.clears.ice[1] === 2,
@@ -896,6 +897,53 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(lb.firsts.ice.filter((x) => x.name === 'Amy').length === 1 && lb.fastest.ice.filter((x) => x.team[0].name === 'Amy').map((x) => x.total).join() === '1500'
       && lb.firsts.run.length === 1 && lb.firsts.mixed.length === 1 && !/acct-amy|aaaaaaaa|"keys"/.test(lg.boardJson()),
       'legends lists: first 100 different players per mode (105 wins of one name: 1), each team only with its best time, no ids sent');
+    // level boards: a team's time once, with everyone in it (one run); another team with the same time stays its own slot
+    {
+      const { createLevelBoards } = await import('../server/levelboards.js');
+      const lb = createLevelBoards(path.join(dir, 'levels-teams.json'));
+      const P = (i) => ({ acct: 'team-acct-' + i, name: 'K' + i, color: i });
+      for (let i = 1; i <= 4; i++) lb.record(P(i), { local: false, easy: false, mode: 'run', level: 3, time: 90, team: 4, run: 'aaa111' });
+      for (let i = 5; i <= 6; i++) lb.record(P(i), { local: false, easy: false, mode: 'run', level: 3, time: 90, team: 2, run: 'bbb222' });
+      lb.record(P(7), { local: false, easy: false, mode: 'run', level: 3, time: 95, team: 2, run: 'ccc333' });
+      const q = lb.query(P(3), { board: { local: false, easy: false, mode: 'run', level: 3, team: true }, scope: 'all' });
+      const [a, b, c] = q.rows;
+      ok(q.rows.length === 3 && a.members.length === 4 && a.me && a.members.some((m) => m.me && m.name === 'K3') && b.members.length === 2 && c.name === 'K7' && c.members.length === 1 && c.more === 1
+        && q.me.rank === 1 && q.n === 7,
+        'level boards: a team time takes one slot with everyone in it; another team with the same time is its own slot');
+      // one of the 4 then sets a faster time with someone else: the new run shows them; the old one keeps all 4, that one
+      // greyed and last
+      lb.record(P(2), { local: false, easy: false, mode: 'run', level: 3, time: 80, team: 2, run: 'ddd444' });
+      lb.record(P(8), { local: false, easy: false, mode: 'run', level: 3, time: 80, team: 2, run: 'ddd444' });
+      const q2 = lb.query(P(2), { board: { local: false, easy: false, mode: 'run', level: 3, team: true }, scope: 'all' });
+      const old4 = q2.rows.find((r) => r.time === 90 && r.team === 4);
+      ok(q2.rows[0].time === 80 && q2.rows[0].members.map((m) => m.name).join() === 'K2,K8' && q2.rows[0].me
+        && old4 && old4.members.map((m) => m.name + (m.gone ? '-' : '')).join() === 'K1,K3,K4,K2-' && !old4.me && q2.me.rank === 1,
+        'level boards: a player with a faster time since stays in the old team slot, greyed and last (still the best of the others)');
+      // a team the board can't name everyone of (a run from before runs kept their players): the rest as a count
+      lb.record(P(9), { local: false, easy: false, mode: 'run', level: 3, time: 99, team: 3 });
+      const q3 = lb.query(P(9), { board: { local: false, easy: false, mode: 'run', level: 3, team: true }, scope: 'all' }).rows.find((r) => r.time === 99);
+      ok(q3 && q3.members.length === 1 && q3.more === 2, 'level boards: teammates the board can no longer name show as a count (+2)');
+      lb.flush();
+      // team times from before runs: a missing teammate is found on another level board of the same kind (the whole
+      // team together there) when their time here is faster; one the boards can't place stays a count
+      {
+        const f = path.join(dir, 'levels-old.json'), now = Date.now(), B = (lv) => 'on:run:' + lv + ':t';
+        const pl = (n, b) => ({ n, c: 1, f: [], b, at: now });
+        fs.writeFileSync(f, JSON.stringify({ players: {
+          aA: pl('Ann', { [B(2)]: [50, now - 60000, 3], [B(3)]: [70, now - 30000, 3] }),
+          aB: pl('Bo', { [B(2)]: [50, now - 60001, 3], [B(3)]: [70, now - 30001, 3] }),
+          aC: pl('Cy', { [B(2)]: [50, now - 60002, 3], [B(3)]: [60, now - 1000, 2] }),   // (Cy: level 3 faster since, with Dee)
+          aD: pl('Dee', { [B(3)]: [60, now - 1001, 2] }),
+          aE: pl('Eve', { [B(4)]: [99, now - 500, 3] }),   // (a team of 3 nobody else is in: +2)
+        } }));
+        const ol = createLevelBoards(f);
+        const Q = (lv) => ol.query({ acct: 'nobody' }, { board: { local: false, easy: false, mode: 'run', level: lv, team: true }, scope: 'all' }).rows;
+        const r3 = Q(3).find((r) => r.time === 70), r4 = Q(4)[0];
+        ok(r3 && r3.members.map((m) => m.name + (m.gone ? '-' : '')).sort().join() === 'Ann,Bo,Cy-' && r3.members[2].gone && !r3.more && r4.more === 2,
+          'level boards: an old team slot finds its missing teammate on another level board (greyed); one it cannot place is a count');
+        ol.flush();
+      }
+    }
     // the STATS page: hell games counted on their own (per hell mode, online ones too), not in the modes played
     {
       const { createStats } = await import('../server/stats.js');
@@ -965,7 +1013,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     lb.record(who('f'), { ...B, time: 2, team: 1 });   // (too quick to be real)
     const q = (w, board, more = {}) => lb.query(w, { board: { ...B, ...board }, ...more });
     const solo = q(who('a'), {}), team = q(who('z'), { team: true });
-    ok(solo.rows.length === 1 && solo.rows[0].time === 35 && solo.rows[0].me && solo.me.rank === 1 && team.rows.length === 2 && !team.me
+    ok(solo.rows.length === 1 && solo.rows[0].time === 35 && solo.rows[0].me && solo.me.rank === 1 && team.rows.length === 1 && team.rows[0].members.length === 2 && !team.me   // (b and c: one team, same time, same moment)
       && q(who('a'), { easy: true }).rows.map((r) => r.time).join() === '20' && q(who('a'), { local: true }).rows.map((r) => r.time).join() === '10'
       && !JSON.stringify(solo).includes(pid('a')),
       'level boards: each player only its best, solo / team / easy / local apart, too-quick times dropped, no ids sent');

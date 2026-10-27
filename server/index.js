@@ -501,12 +501,12 @@ function handleLevelsHttp(req, res) {
       }
       if (m.op === 'local') {
         if (!bucket(localHits, ip, 10, 0.2)) return reply(429, { ok: false });
-        const ps = Array.isArray(m.players) ? m.players.slice(0, 2) : [];
+        const ps = Array.isArray(m.players) ? m.players.slice(0, 2) : [], run = runId();   // (one run: the two kitties' time shows once)
         ps.forEach((p, seat) => {
           const w = { acct: seat ? null : who.acct, pid, seat, fid: seat ? '' : who.fid, name: p && p.name, color: p && p.color };
           if (m.reached === levels.SECRET_LEVEL) levels.reach(w);
-          else if (m.hell === true) levels.recordHell(w, { local: true, easy: !!m.easy, mode: m.mode, level: m.level, far: m.far, time: m.time, team: ps.length });
-          else levels.record(w, { local: true, easy: !!m.easy, mode: m.mode, level: m.level, time: m.time, team: ps.length });
+          else if (m.hell === true) levels.recordHell(w, { local: true, easy: !!m.easy, mode: m.mode, level: m.level, far: m.far, time: m.time, team: ps.length, run });
+          else levels.record(w, { local: true, easy: !!m.easy, mode: m.mode, level: m.level, time: m.time, team: ps.length, run });
         });
         return reply(200, { ok: true });
       }
@@ -919,12 +919,12 @@ function countForAccounts(room, events) {
       }
       for (const id of once(sim.players.map((p) => p.id))) accounts.recordOnline(subOf(id), ev, easy);
       // level boards: the team's time for everyone in it (one per player); the secret level's board opens for whoever reaches it
-      const team = once(sim.players.map((p) => p.id));
+      const team = once(sim.players.map((p) => p.id)), run = runId();   // (run: the team's time shows once, with everyone)
       for (const id of team) {
         const m = memberOf(id), p = sim.players.find((q) => q.id === id);
         if (!m) continue;
         const who = { acct: m.acct, pid: m.pid, fid: m.fid, name: (p && p.name) || m.name, color: p ? p.color : m.color };
-        if (e.type === 'levelClear') levels.record(who, { local: false, easy, mode: room.mode, level, time: ev.time, team: team.length });
+        if (e.type === 'levelClear') levels.record(who, { local: false, easy, mode: room.mode, level, time: ev.time, team: team.length, run });
         else if (level === levels.SECRET_LEVEL) levels.reach(who);
       }
       if (e.type === 'levelStart' && level === SKATE_FINAL_LEVEL && !e.retry) for (const id of team) featDone(id, 'r9');   // (hell opens)
@@ -977,10 +977,10 @@ function countHell(room, events, { memberOf, subOf, once, featDone }) {
     if (e.type === 'victory') for (const id of team()) accounts.recordOnline(subOf(id), { type: 'hellWin', mode: room.mode }, !!sim.easy);
     if (e.type === 'levelClear') { for (const id of team()) { featDone(id, 'h1'); featDone(id, 'win'); } }   // (and the new song: a hell level beaten)
     else if (e.type === 'gameOver' || e.type === 'victory' || e.type === 'wipe') {
-      const far = e.type === 'victory' ? 1 : e.far, ids = team();
+      const far = e.type === 'victory' ? 1 : e.far, ids = team(), run = runId();
       for (const id of ids) {
         const m = memberOf(id), p = sim.players.find((q) => q.id === id);
-        if (m) levels.recordHell({ acct: m.acct, pid: m.pid, fid: m.fid, name: (p && p.name) || m.name, color: p ? p.color : m.color }, { local: false, easy: !!sim.easy, mode: room.mode, level: e.level, far, team: ids.length, time: sim.time });
+        if (m) levels.recordHell({ acct: m.acct, pid: m.pid, fid: m.fid, name: (p && p.name) || m.name, color: p ? p.color : m.color }, { local: false, easy: !!sim.easy, mode: room.mode, level: e.level, far, team: ids.length, time: sim.time, run });
       }
     } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown', hell: true }, !!sim.easy);   // (the hell table's own crowns)
     else if (e.type === 'revive' && !samePlayer(memberOf(e.by), memberOf(e.playerId))) {
@@ -992,6 +992,8 @@ function countHell(room, events, { memberOf, subOf, once, featDone }) {
 }
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
+// a level board run: one clear / game, the same for everyone in it (levelboards.js shows the team's time once)
+const runId = () => crypto.randomBytes(6).toString('hex');
 
 function sendSnapshot(room) {
   const sim = room.sim;

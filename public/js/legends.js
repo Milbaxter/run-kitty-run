@@ -79,6 +79,10 @@ const CSS = `
 .rkg-lrow.rkg-mine{border-color:rgba(255,215,100,.8);background:rgba(255,210,80,.1);}
 .rkg-lrow .rkg-no{min-width:34px;}
 .rkg-lrow .rkg-n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:15px;}
+.rkg-lrow .rkg-team{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px;}
+.rkg-lrow .rkg-team .rkg-n{flex:none;}
+.rkg-lrow .rkg-amp{opacity:.45;font-weight:900;}
+.rkg-lrow .rkg-gone{opacity:.38;filter:grayscale(.7);}
 .rkg-lrow .rkg-t{flex:none;font-weight:900;font-size:15px;color:#fff6d8;font-variant-numeric:tabular-nums;}
 .rkg-lrow .rkg-d{flex:none;font-size:11px;font-weight:800;opacity:.65;text-align:right;min-width:62px;}
 @media (max-width:420px){ .rkg-lrow .rkg-d{display:none;} }   /* (a narrow screen: the names keep their room) */
@@ -237,7 +241,10 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
     can9 = !!m.can9;
     if (Array.isArray(m.groups)) lvGroups = m.groups;
     if (m.err) { lvData = null; lvErr = m.err; if (lv.scope === 'group') { lv.scope = 'all'; lv.group = null; } }
-    else lvData = { ...m, rows: (Array.isArray(m.rows) ? m.rows : []).map((r) => (NATIVE ? { ...r, name: appClean({ entries: [{ name: r.name, text: '' }] }).entries[0].name } : r)) };
+    else {
+      const clean = (x) => ({ ...x, name: appClean({ entries: [{ name: x.name, text: '' }] }).entries[0].name });
+      lvData = { ...m, rows: (Array.isArray(m.rows) ? m.rows : []).map((r) => (NATIVE ? { ...clean(r), ...(Array.isArray(r.members) ? { members: r.members.map(clean) } : {}) } : r)) };
+    }
     render();
   }
   function onLevelGroup(m) {
@@ -643,7 +650,21 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
     }
     rows.forEach((r, i) => {
       const row = el('div', 'rkg-lrow' + (hell ? ' rkg-hrow' : '') + (r.me ? ' rkg-mine' : ''));
-      row.append(el('span', 'rkg-no', '#' + (i + 1)), nameEl(r));
+      // a team's time once, with everyone in it (members: the server joined their rows)
+      const who = Array.isArray(r.members) && (r.members.length > 1 || r.more > 0) ? el('span', 'rkg-team') : nameEl(r);
+      // (those with a faster time since: last, greyed)
+      if (who.className === 'rkg-team') r.members.forEach((m, k) => {
+        if (k) who.appendChild(el('span', 'rkg-amp', '·'));
+        const n = nameEl(m);
+        if (m.gone) { n.classList.add('rkg-gone'); n.title = 'Has a faster time since'; }
+        who.appendChild(n);
+      });
+      if (who.className === 'rkg-team' && r.more > 0) {   // (teammates the board can't name: how many)
+        const x = el('span', 'rkg-n rkg-gone', '+' + r.more);
+        x.title = r.more === 1 ? 'One more kitty in this team' : r.more + ' more kitties in this team';
+        who.append(el('span', 'rkg-amp', '·'), x);
+      }
+      row.append(el('span', 'rkg-no', '#' + (i + 1)), who);
       if (lv.team && r.team > 1) row.appendChild(el('span', 'rkg-d', r.team + ' kitties'));
       row.append(el('span', 'rkg-t', icon + fmt(r.time, r.total)), el('span', 'rkg-d', fmtDate(r.at)));
       list.appendChild(row);

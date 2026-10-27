@@ -25,7 +25,14 @@ const HELL = 'h';   // a hell board's level
 const hellScore = (level, far) => level * 1001 + Math.max(0, Math.min(1000, Math.round(far * 1000)));
 const isHellKey = (bk) => bk.split(':')[2] === HELL;
 // a board's order: fastest first, or (hell) furthest first, then the quickest game; ties: whoever got there first.
-// Rows: [player key, time / score, at, team, (hell) the game's total time]
+// Rows: [player key, time / score, at, team, (hell) the game's total time, run]. run: the clear / game a team's times
+// came from (one id for all of them), so the board shows a team's time once, with everyone in it (query: slots)
+const RUN_ID = /^[a-z0-9:-]{1,40}$/i;
+const runOf = (ev) => (ev && typeof ev.run === 'string' && RUN_ID.test(ev.run) ? ev.run : '');
+// two rows from the same clear: the same run, or (times from before runs were kept) the same time, team and game total,
+// recorded within RUN_NEAR_MS of each other
+const RUN_NEAR_MS = 5000;
+const sameRun = (a, b) => a[3] > 1 && a[3] === b[3] && a[1] === b[1] && (a[5] || b[5] ? a[5] === b[5] : (a[4] || 0) === (b[4] || 0) && Math.abs(a[2] - b[2]) <= RUN_NEAR_MS);
 const doneT = (r) => (r[4] > 0 ? r[4] : Infinity);
 const cmpOf = (bk) => (isHellKey(bk) ? (x, y) => y[1] - x[1] || doneT(x) - doneT(y) || x[2] - y[2] : (x, y) => x[1] - y[1] || x[2] - y[2]);
 const betterOn = (bk, a, b) => (isHellKey(bk) ? a > b : a < b);
@@ -62,20 +69,31 @@ function createLevelBoards(file) {
   //                   b: { boardKey: [time, at (ms), team size] } }
   // groups: id -> { name, code, owner: player key, m: [player keys], at, out?: [removed player keys],
   //                 fresh?: since (ms): only times set from then on, kept in b: { boardKey: { player key: [time, at, team] } } }
-  let players = {}, groups = {};
+  // runs: run id -> { k: [player keys] }: who played in a team's clear / game, so its slot keeps everyone (those with a
+  // better time since, greyed); dropped once nobody's time on a board is from it any more (pruneRuns)
+  let players = {}, groups = {}, runs = {}, meta = {};
   try {
     const old = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (old && typeof old.players === 'object' && old.players) players = old.players;
     if (old && typeof old.groups === 'object' && old.groups) groups = old.groups;
+    if (old && typeof old.runs === 'object' && old.runs) runs = old.runs;
+    if (old && typeof old.meta === 'object' && old.meta) meta = old.meta;
   } catch { /* first run, or unreadable: start fresh */ }
   const byCode = new Map(Object.entries(groups).map(([id, g]) => [g.code, id]));
   let saveT = null;
   const tops = new Map();   // boardKey -> sorted [[key, time, at, team]] (all of a board's players), dropped on change
 
+  function pruneRuns() {
+    const used = new Set();
+    for (const p of Object.values(players)) for (const v of Object.values(p.b || {})) if (v && v[4]) used.add(v[4]);
+    for (const g of Object.values(groups)) for (const bb of Object.values(g.b || {})) for (const v of Object.values(bb)) if (v && v[4]) used.add(v[4]);
+    for (const id of Object.keys(runs)) if (!used.has(id)) delete runs[id];
+  }
   function save() {
     saveT = null;
+    pruneRuns();
     const tmp = file + '.tmp';
-    fs.writeFile(tmp, JSON.stringify({ players, groups }), (err) => {
+    fs.writeFile(tmp, JSON.stringify({ players, groups, runs, meta }), (err) => {
       if (err) { console.error('level boards save failed:', err.message); return; }
       fs.rename(tmp, file, (e) => { if (e) console.error('level boards save failed:', e.message); });
     });
@@ -84,7 +102,8 @@ function createLevelBoards(file) {
   function flush() {
     if (!saveT) return;
     clearTimeout(saveT); saveT = null;
-    try { fs.writeFileSync(file, JSON.stringify({ players, groups })); } catch (e) { console.error('level boards flush failed:', e.message); }
+    pruneRuns();
+    try { fs.writeFileSync(file, JSON.stringify({ players, groups, runs, meta })); } catch (e) { console.error('level boards flush failed:', e.message); }
   }
 
   const hash = (s) => crypto.createHash('sha256').update('rkr-levels:' + s).digest('hex').slice(0, 20);
@@ -168,10 +187,11 @@ function createLevelBoards(file) {
     const me = playerOf(who, true);
     if (!me) return false;
     const { key, p } = me, score = hellScore(level, far), team = Math.max(1, Math.min(99, ev.team | 0 || 1));
+    joinRun({ team, run: ev.run }, key);
     // the game's total time (seconds; at least a few per level cleared)
     const t = Number(ev.time);
     const time = t >= Math.max(1, (level - 1 + (far >= 1 ? 1 : 0)) * MIN_S) && t <= 1000 * 3600 ? round1(t) : 0;
-    const entry = [score, Date.now(), team, ...(time ? [time] : [])];
+    const entry = entryOf(score, { team, run: ev.run }, time);
     const bk = boardKey(b), had = p.b[bk];
     changed();
     for (const g of Object.values(groups)) {
@@ -185,6 +205,53 @@ function createLevelBoards(file) {
     return true;
   }
   // a cleared level: ev = { local, easy, mode, level, time (s), team (players in the game) }; true when it's a new best
+  // a board entry: [time / score, at, team, (hell) total time or 0, run?]
+  const entryOf = (v, ev, total) => { const run = ev.team > 1 ? runOf(ev) : ''; return [v, Date.now(), Math.max(1, Math.min(99, ev.team | 0 || 1)), ...(total || run ? [total || 0] : []), ...(run ? [run] : [])]; };
+  // a team's run: this player was in it (whether or not it's their best)
+  const joinRun = (ev, key) => { const run = ev.team > 1 ? runOf(ev) : ''; if (!run || !key) return; const r = runs[run] ||= { k: [] }; if (!r.k.includes(key) && r.k.length < 99) r.k.push(key); };
+  // Once (meta.oldRuns): the team times from before runs kept their players. A team whose slot is missing players (they
+  // have a faster time since, so their entry here moved) gets them back where another level board of the same kind
+  // (online / local, normal / easy, mode, team) shows them in one team with everyone still in this slot: those join the
+  // slot's run (greyed, they have better times); anyone it can't be sure of stays a count (+N). Not hell (one board).
+  function linkOldRuns() {
+    if (meta.oldRuns) return;
+    meta.oldRuns = 1;
+    const teams = new Map();   // board key -> [{ keys, rows: [[key, entry]], v, at, team, total }] (old team times, one per clear)
+    const near = (a, b) => a.team === b[2] && a.v === b[0] && (a.total || 0) === (b[3] || 0) && Math.abs(a.at - b[1]) <= RUN_NEAR_MS;
+    for (const [k, p] of Object.entries(players)) for (const [bk, v] of Object.entries(p.b || {})) {
+      if (!bk.endsWith(':t') || isHellKey(bk) || !Array.isArray(v) || v[4] || !(v[2] > 1)) continue;
+      const L = teams.get(bk) || teams.set(bk, []).get(bk);
+      const t = L.find((x) => near(x, v));
+      if (t) { t.keys.add(k); t.rows.push([k, v]); } else L.push({ keys: new Set([k]), rows: [[k, v]], v: v[0], at: v[1], team: v[2], total: v[3] || 0 });
+    }
+    let linked = 0;
+    for (const [bk, L] of teams) {
+      const [src, mode] = bk.split(':'), better = (x, y) => x < y;   // (level boards: the quicker time)
+      for (const t of L) {
+        if (t.keys.size >= t.team) continue;
+        const found = new Set();
+        for (const [bk2, L2] of teams) {
+          if (bk2 === bk || bk2.split(':')[0] !== src || bk2.split(':')[1] !== mode) continue;
+          for (const t2 of L2) {
+            if (![...t.keys].every((k) => t2.keys.has(k))) continue;   // (everyone still in this slot, in one team there)
+            for (const k of t2.keys) {
+              const mine = players[k] && players[k].b && players[k].b[bk];
+              if (!t.keys.has(k) && mine && better(mine[0], t.v)) found.add(k);   // (they're not here: their time here is faster)
+            }
+          }
+        }
+        const extra = [...found].slice(0, t.team - t.keys.size);
+        if (!extra.length) continue;
+        const id = 'old' + hash(bk + ':' + [...t.keys].sort().join(',') + ':' + t.at).slice(0, 12);
+        for (const [, v] of t.rows) { v[3] = v[3] || 0; v[4] = id; }
+        runs[id] = { k: [...t.keys, ...extra] };
+        linked++;
+      }
+    }
+    if (linked) { tops.clear(); changed(); }
+    return linked;
+  }
+
   function record(who, ev) {
     if (ev && ev.level === HELL) return false;
     const b = parseBoard({ ...ev, team: ev && ev.team > 1 });
@@ -193,6 +260,7 @@ function createLevelBoards(file) {
     const me = playerOf(who, true);
     if (!me) return false;
     const { key, p } = me;
+    joinRun(ev, key);
     if (b.level === SECRET_LEVEL) p.r9 = 1;
     const bk = boardKey(b), had = p.b[bk];
     changed();
@@ -200,10 +268,10 @@ function createLevelBoards(file) {
     for (const g of Object.values(groups)) {
       if (!g.fresh || !g.m.includes(key)) continue;
       const gb = (g.b ||= {})[bk] ||= {}, mine = gb[key];
-      if (!mine || round1(time) < mine[0]) gb[key] = [round1(time), Date.now(), Math.max(1, Math.min(99, ev.team | 0 || 1))];
+      if (!mine || round1(time) < mine[0]) gb[key] = entryOf(round1(time), ev, 0);
     }
     if (had && had[0] <= round1(time)) return false;
-    p.b[bk] = [round1(time), Date.now(), Math.max(1, Math.min(99, ev.team | 0 || 1))];
+    p.b[bk] = entryOf(round1(time), ev, 0);
     tops.delete(bk);
     return !!key;
   }
@@ -222,7 +290,7 @@ function createLevelBoards(file) {
     let L = tops.get(bk);
     if (L) return L;
     L = [];
-    for (const [k, p] of Object.entries(players)) { const v = p.b && p.b[bk]; if (v) L.push([k, v[0], v[1], v[2], v[3]]); }
+    for (const [k, p] of Object.entries(players)) { const v = p.b && p.b[bk]; if (v) L.push([k, v[0], v[1], v[2], v[3], v[4]]); }
     L.sort(cmpOf(bk));
     tops.set(bk, L);
     return L;
@@ -257,15 +325,32 @@ function createLevelBoards(file) {
       if (!g || !key || !g.m.includes(key)) return { ...out, err: 'You are not in that group.' };
       const m = new Set(g.m);
       if (g.fresh) {   // (its own times, since its start)
-        L = Object.entries((g.b && g.b[bk]) || {}).filter(([k]) => m.has(k) && players[k]).map(([k, v]) => [k, v[0], v[1], v[2], v[3]]);
+        L = Object.entries((g.b && g.b[bk]) || {}).filter(([k]) => m.has(k) && players[k]).map(([k, v]) => [k, v[0], v[1], v[2], v[3], v[4]]);
         L.sort(cmpOf(bk));
       } else L = L.filter((r) => m.has(r[0]));
     }
-    const at = key ? L.findIndex((r) => r[0] === key) : -1;
+    // slots: a team's rows from the same clear as one (one rank, everyone in it); a row: its first member, with the
+    // rest in its team list (older clients show the first). Its players with a better time since come last, greyed
+    // (gone): the slot stays while one of them still has it
+    const slots = [];
+    for (const r of L) { const s = slots[slots.length - 1]; if (s && sameRun(s[0], r)) s.push(r); else slots.push([r]); }
+    const at = key ? slots.findIndex((s) => s.some((r) => r[0] === key)) : -1;
+    const slotRow = (s) => {
+      const first = row(s[0], key);
+      const here = new Set(s.map((r) => r[0])), gone = ((s[0][5] && runs[s[0][5]] && runs[s[0][5]].k) || []).filter((k) => !here.has(k) && players[k]);
+      // (a team bigger than the players known for it: a run from before runs kept their players, or one of them with a
+      // better time since that the board can't name any more: the rest as a count)
+      const more = Math.max(0, (s[0][3] | 0) - s.length - gone.length);
+      if (s.length + gone.length < 2 && !more) return first;
+      const team = s.map((r) => { const x = row(r, key); return { name: x.name, color: x.color, ...(x.paid ? { paid: x.paid } : {}), ...(x.me ? { me: true } : {}) }; });
+      for (const k of gone) team.push({ name: players[k].n, color: players[k].c, gone: true, ...(k === key ? { me: true } : {}) });
+      return { ...first, members: team, ...(more ? { more } : {}), ...(team.some((x) => x.me && !x.gone) ? { me: true } : {}) };
+    };
+    const mineRow = at >= 0 ? slots[at].find((r) => r[0] === key) : null;
     return {
       ...out, board: b, scope, ...(scope === 'group' ? { group: q.group } : {}),
-      rows: L.slice(0, SHOW).map((r) => row(r, key)), n: L.length,
-      me: at >= 0 ? { rank: at + 1, time: L[at][1], ...(L[at][4] > 0 ? { total: L[at][4] } : {}) } : null,
+      rows: slots.slice(0, SHOW).map(slotRow), n: L.length,
+      me: mineRow ? { rank: at + 1, time: mineRow[1], ...(mineRow[4] > 0 ? { total: mineRow[4] } : {}) } : null,
     };
   }
 
@@ -348,7 +433,8 @@ function createLevelBoards(file) {
     return {};
   }
 
-  return { setPaid, setReachedBefore, acctKey, record, recordHell, hellResults, reach, can9, query, groupsOf, createGroup, joinGroup, leaveGroup, removeMember, restartGroup, flush, keyOf, boardKey, MIN_S, MAX_S, SECRET_LEVEL, LEVELS, HELL };
+  linkOldRuns();
+  return { setPaid, setReachedBefore, acctKey, record, recordHell, hellResults, linkOldRuns, reach, can9, query, groupsOf, createGroup, joinGroup, leaveGroup, removeMember, restartGroup, flush, keyOf, boardKey, MIN_S, MAX_S, SECRET_LEVEL, LEVELS, HELL };
 }
 
 export { createLevelBoards, parseBoard, hellScore };

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-time server setup (run as a sudoer on the box). Idempotent.
 set -euo pipefail
-REPO=git@github.com:Milbaxter/run-kitty-run.git
+REPO=git@github.com:milimithrandir/run-kitty-run.git
 APP=/opt/run-kitty-run
 
 # service user, isolated from other users on the box

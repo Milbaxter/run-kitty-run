@@ -80,7 +80,7 @@ const CSS = `
 .rkg-lrow .rkg-no{min-width:34px;}
 .rkg-lrow .rkg-n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:15px;}
 .rkg-lrow .rkg-team{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px;}
-.rkg-lrow .rkg-team .rkg-n{flex:none;}
+.rkg-lrow .rkg-team .rkg-n,.rkg-lrow .rkg-team .rkg-who2{flex:none;}   /* (a name with its swag number too: whole, never squeezed) */
 .rkg-lrow .rkg-amp{opacity:.45;font-weight:900;}
 .rkg-lrow .rkg-gone{opacity:.38;filter:grayscale(.7);}
 .rkg-lrow .rkg-t{flex:none;font-weight:900;font-size:15px;color:#fff6d8;font-variant-numeric:tabular-nums;}

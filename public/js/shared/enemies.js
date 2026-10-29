@@ -117,7 +117,7 @@ function lateralTarget(st, d) {
   const eb = inMain(st, r, th) ? null : extBox(st, r, th);
   const lo = eb ? eb.rLo : st.rIn, hi = eb ? eb.rHi : st.rOut;
   let tr;
-  if (rng.next() < st.wallShare) { const u = rng.next() * WALL_BAND; tr = rng.next() < 0.5 ? lo + u : hi - u; }
+  if (rng.next() < st.wallShare) { const u = rng.next() * st.wallBand; tr = rng.next() < 0.5 ? lo + u : hi - u; }
   else tr = rng.range(lo, hi);
   const dr = tr - r;
   if (Math.abs(dr) > d) return null;
@@ -236,6 +236,8 @@ function createEnemy(spec) {
     lateral: !!spec.lateral,
     // spec.wallShare: WALL_SHARE for this wolf's level (placeEnemies ramps it up with the level)
     wallShare: Number.isFinite(spec.wallShare) ? spec.wallShare : WALL_SHARE,
+    // spec.wallBand: how far from the wall such a move may end (the final runs on foot, version 24+)
+    wallBand: Number.isFinite(spec.wallBand) ? spec.wallBand : WALL_BAND,
   };
   const e = {
     id: spec.id, type: spec.type, spec,

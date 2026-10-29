@@ -1,4 +1,4 @@
-import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, MEDIC_GIFT_FV, QUICK_START_FV, HEART_FV, HALF_HEART_FV, STRETCH_REST_FV, RUN_REST_FV, EVEN_WALKS_FV, ITEMS_INSIDE_FV, stageOf } from './config.js';
+import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, MEDIC_GIFT_FV, QUICK_START_FV, HEART_FV, HALF_HEART_FV, STRETCH_REST_FV, RUN_REST_FV, EVEN_WALKS_FV, ITEMS_INSIDE_FV, WALL_BAND_FV, stageOf } from './config.js';
 import { createRng, hashSeed, ipow, hyp, legPoint } from './rng.js';   // (hyp: Math.hypot the same in every browser)
 import { buildPlan, patternPose, patternSpeed } from './enemies.js';
 
@@ -170,6 +170,9 @@ const FINALE_WOLVES = 385;       // the run's wolf count (the spiral's level-7+ 
 // moves ending at a wall crowded the walls and left the middle at ~11%; RUN_FINALE_WALL = the share that keeps it flat
 // wall to wall. Measured with docs/WOLF_WALL_TUNING.md's method across 17 points and along the corridor.
 const RUN_FINALE_W = 3 * CFG.RING_WIDTH, RUN_FINALE_WOLVES = 2100, RUN_FINALE_WALL = 0.45;
+// version 24+: those wall moves end anywhere up to RUN_FINALE_BAND from the wall (right against it, 0.05, the wall
+// strip was ~23% against ~16% everywhere else; 0.7 measured flat, 0.5 ~19%, 1.0 ~10%)
+const RUN_FINALE_BAND = 0.7;
 const RUN_FINALE_START = 0.6;   // wolves in the first section (outside the start room) relative to the rest
 // skate levels' last two lanes (version 4+): designs to pick from, and the risk to aim at on level L (the lane before the
 // final stretch, or the final stretch: its chargers alone make it riskier), a fixed climb so each is a bit harder than
@@ -301,6 +304,7 @@ function placeEnemies(rng, lvl, p) {
   // share of a wolf's moves that end against a wall (enemies.js WALL_SHARE): 0.4 on level 1 up to 0.6 on level 8, where
   // the wall and the middle of a lane come out about as dangerous (docs/WOLF_WALL_TUNING.md)
   const wallShare = lvl.finale ? RUN_FINALE_WALL : 0.4 + 0.2 * (Math.min(level, RUN_PAUSES.length) - 1) / (RUN_PAUSES.length - 1);
+  const wallBand = lvl.finale && (lvl.rules ?? lvl.fv) >= WALL_BAND_FV ? RUN_FINALE_BAND : undefined;
   // share of original-behaviour wolves per lane: 1/3 on level 1 rising evenly to 3/4 on level 8 (and after) of the
   // usual count; Run only then adds extra tuned wolves on top (the original ones stay as many)
   const oldShare0 = 1 / 3 + (3 / 4 - 1 / 3) * (Math.min(level, RUN_PAUSES.length) - 1) / (RUN_PAUSES.length - 1);
@@ -440,7 +444,7 @@ function placeEnemies(rng, lvl, p) {
         seed: hashSeed(seed, level, 'wolf', id),
       };
       if (tuned) { spec.pauseRange = pauseRange; spec.walk = walk; }
-      if (pauseRange) { spec.lateral = true; spec.wallShare = wallShare; }   // every wolf of a running level also covers the walls (enemies.js)
+      if (pauseRange) { spec.lateral = true; spec.wallShare = wallShare; if (wallBand) spec.wallBand = wallBand; }   // every wolf of a running level also covers the walls (enemies.js)
       const ext = extFor(li, lo, hi);
       if (ext) { spec.ext = ext.boxes; if (ext.avoid) spec.avoid = ext.avoid; }
       enemies.push(spec);
@@ -465,7 +469,7 @@ function placeEnemies(rng, lvl, p) {
         seed: hashSeed(seed, level, 'wolf', id),
       };
       if (tuned) { spec.pauseRange = pauseRange; spec.walk = walk; }
-      if (pauseRange) { spec.lateral = true; spec.wallShare = wallShare; }   // every wolf of a running level also covers the walls (enemies.js)
+      if (pauseRange) { spec.lateral = true; spec.wallShare = wallShare; if (wallBand) spec.wallBand = wallBand; }   // every wolf of a running level also covers the walls (enemies.js)
       enemies.push(spec);
       placed++;
     }
@@ -1461,7 +1465,8 @@ function generateCombo(L, seed, v = 3) {
       const x = e.frame.ox + e.frame.ux * (e.a0 + e.a1) / 2, k = Math.max(0, Math.min(1, (rs.x - x) / (rs.x - ROOM)));
       return { ...e, leg: e.leg + nS, speed: e.speed * (COMBO_RUN_SPEED0 + ((v >= RUN_RAMP_FV ? RUN_RAMP_TOP : 1) - COMBO_RUN_SPEED0) * k),
         ...(v >= STRETCH_REST_FV && e.pauseRange ? { pauseRange: restAtLeast(e.pauseRange, runFinaleRestMin(v)) } : {}),   // (version 21+: as Run only's level 9)
-        ...(v >= EVEN_WALKS_FV && e.walk ? { walk: RUN_WALKS_EVEN[RUN_WALKS.length - 1] } : {}) };   // (version 23+: level 8's even walks, as Run only's level 9)
+        ...(v >= EVEN_WALKS_FV && e.walk ? { walk: RUN_WALKS_EVEN[RUN_WALKS.length - 1] } : {}),   // (version 23+: level 8's even walks, as Run only's level 9)
+        ...(v >= WALL_BAND_FV && e.lateral ? { wallBand: RUN_FINALE_BAND } : {}) };   // (version 24+: wall stops up to 0.7 out, as Run only's level 9)
     }),
   ];
   enemies.forEach((e, i) => { e.id = i; e.seed = hashSeed(seed, L, 'wolf', i); });

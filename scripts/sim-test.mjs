@@ -1309,4 +1309,13 @@ for (const [mode, lvl] of [['run', 1], ['ice', 3]]) {
     ok(qt.rows.map((r) => r.name + ':' + r.total).join() === 'Kk:650,Kl:700', 'hell board: every game keeps its total time; the same level and progress, the quicker first');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
+{
+  // finale version 24: the final runs on foot (Run only level 9 / Hell Run, Run + Skate running half) stop their wolves up
+  // to 0.7 from a wall; version 23 and the skate parts keep stopping right against it
+  const band = (ld) => ld.enemies.filter((e) => e.wallBand === 0.7).length;
+  const r23 = generateLevel(9, 77, 'run', 23), r24 = generateLevel(9, 77, 'run', 24);
+  ok(band(r23) === 0 && band(r24) === r24.enemies.filter((e) => e.lateral).length && band(r24) > 0, 'final run on foot: version 24 wolves stop up to 0.7 from a wall, version 23 against it');
+  const c24 = generateLevel(17, 77, 'mixed', 24), s24 = generateLevel(9, 77, 'ice', 24);
+  ok(band(c24) > 0 && band(c24) < c24.enemies.filter((e) => e.lateral).length && band(s24) === 0, 'Run + Skate: only the running half gets the wall strip, the skate run stretch keeps its stops');
+}
 console.log(process.exitCode ? 'FAIL sim-test' : 'PASS sim-test');

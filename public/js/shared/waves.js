@@ -1,4 +1,4 @@
-import { CFG } from './config.js';
+import { CFG, WAVE10_FV } from './config.js';
 import { createRng, hashSeed } from './rng.js';
 
 // Hell's wolf waves (hell level 2 on, in a game with sim.waves: every kitty's game has them, protocol 26). Waves of
@@ -11,8 +11,8 @@ import { createRng, hashSeed } from './rng.js';
 // follows from the game's seed, the hell level and the level's tick count (sim.enemyTicks), so the server and every
 // client agree with nothing sent; the server's sim does the catching (sim.js), clients only draw them (main.js).
 // s between waves reaching the start (the first one: this far into the level): 45 on hell 2, 35 on hell 3, 25 on hell 4,
-// 15 on hell 5, 8 from hell 6
-const waveEvery = (level) => (level >= 6 ? 8 : level === 5 ? 15 : level === 4 ? 25 : level === 3 ? 35 : 45);
+// 15 on hell 5, 8 from hell 6 (Hell Run, finale version 23+: 10 from hell 6; sim: its mode and finales)
+const waveEvery = (level, sim) => (level >= 6 ? (sim && sim.mode === 'run' && (sim.finales | 0) >= WAVE10_FV ? 10 : 8) : level === 5 ? 15 : level === 4 ? 25 : level === 3 ? 35 : 45);
 const WAVE_SINK = 1.5;                      // s to sink into the ground at the start
 const WAVE_CHARGE = 3;                      // s of warning before a wave sets off
 const WAVE_SPEED = CFG.KITTY_SPEED * 0.45;  // units / s
@@ -91,7 +91,7 @@ function hellWaves(sim) {
   if (!R || R.level !== sim.level || R.ld !== ld) { R = { out: [], byK: new Map(), level: sim.level, ld }; reuse.set(sim, R); }
   const out = R.out;
   out.length = 0;
-  const every = waveEvery(sim.level);
+  const every = waveEvery(sim.level, sim);
   const kHi = Math.floor((t + walk + WAVE_CHARGE) / every) - 1;
   for (let k = Math.max(0, Math.floor((t - WAVE_SINK) / every)); k <= kHi; k++) {
     const arrive = every * (k + 1), off = Math.max(WAVE_CHARGE, arrive - walk), rise = off - WAVE_CHARGE;

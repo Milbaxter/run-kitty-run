@@ -1,4 +1,4 @@
-import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, MEDIC_GIFT_FV, QUICK_START_FV, HEART_FV, HALF_HEART_FV, STRETCH_REST_FV, RUN_REST_FV, stageOf } from './config.js';
+import { CFG, levelParams, SKATE_FINAL_LEVEL, FINAL_MODES, SAME_SEASON_FV, RUN_RAMP_FV, ANYONE_MEDIC_FV, MEDIC_GIFT_FV, QUICK_START_FV, HEART_FV, HALF_HEART_FV, STRETCH_REST_FV, RUN_REST_FV, EVEN_WALKS_FV, ITEMS_INSIDE_FV, stageOf } from './config.js';
 import { createRng, hashSeed, ipow, hyp, legPoint } from './rng.js';   // (hyp: Math.hypot the same in every browser)
 import { buildPlan, patternPose, patternSpeed } from './enemies.js';
 
@@ -281,6 +281,11 @@ const STRETCH_REST_MIN = 0.5, runFinaleRestMin = (v) => (v >= RUN_REST_FV ? 0.42
 const restAtLeast = (pr, min = STRETCH_REST_MIN) => [Math.max(min, pr[0]), pr[1], pr[2]];
 const RUN_NEW_EXTRA = 1.5; // Run only: extra tuned wolves = (this - 1) x a level's usual tuned count, levels mirrored (placeEnemies)
 const RUN_WALKS = [[5, 17.5, 1], [4.6, 18.2, 1.35], [4.3, 18.9, 1.7], [3.9, 19.6, 2], [3.6, 20.4, 2.4], [3.2, 21.1, 2.7], [2.9, 21.8, 3.1], [2.5, 22.5, 3.4]];
+// finale version 23+, levels 1-8: the same ranges, each skewed just enough that a walk averages level 1's (11.25: min +
+// (max - min) / (skew + 1)), so the walks don't shrink to short hops; the levels get harder by their rests. Run only's
+// level 9 (hell too) and Run + Skate's running levels and final's running half have them too (level 9s: level 8's); the
+// skate final runs' run stretch keeps RUN_WALKS' level 8.
+const RUN_WALKS_EVEN = [[5, 17.5, 1], [4.6, 18.2, 1.045], [4.3, 18.9, 1.101], [3.9, 19.6, 1.136], [3.6, 20.4, 1.196], [3.2, 21.1, 1.224], [2.9, 21.8, 1.263], [2.5, 22.5, 1.286]];
 
 function placeEnemies(rng, lvl, p) {
   const { legs, seed, level } = lvl;
@@ -291,7 +296,7 @@ function placeEnemies(rng, lvl, p) {
   // Run only: walk length per move [min, max, skew]: d = min + (max - min) * u^skew. Level 1 walks ~2x the old
   // length (evenly spread); higher levels can walk a little further but mostly take short hops (stop and turn more
   // often, so they're harder to predict). Territories grow with the max walk.
-  const walk = runTuned ? RUN_WALKS[Math.min(level, RUN_WALKS.length) - 1] : null;
+  const walk = runTuned ? ((lvl.rules ?? lvl.fv) >= EVEN_WALKS_FV ? RUN_WALKS_EVEN : RUN_WALKS)[Math.min(level, RUN_WALKS.length) - 1] : null;   // (Run only's level 9 / hell: level 8's)
   const moveScale = walk ? walk[1] / 7 : 1;
   // share of a wolf's moves that end against a wall (enemies.js WALL_SHARE): 0.4 on level 1 up to 0.6 on level 8, where
   // the wall and the middle of a lane come out about as dangerous (docs/WOLF_WALL_TUNING.md)
@@ -1305,10 +1310,17 @@ function placePatternEnemies(rng, lvl, p) {
 // Finale version 11+: n items with at most cap.life hearts and cap.shield shields (once both are used up, the rest are
 // boots; boots: false keeps them out, e.g. autumn levels, where every tree already has a pair). Same spots as placeItems.
 const ITEMS_PER_LEVEL = 8, ITEMS_AUTUMN = 4, ITEM_CAP = { life: 2, shield: 3 };
-function placeItemsCapped(rng, lvl, n, cap, boots = true) {
+// inside (finale version 23+): never a spot walled off from its lane (the final runs' wide corridor beside their
+// narrower rooms: nothing to collide with out there, but no way in either), the line from it to the lane's middle clear
+function placeItemsCapped(rng, lvl, n, cap, boots = true, inside = false) {
   const { legs, spawnPoints } = lvl;
   const W = lvl.corridorWidth;
   const items = [], used = { life: 0, shield: 0 };
+  const walledOff = (leg, lat, along) => {
+    const steps = Math.ceil(Math.abs(lat) / 0.25);
+    for (let k = 1; k < steps; k++) { const p = legPoint(leg, lat * (1 - k / steps), along); if (collideCircle(lvl, p.x, p.z, 0.15).hit) return true; }
+    return false;
+  };
   const okSpot = (x, z) => {
     for (const s of spawnPoints) if (hyp(s.x - x, s.z - z) < 4) return false;
     for (const t of items) if (hyp(t.x - x, t.z - z) < 6) return false;
@@ -1323,7 +1335,7 @@ function placeItemsCapped(rng, lvl, n, cap, boots = true) {
       const leg = pickWeighted(rng, legs, (l) => l.len);
       const along = rng.range(0, leg.len), lat = rng.range(-W / 2 + 1.2, W / 2 - 1.2);
       const { x, z } = legPoint(leg, lat, along);
-      if (!okSpot(x, z)) continue;
+      if (!okSpot(x, z) || (inside && walledOff(leg, lat, along))) continue;
       items.push({ type, x, z });
       if (type in used) used[type]++;
       break;
@@ -1448,7 +1460,8 @@ function generateCombo(L, seed, v = 3) {
     ...rn.enemies.map((e) => {
       const x = e.frame.ox + e.frame.ux * (e.a0 + e.a1) / 2, k = Math.max(0, Math.min(1, (rs.x - x) / (rs.x - ROOM)));
       return { ...e, leg: e.leg + nS, speed: e.speed * (COMBO_RUN_SPEED0 + ((v >= RUN_RAMP_FV ? RUN_RAMP_TOP : 1) - COMBO_RUN_SPEED0) * k),
-        ...(v >= STRETCH_REST_FV && e.pauseRange ? { pauseRange: restAtLeast(e.pauseRange, runFinaleRestMin(v)) } : {}) };   // (version 21+: as Run only's level 9)
+        ...(v >= STRETCH_REST_FV && e.pauseRange ? { pauseRange: restAtLeast(e.pauseRange, runFinaleRestMin(v)) } : {}),   // (version 21+: as Run only's level 9)
+        ...(v >= EVEN_WALKS_FV && e.walk ? { walk: RUN_WALKS_EVEN[RUN_WALKS.length - 1] } : {}) };   // (version 23+: level 8's even walks, as Run only's level 9)
     }),
   ];
   enemies.forEach((e, i) => { e.id = i; e.seed = hashSeed(seed, L, 'wolf', i); });
@@ -1456,9 +1469,9 @@ function generateCombo(L, seed, v = 3) {
   // the trees' big boots)
   let items = [...sk.items.map(mv), ...rn.items];
   if (v >= 11) {
-    const a = placeItemsCapped(createRng(hashSeed(seed, L, 'items-skate')), sk, ITEMS_PER_LEVEL, ITEM_CAP);
+    const a = placeItemsCapped(createRng(hashSeed(seed, L, 'items-skate')), sk, ITEMS_PER_LEVEL, ITEM_CAP, true, v >= ITEMS_INSIDE_FV);
     const left = ITEM_CAP.shield - a.filter((it) => it.type === 'shield').length;
-    const b = placeItemsCapped(createRng(hashSeed(seed, L, 'items-run')), rn, ITEMS_PER_LEVEL, { life: ITEM_CAP.life, shield: left });
+    const b = placeItemsCapped(createRng(hashSeed(seed, L, 'items-run')), rn, ITEMS_PER_LEVEL, { life: ITEM_CAP.life, shield: left }, true, v >= ITEMS_INSIDE_FV);
     // finale version 21+: a heart in each half (one of its pickups when it rolled none; at most ITEM_CAP.life each still)
     if (v >= HALF_HEART_FV) { guaranteeHeart({ items: a, level: L }, hashSeed(seed, 'skate-half')); guaranteeHeart({ items: b, level: L }, hashSeed(seed, 'run-half')); }
     items = [...a.map(mv), ...treeBoots(sk.trees, true).map(mv), ...b, ...treeBoots(rn.trees, true)];
@@ -1503,7 +1516,7 @@ function generateLevel(level, seed, mode = 'mixed', fv = 0) {
 }
 function generateLevelStage(level, seed, mode, fv) {
   const st = stageOf(mode, fv, level);
-  if (st.day) return generateLevelCore(st.level, seed, 'run', Math.min(fv, 11));
+  if (st.day) return generateLevelCore(st.level, seed, 'run', Math.min(fv, 11), null, fv);   // (fv: the game's own, for the walks)
   // (fv 14+: the night rink in the day half's season, Run only's order; otherwise the level is Skate only's exactly)
   if (st.night) return generateLevelCore(st.level, seed, 'ice', Math.min(fv, 12), (fv | 0) >= SAME_SEASON_FV ? THEME_ORDER[(st.level - 1) % 4] : null);
   return generateLevelCore(st.level, seed, mode, fv);
@@ -1518,7 +1531,9 @@ function guaranteeHeart(ld, seed) {
 }
 
 // season: a theme to give an ice level in place of Skate only's own (Run + Skate's night halves; looks only)
-function generateLevelCore(level, seed, mode = 'mixed', fv = 0, season = null) {
+// rules: the game's own finale version where fv is held lower to keep a level as it was (Run + Skate's day halves): what
+// came after that doesn't change the layout (the running wolves' walks, EVEN_WALKS_FV)
+function generateLevelCore(level, seed, mode = 'mixed', fv = 0, season = null, rules = fv) {
   const v = fv === true ? 1 : +fv || 0;
   if (v >= 3 && mode === 'mixed' && (Math.max(1, level | 0)) === SKATE_FINAL_LEVEL) return generateCombo(SKATE_FINAL_LEVEL, seed, v);
   const L = Math.max(1, level | 0);
@@ -1586,6 +1601,7 @@ function generateLevelCore(level, seed, mode = 'mixed', fv = 0, season = null) {
   // ice with the wandering wolves of the running levels (placeEnemies). Git tag: classic-run-skate-ice.
   const pattern = (finale && lvl.ice) || (lvl.ice && !(CLASSIC_RUN_SKATE_ICE && mode === 'mixed'));   // Run only's level 9: wandering wolves
   lvl.fv = v;   // the finale version (see above), for the wolf placement
+  lvl.rules = +rules || 0;
   lvl.enemies = pattern ? placePatternEnemies(rng, lvl, p) : placeEnemies(rng, lvl, p);
   // finale version 15+: Run only's level 9 wolves at COMBO_RUN_SPEED0 of their speed after the start room, evenly faster
   // up to RUN_RAMP_TOP at the goal room, as in Run + Skate's running half (generateCombo)
@@ -1603,7 +1619,7 @@ function generateLevelCore(level, seed, mode = 'mixed', fv = 0, season = null) {
   if (v >= 11) {
     // version 11+: ITEMS_PER_LEVEL items (autumn: ITEMS_AUTUMN, hearts and shields only: every tree has boots), capped
     const autumn = lvl.trees.length > 0 && !finale;
-    lvl.items = [...placeItemsCapped(createRng(hashSeed(seed, L, 'items')), lvl, autumn ? ITEMS_AUTUMN : ITEMS_PER_LEVEL, ITEM_CAP, !autumn), ...treeBoots(lvl.trees, finale)]
+    lvl.items = [...placeItemsCapped(createRng(hashSeed(seed, L, 'items')), lvl, autumn ? ITEMS_AUTUMN : ITEMS_PER_LEVEL, ITEM_CAP, !autumn, lvl.rules >= ITEMS_INSIDE_FV), ...treeBoots(lvl.trees, finale)]
       .map((it, i) => ({ id: i, ...it }));
   } else {
     lvl.items = placeItems(rng, lvl, p);

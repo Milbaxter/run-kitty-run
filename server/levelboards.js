@@ -202,6 +202,7 @@ function createLevelBoards(file) {
       if (hellBetter(entry, gb[key])) gb[key] = entry;
     }
     if (!hellBetter(entry, had)) return false;
+    keepOldRun(bk, key, had);
     p.b[bk] = entry;
     tops.delete(bk);
     return true;
@@ -211,13 +212,26 @@ function createLevelBoards(file) {
   const entryOf = (v, ev, total) => { const run = ev.team > 1 ? runOf(ev) : ''; return [v, Date.now(), Math.max(1, Math.min(99, ev.team | 0 || 1)), ...(total || run ? [total || 0] : []), ...(run ? [run] : [])]; };
   // a team's run: this player was in it (whether or not it's their best)
   const joinRun = (ev, key) => { const run = ev.team > 1 ? runOf(ev) : ''; if (!run || !key) return; const r = runs[run] ||= { k: [] }; if (!r.k.includes(key) && r.k.length < 99) r.k.push(key); };
-  // Once (meta.oldRuns): the team times from before runs kept their players. A team whose slot is missing players (they
+  // An old team time (from before runs kept their players) that this player is leaving for a faster one: its slot gets a
+  // run with everyone still in it and this player, so they stay in it (greyed) instead of turning into a count (+1)
+  function keepOldRun(bk, key, had) {
+    if (!Array.isArray(had) || had[4] || !(had[2] > 1)) return;
+    const mates = Object.entries(players).filter(([k, p]) => {
+      const v = k !== key && p.b && p.b[bk];
+      return Array.isArray(v) && !v[4] && v[2] === had[2] && v[0] === had[0] && (v[3] || 0) === (had[3] || 0) && Math.abs(v[1] - had[1]) <= RUN_NEAR_MS;
+    });
+    if (!mates.length) return;
+    const id = 'old' + hash(bk + ':' + key + ':' + had[1]).slice(0, 12);
+    for (const [, p] of mates) { const v = p.b[bk]; v[3] = v[3] || 0; v[4] = id; }
+    runs[id] = { k: [...mates.map(([k]) => k), key] };
+  }
+  // Once (meta.oldRuns, again as 2 for those who left a slot since): the team times from before runs kept their players. A team whose slot is missing players (they
   // have a faster time since, so their entry here moved) gets them back where another level board of the same kind
   // (online / local, normal / easy, mode, team) shows them in one team with everyone still in this slot: those join the
   // slot's run (greyed, they have better times); anyone it can't be sure of stays a count (+N). Not hell (one board).
   function linkOldRuns() {
-    if (meta.oldRuns) return;
-    meta.oldRuns = 1;
+    if (meta.oldRuns >= 2) return;
+    meta.oldRuns = 2;
     const teams = new Map();   // board key -> [{ keys, rows: [[key, entry]], v, at, team, total }] (old team times, one per clear)
     const near = (a, b) => a.team === b[2] && a.v === b[0] && (a.total || 0) === (b[3] || 0) && Math.abs(a.at - b[1]) <= RUN_NEAR_MS;
     for (const [k, p] of Object.entries(players)) for (const [bk, v] of Object.entries(p.b || {})) {
@@ -273,6 +287,7 @@ function createLevelBoards(file) {
       if (!mine || round1(time) < mine[0]) gb[key] = entryOf(round1(time), ev, 0);
     }
     if (had && had[0] <= round1(time)) return false;
+    keepOldRun(bk, key, had);
     p.b[bk] = entryOf(round1(time), ev, 0);
     tops.delete(bk);
     return !!key;

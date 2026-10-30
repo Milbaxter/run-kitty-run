@@ -910,6 +910,13 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
       lc.record({ acct: 'ch-2', name: 'C2', color: 2 }, { local: false, easy: false, mode: 'run', level: 2, time: 70, team: 2, run: 'tm2222' });
       const qb = (chain) => lc.query({ acct: 'ch-1' }, { board: { local: false, easy: false, mode: 'run', level: 2, team: true, chain }, scope: 'all' }).rows.map((r) => r.name).join();
       ok(qb(true) === 'C1' && qb(false) === 'C2', 'level boards: chained times on their own board, not with the other team times');
+      // an old team time (no run: from before runs kept their players) keeps a player who gets a faster time since, greyed
+      const ev3 = { local: false, easy: false, mode: 'run', level: 3, team: 2 };
+      lc.record({ acct: 'old-1', name: 'O1', color: 1 }, { ...ev3, time: 80 });
+      lc.record({ acct: 'old-2', name: 'O2', color: 2 }, { ...ev3, time: 80 });
+      lc.record({ acct: 'old-2', name: 'O2', color: 2 }, { ...ev3, time: 50, run: 'new333' });
+      const r3 = lc.query({ acct: 'old-1' }, { board: { ...ev3, level: 3, team: true }, scope: 'all' }).rows.find((r) => r.time === 80);
+      ok(r3 && !r3.more && r3.members.map((m) => m.name + (m.gone ? '-' : '')).join() === 'O1,O2-', 'level boards: an old team time keeps a player with a faster time since, greyed (not +1)');
       lc.flush();
     }
     // chained games: a kitty joining a chain of three takes its last kitty (two pairs), right beside it; everyone on one
@@ -944,6 +951,20 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
       const stillHeld = !!sd.anchors[2];
       const q9 = addPlayer(sd, { id: 9, name: 'new', color: 0 }); chainJoin(sd, q9);
       ok(stillHeld && JSON.stringify(sd.chains) === '[[1,9]]' && !sd.anchors[2] && q9.x === ax && q9.z === az, 'chained: one left alone stays held; a newcomer takes the place that was left, where it was');
+      // boots shared on a chain (not with another chain); one caught costs the chain half its pairs (rounded up); back up
+      // (revived), it has the chain's again
+      const sb = createSim({ seed: 3, players: K(4), mode: 'run', chain: true }), [b1, b2, b3] = sb.players;
+      for (const q of sb.players) q.invuln = 99;
+      const boot = (q) => { sb.items.push({ id: 900 + sb.items.length, type: 'boots', x: q.x, z: q.z, taken: false }); stepSim(sb, {}, 1 / 60); };
+      boot(b1); boot(b2); boot(b1);
+      const shared = Math.round((b2.speedMult - 1) * 100) === 15 && b3.speedMult === 1;
+      b1.invuln = 0; b1.shield = 0; b1.lives = 0;
+      const w = sb.enemies[0];
+      for (let t = 0; t < 30 && b1.alive; t++) { b1.x = b2.x = w.x; b1.z = b2.z = w.z; stepSim(sb, {}, 1 / 60); }   // (out of the safe start)
+      const half = !b1.alive && Math.round((b2.speedMult - 1) * 100) === 5;
+      b2.x = sb.circles.find((c) => c.playerId === 1).x; b2.z = sb.circles.find((c) => c.playerId === 1).z;
+      for (let t = 0; t < 30 && !b1.alive; t++) stepSim(sb, {}, 1 / 60);
+      ok(shared && half && b1.alive && Math.round((b1.speedMult - 1) * 100) === 5, 'chained: boots shared on a chain (not another), one caught costs half (3 pairs: 1 left), revived it gets the chain boots');
     }
     // level boards: a team's time once, with everyone in it (one run); another team with the same time stays its own slot
     {

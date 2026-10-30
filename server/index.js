@@ -58,7 +58,7 @@ const HELL_WAVES_PROTOCOL = 26;
 const hellOk = (client, room) => !room.hell || (client.v >= HELL_PROTOCOL && !(room.sim && room.sim.waves && client.v < HELL_WAVES_PROTOCOL));   // (easy hell: easyOk)
 // chained games (shared/sim.js chainPull: players 1+2, 3+4 on a chain): older clients don't know the chain and would
 // see kitties pulled about; they can't join one
-const CHAIN_PROTOCOL = 33;
+const CHAIN_PROTOCOL = 34;   // (33: the first, shorter chain)
 const chainOk = (client, room) => !room.chain || client.v >= CHAIN_PROTOCOL;
 // a game played on chains (its own level boards and fastest lists): a chained room with a pair in it
 const chainedGame = (room) => !!(room.chain && room.sim && room.sim.chain && room.sim.players.length > 1);

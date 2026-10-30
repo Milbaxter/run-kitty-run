@@ -40,7 +40,7 @@ const MAX_SUBSTEPS = 64;
 // lets it go and the chain joins up between the kitties still there) - but only while two of its kitties are still in the
 // game: one left on its own stays held (no running about alone and having friends join later) until the next kitty to
 // join takes the place that was left, right there (chainJoin). Other newcomers join at the end.
-const CHAIN_SOFT = 2.8, CHAIN_LEN = 4.2, CHAIN_DRAG = 0.3, CHAIN_REEL = 1.5;
+const CHAIN_SOFT = 4.9, CHAIN_LEN = 7.35, CHAIN_DRAG = 0.3, CHAIN_REEL = 1.5;
 const CHAIN_TOUCH = CFG.REVIVE_RADIUS + CFG.KITTY_RADIUS;   // (an anchor's spot: touched like a revive circle)
 // a skater being towed (not steering itself) builds up speed at this share of the ice's usual rate
 const CHAIN_TOW_ACCEL = 0.35;
@@ -77,11 +77,6 @@ function chainMomentum(sim, p, nx, nz, pulling, tow) {
   const v = p.vx * nx + p.vz * nz;
   if (v < tow) { p.vx += nx * (tow - v); p.vz += nz * (tow - v); }
 }
-// Who drags whom along a link: each side of it (everyone on the chain that side) pulls with the sum of its kitties' speed
-// away from the other side (in kitty speeds; one running the other way counts against it). The stronger side drags the
-// other at CHAIN_DRAG of its speed per kitty's worth of pull more than the other side's own pull away (one kitty dragging
-// one standing: 30%, two 60%, from four: full speed; two against one running the other way: 30%, one against one: a
-// stand-off).
 // only: just that kitty moves (a client predicting its own kitty: the others are the server's)
 // First the stretch (each link by how hard its two kitties pull apart), then, a few times over, any link left past
 // CHAIN_LEN back to it: on a long chain each link sorting itself out pulls its neighbours' links out again, and without
@@ -100,21 +95,11 @@ function chainPull(sim, dt, only = null) {
     chainRelease(sim, +id);
   }
   const links = chainLinks(sim).filter(([a, b]) => (a.alive || b.alive) && (!only || a === only || b === only));
-  const sidePull = (side, nx, nz) => side.reduce((s, p) => s + (p.alive ? (p.vx * nx + p.vz * nz) / CFG.KITTY_SPEED : 0), 0);
   const may = (p) => p.alive && (!only || p === only);
-  // a's share of the way back (a downed kitty, an anchor: none): the side pulling less is dragged (see above)
-  const shareOf = (a, b, ux, uz, aSide, bSide) => {
+  // a's share of the way back (a downed kitty, an anchor: none), from how hard each of the two pulls away along u
+  const shareOf = (a, b, ux, uz) => {
     const pa = Math.max(0, -(a.vx * ux + a.vz * uz)), pb = Math.max(0, b.vx * ux + b.vz * uz);
-    if (!a.alive) return [0, pa, pb];
-    if (!b.alive) return [1, pa, pb];
-    const fa = sidePull(aSide, -ux, -uz), fb = sidePull(bSide, ux, uz);
-    if (Math.abs(fa - fb) < 1e-3) return [0.5, pa, pb];
-    // the speed the link moves on at, toward the stronger side (v), and the weaker end's share of the way back that gives
-    // it: the stronger end (pulling away at vw) held back by the rest, the weaker one (at vl the other way) dragged
-    const drag = Math.min(1, Math.max(0, CHAIN_DRAG * (Math.max(fa, fb) - Math.max(0, Math.min(fa, fb)))));
-    const vw = fb > fa ? pb : pa, vl = fb > fa ? pa : pb, v = drag * vw;
-    const weak = vw + vl > 1e-6 ? Math.min(1, (v + vl) / (vw + vl)) : drag;
-    return [fb > fa ? weak : 1 - weak, pa, pb];
+    return [!a.alive ? 0 : !b.alive ? 1 : pa + pb > 1e-6 ? (CHAIN_DRAG * pb + (1 - CHAIN_DRAG) * pa) / (pa + pb) : 0.5, pa, pb];
   };
   // move a and b ex closer (a's share wa); one of them against a wall: the other takes what it couldn't
   const pull = (a, b, ux, uz, d, ex, wa) => {
@@ -127,10 +112,10 @@ function chainPull(sim, dt, only = null) {
       moveBy(sim, p, ex2 * k, ez2 * k);
     }
   };
-  for (const [a, b, aSide, bSide] of links) {
+  for (const [a, b] of links) {
     const dx = b.x - a.x, dz = b.z - a.z, d = Math.sqrt(dx * dx + dz * dz);
     if (!(d > CHAIN_SOFT)) continue;
-    const ux = dx / d, uz = dz / d, [wa, pa, pb] = shareOf(a, b, ux, uz, aSide, bSide);
+    const ux = dx / d, uz = dz / d, [wa, pa, pb] = shareOf(a, b, ux, uz);
     // stretching: undo that share of this tick's drifting apart (so the chain gets tighter and tighter but never jerks
     // to a stop)
     const ex = Math.min(Math.min(1, (d - CHAIN_SOFT) / (CHAIN_LEN - CHAIN_SOFT)) * (pa + pb) * dt, d - CHAIN_SOFT);
@@ -143,13 +128,13 @@ function chainPull(sim, dt, only = null) {
   }
   for (let pass = 0; pass < CHAIN_PASSES; pass++) {
     let moved = false;
-    for (const [a, b, aSide, bSide] of links) {
+    for (const [a, b] of links) {
       const dx = b.x - a.x, dz = b.z - a.z, d = Math.sqrt(dx * dx + dz * dz), over = d - CHAIN_LEN;
       if (!(over > 1e-4)) continue;
       const ex = over <= CHAIN_SNAP ? over : pass === 0 ? Math.min(over, CHAIN_REEL * CFG.KITTY_SPEED * dt) : 0;
       if (!(ex > 0)) continue;
       const ux = dx / d, uz = dz / d;
-      pull(a, b, ux, uz, d, ex, shareOf(a, b, ux, uz, aSide, bSide)[0]);
+      pull(a, b, ux, uz, d, ex, shareOf(a, b, ux, uz)[0]);
       moved = true;
     }
     if (!moved) break;
@@ -159,7 +144,10 @@ function chainPull(sim, dt, only = null) {
 // one chain (all) at its end; else a kitty on its own, else the last of a chain of three (two pairs then), else onto a
 // pair (three), else on its own until the next one comes
 function chainJoin(sim, p) {
-  if (!sim.chain || sim.chains.some((g) => g.includes(p.id))) return;
+  if (!sim.chain) return;
+  // back with its old id (left from the menu, same connection) and still on its chain: its place, where its anchor is
+  if (sim.anchors[p.id] && chainRejoin(sim, p.id, p)) { sim.chainRev = (sim.chainRev | 0) + 1; return; }
+  if (sim.chains.some((g) => g.includes(p.id))) return;
   const here = (id) => !!findPlayer(sim, id);
   // a kitty held on its own by an anchor: the newcomer takes the place that was left, where it was
   const stuck = sim.chains.find((g) => g.some((id) => sim.anchors[id]) && g.filter((id) => here(id) && id !== p.id).length === 1);
@@ -190,12 +178,25 @@ function chainJoin(sim, p) {
     p.x = c.x; p.z = c.z; p.vx = 0; p.vz = 0;
   }
 }
-// someone who left is back (as a new player id): it takes its old place on its chain, where its anchor was
+// Chained kitties share their boots, each chain its own: boots one of them picks up speed up all of them; one caught
+// costs the chain half its pairs (rounded up: one pair, all of it); one back up (revived, a new level) has the chain's
+const chainMates = (sim, p) => {
+  const g = sim.chain && sim.chains && sim.chains.find((c) => c.includes(p.id));
+  return g ? g.map((id) => id !== p.id && findPlayer(sim, id)).filter(Boolean) : [];
+};
+function chainBootsShare(sim, p) { for (const q of chainMates(sim, p)) if (q.alive) q.speedMult = p.speedMult; }
+function chainBootsLost(sim, p) {
+  const n = Math.round((p.speedMult - 1) / CFG.SPEED_BOOST), keep = 1 + Math.floor(n / 2) * CFG.SPEED_BOOST;
+  for (const q of chainMates(sim, p)) if (q.alive) q.speedMult = Math.min(q.speedMult, keep);
+}
+function chainBootsBack(sim, p) { for (const q of chainMates(sim, p)) if (q.alive && q.speedMult > p.speedMult) p.speedMult = q.speedMult; }
+// someone who left is back (a new player id, or its old one: left from the menu, same connection): it takes its old
+// place on its chain, where its anchor was
 function chainRejoin(sim, oldId, p) {
   if (!sim.chain || !sim.chains) return false;
-  if (!sim.chains.some((c) => c.includes(oldId))) return false;
-  sim.chains = sim.chains.map((c) => c.filter((id) => id !== p.id)).filter((c) => c.length);   // (addPlayer put it on its own)
   const g = sim.chains.find((c) => c.includes(oldId));
+  if (!g) return false;
+  sim.chains = sim.chains.map((c) => (c === g ? c : c.filter((id) => id !== p.id))).filter((c) => c.length);
   g[g.indexOf(oldId)] = p.id;
   const an = sim.anchors[oldId];
   if (an) { p.x = an.x; p.z = an.z; delete sim.anchors[oldId]; }
@@ -290,6 +291,7 @@ function placeAtSpawn(sim, p, index) {
   p.vz = 0;
   p.moving = false;
   p.alive = true;
+  chainBootsBack(sim, p);
   p.invuln = CFG.SPAWN_INVULN;
   p.shield = 0;
   p.inCenter = false;
@@ -608,11 +610,12 @@ function stepSim(sim, inputs, dt) {
       if (it.type === 'boots') {
         if (p.speedMult >= CFG.SPEED_MULT_MAX) take = false; // already boosted: leave them for a friend
         else p.speedMult = it.mega ? CFG.SPEED_MULT_MAX : Math.min(CFG.SPEED_MULT_MAX, p.speedMult + CFG.SPEED_BOOST);   // (a big pair: full speed at once)
+        if (take) chainBootsShare(sim, p);
       } else if (it.type === 'life') {
         if (p.lives >= CFG.MAX_EXTRA_LIVES) take = false;   // (already has one: left for a friend, even on HEART_BOOT_LEVEL)
         else {
           p.lives = Math.min(CFG.MAX_EXTRA_LIVES, p.lives + 1);
-          if ((sim.levelData.level || sim.level) === CFG.HEART_BOOT_LEVEL) p.speedMult = Math.min(CFG.SPEED_MULT_MAX, p.speedMult + CFG.SPEED_BOOST);   // a pair of boots too
+          if ((sim.levelData.level || sim.level) === CFG.HEART_BOOT_LEVEL) { p.speedMult = Math.min(CFG.SPEED_MULT_MAX, p.speedMult + CFG.SPEED_BOOST); chainBootsShare(sim, p); }   // a pair of boots too
         }
       } else if (it.type === 'shield') {
         p.shield = CFG.SHIELD_TIME;
@@ -672,6 +675,7 @@ function stepSim(sim, inputs, dt) {
       }
       if (!rescuer) continue;
       dead.alive = true;
+      chainBootsBack(sim, dead);
       dead.x = circ.x;
       dead.z = circ.z;
       dead.vx = 0;
@@ -708,7 +712,7 @@ function stepSim(sim, inputs, dt) {
       // the broken (medic) checkpoint: a kitty still alive that is already past it (in the run half, beyond the square in
       // the run direction) stays where it is; only the downed and those behind (skate half, hallway, the square) gather
       if (cp.medic && p.alive && (ld.iceZMax == null || p.z > ld.iceZMax) && ((p.x - cp.x) * Math.cos(cp.heading) + (p.z - cp.z) * Math.sin(cp.heading)) > h) continue;
-      if (!p.alive) { p.alive = true; p.shield = 0; revived.push(p.id); }
+      if (!p.alive) { p.alive = true; p.shield = 0; chainBootsBack(sim, p); revived.push(p.id); }
       moved.push(p.id);
       // a grid filling the square from the middle out (room for 36)
       let sp = squareSlot(cp.x, cp.z, cp.heading, slot);
@@ -835,6 +839,7 @@ function stepSim(sim, inputs, dt) {
         p.shield = 0;
         p.invuln = 0;
         p.deaths++;
+        chainBootsLost(sim, p);   // (chained: the chain loses half)
         p.speedMult = 1; // speed boots are lost when caught
         sim.stats.deaths++;
         sim.circles.push({ playerId: p.id, x: p.x, z: p.z, t: 0 });

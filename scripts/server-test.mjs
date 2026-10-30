@@ -99,6 +99,11 @@ async function victory() {
     d2.send({ t: 'join', code, name: 'D' }); await sleep(300);
     const back = d2.last.start && d2.last.start.cn;
     ok(back && JSON.stringify(back.c[1]) === JSON.stringify([id(b), d2.last.room.you]) && !Object.keys(back.a).length && b.last.chains.c.length === 2, 'chained game: D back in time takes its place on its chain');
+    // left from the menu (same connection, same id) and back: the game starts for it, back on its chain
+    const bId = id(b);
+    b.send({ t: 'leave' }); await sleep(200); delete b.last.start;
+    b.send({ t: 'join', code, name: 'B' }); await sleep(300);
+    ok(b.last.start && JSON.stringify(b.last.start.cn.c[1]) === JSON.stringify([bId, d2.last.room.you]) && !Object.keys(b.last.start.cn.a).length, 'chained game: one leaving from the menu and back gets the game, on its chain');
     for (const x of [a, b, c, d2, old]) x.ws.close();
     await sleep(3500);   // (the connection rate limit: these six back, CONN_RATE 2/s)
   }

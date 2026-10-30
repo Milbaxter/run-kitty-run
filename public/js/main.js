@@ -2020,7 +2020,7 @@ function syncVisuals(dt, alpha) {
 // chained kitties: CHAIN_LINKS oval links from one kitty's collar to the other's, each kitty's half in its own colour
 // with a silver link in the middle. Slack, the chain hangs in an arc as long as the chain (CHAIN_SOFT) and lies on the
 // ground where the arc would go below it; stretching, the dip fades out smoothly until it runs straight at full stretch.
-const CHAIN_LINKS = 19, CHAIN_Y = 0.42, CHAIN_COLLAR = 0.28;
+const CHAIN_LINKS = 33, CHAIN_Y = 0.42, CHAIN_COLLAR = 0.28;
 const chainGeo = new THREE.TorusGeometry(0.075, 0.024, 8, 16).scale(1.55, 1, 1).rotateY(-Math.PI / 2);   // long along z (lookAt)
 const chainSilver = new THREE.MeshStandardMaterial({ color: 0xd8dde3, metalness: 0.9, roughness: 0.25 });
 const chainGroups = [];

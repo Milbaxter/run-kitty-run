@@ -14,8 +14,8 @@ const MODES = [
   { id: 'ice', label: 'Skate only', tip: 'Skate only (no run): get through 8 levels of the labyrinth.' },
 ];
 const modeLabel = (id, easy, hell, chain) => (MODES.find((m) => m.id === id) || MODES[0]).label + (hell ? (easy ? ' (hell, easy)' : ' (hell)') : easy ? ' (easy)' : '') + (chain === 'all' ? ' ⛓ everyone chained' : chain ? ' ⛓ chained' : '');
-const CHAIN_ALL_TIP = ' Everyone chained: the whole team on one chain, each kitty to the next; in a lobby, click a kitty to have them next to you. Chained games have their own level times.';
-const CHAIN_TIP = ' Chained: kitties are chained up in twos (one chain of three when there are an odd number); in a lobby, click a kitty to pick your partner. Chained games have their own level times.';
+const CHAIN_ALL_TIP = ' Everyone chained: the whole team on one chain, each kitty to the next; in a lobby, click a kitty to have them next to you. The chain shares its boots. Chained games have their own level times.';
+const CHAIN_TIP = ' Chained: kitties are chained up in twos (one chain of three when there are an odd number); in a lobby, click a kitty to pick your partner. A chain shares its boots. Chained games have their own level times.';
 const EASY_TIP = 'Easy: when everyone is down, the level starts over instead of the game being over. Easy games have their own rewards.';
 const HELL_TIP = 'Hell: get through 6 levels of hell.';
 const HELL_EASY_TIP = 'Hell (easy): get through 6 levels of hell; when everyone is down, the level starts over.';

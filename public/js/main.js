@@ -2354,6 +2354,7 @@ const online = {
   voted: new Set(),   // the kitties standing still we voted to kill (until they move)
   again: false,   // the host's RESTART GAME on the game-over card: start a new game as soon as the room is back in the lobby
   wolfTicks: new Int32Array(WOLF_HIST).fill(-1), wolfPos: null, resyncAt: 0, wolfChase: false,
+  marginFrom: 0,   // the first server tick whose input margin is about inputs sent since our clock last jumped
 };
 
 function leaveOnline() {
@@ -2607,6 +2608,7 @@ net.on('items', (m) => {
   if (view) rebuildItemViews();
 });
 
+const MARGIN_SETTLE = 90;   // ticks after our clock jumps before the server's input margin is about the new inputs again
 function leadTicks() { return Math.ceil(net.rtt / 2 / (CFG.TICK * 1000)) + NET.INPUT_LEAD; }
 
 function beginOnlineGame(m) {
@@ -2648,6 +2650,7 @@ function beginOnlineGame(m) {
   online.rate = 1;
   online.levelStartTick = m.tick - m.lt;
   online.tick = m.tick + leadTicks();
+  online.marginFrom = online.tick + MARGIN_SETTLE;
   online.wolfTicks.fill(-1);
   online.wolfPos = new Float32Array(WOLF_HIST * sim.enemies.length * 2);
   if (m.wolves) { applyEnemyState(sim.enemies, m.wolves); sim.enemyTicks = m.lt; }
@@ -2813,6 +2816,7 @@ function applySnapshot(m) {
   // Keep our clock ~INPUT_LEAD ticks ahead of when the server needs our input.
   if (online.tick < m.k || online.tick - m.k > 120) {
     online.tick = m.k + leadTicks();
+    online.marginFrom = online.tick + MARGIN_SETTLE;   // (the margins until then are about inputs from before: see below)
   }
 
   // Level change (the server already moved on): mirror it. An easy game's level starting over (rt moved): the same
@@ -2865,10 +2869,16 @@ function applySnapshot(m) {
       online.errX = oldX - p.x;
       online.errZ = oldZ - p.z;
       if (fresh || !wasAlive || Math.hypot(online.errX, online.errZ) > 4) online.errX = online.errZ = 0;
-      // margin = how many ticks early our inputs arrive; steer toward NET.INPUT_LEAD
-      const err = margin - NET.INPUT_LEAD;
-      online.rate = 1 - Math.max(-0.08, Math.min(0.08, err * 0.01));
-      if (Math.abs(err) > 30) online.tick += -Math.round(err);
+      // margin = how many ticks early our inputs arrive; steer toward NET.INPUT_LEAD. Not right after our clock jumped
+      // (a stall caught up, a big correction): the server's margin is an average over our inputs (server/index.js, 0.1 a
+      // time), still mostly about the ones from before the jump for a second or so (MARGIN_SETTLE); correcting for them
+      // again overshot - then the next margins pulled the clock back as far, and the wolves, synced in between, stood
+      // still until it caught up (Hell Skate's big level loading at its start)
+      if (m.k >= (online.marginFrom || 0)) {
+        const err = margin - NET.INPUT_LEAD;
+        online.rate = 1 - Math.max(-0.08, Math.min(0.08, err * 0.01));
+        if (Math.abs(err) > 30) { online.tick += -Math.round(err); online.marginFrom = online.tick + MARGIN_SETTLE; }
+      }
     } else {
       online.remote.set(id, { x, z, vx, vz, k: m.k });
       if (fresh || !wasAlive) { p.x = x; p.z = z; }

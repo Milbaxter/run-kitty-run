@@ -27,10 +27,10 @@ function send(ev, data) {
 let run = null;
 const analytics = {
   visit() { send('visit'); },
-  runStart(kind, mode, hell = false) {
+  runStart(kind, mode, hell = false, chain = false) {
     if (run) analytics.runEnd();
     run = { t0: performance.now() };
-    send('run_start', { kind, mode, ...(hell ? { hell: true } : {}) });
+    send('run_start', { kind, mode, ...(hell ? { hell: true } : {}), ...(chain ? { chain: true } : {}) });
   },
   level(level) { if (run) send('level', { level }); },
   levelMismatch(mode, level, ver, what) { send('level_mismatch', { mode, level, ver, what }); },   // what: 'items' | 'wolves' | 'items+wolves'
@@ -59,6 +59,8 @@ const CSS = `
 .rks-bars{display:flex;flex-direction:column;gap:6px;width:100%;}
 .rks-h.rks-hellh{color:#ff8a5c;}
 .rks-hellbars .rks-fill{background:linear-gradient(90deg,#ff5c3a,#ffb08f) !important;}
+.rks-h.rks-chainh{color:#c9b6ff;}
+.rks-chainbars .rks-fill{background:linear-gradient(90deg,#9b7dff,#d6c8ff) !important;}
 .rks-bar{display:grid;grid-template-columns:190px 1fr 92px;gap:10px;align-items:center;font-weight:800;font-size:14px;text-align:left;}
 .rks-track{height:16px;border-radius:8px;background:rgba(255,255,255,.08);overflow:hidden;}
 .rks-fill{height:100%;border-radius:8px;background:linear-gradient(90deg,#ffcf5a,#ff9ec4);}
@@ -187,7 +189,7 @@ function openStatsPage(root) {
     const hm = d.hell ? hellModes() : [];
     const hellRows = [['run', 'Hell Run'], ['ice', 'Hell Skate']].filter(([m]) => hm.includes(m));
     const totalRuns = played.reduce((a, [, v]) => a + (v || 0), 0) || 1;
-    const topRuns = Math.max(1, ...played.map(([, v]) => v || 0), ...hellRows.map(([m]) => d.hell.games[m] || 0));
+    const topRuns = Math.max(1, ...played.map(([, v]) => v || 0), ...hellRows.map(([m]) => d.hell.games[m] || 0), (d.chain && d.chain.games) || 0);
     const bars = el('div', 'rks-bars');
     for (const [name, v] of played) {
       const row = el('div', 'rks-bar');
@@ -215,11 +217,25 @@ function openStatsPage(root) {
       }
       hellPart.push(el('div', 'rks-h rks-hellh', 'Hell (games)'), hb);
     }
+    // chained games (any mode; also counted above), and how many online
+    const chainPart = [];
+    if (d.chain) {
+      const cb = el('div', 'rks-bars rks-chainbars'), row = el('div', 'rks-bar');
+      const track = el('div', 'rks-track'), fill = el('div', 'rks-fill');
+      fill.style.width = ((d.chain.games || 0) / topRuns) * 100 + '%';
+      track.appendChild(fill);
+      const num = el('div', 'rks-num');
+      num.append(fmt(d.chain.games || 0) + ' ', el('small', null, `${fmt(d.chain.online || 0)} online`));
+      row.append(el('div', null, '⛓ Chained'), track, num);
+      cb.appendChild(row);
+      chainPart.push(el('div', 'rks-h rks-chainh', 'Chained (games)'), cb);
+    }
     body.append(
       grid,
       el('div', 'rks-h', 'Players and time played'), cv,
       el('div', 'rks-h', 'Modes played (runs)'), bars,
       ...hellPart,
+      ...chainPart,
       ...pills('Devices', d.devices, { desktop: 'Computer', touch: 'Phone / tablet', ios: 'iOS app', android: 'Android app' }),
       el('div', 'rks-note', `Counting since ${d.since}. Anonymous: each browser gets a random id, nothing else is stored.`),
     );

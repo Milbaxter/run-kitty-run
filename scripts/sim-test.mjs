@@ -897,6 +897,54 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(lb.firsts.ice.filter((x) => x.name === 'Amy').length === 1 && lb.fastest.ice.filter((x) => x.team[0].name === 'Amy').map((x) => x.total).join() === '1500'
       && lb.firsts.run.length === 1 && lb.firsts.mixed.length === 1 && !/acct-amy|aaaaaaaa|"keys"/.test(lg.boardJson()),
       'legends lists: first 100 different players per mode (105 wins of one name: 1), each team only with its best time, no ids sent');
+    // chained games: on the latest wins and the firsts with the others (marked), their own fastest list and level boards
+    {
+      lg.recordWin('run', 300, [{ id: 3001, name: 'Link1', color: 5 }, { id: 3002, name: 'Link2', color: 6 }], 999, true);
+      const cb = JSON.parse(lg.boardJson());
+      const cf = cb.fastest.run.find((x) => x.total === 999);
+      ok(cb.wins.find((w) => w.total === 999).chain === 1 && cb.firsts.run.some((x) => x.name === 'Link1' && x.chain === 1) && cf && cf.chain === 1,
+        'legends: a chained win is on the latest wins and the firsts (marked) and on the chained fastest list');
+      const { createLevelBoards } = await import('../server/levelboards.js');
+      const lc = createLevelBoards(path.join(dir, 'levels-chain.json'));
+      lc.record({ acct: 'ch-1', name: 'C1', color: 1 }, { local: false, easy: false, mode: 'run', level: 2, time: 60, team: 2, run: 'chn111', chain: true });
+      lc.record({ acct: 'ch-2', name: 'C2', color: 2 }, { local: false, easy: false, mode: 'run', level: 2, time: 70, team: 2, run: 'tm2222' });
+      const qb = (chain) => lc.query({ acct: 'ch-1' }, { board: { local: false, easy: false, mode: 'run', level: 2, team: true, chain }, scope: 'all' }).rows.map((r) => r.name).join();
+      ok(qb(true) === 'C1' && qb(false) === 'C2', 'level boards: chained times on their own board, not with the other team times');
+      lc.flush();
+    }
+    // chained games: a kitty joining a chain of three takes its last kitty (two pairs), right beside it; everyone on one
+    // chain: a newcomer goes on its end
+    {
+      const { createSim, addPlayer, removePlayer, chainJoin, chainLeave, stepSim } = await import('../public/js/shared/sim.js');
+      const K = (n) => [...Array(n)].map((_, i) => ({ id: i + 1, name: 'k' + i, color: 0 }));
+      const s3 = createSim({ seed: 3, players: K(3), mode: 'run', chain: true });
+      const p4 = addPlayer(s3, { id: 4, name: 'k3', color: 0 }); chainJoin(s3, p4);
+      const p3 = s3.players[2];
+      ok(JSON.stringify(s3.chains) === '[[1,2],[3,4]]' && Math.hypot(p4.x - p3.x, p4.z - p3.z) < 1.5, 'chained: a 4th kitty joining a chain of three makes two pairs, beside its partner');
+      const sa = createSim({ seed: 3, players: K(3), mode: 'run', chain: 'all' });
+      const pa = addPlayer(sa, { id: 4, name: 'k3', color: 0 }); chainJoin(sa, pa);
+      ok(sa.chainAll && JSON.stringify(sa.chains) === '[[1,2,3,4]]', 'everyone chained: one chain, a newcomer on its end');
+      // leaving: off the end of a chain that keeps two kitties at once; from the middle an anchor until one of the chain
+      // touches its spot, then the chain joins up; removePlayer alone (a client) never leaves one
+      chainLeave(sa, 4); removePlayer(sa, 4);
+      ok(JSON.stringify(sa.chains) === '[[1,2,3]]' && !Object.keys(sa.anchors).length, 'chained: one leaving off the end of a chain of three just goes');
+      const mid = sa.players[1], mx = mid.x, mz = mid.z;
+      chainLeave(sa, 2); removePlayer(sa, 2);
+      const held = JSON.stringify(sa.chains) === '[[1,2,3]]' && !!sa.anchors[2];
+      const k1 = sa.players[0]; k1.x = mx + 0.5; k1.z = mz;
+      stepSim(sa, {}, 1 / 60);
+      ok(held && JSON.stringify(sa.chains) === '[[1,3]]' && !sa.anchors[2], 'chained: one leaving from the middle leaves an anchor; touching its spot joins the chain up');
+      const sc = createSim({ seed: 3, players: K(2), mode: 'run', chain: true });
+      removePlayer(sc, 2);
+      ok(!Object.keys(sc.anchors).length, 'chained: removePlayer alone (a client following the server) makes no anchor');
+      // one left on its own: touching doesn't let go; the next kitty to join takes the place that was left, right there
+      const sd = createSim({ seed: 3, players: K(2), mode: 'run', chain: true }), q2 = sd.players[1], ax = q2.x, az = q2.z;
+      chainLeave(sd, 2); removePlayer(sd, 2);
+      sd.players[0].x = ax; sd.players[0].z = az; stepSim(sd, {}, 1 / 60);
+      const stillHeld = !!sd.anchors[2];
+      const q9 = addPlayer(sd, { id: 9, name: 'new', color: 0 }); chainJoin(sd, q9);
+      ok(stillHeld && JSON.stringify(sd.chains) === '[[1,9]]' && !sd.anchors[2] && q9.x === ax && q9.z === az, 'chained: one left alone stays held; a newcomer takes the place that was left, where it was');
+    }
     // level boards: a team's time once, with everyone in it (one run); another team with the same time stays its own slot
     {
       const { createLevelBoards } = await import('../server/levelboards.js');
@@ -955,6 +1003,12 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
       const sm = st.summary(0);
       ok(sm.hell.games.ice === 2 && sm.hell.online.ice === 1 && sm.hell.games.run === 0 && sm.modes.ice === 1 && sm.kinds.solo === 0 && sm.totals.runs === 3 && !bad,
         'stats page: hell games counted apart (per hell mode, online ones too), not in the modes played; a bad hell flag refused');
+      // chained games: counted (online ones too) as well as in their usual mode
+      st.record({ cid: 'hellstat01', ev: 'run_start', kind: 'online', mode: 'run', chain: true });
+      st.record({ cid: 'hellstat01', ev: 'run_start', kind: 'coop', mode: 'mixed', chain: true });
+      const badc = st.record({ cid: 'hellstat01', ev: 'run_start', kind: 'coop', mode: 'mixed', chain: 1 });
+      const sc = st.summary(0);
+      ok(sc.chain.games === 2 && sc.chain.online === 1 && sc.modes.run === 1 && sc.kinds.coop === 1 && !badc, 'stats page: chained games counted (online ones too), and in their mode as usual');
     }
     // a repeat win under a new name: the first-clear entry takes the name, its line and time stay; another player changes nothing
     {
@@ -984,7 +1038,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
     ok(bk('A') && bk('B') && bk('C') && bk('D') && bk('E') && !bk('F') && lg.bronzeFor({ acct: 'acct-amy' }) && !lg.bronzeFor({ acct: 'nobody' }),
       'bronze kitty: each new number 1 of a fastest list (A+B the first team game; C, D, E solo), kept when beaten; not a slower one (F)');
     const fr = JSON.parse(lg.boardJson()).fastest.run, rkE = lg.ranksFor({ acct: 'gk-E' })[0], rkB = lg.ranksFor({ acct: 'gk-B' })[0];
-    ok(fr.length === 5 && rkE.fastest === 1 && rkE.list === 'os' && rkB.fastest === 1 && rkB.list === 'ot',
+    ok(fr.filter((x) => !x.chain).length === 5 && rkE.fastest === 1 && rkE.list === 'os' && rkB.fastest === 1 && rkB.list === 'ot',
       'legends fastest: solo and team games on lists of their own (each has its own number 1)');
     // a swag number shows on the boards (on hover): only the accounts index.js hands in, by their key
     lg.setPaid((keys) => (keys.includes(lg.acctKey('gk-E')) ? 1234 : 0));

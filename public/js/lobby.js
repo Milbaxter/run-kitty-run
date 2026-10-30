@@ -13,7 +13,9 @@ const MODES = [
   { id: 'run', label: 'Run only', tip: 'Run only (no ice): get through 8 levels of the labyrinth.' },
   { id: 'ice', label: 'Skate only', tip: 'Skate only (no run): get through 8 levels of the labyrinth.' },
 ];
-const modeLabel = (id, easy, hell) => (MODES.find((m) => m.id === id) || MODES[0]).label + (hell ? (easy ? ' (hell, easy)' : ' (hell)') : easy ? ' (easy)' : '');
+const modeLabel = (id, easy, hell, chain) => (MODES.find((m) => m.id === id) || MODES[0]).label + (hell ? (easy ? ' (hell, easy)' : ' (hell)') : easy ? ' (easy)' : '') + (chain === 'all' ? ' ⛓ everyone chained' : chain ? ' ⛓ chained' : '');
+const CHAIN_ALL_TIP = ' Everyone chained: the whole team on one chain, each kitty to the next; in a lobby, click a kitty to have them next to you. Chained games have their own level times.';
+const CHAIN_TIP = ' Chained: kitties are chained up in twos (one chain of three when there are an odd number); in a lobby, click a kitty to pick your partner. Chained games have their own level times.';
 const EASY_TIP = 'Easy: when everyone is down, the level starts over instead of the game being over. Easy games have their own rewards.';
 const HELL_TIP = 'Hell: get through 6 levels of hell.';
 const HELL_EASY_TIP = 'Hell (easy): get through 6 levels of hell; when everyone is down, the level starts over.';
@@ -32,6 +34,13 @@ const CSS = `
 .rkl-label{font-size:13px;font-weight:900;letter-spacing:.14em;color:#ffcf5a;text-transform:uppercase;margin-top:4px;}
 .rkl-slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;width:100%;max-height:34vh;overflow:auto;}
 .rkl-slot{min-width:0;}
+.rkl-chainpick{cursor:pointer;}
+.rkl-chainbox{margin-top:6px;}
+.rkl-chainbtn{width:100%;justify-content:center;min-height:34px;}
+.rkl-chainbox .rkl-chainbtn.rkl-on{background:rgba(185,160,255,.22);border-color:#b9a0ff;color:#f1ebff;}   /* (lilac: beats .rkl-mode.rkl-on's gold) */
+.rkl-chainbox .rkl-chainbtn.rkl-on::before{background:#b9a0ff;border-color:#f1ebff;}
+.rkl-chainpick:hover{border-color:#ffcf5a;}
+.rkl-chainno{font-size:11px;font-weight:900;color:#d8dde3;margin-left:4px;}
 .rkl-slot{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:14px;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.12);
   font-weight:800;min-height:46px;text-align:left;}
 .rkl-slot.rkl-open{opacity:.35;border-style:dashed;}
@@ -156,6 +165,34 @@ const CSS = `
 .rkl-diff .rkl-mode{flex:1 1 0;justify-content:center;min-height:34px;}
 .rkl-diff .rkl-mode.rkl-on{background:rgba(120,220,150,.22);border-color:#7fe0a0;color:#e6ffee;}
 .rkl-diff .rkl-mode.rkl-on::before{background:#7fe0a0;border-color:#e6ffee;}
+/* each choice its own colour: Normal gold, Easy green; chained Off grey, Pairs teal, Everyone pink */
+.rkl-diff .rkl-mode.rkl-on[data-easy="0"]{background:rgba(255,207,90,.2);border-color:#ffcf5a;color:#fff6d8;}
+.rkl-diff .rkl-mode.rkl-on[data-easy="0"]::before{background:#ffcf5a;border-color:#fff6d8;}
+.rkl-diff .rkl-mode.rkl-on[data-chain="0"]{background:rgba(200,206,214,.16);border-color:#aab1ba;color:#eef1f4;}
+.rkl-diff .rkl-mode.rkl-on[data-chain="0"]::before{background:#aab1ba;border-color:#eef1f4;}
+.rkl-diff .rkl-mode.rkl-on[data-chain="1"]{background:rgba(90,225,205,.2);border-color:#5fe3d0;color:#e2fffa;}
+.rkl-diff .rkl-mode.rkl-on[data-chain="1"]::before{background:#5fe3d0;border-color:#e2fffa;}
+.rkl-diff .rkl-mode.rkl-on[data-chain="all"]{background:rgba(255,130,200,.2);border-color:#ff8fd0;color:#ffe8f5;}
+.rkl-diff .rkl-mode.rkl-on[data-chain="all"]::before{background:#ff8fd0;border-color:#ffe8f5;}
+/* the modes' own colours: Run only grass green, Skate only blue, Run + Skate fading from one to the other (on foot, then
+   skates); Hell's Run / Skate from hell's red into theirs */
+.rkl-modes .rkl-mode.rkl-on[data-mode="run"]{background:rgba(160,220,80,.2);border-color:#a8e05a;color:#f2ffe0;}
+.rkl-modes .rkl-mode.rkl-on[data-mode="run"]::before{background:#a8e05a;border-color:#f2ffe0;}
+.rkl-modes .rkl-mode.rkl-on[data-mode="ice"]{background:rgba(110,180,255,.22);border-color:#7cc0ff;color:#e6f3ff;}
+.rkl-modes .rkl-mode.rkl-on[data-mode="ice"]::before{background:#7cc0ff;border-color:#e6f3ff;}
+.rkl-modes .rkl-mode.rkl-on[data-mode="mixed"]{position:relative;border-color:transparent;color:#fff6d8;
+  background:linear-gradient(90deg,rgba(160,220,80,.2),rgba(110,180,255,.22));}
+.rkl-modes .rkl-mode.rkl-on[data-mode="mixed"]::before{background:#a8e05a;border-color:#fff6d8;}
+/* (its border: a gold-to-blue ring drawn over the button, the inside cut out, so the fill stays see-through like the others) */
+.rkl-modes .rkl-mode.rkl-on[data-mode="mixed"]::after,.rkl-hellkind .rkl-mode.rkl-on::after{content:'';position:absolute;inset:-2px;border-radius:12px;padding:2px;pointer-events:none;
+  background:linear-gradient(90deg,#a8e05a,#7cc0ff);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;}
+.rkl-hellkind .rkl-mode.rkl-on{position:relative;border-color:transparent;color:#ffe2d8;}
+.rkl-hellkind .rkl-mode.rkl-on[data-kind="run"]{background:linear-gradient(90deg,rgba(255,80,40,.25),rgba(160,220,80,.2));}
+.rkl-hellkind .rkl-mode.rkl-on[data-kind="run"]::after{background:linear-gradient(90deg,#ff6a3d,#a8e05a);}
+.rkl-hellkind .rkl-mode.rkl-on[data-kind="ice"]{background:linear-gradient(90deg,rgba(255,80,40,.25),rgba(110,180,255,.22));}
+.rkl-hellkind .rkl-mode.rkl-on[data-kind="ice"]::after{background:linear-gradient(90deg,#ff6a3d,#7cc0ff);}
+.rkl-hellkind .rkl-mode.rkl-on::before{background:#ff6a3d;border-color:#ffe2d8;}
 .rkl-mode.rkl-hell{color:#ffb3a0;}
 .rkl-mode.rkl-hell.rkl-on{background:rgba(255,80,40,.25);border-color:#ff6a3d;color:#ffe2d8;}
 .rkl-mode.rkl-hell.rkl-on::before{background:#ff6a3d;border-color:#ffe2d8;}
@@ -240,6 +277,9 @@ function createLobbyUI(root, cb) {
   // normal or easy (remembered like the mode)
   function savedEasy() { try { return localStorage.getItem('rkr-easy') === '1'; } catch { return false; } }
   function saveEasy(v) { try { localStorage.setItem('rkr-easy', v ? '1' : '0'); } catch { /* ignore */ } }
+  // chained or not ('0' off, '1' in pairs, 'all' everyone on one chain): one choice for every mode, remembered
+  function savedChain() { try { const v = localStorage.getItem('rkr-chain'); return v === '1' || v === 'all' ? v : '0'; } catch { return '0'; } }
+  function saveChain(v) { try { localStorage.setItem('rkr-chain', v); } catch { /* ignore */ } }
   // Hell, the 4th mode (once it's open: cb.hellOpen(mode)): its own Run / Skate choice, remembered like the mode
   function savedHellKind() { try { return localStorage.getItem('rkr-hellmode') === 'ice' ? 'ice' : 'run'; } catch { return 'run'; } }
   function saveHellKind(v) { try { localStorage.setItem('rkr-hellmode', v); } catch { /* ignore */ } }
@@ -272,9 +312,25 @@ function createLobbyUI(root, cb) {
 
   // The game mode as a list of radio buttons (Run + Skate, Run only, Skate only, and Hell once it's open, with its own
   // Run / Skate row) + a one-line tip, and under it NORMAL / EASY; the choices are remembered (savedMode, savedEasy,
-  // savedHellKind). modes: the element to show (all the rows). get(): the game mode (Hell: its Run / Skate one).
-  function modePicker(initial) {
+  // savedHellKind), and under that ⛓ CHAINED (opts.chain: shown; OFF / ON, 'all': OFF / PAIRS / EVERYONE, online; one
+  // choice for every mode, savedChain).
+  // modes: the element to show (all the rows). get(): the game mode (Hell: its Run / Skate one).
+  function modePicker(initial, opts = {}) {
     let mode = initial, easy = savedEasy(), kind = savedHellKind();
+    // one button (⛓ Chained: Off / Pairs / Everyone, local: Off / On) that opens its choices in a row under it; while
+    // chained is on the choices stay open
+    const CHAIN_OPTS = opts.chain === 'all' ? [['0', 'Off'], ['1', 'Pairs'], ['all', 'Everyone']] : [['0', 'Off'], ['1', 'On']];
+    const chainBox = el('div', 'rkl-chainbox');
+    const chainBtn = el('button', 'rkl-mode rkl-chainbtn');
+    chainBtn.type = 'button';
+    chainBtn.setAttribute('aria-haspopup', 'true');
+    const chainRow = el('div', 'rkl-diff rkl-chain');
+    chainRow.setAttribute('role', 'radiogroup');
+    let chainOpen = false;
+    chainBtn.addEventListener('click', () => { if (chainNow() !== '0') return; chainOpen = !chainOpen; paint(); });   // (on: the choices stay open)
+    chainBox.append(chainBtn, chainRow);
+    if (!opts.chain) chainBox.style.display = 'none';   // (solo: no chain)
+    const chainNow = () => { const v = opts.chain ? savedChain() : '0'; return v === 'all' && opts.chain !== 'all' ? '1' : v; };
     const anyHell = () => hellAvail('run') || hellAvail('ice');
     const kindOf = () => (hellAvail(kind) ? kind : hellAvail('run') ? 'run' : 'ice');
     const isHell = () => mode === 'hell' && anyHell();
@@ -308,7 +364,18 @@ function createLobbyUI(root, cb) {
         b.classList.toggle('rkl-on', on);
         b.setAttribute('aria-checked', String(on));
       }
-      tip.textContent = tip.title = h ? (easy ? HELL_EASY_TIP : HELL_TIP) : easy ? EASY_TIP : MODES.find((m) => m.id === mode).tip;
+      const cv = chainNow(), ch = cv !== '0';
+      const shown = chainOpen || ch;
+      chainBtn.textContent = '⛓ Chained: ' + CHAIN_OPTS.find((o) => o[0] === cv)[1] + (ch ? '' : shown ? ' ▴' : ' ▾');
+      chainBtn.classList.toggle('rkl-on', ch);
+      chainBtn.setAttribute('aria-expanded', String(shown));
+      chainRow.style.display = shown ? '' : 'none';   // (.rkl-diff's display:flex beats [hidden])
+      for (const b of chainRow.children) {
+        const on = b.dataset.chain === cv;
+        b.classList.toggle('rkl-on', on);
+        b.setAttribute('aria-checked', String(on));
+      }
+      tip.textContent = tip.title = (h ? (easy ? HELL_EASY_TIP : HELL_TIP) : easy ? EASY_TIP : MODES.find((m) => m.id === mode).tip) + (cv === 'all' ? CHAIN_ALL_TIP : ch ? CHAIN_TIP : '');
     };
     const set = (id) => { mode = id; saveMode(mode); paint(); };
     for (const m of [...MODES, { id: 'hell', label: 'Hell' }]) {
@@ -338,9 +405,19 @@ function createLobbyUI(root, cb) {
       b.addEventListener('click', () => { easy = v === '1'; saveEasy(easy); paint(); });
       diff.appendChild(b);
     }
-    box.append(modes, kinds, diff);
+    for (const [v, label] of CHAIN_OPTS) {
+      const b = el('button', 'rkl-mode');
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      b.textContent = label;
+      b.dataset.chain = v;
+      b.addEventListener('click', () => { saveChain(v); chainOpen = false; paint(); });
+      chainRow.appendChild(b);
+    }
+    box.append(modes, kinds, diff, chainBox);
     paint();
-    return { modes: box, tip, get: () => (isHell() ? kindOf() : mode === 'hell' ? 'mixed' : mode), easy: () => easy, hell: isHell, repaint: paint };
+    return { modes: box, tip, get: () => (isHell() ? kindOf() : mode === 'hell' ? 'mixed' : mode), easy: () => easy, hell: isHell,
+      chain: () => (chainNow() === 'all' ? 'all' : chainNow() === '1'), repaint: paint };
   }
 
   // A kitty's row: its colour as a cat, name box (saved under nameKey as you type) + random name, colour swatches
@@ -427,9 +504,9 @@ function createLobbyUI(root, cb) {
       taken: n === 2 ? () => prefColor(P2_COLOR_KEY) : null, onColor: refreshAll }));
     if (n === 2) rows.push(youRow({ label: 'Player 2', nameKey: 'rkr-name2', id: 'rkl-lname2', colorKey: P2_COLOR_KEY,
       taken: () => prefColor(), onColor: refreshAll }));
-    const mp = modePicker(forced || savedMode());   // the same memory as online: the last mode picked anywhere
+    const mp = modePicker(forced || savedMode(), { chain: n > 1 });   // the same memory as online: the last mode picked anywhere (chained: two kitties)
     const start = el('button', 'rkr-btn rkl-create', '<span>START</span>');
-    const go = () => { const names = rows.map((r) => r.getName()); hide(); onStart({ mode: mp.get(), names, players: n, easy: mp.easy(), hell: mp.hell() }); };
+    const go = () => { const names = rows.map((r) => r.getName()); hide(); onStart({ mode: mp.get(), names, players: n, easy: mp.easy(), hell: mp.hell(), chain: mp.chain() }); };
     start.addEventListener('click', go);
     const col = el('div', 'rkl-col rkl-localcol');
     col.append(el('div', 'rkl-ctitle', 'Mode'), mp.modes, mp.tip, start);
@@ -492,7 +569,7 @@ function createLobbyUI(root, cb) {
     joinCol.append(jt, list, codeRow, joinErr);
 
     // right: start your own (mode remembered)
-    const mp = modePicker(savedMode());
+    const mp = modePicker(savedMode(), { chain: 'all' });
     // how many kitties may join (2..MAX_KITTIES, remembered)
     let max = MAX_KITTIES;
     try { const v = parseInt(localStorage.getItem('rkr-max') || '', 10); if (v >= 2 && v <= MAX_KITTIES) max = v; } catch { /* ignore */ }
@@ -530,7 +607,7 @@ function createLobbyUI(root, cb) {
       lastAct = 'create';
       const password = priv.checked ? privPass.value.trim() : '';
       if (priv.checked && !password) { createErr.textContent = 'Pick a password for your private lobby.'; privPass.focus(); return; }
-      cb.onCreate(getName(), mp.get(), { max, password, easy: mp.easy(), hell: mp.hell() });
+      cb.onCreate(getName(), mp.get(), { max, password, easy: mp.easy(), hell: mp.hell(), chain: mp.chain() });
     });
     const newCol = el('div', 'rkl-col rkl-newcol');
     newCol.append(el('div', 'rkl-ctitle', 'Start your own'), mp.modes, mp.tip, sizeRow, privRow, create, createErr);
@@ -589,8 +666,8 @@ function createLobbyUI(root, cb) {
       const set = (e, v) => { if (e.textContent !== v) e.textContent = v; };
       r.locked = !!l.locked;
       set(r.hh, `${l.locked ? '🔒 ' : ''}${l.host}'s lobby`);
-      set(r.sub, playing ? `${modeLabel(l.mode, l.easy, l.hell)} · playing level ${l.level} · ${l.players}/${l.max}`
-        : `${modeLabel(l.mode, l.easy, l.hell)} · waiting · ${l.players}/${l.max}`);
+      set(r.sub, playing ? `${modeLabel(l.mode, l.easy, l.hell, l.chain)} · playing level ${l.level} · ${l.players}/${l.max}`
+        : `${modeLabel(l.mode, l.easy, l.hell, l.chain)} · waiting · ${l.players}/${l.max}`);
       set(r.btn, full ? 'FULL' : playing ? 'HOP IN' : 'JOIN');
       r.row.title = `Code ${l.code}`;
       r.btn.disabled = full;
@@ -670,27 +747,41 @@ function createLobbyUI(root, cb) {
     }
     const r = roomRefs;
     r.code.textContent = info.code;
-    r.roomMode.textContent = `Mode: ${modeLabel(info.mode, info.easy, info.hell)} · up to ${info.max || MAX_KITTIES} kitties` + (info.locked ? ` · 🔒 private, password: ${info.pass || '?'}` : '');
+    r.roomMode.textContent = `Mode: ${modeLabel(info.mode, info.easy, info.hell, info.chain)} · up to ${info.max || MAX_KITTIES} kitties` + (info.locked ? ` · 🔒 private, password: ${info.pass || '?'}` : '');
     r.pass = info.locked ? info.pass || '' : '';
     r.link.textContent = inviteUrl(info.code, r.pass);
     r.slots.textContent = '';
     r.fids = new Set(info.members.map((m) => m.fid).filter(Boolean));
     renderRecent();
-    // everyone in the lobby + one open slot (up to info.max)
+    // everyone in the lobby + one open slot (up to info.max); chained: in chain order, each kitty's chain numbered, and
+    // (before the game) a click on someone on another chain chains you up with them (the server swaps them in)
     const max = info.max || 32;
-    for (let i = 0; i < Math.min(max, info.members.length + 1); i++) {
-      const m = info.members[i];
+    const members = info.chain && Array.isArray(info.order) ? info.order.map((id) => info.members.find((m) => m.id === id)).filter(Boolean) : info.members;
+    const chainNo = new Map();
+    if (info.chain === 'all') members.forEach((m, k) => chainNo.set(m.id, k + 1));   // (everyone: its place along the chain)
+    else if (info.chain) for (let i = 0, g = 1; i < members.length; g++) { const n = members.length - i === 3 ? 3 : 2; for (let k = i; k < i + n && k < members.length; k++) chainNo.set(members[k].id, g); i += n; }
+    const myChain = chainNo.get(info.you);
+    for (let i = 0; i < Math.min(max, members.length + 1); i++) {
+      const m = members[i];
       const s = el('div', 'rkl-slot' + (m ? '' : ' rkl-open') + (m && m.id === info.you ? ' rkl-me' : ''));
+      const mi = members.findIndex((x) => x.id === info.you);
+      const pickable = info.chain === 'all' ? Math.abs(i - mi) > 1 : chainNo.get(m && m.id) !== myChain;   // (everyone: not already next to you)
+      if (m && info.chain && info.phase === 'lobby' && m.id !== info.you && pickable && cb.onChainWith) {
+        s.classList.add('rkl-chainpick');
+        s.title = info.chain === 'all' ? 'Have ' + m.name + ' next to you on the chain' : 'Chain up with ' + m.name;
+        s.addEventListener('click', () => cb.onChainWith(m.id));
+      }
       const cat = el('div', 'rkl-cat', CAT);
       cat.style.color = m ? hex(m.color) : '#888';
       const who = el('div', 'rkl-pinfo');
       const pn = el('span', 'rkl-pn');
       pn.textContent = m ? m.name : 'open';
       who.appendChild(pn);
-      // under the name: (you) and the swag number
-      if (m && (m.id === info.you || m.paid > 0)) {
+      // under the name: (you), its chain and the swag number
+      if (m && (m.id === info.you || m.paid > 0 || chainNo.has(m.id))) {
         const sub = el('div', 'rkl-psub');
         if (m.id === info.you) sub.appendChild(el('span', 'rkl-you', '(you)'));
+        if (chainNo.has(m.id)) sub.appendChild(el('span', 'rkl-chainno', '⛓ ' + chainNo.get(m.id)));
         if (m.paid > 0) sub.appendChild(el('span', 'rkl-paid', fmtNum(m.paid)));
         who.appendChild(sub);
       }
@@ -708,10 +799,10 @@ function createLobbyUI(root, cb) {
     const isHost = info.host === info.you;
     const host = info.members.find((m) => m.id === info.host);
     r.start.style.display = isHost && info.phase === 'lobby' ? '' : 'none';
-    r.wait.textContent = info.phase !== 'lobby'
+    r.wait.textContent = (info.phase !== 'lobby'
       ? 'A run is in progress. Joining…'
-      : isHost ? `You're the host. Start whenever you're ready (${info.members.length}/${max}).`
-        : `Waiting for ${host ? host.name : 'the host'} to start…`;
+      : isHost ? (info.chain && info.members.length < 2 ? 'A chained game needs at least two kitties.' : `You're the host. Start whenever you're ready (${info.members.length}/${max}).`)
+        : `Waiting for ${host ? host.name : 'the host'} to start…`) + (info.chain && info.phase === 'lobby' && info.members.length > 2 ? (info.chain === 'all' ? ' Click a kitty to have them next to you on the chain.' : ' Click a kitty to chain up with them.') : '');
   }
 
   // ---- the invite panel (main.js keeps the list: cb.recent() -> [{ fid, name, color, fav? }], newest first) ----

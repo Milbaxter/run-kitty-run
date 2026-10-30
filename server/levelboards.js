@@ -51,14 +51,16 @@ const SAVE_DELAY_MS = 5000;
 const FID = /^[\w-]{16}$/;
 const PID = /^[a-z0-9]{24,40}$/;
 
-// a board's key: 'o' / 'l' (online / local) + 'n' / 'e' (normal / easy), mode, level, 's' / 't' (solo / team)
-const boardKey = (b) => (b.local ? 'l' : 'o') + (b.easy ? 'e' : 'n') + ':' + b.mode + ':' + b.level + ':' + (b.team ? 't' : 's');
+// a board's key: 'o' / 'l' (online / local) + 'n' / 'e' (normal / easy), mode, level, 's' / 't' / 'c' (solo / team /
+// a chained team: its own boards)
+const boardKey = (b) => (b.local ? 'l' : 'o') + (b.easy ? 'e' : 'n') + ':' + b.mode + ':' + b.level + ':' + (b.chain ? 'c' : b.team ? 't' : 's');
 function parseBoard(b) {
   if (!b || typeof b !== 'object' || !MODES.includes(b.mode)) return null;
-  if (b.level === HELL) return HELL_MODES.includes(b.mode) ? { local: !!b.local, easy: !!b.easy, mode: b.mode, level: HELL, team: !!b.team } : null;
+  const chain = !!b.chain && !!b.team;   // (chained: a team's)
+  if (b.level === HELL) return HELL_MODES.includes(b.mode) ? { local: !!b.local, easy: !!b.easy, mode: b.mode, level: HELL, team: !!b.team, chain } : null;
   const level = Number(b.level);
   if (!Number.isInteger(level) || level < 1 || level > LEVELS) return null;
-  return { local: !!b.local, easy: !!b.easy, mode: b.mode, level, team: !!b.team };
+  return { local: !!b.local, easy: !!b.easy, mode: b.mode, level, team: !!b.team, chain };
 }
 const cleanName = (n) => String(n ?? '').replace(/[\u0000-\u001f\u007f-\u009f<>‎‏‪-‮⁦-⁩]/g, '').replace(/\s+/g, ' ').trim().slice(0, 20);
 const cleanColor = (c) => (Number.isInteger(c) && c >= 0 && c <= 0xffffff ? c : 0xffb347);
@@ -181,7 +183,7 @@ function createLevelBoards(file) {
   // a hell game's end (game over, or its last level won; easy hell: each wipe too): ev = { local, easy, mode, level,
   // far (0..1), team (players in the game), time }; true when it's a new best
   function recordHell(who, ev) {
-    const b = parseBoard({ local: !!(ev && ev.local), easy: !!(ev && ev.easy), mode: ev && ev.mode, level: HELL, team: !!(ev && ev.team > 1) });
+    const b = parseBoard({ local: !!(ev && ev.local), easy: !!(ev && ev.easy), mode: ev && ev.mode, level: HELL, team: !!(ev && ev.team > 1), chain: !!(ev && ev.chain) });
     const level = Number(ev && ev.level), far = Number(ev && ev.far);
     if (!b || !Number.isInteger(level) || level < 1 || level > HELL_LEVELS || !(far >= 0 && far <= 1)) return false;
     const me = playerOf(who, true);

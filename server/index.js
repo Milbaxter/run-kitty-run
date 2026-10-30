@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import { CFG, NET, PLAYER_COLORS, PLAYER_NAMES, SKATE_FINAL_LEVEL, HELL_MODES, stageStep } from '../public/js/shared/config.js';
 import { hashSeed } from '../public/js/shared/rng.js';
-import { GAME_MODES, createSim, stepSim, addPlayer, removePlayer } from '../public/js/shared/sim.js';
+import { GAME_MODES, createSim, stepSim, addPlayer, removePlayer, chainGroups, chainJoin, chainLeave, chainRejoin } from '../public/js/shared/sim.js';
 import { serializeEnemies } from '../public/js/shared/enemies.js';
 import { levelHash } from '../public/js/shared/maze.js';
 import { createStats } from './stats.js';
@@ -56,6 +56,12 @@ const HELL_PROTOCOL = 25;
 // (a hell game with its wolf waves, shared/waves.js: every member had them at its start; an older client can't join it)
 const HELL_WAVES_PROTOCOL = 26;
 const hellOk = (client, room) => !room.hell || (client.v >= HELL_PROTOCOL && !(room.sim && room.sim.waves && client.v < HELL_WAVES_PROTOCOL));   // (easy hell: easyOk)
+// chained games (shared/sim.js chainPull: players 1+2, 3+4 on a chain): older clients don't know the chain and would
+// see kitties pulled about; they can't join one
+const CHAIN_PROTOCOL = 33;
+const chainOk = (client, room) => !room.chain || client.v >= CHAIN_PROTOCOL;
+// a game played on chains (its own level boards and fastest lists): a chained room with a pair in it
+const chainedGame = (room) => !!(room.chain && room.sim && room.sim.chain && room.sim.players.length > 1);
 const hellOpenFor = (client, mode) => accounts.hellOpenFor({ sub: client.acct, pid: client.pid }, mode) || levels.can9({ acct: client.acct, pid: client.pid });
 const updateHow = (client) => (client.app === 'web' ? 'reload the page' : 'update the app');
 const APPS = ['web', 'ios', 'android'];
@@ -460,7 +466,7 @@ function handleOfflineSign(req, res) {
 // A room just won: everyone in it at this moment is on the board and may sign it; each gets the board right away.
 function legendsOnWin(room, e) {
   if (room.easy) return;   // (the board is for games won without starting levels over)
-  legends.recordWin(room.mode, e.time, room.members, room.sim ? room.sim.time : NaN);   // (the final level's time, the whole game's)
+  legends.recordWin(room.mode, e.time, room.members, room.sim ? room.sim.time : NaN, chainedGame(room));   // (the final level's time, the whole game's; chained)
   for (const m of room.members) { const b = legends.boardFor(m); if (b) send(m.ws, b); }
 }
 
@@ -505,8 +511,8 @@ function handleLevelsHttp(req, res) {
         ps.forEach((p, seat) => {
           const w = { acct: seat ? null : who.acct, pid, seat, fid: seat ? '' : who.fid, name: p && p.name, color: p && p.color };
           if (m.reached === levels.SECRET_LEVEL) levels.reach(w);
-          else if (m.hell === true) levels.recordHell(w, { local: true, easy: !!m.easy, mode: m.mode, level: m.level, far: m.far, time: m.time, team: ps.length, run });
-          else levels.record(w, { local: true, easy: !!m.easy, mode: m.mode, level: m.level, time: m.time, team: ps.length, run });
+          else if (m.hell === true) levels.recordHell(w, { local: true, easy: !!m.easy, mode: m.mode, level: m.level, far: m.far, time: m.time, team: ps.length, run, chain: m.chain === true });
+          else levels.record(w, { local: true, easy: !!m.easy, mode: m.mode, level: m.level, time: m.time, team: ps.length, run, chain: m.chain === true });
         });
         return reply(200, { ok: true });
       }
@@ -623,19 +629,20 @@ function handleInvite(client, msg) {
   invitedAt.set(key, Date.now());
   if (invitedAt.size > 5000) invitedAt.delete(invitedAt.keys().next().value);
   const json = JSON.stringify({ t: 'invite', name: client.name || 'A kitty', color: client.color, code: room.code, mode: room.mode, easy: room.easy || undefined,
-    pass: room.pass || undefined, fid: client.fid || undefined, hell: room.hell || undefined });   // (fid: who it's from: the friend can block their invites)
+    pass: room.pass || undefined, fid: client.fid || undefined, hell: room.hell || undefined, chain: room.chain || undefined });   // (fid: who it's from: the friend can block their invites)
   for (const c of to) send(c.ws, json);
   reply(true, 'Invite sent!');
 }
 
 function roomInfo(room) {
   return {
-    t: 'room', code: room.code, host: room.hostId, phase: room.phase, mode: room.mode, easy: room.easy || undefined, hell: room.hell || undefined, max: room.max || NET.MAX_PLAYERS,
+    t: 'room', code: room.code, host: room.hostId, phase: room.phase, mode: room.mode, easy: room.easy || undefined, hell: room.hell || undefined, chain: room.chain || undefined, max: room.max || NET.MAX_PLAYERS,
     locked: !!room.pass, pass: room.pass || undefined,   // private lobby: its members see the password (to pass it on)
     members: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color, app: m.app, paid: m.paid || undefined,   // paid: cents (accounts.js)
       fid: m.fid || undefined,   // public friend id (invites)
       cos: m.cos && m.cos.length ? m.cos : undefined,   // cos: switched-on unlocks (shared/unlocks.js)
       ps: m.paid && m.ps ? m.ps : undefined })),   // ps: how the number is drawn ('koi'; none: the classic tag)
+    order: room.chain ? chainOrder(room).slice() : undefined,   // chained: who chains up with whom (member ids, chain order)
   };
 }
 
@@ -648,11 +655,11 @@ function lobbyList(client) {
   const list = [];
   for (const r of rooms.values()) {
     if (r.members.length === 0) continue;
-    if (!modeOk(client, r.mode) || !runFinaleOk(client, r) || !easyOk(client, r) || !hellOk(client, r)) continue; // this client's build can't play that mode / game
+    if (!modeOk(client, r.mode) || !runFinaleOk(client, r) || !easyOk(client, r) || !hellOk(client, r) || !chainOk(client, r)) continue; // this client's build can't play that mode / game
     list.push({
       code: r.code, players: r.members.length, max: r.max || NET.MAX_PLAYERS, phase: r.phase, locked: !!r.pass,
       host: (r.members.find((m) => m.id === r.hostId) || r.members[0]).name,
-      level: r.sim ? (r.sim.hell ? r.sim.level : r.sim.levelData.level || r.sim.level) : 0, mode: r.mode, easy: r.easy || undefined, hell: r.hell || undefined,
+      level: r.sim ? (r.sim.hell ? r.sim.level : r.sim.levelData.level || r.sim.level) : 0, mode: r.mode, easy: r.easy || undefined, hell: r.hell || undefined, chain: r.chain || undefined,
     });
   }
   return list.sort((a, b) => (a.phase === 'lobby' ? 0 : 1) - (b.phase === 'lobby' ? 0 : 1) || b.players - a.players).slice(0, 30);
@@ -675,6 +682,7 @@ function joinRoom(client, room, name, pref, pass) {
   if (!modeOk(client, room.mode)) return send(client.ws, { t: 'error', msg: `That lobby code is for ${MODE_NAMES[room.mode]}, which needs the latest version - ${updateHow(client)} to play it.` });
   if (!easyOk(client, room)) return send(client.ws, { t: 'error', msg: `That lobby plays an easy game, which needs the latest version - ${updateHow(client)} to play it.` });
   if (!hellOk(client, room)) return send(client.ws, { t: 'error', msg: `That lobby plays hell, which needs the latest version - ${updateHow(client)} to play it.` });
+  if (!chainOk(client, room)) return send(client.ws, { t: 'error', msg: `That lobby plays chained, which needs the latest version - ${updateHow(client)} to play it.` });
   if (!runFinaleOk(client, room)) return send(client.ws, { t: 'error', msg: `That game is playing the new level 9 - ${updateHow(client)} to join it.` });
   const max = room.max || NET.MAX_PLAYERS;
   if (room.members.length >= max) return send(client.ws, { t: 'error', msg: `That lobby is full (${max}/${max}).` });
@@ -700,6 +708,7 @@ function joinRoom(client, room, name, pref, pass) {
     // Join mid-game: spawn now; send full state (including wolves) so the newcomer is in sync.
     const p = addPlayer(room.sim, { id: client.id, name: client.name, color: client.color });
     restoreLeft(room, client, p);
+    chainJoin(room.sim, p);   // (chained, and not back on its old chain: a partner, beside it)
     // Mid-victory: join the party in the goal room instead of starting alone at the far end of the final run.
     if (room.sim.state === 'victory') {
       const a = room.sim.players.length * 2.399963, r = 3.3;
@@ -708,6 +717,7 @@ function joinRoom(client, room, name, pref, pass) {
       p.inCenter = true;
     }
     send(client.ws, startMsg(room, true));
+    sendChains(room);
   }
 }
 
@@ -718,7 +728,42 @@ function joinRoom(client, room, name, pref, pass) {
 // kitty is also matched by IP, so a new tab / cleared storage doesn't dodge it either. Anyone else joining mid-game is
 // a genuine drop-in and spawns alive with spawn invulnerability, as before (that is how friends join a running game).
 function pruneLeft(room, now = Date.now()) {
-  for (const [k, r] of room.left) if (now - r.at > REJOIN_GRACE_MS || r.sim !== room.sim) room.left.delete(k);
+  for (const [k, r] of room.left) {
+    if (!(now - r.at > REJOIN_GRACE_MS || r.sim !== room.sim)) continue;
+    room.left.delete(k);
+  }
+}
+
+// ---- chained lobbies ----
+// who chains up with whom: the member ids in chain order (two by two, the last three when odd; room.chain 'all': one
+// chain through everyone in this order: shared/sim.js chainGroups)
+function chainOrder(room) {
+  const ids = room.members.map((m) => m.id);
+  room.order = (room.order || []).filter((id) => ids.includes(id));
+  for (const id of ids) if (!room.order.includes(id)) room.order.push(id);
+  return room.order;
+}
+// a picks b: b takes the place of a's chain mate (who takes b's); everyone on one chain: b moves in right after a
+function chainWith(room, a, b) {
+  const o = chainOrder(room);
+  if (room.chain === 'all') {
+    const i = o.indexOf(a), j = o.indexOf(b);
+    if (i < 0 || j < 0 || Math.abs(i - j) === 1) return false;
+    o.splice(j, 1);
+    o.splice(o.indexOf(a) + 1, 0, b);
+    return true;
+  }
+  const ga = chainGroups(o).find((g) => g.includes(a));
+  if (!ga || ga.includes(b) || !o.includes(b)) return false;
+  const mate = ga.find((id) => id !== a);
+  if (mate == null) return false;
+  const i = o.indexOf(mate), j = o.indexOf(b);
+  o[i] = b; o[j] = mate;
+  return true;
+}
+// a running chained game's chains changed (someone left, came back, joined): everyone's sim follows
+function sendChains(room) {
+  if (room.sim && room.sim.chain) broadcast(room, { t: 'chains', c: room.sim.chains, a: room.sim.anchors });
 }
 
 function rememberLeft(room, client) {
@@ -729,7 +774,7 @@ function rememberLeft(room, client) {
   const circ = sim.circles.find((c) => c.playerId === p.id);
   room.left.set(client.tok || `ip:${client.ip}#${client.id}`, {
     at: Date.now(), sim, level: sim.level, ip: client.ip,
-    alive: p.alive, x: p.x, z: p.z, circleT: circ ? circ.t : 0,
+    alive: p.alive, x: p.x, z: p.z, circleT: circ ? circ.t : 0, id: p.id,   // (id: its place on its chain)
     lives: p.lives, deaths: p.deaths, rescues: p.rescues, finishes: p.finishes, crowned: p.crowned, speedMult: p.speedMult, bonus: p.bonus || 0, ran: p.ran || 0,
     goals: room.goalsFor === sim && room.goals.get(p.id) ? [...room.goals.get(p.id)] : [],   // (the unlocks' goal tally)
   });
@@ -749,6 +794,7 @@ function restoreLeft(room, client, p) {
     if (room.goalsFor !== sim) { room.goalsFor = sim; room.goals = new Map(); }
     room.goals.set(p.id, new Set(r.goals));
   }
+  if (r.sim === sim) chainRejoin(sim, r.id, p);   // chained: back on its chain, where it left
   // a new level (or the victory party) revives everyone anyway
   if (!r.alive && r.level === sim.level && sim.state !== 'victory') {
     Object.assign(p, { alive: false, x: r.x, z: r.z, vx: 0, vz: 0, moving: false, inCenter: false, invuln: 0, shield: 0, speedMult: 1 });
@@ -762,7 +808,8 @@ function leaveRoom(client) {
   client.room = null;
   room.members = room.members.filter((m) => m !== client);
   rememberLeft(room, client);
-  if (room.sim) removePlayer(room.sim, client.id);
+  if (room.sim) { chainLeave(room.sim, client.id); removePlayer(room.sim, client.id); }   // (chained: off its chain, or an anchor)
+  sendChains(room);
   if (room.members.length === 0) { rooms.delete(room.code); return; }
   if (room.hostId === client.id) room.hostId = room.members[0].id; // next in join order
   partyOver(room);
@@ -789,6 +836,7 @@ function startMsg(room, withWolves) {
     ch: sim.chest ? [sim.chest.x, sim.chest.z, sim.chest.open ? 1 : 0] : undefined,
     xi: sim.chest && sim.chest.open ? sim.items.filter((i) => i.id >= 1000).map((i) => [i.id, i.type, i.x, i.z, i.mega ? 1 : 0]) : undefined,
     cp: sim.checkpointsHit.slice(),   // ...and the checkpoints already reached (a repaired medic checkpoint shows repaired)
+    cn: sim.chain ? { c: sim.chains, a: sim.anchors, all: sim.chainAll ? 1 : undefined } : undefined,   // chained: the chains and anchors (shared/sim.js chainLinks)
   };
 }
 
@@ -803,8 +851,8 @@ function startGame(room, startLevel = 1) {
   const seed = hashSeed(Date.now(), Math.random(), room.code) >>> 0;
   room.sim = createSim({
     seed, startLevel: room.hell ? startLevel : stageStep(room.mode, finalesOf(room.members), startLevel), mode: room.mode, finales: finalesOf(room.members), easy: !!room.easy,
-    hell: !!room.hell, waves: !!room.hell && room.members.every((m) => m.v >= HELL_WAVES_PROTOCOL),
-    players: room.members.map((m) => ({ id: m.id, name: m.name, color: m.color })),
+    hell: !!room.hell, waves: !!room.hell && room.members.every((m) => m.v >= HELL_WAVES_PROTOCOL), chain: room.chain || false,
+    players: (room.chain ? chainOrder(room).map((id) => room.members.find((m) => m.id === id)) : room.members).map((m) => ({ id: m.id, name: m.name, color: m.color })),   // (chained: in chain order)
   });
   for (const m of room.members) { m.inputs.clear(); m.lastInput = null; }
   sendRoom(room);
@@ -825,6 +873,7 @@ function stepRoom(room) {
   sim.noChest = room.members.some((m) => m.v < CHEST_PROTOCOL);   // (an older client would not see the chest or its pickups)
   const events = stepSim(sim, inputs, CFG.TICK);
   room.tick = k;
+  if (sim.chain && (sim.chainRev | 0) !== (room.chainRev | 0)) { room.chainRev = sim.chainRev | 0; sendChains(room); }   // (an anchor let go)
   trackAfk(room);
   for (const e of events) room.pending.push(e);
   for (const e of events) {
@@ -849,7 +898,7 @@ function stepRoom(room) {
 // down by the others ('votekill'): a majority of the other kitties that aren't standing still themselves. It goes down
 // as if caught (a revive circle, so it can be revived), but it isn't counted as caught. Snapshots carry each kitty's
 // afk at the end of its array: 0, or 1 + its votes so far (main.js shows the vote button).
-const AFK_TICKS = 10 * 60;
+const AFK_TICKS = 25 * 60;   // (25 s)
 function trackAfk(room) {
   const sim = room.sim;
   if (room.afkFor !== sim) { room.afkFor = sim; room.afk = new Map(); }
@@ -924,7 +973,7 @@ function countForAccounts(room, events) {
         const m = memberOf(id), p = sim.players.find((q) => q.id === id);
         if (!m) continue;
         const who = { acct: m.acct, pid: m.pid, fid: m.fid, name: (p && p.name) || m.name, color: p ? p.color : m.color };
-        if (e.type === 'levelClear') levels.record(who, { local: false, easy, mode: room.mode, level, time: ev.time, team: team.length, run });
+        if (e.type === 'levelClear') levels.record(who, { local: false, easy, mode: room.mode, level, time: ev.time, team: team.length, run, chain: chainedGame(room) });
         else if (level === levels.SECRET_LEVEL) levels.reach(who);
       }
       if (e.type === 'levelStart' && level === SKATE_FINAL_LEVEL && !e.retry) for (const id of team) featDone(id, 'r9');   // (hell opens)
@@ -980,7 +1029,7 @@ function countHell(room, events, { memberOf, subOf, once, featDone }) {
       const far = e.type === 'victory' ? 1 : e.far, ids = team(), run = runId();
       for (const id of ids) {
         const m = memberOf(id), p = sim.players.find((q) => q.id === id);
-        if (m) levels.recordHell({ acct: m.acct, pid: m.pid, fid: m.fid, name: (p && p.name) || m.name, color: p ? p.color : m.color }, { local: false, easy: !!sim.easy, mode: room.mode, level: e.level, far, team: ids.length, time: sim.time, run });
+        if (m) levels.recordHell({ acct: m.acct, pid: m.pid, fid: m.fid, name: (p && p.name) || m.name, color: p ? p.color : m.color }, { local: false, easy: !!sim.easy, mode: room.mode, level: e.level, far, team: ids.length, time: sim.time, run, chain: chainedGame(room) });
       }
     } else if (e.type === 'crown') accounts.recordOnline(subOf(e.playerId), { type: 'crown', hell: true }, !!sim.easy);   // (the hell table's own crowns)
     else if (e.type === 'revive' && !samePlayer(memberOf(e.by), memberOf(e.playerId))) {
@@ -1185,7 +1234,7 @@ wss.on('connection', (ws, req) => {
         const hell = msg.hell === true;
         if (hell && (client.v < HELL_PROTOCOL || !HELL_MODES.includes(mode))) return send(ws, { t: 'error', msg: `Hell needs the latest version - ${updateHow(client)} to play it.` });
         if (hell && !hellOpenFor(client, mode) && msg.hl !== true) return send(ws, { t: 'error', msg: `Reach the final level in any mode to open this, or clear a level of it in someone's lobby.` });
-        const r = { code: makeCode(), mode, hell: hell || undefined, easy: msg.easy === true && client.v >= (hell ? EASY_HELL_PROTOCOL : EASY_PROTOCOL), max: Math.max(2, Math.min(NET.MAX_PLAYERS, maxReq)), pass: cleanPass(msg.password), by: client.ipk,
+        const r = { code: makeCode(), mode, hell: hell || undefined, easy: msg.easy === true && client.v >= (hell ? EASY_HELL_PROTOCOL : EASY_PROTOCOL), chain: client.v >= CHAIN_PROTOCOL ? (msg.chain === 'all' ? 'all' : msg.chain === true || undefined) : undefined, max: Math.max(2, Math.min(NET.MAX_PLAYERS, maxReq)), pass: cleanPass(msg.password), by: client.ipk,
           members: [], hostId: 0, phase: 'lobby', sim: null, tick: 0, pending: [], overAt: 0, victory: null,
           left: new Map() }; // tab token -> state of a kitty that left this game (reconnect grace)
         stats.lobbyCreated();
@@ -1209,9 +1258,13 @@ wss.on('connection', (ws, req) => {
         send(ws, { t: 'left' });
         break;
       case 'start':
+        if (room && room.chain && room.members.length < 2 && room.hostId === client.id) { send(ws, { t: 'error', msg: 'A chained game needs at least two kitties.' }); break; }
         if (room && room.hostId === client.id && room.phase === 'lobby') {
           startGame(room, TEST_HOOKS && Number.isFinite(msg.level) ? Math.max(1, Math.min(SKATE_FINAL_LEVEL, msg.level | 0)) : 1);
         }
+        break;
+      case 'chainwith':   // chained lobby: chain up with that kitty
+        if (room && room.chain && room.phase === 'lobby' && chainWith(room, client.id, msg.id | 0)) sendRoom(room);
         break;
       case 'votekill':   // vote to knock down a kitty that has stood still (AFK) for a while
         if (room) voteKill(room, client, msg.id | 0);

@@ -707,7 +707,7 @@ function createAccount(root) {
           if (r.first) leg.appendChild(el('div', 'rka-note', `🏆 #${r.first} of the first 100 to beat ${MODE_NAME[r.mode] || r.mode}`));
           if (r.fastest) {
             const t = Math.max(0, Math.floor(r.total || 0));
-            leg.appendChild(el('div', 'rka-note', `⏱ #${r.fastest} of the 100 fastest ${({ os: 'online solo ', ot: 'online team ', ls: 'local solo ', lt: 'local team ' })[r.list] || ''}games in ${MODE_NAME[r.mode] || r.mode} (${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')})`));
+            leg.appendChild(el('div', 'rka-note', `⏱ #${r.fastest} of the 100 fastest ${({ os: 'online solo ', ot: 'online team ', ls: 'local solo ', lt: 'local team ', oc: 'online chained ', lc: 'local chained ' })[r.list] || ''}games in ${MODE_NAME[r.mode] || r.mode} (${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')})`));
           }
         }
       }

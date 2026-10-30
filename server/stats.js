@@ -18,6 +18,8 @@ const HELL_MODES = ['run', 'ice'];
 // hell games (run_start with hell: true, since 2026-10-24): games per hell mode and how many of them online. Not in
 // kinds / modes (the STATS page shows them only to players who have hell open)
 const blankHell = () => ({ games: { run: 0, ice: 0 }, online: { run: 0, ice: 0 } });
+// chained games (run_start with chain: true): how many, and how many of them online; also counted in kinds / modes / hell
+const blankChain = () => ({ games: 0, online: 0 });
 const blankDay = () => ({ newPlayers: 0, players: 0, runs: 0, levels: 0, deaths: 0, rescues: 0, seconds: 0, lobbies: 0, wins: 0 });
 
 function createStats(file) {
@@ -34,11 +36,13 @@ function createStats(file) {
     today: { day: day(), seen: [] },                         // cids active today (for the daily unique count)
     peakOnline: { count: 0, at: null },
     hell: blankHell(),
+    chain: blankChain(),
   };
   try {
     const old = JSON.parse(fs.readFileSync(file, 'utf8'));
     s = { ...s, ...old, totals: { ...s.totals, ...old.totals } };
     s.hell = { ...blankHell(), ...(old.hell || {}) };
+    s.chain = { ...blankChain(), ...(old.chain || {}) };
   } catch { /* first run, or unreadable: start fresh */ }
   let todaySeen = new Set(s.today.day === day() ? s.today.seen : []);
   let playerIds = Object.keys(s.players).length;
@@ -100,6 +104,7 @@ function createStats(file) {
     if (['level', 'seconds', 'deaths', 'rescues'].some((k) => ev[k] !== undefined && !Number.isFinite(ev[k]))) return false;
     if (ev.won !== undefined && typeof ev.won !== 'boolean') return false;
     if (ev.hell !== undefined && typeof ev.hell !== 'boolean') return false;
+    if (ev.chain !== undefined && typeof ev.chain !== 'boolean') return false;
     if (ip && !s.players[ev.cid]) {
       const now = Date.now();
       const h = (newIds.get(ip) || []).filter((t) => now - t < 3600e3);
@@ -113,6 +118,7 @@ function createStats(file) {
       case 'visit': break;
       case 'run_start':
         D.runs++; T.runs++;
+        if (ev.chain === true) { s.chain.games++; if (ev.kind === 'online') s.chain.online++; }   // (and counted as usual below)
         if (ev.hell === true) {   // a hell game: its own counts
           if (HELL_MODES.includes(ev.mode)) { s.hell.games[ev.mode]++; if (ev.kind === 'online') s.hell.online[ev.mode]++; }
           break;
@@ -162,6 +168,7 @@ function createStats(file) {
       kinds: s.kinds, modes: s.modes, devices: s.devices,
       onlineWinsByMode: s.onlineWinsByMode,
       hell: s.hell,
+      chain: s.chain,
       days: days.slice(-120),
     };
   }

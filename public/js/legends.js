@@ -4,8 +4,9 @@
 // changed for 15 minutes after the win. Opened from the victory screen (and, while an online winner can still sign,
 // from a small button in the lobby), and by anyone from the main menu (showPublic: read only, GET /api/legends). One tab
 // per mode. All player text goes in with textContent; the apps mask it like chat (net.js).
-// FASTEST 100 is four lists (online / local games, solo / team: the server keeps 100 each, this splits them by their
-// kind). LEVEL TIMES: every level's fastest clears (server/levelboards.js, POST /api/levels: no game connection needed): normal / easy, solo / team,
+// FASTEST 100 is six lists (online / local games, solo / team / chained: the server keeps 100 each, this splits them by
+// their kind); LATEST and FIRST 100 show chained games with the others, marked ⛓. LEVEL TIMES: every level's fastest
+// clears (server/levelboards.js, POST /api/levels: no game connection needed): normal / easy, solo / team / chained,
 // online / local, everyone or your starred friends or a group (made here, joined with a code). Level 9's board shows
 // only once the server knows you have reached it (can9).
 import { apiUrl, NATIVE } from './platform.js';
@@ -170,11 +171,11 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
   let tab = 'mixed';        // the mode whose legends show (a tab each)
   let view = 'latest';      // latest wins / the first 100 players / the 100 fastest games
   let lists = null;         // { firsts: { mode: [...] }, fastest: { mode: [...] } } (servers from 2026-10-14 on)
-  let fast = { local: false, team: false };   // FASTEST 100: which of its four lists
+  let fast = { local: false, team: false, chain: false };   // FASTEST 100: which of its six lists
   // LEVEL TIMES: the board picked, what came back for it, this player's groups, level 9's board known to this player
-  const lv = { level: 1, easy: false, team: false, local: false, scope: 'all', group: null, groupsOpen: false };
+  const lv = { level: 1, easy: false, team: false, chain: false, local: false, scope: 'all', group: null, groupsOpen: false };
   let lvData = null, lvAsked = '', lvErr = '', lvGroups = [], can9 = false, lvSeq = 0, grpMsg = '';
-  const catOf = (f) => ({ local: !!f.kind, team: f.kind ? f.kind !== 'solo' : (f.team || []).length !== 1 });
+  const catOf = (f) => ({ local: !!f.kind, team: f.kind ? f.kind !== 'solo' : (f.team || []).length !== 1, chain: !!f.chain });
   const modeOf = (w) => (MODES[w && w.mode] ? w.mode : 'mixed');
 
   const fab = el('button', 'rkg-fab', '📜 LEGENDS BOARD');
@@ -218,7 +219,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
     if (!r.ok) throw new Error(j.msg || '');
     return j;
   }
-  const lvKey = () => JSON.stringify([tab, lv.level, lv.easy, lv.team, lv.local, lv.scope, lv.group]);
+  const lvKey = () => JSON.stringify([tab, lv.level, lv.easy, lv.team, lv.chain, lv.local, lv.scope, lv.group]);
   // the hell board shows in Run only and Skate only, for a player with hell open there (another mode: back to level 1)
   const hellBoard = () => (tab === 'run' || tab === 'ice') && !!(hellOpen && hellOpen(tab));
   const fixHell = () => { if (lv.level === 'h' && !hellBoard()) lv.level = 1; };
@@ -227,7 +228,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
     lvErr = '';
     lvAsked = lvKey();
     const fids = lv.scope === 'friends' ? (friends ? friends() : []) : undefined;
-    levelsApi({ op: 'board', id: ++lvSeq, board: { mode: tab, level: lv.level, easy: lv.easy, team: lv.team, local: lv.local }, scope: lv.scope, fids, group: lv.group })
+    levelsApi({ op: 'board', id: ++lvSeq, board: { mode: tab, level: lv.level, easy: lv.easy, team: lv.team, chain: lv.chain || undefined, local: lv.local }, scope: lv.scope, fids, group: lv.group })
       .then(onLevels)
       .catch((err) => { lvErr = err.message || 'The level times are out of reach right now (no connection?).'; render(); });
   }
@@ -275,7 +276,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
     offline = true;
     can = ctx && Array.isArray(ctx.players) && ctx.players.length ? {
       offline: true, id: null, key: null, until: performance.now() + 15 * 60e3,
-      ctx: { mode: ctx.mode, runTime: ctx.runTime, time: ctx.time },
+      ctx: { mode: ctx.mode, runTime: ctx.runTime, time: ctx.time, ...(ctx.chain ? { chain: true } : {}) },
       players: ctx.players.map((p) => ({ name: p.name, color: p.color, text: '' })),
     } : null;
     wins = null;
@@ -503,7 +504,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
   // the first 100 players to beat this mode / its 100 fastest games (cards like LATEST's, their place first)
   function renderList(list) {
     let L = (lists[view] && lists[view][tab]) || [];
-    if (view === 'fastest') L = L.filter((f) => { const c = catOf(f); return c.local === fast.local && c.team === fast.team; });
+    if (view === 'fastest') L = L.filter((f) => { const c = catOf(f); return c.local === fast.local && c.chain === fast.chain && (c.chain || c.team === fast.team); });
     if (!L.length) { list.appendChild(el('div', 'rkg-empty', view === 'firsts' ? 'Nobody has beaten this mode yet. The first spot is waiting!' : 'No games on this list yet. The first one to win sets the record!')); return; }
     const mine = can && can.id;
     L.forEach((f, i) => {
@@ -512,7 +513,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
       const body = el('div', 'rkg-body');
       const head = el('div', 'rkg-head');
       head.appendChild(el('span', null, fmtDate(f.at)));
-      head.appendChild(el('span', null, (MODES[tab] || '') + (f.kind === 'solo' ? ' · solo' : f.kind === 'coop' ? ' · co-op' : '')));
+      head.appendChild(el('span', null, (MODES[tab] || '') + (f.kind === 'solo' ? ' · solo' : f.kind === 'coop' ? ' · co-op' : '') + (f.chain ? ' · ⛓ chained' : '')));
       if (Number.isFinite(f.total)) head.appendChild(el('span', null, '⏱ ' + fmtTime(f.total)));
       body.appendChild(head);
       cardLines(body, view === 'firsts' ? [{ name: f.name, color: f.color, text: f.text, paid: f.paid }] : f.team || []);
@@ -530,13 +531,26 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
     });
     return w;
   }
+  // a three-way switch (labels; at: the one picked), for SOLO / TEAM / CHAINED
+  function seg3(labels, at, set) {
+    const w = el('div', 'rkg-seg');
+    labels.forEach((label, i) => {
+      const x = el('button', i === at ? 'rkg-on' : '', label);
+      x.addEventListener('click', () => { if (i !== at) set(i); });
+      w.appendChild(x);
+    });
+    return w;
+  }
+  const KINDS = ['SOLO', 'TEAM', '⛓ CHAINED'];
+  const kindAt = (o) => (o.chain ? 2 : o.team ? 1 : 0);
+  const setKind = (o, i) => { o.team = i > 0; o.chain = i === 2; };
   function renderOpts() {
     const o = refs.opts;
     o.textContent = '';
     if (view === 'fastest' && lists) {
       const segs = el('div', 'rkg-segs');
       segs.append(seg('ONLINE', 'LOCAL', fast.local, (v) => { fast.local = v; refs.list.scrollTop = 0; render(); }),
-        seg('SOLO', 'TEAM', fast.team, (v) => { fast.team = v; refs.list.scrollTop = 0; render(); }));
+        seg3(KINDS, kindAt(fast), (i) => { setKind(fast, i); refs.list.scrollTop = 0; render(); }));
       o.appendChild(segs);
     }
     if (view !== 'levels') return;
@@ -556,7 +570,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
     }
     const segs = el('div', 'rkg-segs');
     segs.append(seg('NORMAL', 'EASY', lv.easy, pick(() => { lv.easy = !lv.easy; })));
-    segs.append(seg('SOLO', 'TEAM', lv.team, pick(() => { lv.team = !lv.team; })),
+    segs.append(seg3(KINDS, kindAt(lv), (i) => pick(() => setKind(lv, i))()),
       seg('ONLINE', 'LOCAL', lv.local, pick(() => { lv.local = !lv.local; })));
     const scopes = el('div', 'rkg-segs');
     const sc = el('div', 'rkg-seg');
@@ -695,7 +709,7 @@ function createLegends(root, { send, isOnline, reconnect, onOpenChange, friends,
       const card = el('div', 'rkg-card' + (w.id === mine ? ' rkg-mine' : ''));
       const head = el('div', 'rkg-head');
       head.appendChild(el('span', null, fmtDate(w.at)));
-      head.appendChild(el('span', null, (MODES[w.mode] || 'Run Kitty Run') + (w.kind === 'solo' ? ' · solo' : w.kind === 'coop' ? ' · co-op' : '')));
+      head.appendChild(el('span', null, (MODES[w.mode] || 'Run Kitty Run') + (w.kind === 'solo' ? ' · solo' : w.kind === 'coop' ? ' · co-op' : '') + (w.chain ? ' · ⛓ chained' : '')));
       // the whole game's time (wins before 2026-10-14 only have the final level's)
       const tt = Number.isFinite(w.total) ? w.total : w.runTime;
       if (Number.isFinite(tt)) head.appendChild(el('span', null, '⏱ ' + fmtTime(tt)));

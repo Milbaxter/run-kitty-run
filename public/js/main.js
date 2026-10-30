@@ -3,7 +3,7 @@ import { CFG, PLAYER_COLORS, PLAYER_NAMES, NET, LATEST_FV, SKATE_FINAL_LEVEL, HE
 import { hashSeed } from './shared/rng.js';
 import { collideCircle, onIce, inTree, levelHash } from './shared/maze.js';
 import { updateEnemies, nearestEnemyDist, applyEnemyState, turnIn, turnedAgo } from './shared/enemies.js';
-import { createSim, stepSim, predictPlayer, loadLevel } from './shared/sim.js';
+import { createSim, stepSim, predictPlayer, loadLevel, CHAIN_SOFT, CHAIN_LEN, chainLinks } from './shared/sim.js';
 import { hellWaves, WAVE_SPEED } from './shared/waves.js';
 import { pregenNext } from './levelpregen.js';
 import { ghostMaterial, disposeModel, createKittyModel, createWolfRig, newWolfState, createItemModel, createReviveCircleModel, createPortalModel, createCrownPickupModel, createGiantFishModel, createChestModel } from './models.js';
@@ -591,7 +591,7 @@ let mode = 'title';      // 'title' | 'play'
 let paused = false;
 let sim = null;
 let playerCount = 1;
-let localSetup = { mode: undefined, names: [], easy: false, hell: false };   // single player / co-op: the mode and names from the setup screen (lobby.js)
+let localSetup = { mode: undefined, names: [], easy: false, hell: false, chain: false };   // single player / co-op: the mode and names from the setup screen (lobby.js)
 let simTime = 0;         // presentation clock (seconds)
 let accumulator = 0;
 let gameOverShown = false;
@@ -607,8 +607,8 @@ const prevPos = new Map(); // id -> {x,z} for interpolation (players 'p'+id, ene
 
 function newSeed() { return hashSeed(Date.now(), Math.random()) >>> 0; }
 
-function startSim(players, startLevel, simMode = DEBUG_MODE, easy = false, hell = false) {
-  sim = createSim({ seed: newSeed(), players, startLevel: hell ? startLevel : stageStep(simMode || 'mixed', LATEST_FV, startLevel, DEBUG_NIGHT), mode: simMode, finales: LATEST_FV, easy, hell, waves: hell });
+function startSim(players, startLevel, simMode = DEBUG_MODE, easy = false, hell = false, chain = false) {
+  sim = createSim({ seed: newSeed(), players, startLevel: hell ? startLevel : stageStep(simMode || 'mixed', LATEST_FV, startLevel, DEBUG_NIGHT), mode: simMode, finales: LATEST_FV, easy, hell, waves: hell, chain: chain && players.length > 1 });
   if (DEBUG_WINS) for (const p of sim.players) { p.finishes = DEBUG_WINS; p.crowned = true; }
   if (DEBUG_RESCUES) for (const p of sim.players) p.rescues = DEBUG_RESCUES;
   if (DEBUG_CHEST) sim.chestAlways = true;
@@ -751,6 +751,7 @@ function ensureKitties() {
 }
 
 function removeKitties() {
+  for (const g of chainGroups) g.visible = false;
   for (const k of kitties.values()) { disposeModel(k.model.group); k.trail.dispose(); k.auraTrail.dispose(); k.paws.dispose(); }
   kitties.clear();
 }
@@ -786,7 +787,7 @@ function onTitlePick({ players }) {
     mode: DEBUG_MODE,   // ?mode= (offline testing) preselects
     coop: !TOUCH,
     onPlayers: (k) => { try { localStorage.setItem(LOCAL_N_KEY, String(k)); } catch { /* ignore */ } },
-    onStart: ({ mode: m, names, players: k, easy, hell }) => { localSetup = { mode: m, names, easy: !!easy, hell: !!hell }; startGame(k); },
+    onStart: ({ mode: m, names, players: k, easy, hell, chain }) => { localSetup = { mode: m, names, easy: !!easy, hell: !!hell, chain: !!chain }; startGame(k); },
     onBack: () => ui.showTitle(onTitlePick),
   });
 }
@@ -809,8 +810,8 @@ function startGame(n, level = DEBUG_LEVEL) {
   removeKitties();
   // (hell from level 1; local testing (localhost): ?level=2 starts a Hell game on hell level 2)
   const hellAt = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? Math.min(HELL_LEVELS, level) : 1;
-  startSim(players, localSetup.hell ? hellAt : level, localSetup.mode || DEBUG_MODE, !!localSetup.easy, !!localSetup.hell);
-  analytics.runStart(n === 1 ? 'solo' : 'coop', sim.mode || 'mixed', !!sim.hell);
+  startSim(players, localSetup.hell ? hellAt : level, localSetup.mode || DEBUG_MODE, !!localSetup.easy, !!localSetup.hell, !!localSetup.chain);
+  analytics.runStart(n === 1 ? 'solo' : 'coop', sim.mode || 'mixed', !!sim.hell, chained());
   cameraSnap = true;
   // First step emits levelStart which triggers buildView.
 }
@@ -1089,7 +1090,7 @@ function startVictory(ev) {
     // offline win: the board, and a line for each local kitty (player 1 signs with the saved online name if there is one)
     const p1 = savedName();
     legends.fetchOffline({
-      mode: sim.mode, time: sim.time, runTime: ev && Number.isFinite(ev.time) ? ev.time : sim.levelTime,
+      mode: sim.mode, time: sim.time, runTime: ev && Number.isFinite(ev.time) ? ev.time : sim.levelTime, ...(chained() ? { chain: true } : {}),
       players: sim.players.map((p, i) => ({ name: i === 0 && p1 ? p1 : p.name, color: p.color })),
     });
   }
@@ -2012,7 +2013,88 @@ function syncVisuals(dt, alpha) {
       }
     }
   }
+  drawChains(dt);
   world_update(dt, t);
+}
+
+// chained kitties: CHAIN_LINKS oval links from one kitty's collar to the other's, each kitty's half in its own colour
+// with a silver link in the middle. Slack, the chain hangs in an arc as long as the chain (CHAIN_SOFT) and lies on the
+// ground where the arc would go below it; stretching, the dip fades out smoothly until it runs straight at full stretch.
+const CHAIN_LINKS = 19, CHAIN_Y = 0.42, CHAIN_COLLAR = 0.28;
+const chainGeo = new THREE.TorusGeometry(0.075, 0.024, 8, 16).scale(1.55, 1, 1).rotateY(-Math.PI / 2);   // long along z (lookAt)
+const chainSilver = new THREE.MeshStandardMaterial({ color: 0xd8dde3, metalness: 0.9, roughness: 0.25 });
+const chainGroups = [];
+const _cq = new THREE.Vector3();
+function chainPoint(out, A, B, ya, yb, h, s) {
+  out.set(A.x + (B.x - A.x) * s, Math.max(0.03, ya + (yb - ya) * s - 4 * s * (1 - s) * h), A.z + (B.z - A.z) * s);
+  return out;
+}
+// where a chained kitty left the game (sim.anchors): a grey ring like a revive circle; a kitty of its chain touching it
+// lets the chain go (shared/sim.js chainPull)
+const anchorRings = new Map();   // id -> mesh
+const anchorMat = new THREE.MeshBasicMaterial({ color: 0xc9ced6, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false });
+function drawAnchors() {
+  const an = (sim && sim.chain && sim.anchors) || {};
+  for (const [id, m] of anchorRings) if (!an[id]) { scene.remove(m); m.geometry.dispose(); anchorRings.delete(id); }
+  const pulse = 1 + Math.sin(performance.now() / 260) * 0.06;
+  for (const id of Object.keys(an)) {
+    let m = anchorRings.get(id);
+    if (!m) {
+      m = new THREE.Mesh(new THREE.RingGeometry(CFG.REVIVE_RADIUS - 0.12, CFG.REVIVE_RADIUS, 40), anchorMat);
+      m.rotation.x = -Math.PI / 2;
+      scene.add(m);
+      anchorRings.set(id, m);
+    }
+    m.position.set(an[id].x, 0.04, an[id].z);
+    m.scale.set(pulse, pulse, pulse);
+  }
+}
+function drawChains(dt) {
+  drawAnchors();
+  const pairs = sim && sim.chain ? chainLinks(sim) : [];
+  for (let i = 0; i < Math.max(pairs.length, chainGroups.length); i++) {
+    // (an end can be an anchor: a kitty that left the game, chainLinks; drawn on the ground where it was)
+    const pr = pairs[i], ka = pr && !pr[0].anchor && kitties.get(pr[0].id), kb = pr && !pr[1].anchor && kitties.get(pr[1].id);
+    const on = !!(pr && (ka || pr[0].anchor) && (kb || pr[1].anchor) && (pr[0].alive || pr[1].alive));
+    let g = chainGroups[i];
+    if (!g) {
+      if (!on) continue;
+      g = chainGroups[i] = new THREE.Group();
+      g.userData.mats = [0, 1].map(() => new THREE.MeshStandardMaterial({ metalness: 0.55, roughness: 0.3 }));
+      for (let j = 0; j < CHAIN_LINKS; j++) {
+        const mid = j === (CHAIN_LINKS - 1) / 2;
+        const m = new THREE.Mesh(chainGeo, mid ? chainSilver : g.userData.mats[j < CHAIN_LINKS / 2 ? 0 : 1]);
+        m.castShadow = true;
+        g.add(m);
+      }
+      scene.add(g);
+    }
+    g.visible = on;
+    if (!on) continue;
+    g.userData.mats[0].color.setHex(pr[0].anchor ? 0x9a9fa6 : pr[0].color);
+    g.userData.mats[1].color.setHex(pr[1].anchor ? 0x9a9fa6 : pr[1].color);
+    // ends at the collars (a downed kitty: on the ground at its revive circle)
+    const PA = pr[0].alive ? ka.model.group.position : { x: pr[0].x, y: 0, z: pr[0].z };
+    const PB = pr[1].alive ? kb.model.group.position : { x: pr[1].x, y: 0, z: pr[1].z };
+    const dx = PB.x - PA.x, dz = PB.z - PA.z, d = Math.hypot(dx, dz) || 1e-6, ux = dx / d, uz = dz / d;
+    const A = { x: PA.x + ux * CHAIN_COLLAR, z: PA.z + uz * CHAIN_COLLAR }, B = { x: PB.x - ux * CHAIN_COLLAR, z: PB.z - uz * CHAIN_COLLAR };
+    const ya = pr[0].alive ? PA.y + CHAIN_Y : 0.05, yb = pr[1].alive ? PB.y + CHAIN_Y : 0.05;
+    // the arc's dip: a parabola as long as the whole chain (length ~ D + 8h^2 / 3D); through the stretch it fades
+    // smoothly to nothing (straight a little before the pull stops the kitties); it drops back with a short lag but
+    // pulls straight at once
+    const D = Math.max(0.05, d - 2 * CHAIN_COLLAR), L = CHAIN_LEN - 0.3 - 2 * CHAIN_COLLAR;
+    const s = Math.min(1, Math.max(0, (d - CHAIN_SOFT) / (CHAIN_LEN - 0.3 - CHAIN_SOFT))), fade = 1 - s * s * (3 - 2 * s);
+    const want = (D < L ? Math.sqrt(3 * D * (L - D) / 8) : 0) * fade;
+    const ud = g.userData;
+    ud.h = ud.h == null || !(dt > 0) || want < ud.h ? want : ud.h + (want - ud.h) * (1 - Math.exp(-dt * 12));
+    const h = ud.h;
+    for (let j = 0; j < CHAIN_LINKS; j++) {
+      const s = (j + 0.5) / CHAIN_LINKS, m = g.children[j];
+      chainPoint(m.position, A, B, ya, yb, h, s);
+      m.lookAt(chainPoint(_cq, A, B, ya, yb, h, s + 0.02));
+      if (j % 2) m.rotateZ(Math.PI / 2);   // every other link turned a quarter: they hook into each other
+    }
+  }
 }
 
 const _trailRainbow = new THREE.Color();
@@ -2122,7 +2204,8 @@ account.init();
 const lobbyUI = createLobbyUI(document.getElementById('ui'), {
   // opts: { max: how many kitties may join, password: '' = public } (lobby.js)
   onCreate: (name, mode, opts = {}) => net.send({ t: 'create', name, mode, easy: !!opts.easy, color: prefColor(), max: opts.max, password: opts.password || '',
-    ...(opts.hell ? { hell: true, hl: account.hellOpen(mode) } : {}) }),   // (hl: hell open here, offline progress included)
+    ...(opts.hell ? { hell: true, hl: account.hellOpen(mode) } : {}), ...(opts.chain ? { chain: opts.chain === 'all' ? 'all' : true } : {}) }),
+  onChainWith: (id) => net.send({ t: 'chainwith', id }),   // (a chained lobby: chain up with that kitty)   // (hl: hell open here, offline progress included)
   hellOpen: (mode) => account.hellOpen(mode),
   onJoin: (code, name, password = '') => net.send({ t: 'join', code, name, color: prefColor(), password }),
   onLeave: () => net.send({ t: 'leave' }),
@@ -2206,11 +2289,13 @@ async function sendLevelNotes() {
   try { while (lvPending.length) { await legends.reportLocal(lvPending[0]); lvPending.shift(); } } catch { setTimeout(sendLevelNotes, 60e3); }
   lvSending = false;
 }
+// a game played on chains (its own level boards and fastest lists): two kitties or more on a chain
+const chained = () => !!(sim && sim.chain && sim.players.length > 1);
 function noteLevels(events) {
   if (sim.hell) {   // hell: only how far the game got, at its end (its local hell board; not an easy game's)
     for (const e of events) {
       if (e.type !== 'gameOver' && e.type !== 'victory' && e.type !== 'wipe') continue;   // (wipe: easy hell's level starting over)
-      lvPending.push({ hell: true, easy: !!sim.easy, mode: sim.mode, level: e.level, far: e.type === 'victory' ? 1 : e.far, time: sim.time,   // (the game's total time)
+      lvPending.push({ hell: true, easy: !!sim.easy, mode: sim.mode, level: e.level, far: e.type === 'victory' ? 1 : e.far, time: sim.time, ...(chained() ? { chain: true } : {}),   // (the game's total time)
         players: sim.players.slice(0, 2).map((p) => ({ name: p.name, color: p.color })) });
       if (lvPending.length > 30) lvPending.shift();
     }
@@ -2225,7 +2310,7 @@ function noteLevels(events) {
     if (e.type === 'levelClear') {
       const day = lvDay && lvDay.level === e.level ? lvDay.time : 0;
       lvDay = null;
-      msg = { mode: sim.mode, level: e.level, time: sim.levelTime + day, easy: !!sim.easy, players };
+      msg = { mode: sim.mode, level: e.level, time: sim.levelTime + day, easy: !!sim.easy, players, ...(chained() ? { chain: true } : {}) };
     } else if (e.type === 'levelStart' && !e.retry && ((sim.levelData && sim.levelData.level) || sim.level) === SKATE_FINAL_LEVEL) {
       msg = { reached: SKATE_FINAL_LEVEL, players };
     }
@@ -2477,6 +2562,7 @@ net.on('close', () => {
 });
 net.on('start', (m) => beginOnlineGame(m));
 net.on('snap', (m) => applySnapshot(m));
+net.on('chains', (m) => { if (sim && sim.chain && Array.isArray(m.c)) { sim.chains = m.c; sim.anchors = m.a || {}; } });   // (chained: someone left, came back, joined)
 net.on('wolves', (m) => {
   if (!online.playing || m.lvl !== sim.level) return;
   // (from before an easy game's level started over: its wolves' time far ahead of now would hold them still until then)
@@ -2539,9 +2625,10 @@ function beginOnlineGame(m) {
   if (online.room) rememberPlayers(online.room.members);   // (for the invite panel)
   playerCount = m.players.length;
   removeKitties();
-  sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode, finales: +m.rf || 0, easy: !!m.easy, hell: !!m.hell, waves: !!m.hw });
+  sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode, finales: +m.rf || 0, easy: !!m.easy, hell: !!m.hell, waves: !!m.hw, chain: m.cn ? (m.cn.all ? 'all' : true) : false });
+  if (m.cn && Array.isArray(m.cn.c)) { sim.chains = m.cn.c; sim.anchors = m.cn.a || {}; }   // (the server's chains: who left, rejoined)
   sim.retries = m.rt | 0;
-  analytics.runStart('online', m.mode || 'mixed', !!m.hell);
+  analytics.runStart('online', m.mode || 'mixed', !!m.hell, !!m.cn && m.players.length > 1);
   sim.started = true;
   // joined mid-level: the lottery chest and what it dropped (ch, xi), then what is already taken
   if (m.ch) sim.chest = { x: m.ch[0], z: m.ch[1], open: !!m.ch[2] };

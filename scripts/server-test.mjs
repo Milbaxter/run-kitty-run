@@ -72,6 +72,37 @@ async function victory() {
     old2.send({ t: 'join', code: b.last.room.code, name: 'Old2' }); await sleep(150);
     ok(old2.last.error && /new level 9/.test(old2.last.error.msg) && !old2.last.start, `protocol-4 kitty can't join it mid-game: "${old2.last.error && old2.last.error.msg}"`);
     for (const x of [a, old, b, old2]) x.ws.close();
+  }
+  // ---- chained lobbies (protocol 33): not alone, not for older clients; partners picked in the lobby (swapped in), the
+  // chains in the start message; one leaving leaves an anchor, and coming back in time it takes its place again
+  {
+    const a = bot(NEW), b = bot(NEW), c = bot(NEW), d = bot({ ...NEW, tok: 'chain-tab-token-d' }), old = bot({ v: 32, app: 'web', ver: 'test' });
+    await Promise.all([a.ready, b.ready, c.ready, d.ready, old.ready]);
+    a.send({ t: 'create', name: 'A', mode: 'run', chain: true }); await sleep(150);
+    a.send({ t: 'start' }); await sleep(150);
+    ok(a.last.room.chain && a.last.error && /two kitties/.test(a.last.error.msg) && !a.last.start, 'chained lobby: no start alone');
+    const code = a.last.room.code;
+    old.send({ t: 'join', code, name: 'Old' }); await sleep(150);
+    ok(old.last.error && /chained/.test(old.last.error.msg) && !old.last.room, 'chained lobby: a protocol-32 kitty cant join');
+    for (const [x, n] of [[b, 'B'], [c, 'C'], [d, 'D']]) { x.send({ t: 'join', code, name: n }); await sleep(120); }
+    const id = (x) => x.last.room.you;
+    ok(JSON.stringify(a.last.room.order) === JSON.stringify([id(a), id(b), id(c), id(d)]), 'chained lobby: chain order is the join order');
+    a.send({ t: 'chainwith', id: id(c) }); await sleep(150);
+    ok(JSON.stringify(b.last.room.order) === JSON.stringify([id(a), id(c), id(b), id(d)]), 'chained lobby: A picks C, B takes C place');
+    a.send({ t: 'start' }); await sleep(300);
+    const cn = d.last.start && d.last.start.cn;
+    ok(cn && JSON.stringify(cn.c) === JSON.stringify([[id(a), id(c)], [id(b), id(d)]]), 'chained game: the chains as picked in the start message');
+    const dId = id(d);
+    d.ws.close(); await sleep(250);
+    ok(b.last.chains && b.last.chains.a && b.last.chains.a[dId] && JSON.stringify(b.last.chains.c[1]) === JSON.stringify([id(b), dId]), 'chained game: D leaving leaves an anchor on its chain');
+    const d2 = bot({ ...NEW, tok: 'chain-tab-token-d' }); await d2.ready;
+    d2.send({ t: 'join', code, name: 'D' }); await sleep(300);
+    const back = d2.last.start && d2.last.start.cn;
+    ok(back && JSON.stringify(back.c[1]) === JSON.stringify([id(b), d2.last.room.you]) && !Object.keys(back.a).length && b.last.chains.c.length === 2, 'chained game: D back in time takes its place on its chain');
+    for (const x of [a, b, c, d2, old]) x.ws.close();
+    await sleep(3500);   // (the connection rate limit: these six back, CONN_RATE 2/s)
+  }
+  {
     // Run + Skate (protocol 7): level 9 is both final runs in a row; a client builds the very same level from 'start'
     const c = bot(NEW); await c.ready;
     c.send({ t: 'create', name: 'C', mode: 'mixed' }); await sleep(150);
@@ -174,8 +205,8 @@ async function victory() {
 
   // ---- stats + a new game
   const stats = await (await fetch(`http://127.0.0.1:${PORT}/api/stats`)).json();
-  // onlineGames: this game + the two Run only level 9 rooms + the Run + Skate one
-  ok(stats.totals.onlineWins === 1 && stats.onlineWinsByMode.ice === 1 && stats.totals.onlineGames === 4, `stats: onlineWins ${stats.totals.onlineWins}, ice ${stats.onlineWinsByMode.ice}`);
+  // onlineGames: this game + the two Run only level 9 rooms + the chained one + the Run + Skate one
+  ok(stats.totals.onlineWins === 1 && stats.onlineWinsByMode.ice === 1 && stats.totals.onlineGames === 5, `stats: onlineWins ${stats.totals.onlineWins}, ice ${stats.onlineWinsByMode.ice}`);
   const prevStart = guest.last.start;
   host.send({ t: 'start' });
   for (let i = 0; i < 30 && !(guest.last.start !== prevStart && guest.last.snap.st === 'playing'); i++) await sleep(100); // can lag on a busy machine

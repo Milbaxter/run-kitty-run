@@ -30,9 +30,10 @@ const MIN_RUN_S = 15;                   // offline: the final run alone
 const OFFLINE_PLAYERS = 2;              // solo or local co-op
 const LIST_MAX = 100;                   // firsts / fastest: entries per mode
 const LIST_MODES = ['mixed', 'run', 'ice'];
-// the fastest lists: online / local (offline wins, self-reported) games, solo / team
-const CATS = ['os', 'ot', 'ls', 'lt'];
-const catOf = (f) => (f.kind ? 'l' : 'o') + ((f.kind ? f.kind === 'solo' : (f.team || f.keys || []).length === 1) ? 's' : 't');
+// the fastest lists: online / local (offline wins, self-reported) games, solo / team / chained team (a game played on
+// chains: its own list; on the latest wins and the firsts with the others, marked)
+const CATS = ['os', 'ot', 'ls', 'lt', 'oc', 'lc'];
+const catOf = (f) => (f.kind ? 'l' : 'o') + (f.chain ? 'c' : (f.kind ? f.kind === 'solo' : (f.team || f.keys || []).length === 1) ? 's' : 't');
 // wins taken off the board by hand (by id): dropped when the board loads, so a deploy removes them
 const REMOVED = new Set(['murjptwl94a69a', 'mv8dky15adbec8', 'mv8g942e32c8f5']);   // (mv8dky15adbec8, mv8g942e32c8f5: test runs with a bot, 2026-10-14)
 // lines written in by hand (win id -> one line per kitty, in order), for a winner whose signing failed: filled in when
@@ -162,8 +163,8 @@ function createLegends(file) {
     return out;
   };
   const publicLists = () => ({
-    firsts: Object.fromEntries(LIST_MODES.map((m) => [m, firsts[m].map((f) => withPaid({ win: f.win, at: f.at, total: f.total, name: f.name, color: f.color, text: f.text || '' }, f.keys))])),
-    fastest: Object.fromEntries(LIST_MODES.map((m) => [m, fastest[m].map((f) => ({ win: f.win, at: f.at, total: f.total, kind: f.kind, team: (f.team || []).map((t, j) => withPaid(t, f.keys && f.keys[j])) }))])),
+    firsts: Object.fromEntries(LIST_MODES.map((m) => [m, firsts[m].map((f) => withPaid({ win: f.win, at: f.at, total: f.total, name: f.name, color: f.color, text: f.text || '', ...(f.chain ? { chain: 1 } : {}) }, f.keys))])),
+    fastest: Object.fromEntries(LIST_MODES.map((m) => [m, fastest[m].map((f) => ({ win: f.win, at: f.at, total: f.total, kind: f.kind, ...(f.chain ? { chain: 1 } : {}), team: (f.team || []).map((t, j) => withPaid(t, f.keys && f.keys[j])) }))])),
   });
   // (cached a minute: the swag numbers can change without the board changing)
   function boardJson() {
@@ -198,12 +199,12 @@ function createLegends(file) {
     win.entries.forEach((e, idx) => {
       if (F.some((f) => samePerson(f, keyList[idx], e.name))) { renameFirst(m, keyList[idx], e.name); return; }
       if (F.length >= LIST_MAX) return;
-      F.push({ win: win.id, idx, at: win.at, ...(Number.isFinite(win.total) ? { total: win.total } : {}), name: e.name, color: e.color, text: e.text || '', keys: keyList[idx] });
+      F.push({ win: win.id, idx, at: win.at, ...(Number.isFinite(win.total) ? { total: win.total } : {}), name: e.name, color: e.color, text: e.text || '', keys: keyList[idx], ...(win.chain ? { chain: 1 } : {}) });
     });
     if (firstEver) keyList.forEach((k) => golden.push({ win: win.id, keys: k.slice() }));
     if (!Number.isFinite(win.total)) return;
     const teamKey = keyList.map((k) => k[0]).sort().join('|');
-    const entry = { win: win.id, at: win.at, total: win.total, kind: win.kind, team: win.entries.map((e) => ({ name: e.name, color: e.color, text: e.text || '' })), keys: keyList, teamKey };
+    const entry = { win: win.id, at: win.at, total: win.total, kind: win.kind, ...(win.chain ? { chain: 1 } : {}), team: win.entries.map((e) => ({ name: e.name, color: e.color, text: e.text || '' })), keys: keyList, teamKey };
     const cat = catOf(entry), L = fastest[m], mine = L.findIndex((f) => f.teamKey === teamKey && catOf(f) === cat);
     if (mine >= 0) { if (L[mine].total <= win.total) return; L.splice(mine, 1); }
     L.push(entry);
@@ -232,12 +233,13 @@ function createLegends(file) {
   }
 
   // A room won: one legend with everyone in it (names only until they write something), and a signing window each.
-  function recordWin(mode, runTime, members, total) {
+  function recordWin(mode, runTime, members, total, chain = false) {
     const now = Date.now();
     const win = {
       id: newId(now), at: new Date(now).toISOString(), mode,
       runTime: Number.isFinite(runTime) ? Math.round(runTime * 10) / 10 : null,
       ...(Number.isFinite(total) ? { total: Math.round(total * 10) / 10 } : {}),
+      ...(chain && members.length > 1 ? { chain: 1 } : {}),   // (played on chains)
       entries: members.map((m) => ({ name: m.name, color: m.color, text: '', at: null })),
     };
     members.forEach((m, idx) => { for (const k of keysOf(m)) elig.set(k, { win, idx, until: now + SIGN_WINDOW_MS }); });
@@ -298,6 +300,7 @@ function createLegends(file) {
     const win = {
       id: newId(now), at: new Date(now).toISOString(), mode: m.mode, kind: ps.length > 1 ? 'coop' : 'solo',
       runTime: Math.round(+m.runTime * 10) / 10, total: Math.round(+m.time * 10) / 10,
+      ...(m.chain === true && ps.length > 1 ? { chain: 1 } : {}),   // (played on chains)
       entries: ps.map((p) => ({ name: p.name, color: p.color, text: p.text, at: p.text ? new Date(now).toISOString() : null })),
     };
     const key = crypto.randomBytes(12).toString('hex');

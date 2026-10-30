@@ -26,6 +26,197 @@ const GAME_MODES = ['mixed', 'run', 'ice'];
 
 const MAX_SUBSTEP_DISP = 0.25;
 const MAX_SUBSTEPS = 64;
+// Chained kitties (sim.chain): the kitties are chained up in groups (sim.chains: lists of player ids; two each, the last
+// three when there's an odd number: chainGroups), each next to the next on a chain CHAIN_LEN long (centre to centre).
+// From CHAIN_SOFT on it stretches and pulls back, harder the further it's stretched: at CHAIN_SOFT it takes nothing off a
+// kitty running away, at CHAIN_LEN all of it. Pulled back, the one running away gets held back and the other dragged
+// after it: of the way back the dragged kitty covers CHAIN_DRAG (at full stretch the pair moves on at that share of the
+// runner's speed); two kitties pulling apart split it by how hard each pulls.
+// A pair further apart than the chain (a checkpoint) is reeled in at most CHAIN_REEL kitty speeds. A downed kitty stays
+// chained where it went down (its revive circle) and doesn't move: its partner can't get further away than the chain.
+// One that leaves the game (chainLeave, the server): off the end of a chain that still has two kitties it just goes; else
+// (in the middle, or one of a pair) it leaves an anchor where it was (sim.anchors), held like a downed kitty, until it's
+// back in time (chainRejoin, there) or a kitty of its chain touches the spot (CHAIN_TOUCH, like a revive circle: chainPull
+// lets it go and the chain joins up between the kitties still there) - but only while two of its kitties are still in the
+// game: one left on its own stays held (no running about alone and having friends join later) until the next kitty to
+// join takes the place that was left, right there (chainJoin). Other newcomers join at the end.
+const CHAIN_SOFT = 2.8, CHAIN_LEN = 4.2, CHAIN_DRAG = 0.3, CHAIN_REEL = 1.5;
+const CHAIN_TOUCH = CFG.REVIVE_RADIUS + CFG.KITTY_RADIUS;   // (an anchor's spot: touched like a revive circle)
+// a skater being towed (not steering itself) builds up speed at this share of the ice's usual rate
+const CHAIN_TOW_ACCEL = 0.35;
+// ids in chain order -> the chains: two each, the last three when there's an odd number (one alone: a chain of one);
+// all: everyone on one chain
+function chainGroups(ids, all = false) {
+  if (all) return ids.length ? [ids.slice()] : [];
+  const out = [];
+  for (let i = 0; i < ids.length;) { const n = ids.length - i === 3 ? 3 : 2; out.push(ids.slice(i, i + n)); i += n; }
+  return out;
+}
+// every link of every chain: [a, b, aSide, bSide]: a and b a kitty or an anchor ({ x, z, alive: false }: someone who
+// left); the sides: everyone on the chain on a's side of the link (a included) and on b's (chainPull: who pulls which way)
+function chainLinks(sim) {
+  const out = [];
+  if (!sim.chain || !sim.chains) return out;
+  const at = (id) => findPlayer(sim, id) || (sim.anchors && sim.anchors[id] ? { id, x: sim.anchors[id].x, z: sim.anchors[id].z, vx: 0, vz: 0, alive: false, anchor: true } : null);
+  for (const g of sim.chains) {
+    const ks = g.map(at);
+    for (let i = 0; i + 1 < ks.length; i++) {
+      const a = ks[i], b = ks[i + 1];
+      if (a && b) out.push([a, b, ks.slice(0, i + 1).filter(Boolean), ks.slice(i + 1).filter(Boolean)]);
+    }
+  }
+  return out;
+}
+function moveBy(sim, p, dx, dz) {
+  const c = collideCircle(sim.levelData, p.x + dx, p.z + dz, CFG.KITTY_RADIUS);
+  p.x = c.x; p.z = c.z;
+}
+function chainMomentum(sim, p, nx, nz, pulling, tow) {
+  if (!p.alive || pulling > 0.3 || !onIce(sim.levelData, p.x, p.z)) return;
+  p.towed = true;
+  const v = p.vx * nx + p.vz * nz;
+  if (v < tow) { p.vx += nx * (tow - v); p.vz += nz * (tow - v); }
+}
+// Who drags whom along a link: each side of it (everyone on the chain that side) pulls with the sum of its kitties' speed
+// away from the other side (in kitty speeds; one running the other way counts against it). The stronger side drags the
+// other at CHAIN_DRAG of its speed per kitty's worth of pull more than the other side's own pull away (one kitty dragging
+// one standing: 30%, two 60%, from four: full speed; two against one running the other way: 30%, one against one: a
+// stand-off).
+// only: just that kitty moves (a client predicting its own kitty: the others are the server's)
+// First the stretch (each link by how hard its two kitties pull apart), then, a few times over, any link left past
+// CHAIN_LEN back to it: on a long chain each link sorting itself out pulls its neighbours' links out again, and without
+// these passes a tug of war along the chain would stretch some links well past the chain (the more kitties pulling one
+// way, the more the others get dragged: the passes share each fix by the same pull). Further past it than CHAIN_SNAP (a
+// checkpoint) it's reeled in at CHAIN_REEL at most, once a tick.
+const CHAIN_SNAP = 0.6, CHAIN_PASSES = 4;
+function chainPull(sim, dt, only = null) {
+  if (!only) for (const p of sim.players) p.towed = false;
+  // a kitty of its chain at an anchor's spot, with two of the chain still in the game: let go (sim.chainRev: the server
+  // tells everyone)
+  if (!only) for (const id of Object.keys(sim.anchors)) {
+    const an = sim.anchors[id], g = sim.chains.find((c) => c.includes(+id));
+    if (g && g.filter((o) => findPlayer(sim, o)).length < 2) continue;
+    if (g && !g.some((o) => { const q = findPlayer(sim, o); return q && q.alive && Math.hypot(q.x - an.x, q.z - an.z) < CHAIN_TOUCH; })) continue;
+    chainRelease(sim, +id);
+  }
+  const links = chainLinks(sim).filter(([a, b]) => (a.alive || b.alive) && (!only || a === only || b === only));
+  const sidePull = (side, nx, nz) => side.reduce((s, p) => s + (p.alive ? (p.vx * nx + p.vz * nz) / CFG.KITTY_SPEED : 0), 0);
+  const may = (p) => p.alive && (!only || p === only);
+  // a's share of the way back (a downed kitty, an anchor: none): the side pulling less is dragged (see above)
+  const shareOf = (a, b, ux, uz, aSide, bSide) => {
+    const pa = Math.max(0, -(a.vx * ux + a.vz * uz)), pb = Math.max(0, b.vx * ux + b.vz * uz);
+    if (!a.alive) return [0, pa, pb];
+    if (!b.alive) return [1, pa, pb];
+    const fa = sidePull(aSide, -ux, -uz), fb = sidePull(bSide, ux, uz);
+    if (Math.abs(fa - fb) < 1e-3) return [0.5, pa, pb];
+    // the speed the link moves on at, toward the stronger side (v), and the weaker end's share of the way back that gives
+    // it: the stronger end (pulling away at vw) held back by the rest, the weaker one (at vl the other way) dragged
+    const drag = Math.min(1, Math.max(0, CHAIN_DRAG * (Math.max(fa, fb) - Math.max(0, Math.min(fa, fb)))));
+    const vw = fb > fa ? pb : pa, vl = fb > fa ? pa : pb, v = drag * vw;
+    const weak = vw + vl > 1e-6 ? Math.min(1, (v + vl) / (vw + vl)) : drag;
+    return [fb > fa ? weak : 1 - weak, pa, pb];
+  };
+  // move a and b ex closer (a's share wa); one of them against a wall: the other takes what it couldn't
+  const pull = (a, b, ux, uz, d, ex, wa) => {
+    if (may(a)) moveBy(sim, a, ux * ex * wa, uz * ex * wa);
+    if (may(b)) moveBy(sim, b, -ux * ex * (1 - wa), -uz * ex * (1 - wa));
+    for (const p of [b, a]) {
+      const ex2 = b.x - a.x, ez2 = b.z - a.z, d2 = Math.sqrt(ex2 * ex2 + ez2 * ez2), rest = d2 - (d - ex);
+      if (!(rest > 1e-4) || !may(p)) continue;
+      const k = (p === a ? rest : -rest) / d2;
+      moveBy(sim, p, ex2 * k, ez2 * k);
+    }
+  };
+  for (const [a, b, aSide, bSide] of links) {
+    const dx = b.x - a.x, dz = b.z - a.z, d = Math.sqrt(dx * dx + dz * dz);
+    if (!(d > CHAIN_SOFT)) continue;
+    const ux = dx / d, uz = dz / d, [wa, pa, pb] = shareOf(a, b, ux, uz, aSide, bSide);
+    // stretching: undo that share of this tick's drifting apart (so the chain gets tighter and tighter but never jerks
+    // to a stop)
+    const ex = Math.min(Math.min(1, (d - CHAIN_SOFT) / (CHAIN_LEN - CHAIN_SOFT)) * (pa + pb) * dt, d - CHAIN_SOFT);
+    if (!(ex > 1e-6)) continue;
+    pull(a, b, ux, uz, d, ex, wa);
+    // on ice a kitty being dragged (not pulling away itself) picks up the pull as speed toward its partner: the ice then
+    // keeps it going, so it builds up momentum to full skating speed
+    if (may(a)) chainMomentum(sim, a, ux, uz, pa, ex * wa / dt);
+    if (may(b)) chainMomentum(sim, b, -ux, -uz, pb, ex * (1 - wa) / dt);
+  }
+  for (let pass = 0; pass < CHAIN_PASSES; pass++) {
+    let moved = false;
+    for (const [a, b, aSide, bSide] of links) {
+      const dx = b.x - a.x, dz = b.z - a.z, d = Math.sqrt(dx * dx + dz * dz), over = d - CHAIN_LEN;
+      if (!(over > 1e-4)) continue;
+      const ex = over <= CHAIN_SNAP ? over : pass === 0 ? Math.min(over, CHAIN_REEL * CFG.KITTY_SPEED * dt) : 0;
+      if (!(ex > 0)) continue;
+      const ux = dx / d, uz = dz / d;
+      pull(a, b, ux, uz, d, ex, shareOf(a, b, ux, uz, aSide, bSide)[0]);
+      moved = true;
+    }
+    if (!moved) break;
+  }
+}
+// a kitty joining a running chained game (not one coming back: chainRejoin) gets a partner and starts next to it: on
+// one chain (all) at its end; else a kitty on its own, else the last of a chain of three (two pairs then), else onto a
+// pair (three), else on its own until the next one comes
+function chainJoin(sim, p) {
+  if (!sim.chain || sim.chains.some((g) => g.includes(p.id))) return;
+  const here = (id) => !!findPlayer(sim, id);
+  // a kitty held on its own by an anchor: the newcomer takes the place that was left, where it was
+  const stuck = sim.chains.find((g) => g.some((id) => sim.anchors[id]) && g.filter((id) => here(id) && id !== p.id).length === 1);
+  if (stuck) {
+    const old = stuck.find((id) => sim.anchors[id]), an = sim.anchors[old];
+    stuck[stuck.indexOf(old)] = p.id;
+    delete sim.anchors[old];
+    p.x = an.x; p.z = an.z; p.vx = 0; p.vz = 0;
+    sim.chainRev = (sim.chainRev | 0) + 1;
+    return;
+  }
+  let mate = null;
+  if (sim.chainAll) {
+    const g = sim.chains[0];
+    if (g) { mate = g[g.length - 1]; g.push(p.id); } else sim.chains.push([p.id]);
+  } else {
+    const lone = sim.chains.find((g) => g.length === 1 && here(g[0]) && g[0] !== p.id);
+    const three = sim.chains.find((g) => g.length === 3 && here(g[2]));
+    const pair = sim.chains.find((g) => g.length === 2 && here(g[1]));
+    if (lone) { mate = lone[0]; lone.push(p.id); }
+    else if (three) { mate = three.pop(); sim.chains.push([mate, p.id]); }
+    else if (pair) { mate = pair[1]; pair.push(p.id); }
+    else sim.chains.push([p.id]);
+  }
+  const q = mate != null && findPlayer(sim, mate);
+  if (q) {   // (right beside its partner, not across the map at the start)
+    const c = collideCircle(sim.levelData, q.x + 0.9, q.z, CFG.KITTY_RADIUS);
+    p.x = c.x; p.z = c.z; p.vx = 0; p.vz = 0;
+  }
+}
+// someone who left is back (as a new player id): it takes its old place on its chain, where its anchor was
+function chainRejoin(sim, oldId, p) {
+  if (!sim.chain || !sim.chains) return false;
+  if (!sim.chains.some((c) => c.includes(oldId))) return false;
+  sim.chains = sim.chains.map((c) => c.filter((id) => id !== p.id)).filter((c) => c.length);   // (addPlayer put it on its own)
+  const g = sim.chains.find((c) => c.includes(oldId));
+  g[g.indexOf(oldId)] = p.id;
+  const an = sim.anchors[oldId];
+  if (an) { p.x = an.x; p.z = an.z; delete sim.anchors[oldId]; }
+  return true;
+}
+// someone who left isn't coming back: off its chain (its partner waits on its own for the next kitty to join)
+function chainRelease(sim, id) {
+  if (!sim.chain || !sim.chains) return;
+  delete sim.anchors[id];
+  for (const g of sim.chains) { const i = g.indexOf(id); if (i >= 0) g.splice(i, 1); }
+  sim.chains = sim.chains.filter((g) => g.length);
+  sim.chainRev = (sim.chainRev | 0) + 1;
+}
+// a kitty leaving the game (before removePlayer): off the end of a chain that keeps two kitties at once, else an anchor
+function chainLeave(sim, id) {
+  const p = findPlayer(sim, id), g = sim.chain && sim.chains.find((c) => c.includes(id));
+  if (!p || !g) return;
+  const i = g.indexOf(id), still = g.filter((o) => o !== id && findPlayer(sim, o)).length;
+  if ((i === 0 || i === g.length - 1) && still >= 2) chainRelease(sim, id);
+  else { sim.anchors[id] = { x: p.x, z: p.z }; sim.chainRev = (sim.chainRev | 0) + 1; }
+}
 
 // Level generation can take 100ms+ (Skate pattern wolves), so clients and the server pre-generate the next level
 // off-thread and hand it over in sim.pregen = { level, seed, mode, ld }: makeLevel takes it when it matches
@@ -140,7 +331,7 @@ function makePlayer(def) {
 // instead of the game being over.
 // hell: Run only / Skate only's final run over and over (config.js HELL_LEVELS; sim.level is the hell level), easy or not;
 // waves: with its wolf waves (waves.js; online only when every kitty's game knows them)
-function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales = 0, easy = false, hell = false, waves = false } = {}) {
+function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales = 0, easy = false, hell = false, waves = false, chain = false } = {}) {   // (chain: true pairs, 'all' everyone on one chain)
   mode = GAME_MODES.includes(mode) ? mode : 'mixed';
   hell = !!hell && HELL_MODES.includes(mode);
   const lvl = hell ? Math.max(1, Math.min(HELL_LEVELS, startLevel | 0)) : Math.max(1, startLevel | 0);
@@ -171,6 +362,10 @@ function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales
     started: false,
     enteredCenter: [],
     checkpointsHit: [],
+    chain: !!chain,   // chained kitties (CHAIN_LEN)
+    chainAll: chain === 'all',   // ...everyone on one chain
+    chains: [],       // ...their chains: lists of player ids, in chain order (chainGroups)
+    anchors: {},      // ...where a chained kitty that left the game was: id -> { x, z } (chainLinks)
   };
   makeLevel(sim, lvl);
   for (let i = 0; i < players.length; i++) {
@@ -178,6 +373,7 @@ function createSim({ seed, players = [], startLevel = 1, mode = 'mixed', finales
     placeAtSpawn(sim, p, i);
     sim.players.push(p);
   }
+  if (sim.chain) sim.chains = chainGroups(sim.players.map((p) => p.id), sim.chainAll);   // (the players come in chain order)
   return sim;
 }
 
@@ -249,7 +445,7 @@ function movePlayer(sim, p, inp, dt) {
         while (d <= -Math.PI) d += 2 * Math.PI;
         ang += d > maxTurn ? maxTurn : d < -maxTurn ? -maxTurn : d;
       }
-      if (steering || sp > 0.05) sp += (maxSpeed - sp) * kIce;
+      if (steering || sp > 0.05) sp += (maxSpeed - sp) * (p.towed && !steering ? kIce * CHAIN_TOW_ACCEL : kIce);   // (p.towed: chainPull)
       p.vx = Math.cos(ang) * sp;
       p.vz = Math.sin(ang) * sp;
       p.heading = ang;
@@ -374,6 +570,10 @@ function stepSim(sim, inputs, dt) {
   }
 
   // --- movement + center ---
+  if (sim.chain) {   // everyone moves first, then the chains pull
+    for (const p of players) if (p.alive) movePlayer(sim, p, readInput(inputs, p.id), dt);
+    chainPull(sim, dt);
+  }
   for (let i = 0; i < players.length; i++) {
     const p = players[i];
     if (!p.alive) {
@@ -382,7 +582,7 @@ function stepSim(sim, inputs, dt) {
       p.moving = false;
       continue;
     }
-    movePlayer(sim, p, readInput(inputs, p.id), dt);
+    if (!sim.chain) movePlayer(sim, p, readInput(inputs, p.id), dt);
     p.inCenter = inCenterNow(sim, p);
     if (sim.state === 'playing') trackRun(sim, p);   // (the score's distance)
     if (sim.hell && sim.state === 'playing') { const f = pathProgress(ld, p.x, p.z); if (f > sim.far) sim.far = f; }   // (hell: the team's furthest)
@@ -748,7 +948,7 @@ function addPlayer(sim, { id, name, color }) {
   const p = makePlayer({ id, name, color });
   placeAtSpawn(sim, p, sim.players.length);
   sim.players.push(p);
-  return p;
+  return p;   // (chained: the server puts it on a chain, chainRejoin / chainJoin)
 }
 
 function removePlayer(sim, id) {
@@ -772,6 +972,7 @@ function inCenterNow(sim, p) {
 function predictPlayer(sim, p, inp, dt) {
   if (!p.alive || sim.state === 'gameover') return;
   movePlayer(sim, p, readInput({ 0: inp }, 0), dt);
+  if (sim.chain) chainPull(sim, dt, p);   // (its chain: only this kitty moves)
   p.inCenter = inCenterNow(sim, p);
 }
 
@@ -780,4 +981,4 @@ function loadLevel(sim, level) {
   makeLevel(sim, level);
 }
 
-export { GAME_MODES, pregenParams, createSim, stepSim, addPlayer, removePlayer, predictPlayer, loadLevel };
+export { GAME_MODES, CHAIN_SOFT, CHAIN_LEN, chainGroups, chainLinks, chainJoin, chainLeave, chainRejoin, chainRelease, pregenParams, createSim, stepSim, addPlayer, removePlayer, predictPlayer, loadLevel };

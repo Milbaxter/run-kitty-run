@@ -1009,6 +1009,10 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) process
       const badc = st.record({ cid: 'hellstat01', ev: 'run_start', kind: 'coop', mode: 'mixed', chain: 1 });
       const sc = st.summary(0);
       ok(sc.chain.games === 2 && sc.chain.online === 1 && sc.modes.run === 1 && sc.kinds.coop === 1 && !badc, 'stats page: chained games counted (online ones too), and in their mode as usual');
+      st.record({ cid: 'hellstat01', ev: 'run_start', kind: 'online', mode: 'ice', chain: 'all', easy: true });
+      const pl = Object.values(st.summary(0).plays)[0] || {};
+      ok(pl['online:ice:hell:normal:off'] === 1 && pl['solo:ice:hell:normal:off'] === 1 && pl['coop:mixed:game:normal:pairs'] === 1 && pl['online:ice:game:easy:everyone'] === 1 && st.summary(0).chain.games === 3,
+        'stats: every game started counted by all its choices (kind, mode, hell, easy, chain) per month, for the JSON only');
     }
     // a repeat win under a new name: the first-clear entry takes the name, its line and time stay; another player changes nothing
     {

@@ -20,6 +20,11 @@ const HELL_MODES = ['run', 'ice'];
 const blankHell = () => ({ games: { run: 0, ice: 0 }, online: { run: 0, ice: 0 } });
 // chained games (run_start with chain: true): how many, and how many of them online; also counted in kinds / modes / hell
 const blankChain = () => ({ games: 0, online: 0 });
+// every game started by all its choices (since 2026-10-30), per month: plays['YYYY-MM']['kind:mode:levels:difficulty:chain']
+// = runs, e.g. 'coop:run:game:normal:pairs' (kind solo / coop / online; levels game / hell; difficulty normal / easy;
+// chain off / pairs / everyone). Not on the STATS page: only in its JSON (/api/stats plays), to see what people play most
+const playKey = (ev) => [ev.kind, ev.mode, ev.hell === true ? 'hell' : 'game', ev.easy === true ? 'easy' : 'normal',
+  ev.chain === 'all' ? 'everyone' : ev.chain === true ? 'pairs' : 'off'].join(':');
 const blankDay = () => ({ newPlayers: 0, players: 0, runs: 0, levels: 0, deaths: 0, rescues: 0, seconds: 0, lobbies: 0, wins: 0 });
 
 function createStats(file) {
@@ -37,12 +42,14 @@ function createStats(file) {
     peakOnline: { count: 0, at: null },
     hell: blankHell(),
     chain: blankChain(),
+    plays: {},
   };
   try {
     const old = JSON.parse(fs.readFileSync(file, 'utf8'));
     s = { ...s, ...old, totals: { ...s.totals, ...old.totals } };
     s.hell = { ...blankHell(), ...(old.hell || {}) };
     s.chain = { ...blankChain(), ...(old.chain || {}) };
+    s.plays = old.plays && typeof old.plays === 'object' ? old.plays : {};
   } catch { /* first run, or unreadable: start fresh */ }
   let todaySeen = new Set(s.today.day === day() ? s.today.seen : []);
   let playerIds = Object.keys(s.players).length;
@@ -104,7 +111,8 @@ function createStats(file) {
     if (['level', 'seconds', 'deaths', 'rescues'].some((k) => ev[k] !== undefined && !Number.isFinite(ev[k]))) return false;
     if (ev.won !== undefined && typeof ev.won !== 'boolean') return false;
     if (ev.hell !== undefined && typeof ev.hell !== 'boolean') return false;
-    if (ev.chain !== undefined && typeof ev.chain !== 'boolean') return false;
+    if (ev.chain !== undefined && typeof ev.chain !== 'boolean' && ev.chain !== 'all') return false;   // (all: everyone on one chain)
+    if (ev.easy !== undefined && typeof ev.easy !== 'boolean') return false;
     if (ip && !s.players[ev.cid]) {
       const now = Date.now();
       const h = (newIds.get(ip) || []).filter((t) => now - t < 3600e3);
@@ -118,7 +126,8 @@ function createStats(file) {
       case 'visit': break;
       case 'run_start':
         D.runs++; T.runs++;
-        if (ev.chain === true) { s.chain.games++; if (ev.kind === 'online') s.chain.online++; }   // (and counted as usual below)
+        if (KINDS.includes(ev.kind) && MODES.includes(ev.mode)) { const m = (s.plays[day().slice(0, 7)] ||= {}), k = playKey(ev); m[k] = (m[k] || 0) + 1; }
+        if (ev.chain === true || ev.chain === 'all') { s.chain.games++; if (ev.kind === 'online') s.chain.online++; }   // (and counted as usual below)
         if (ev.hell === true) {   // a hell game: its own counts
           if (HELL_MODES.includes(ev.mode)) { s.hell.games[ev.mode]++; if (ev.kind === 'online') s.hell.online[ev.mode]++; }
           break;
@@ -169,6 +178,7 @@ function createStats(file) {
       onlineWinsByMode: s.onlineWinsByMode,
       hell: s.hell,
       chain: s.chain,
+      plays: s.plays,
       days: days.slice(-120),
     };
   }

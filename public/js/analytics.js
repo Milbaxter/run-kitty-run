@@ -27,10 +27,11 @@ function send(ev, data) {
 let run = null;
 const analytics = {
   visit() { send('visit'); },
-  runStart(kind, mode, hell = false, chain = false) {
+  // chain: false, true (pairs) or 'all' (everyone on one chain)
+  runStart(kind, mode, hell = false, chain = false, easy = false) {
     if (run) analytics.runEnd();
     run = { t0: performance.now() };
-    send('run_start', { kind, mode, ...(hell ? { hell: true } : {}), ...(chain ? { chain: true } : {}) });
+    send('run_start', { kind, mode, ...(hell ? { hell: true } : {}), ...(chain ? { chain: chain === 'all' ? 'all' : true } : {}), ...(easy ? { easy: true } : {}) });
   },
   level(level) { if (run) send('level', { level }); },
   levelMismatch(mode, level, ver, what) { send('level_mismatch', { mode, level, ver, what }); },   // what: 'items' | 'wolves' | 'items+wolves'
@@ -179,10 +180,11 @@ function openStatsPage(root) {
       }
       return [el('div', 'rks-h', title), wrap];
     };
-    // every way to play, in runs started (online is split by the lobby's mode)
+    // every way to play, in runs started, named like the main menu's buttons (LOCAL: solo and co-op together;
+    // MULTIPLAYER split by the lobby's mode)
     const played = [
-      ['Single player', d.kinds.solo], ['Local co-op', d.kinds.coop],
-      ['Online · Run + Skate', d.modes.mixed], ['Online · Run only', d.modes.run], ['Online · Skate only', d.modes.ice],
+      ['Local (solo / co-op)', (d.kinds.solo || 0) + (d.kinds.coop || 0)],
+      ['Multiplayer · Run + Skate', d.modes.mixed], ['Multiplayer · Run only', d.modes.run], ['Multiplayer · Skate only', d.modes.ice],
     ];
     // hell (only for players who have it open; counted since 2026-10-24): games per hell mode, and how many online,
     // on the same scale as the modes above

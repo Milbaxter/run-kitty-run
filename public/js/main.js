@@ -811,7 +811,7 @@ function startGame(n, level = DEBUG_LEVEL) {
   // (hell from level 1; local testing (localhost): ?level=2 starts a Hell game on hell level 2)
   const hellAt = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? Math.min(HELL_LEVELS, level) : 1;
   startSim(players, localSetup.hell ? hellAt : level, localSetup.mode || DEBUG_MODE, !!localSetup.easy, !!localSetup.hell, !!localSetup.chain);
-  analytics.runStart(n === 1 ? 'solo' : 'coop', sim.mode || 'mixed', !!sim.hell, chained());
+  analytics.runStart(n === 1 ? 'solo' : 'coop', sim.mode || 'mixed', !!sim.hell, chained(), !!sim.easy);
   cameraSnap = true;
   // First step emits levelStart which triggers buildView.
 }
@@ -2628,7 +2628,7 @@ function beginOnlineGame(m) {
   sim = createSim({ seed: m.seed, players: m.players, startLevel: m.level, mode: m.mode, finales: +m.rf || 0, easy: !!m.easy, hell: !!m.hell, waves: !!m.hw, chain: m.cn ? (m.cn.all ? 'all' : true) : false });
   if (m.cn && Array.isArray(m.cn.c)) { sim.chains = m.cn.c; sim.anchors = m.cn.a || {}; }   // (the server's chains: who left, rejoined)
   sim.retries = m.rt | 0;
-  analytics.runStart('online', m.mode || 'mixed', !!m.hell, !!m.cn && m.players.length > 1);
+  analytics.runStart('online', m.mode || 'mixed', !!m.hell, m.cn && m.players.length > 1 ? (m.cn.all ? 'all' : true) : false, !!m.easy);
   sim.started = true;
   // joined mid-level: the lottery chest and what it dropped (ch, xi), then what is already taken
   if (m.ch) sim.chest = { x: m.ch[0], z: m.ch[1], open: !!m.ch[2] };
